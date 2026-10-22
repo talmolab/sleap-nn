@@ -58,6 +58,16 @@ from sleap_nn.data.custom_datasets import (
     resolve_embedding_detection_mode,
 )
 from sleap_nn.data.tiling import generate_tile_grid
+from sleap_nn.data.bboxes import (
+    add_bboxes_to_labels,
+    auto_anchor_sizes,
+    bbox_head_leaf,
+    bbox_size_stats,
+    frame_user_bboxes,
+    labels_bbox_categories,
+)
+from sleap_nn.config.model_config import BBOX_MODEL_TYPES, ssd_level_strides
+from sleap_nn.evaluation import BBOX_EVAL_LOG_KEYS
 from loguru import logger
 from sleap_nn.config.utils import (
     get_backbone_type_from_cfg,
@@ -89,6 +99,7 @@ from sleap_nn.training.callbacks import (
     EpochEndEvaluationCallback,
     CentroidEvaluationCallback,
     SegmentationEvaluationCallback,
+    BBoxEvaluationCallback,
     TilingEpochCallback,
     EmbeddingEvaluationCallback,
     EvalCadenceEarlyStopping,
@@ -328,6 +339,9 @@ class ModelTrainer:
                 ),
             )
             return bool(instances or masks)
+        if self.model_type in BBOX_MODEL_TYPES:
+            # Boxes were resolved/derived by `_apply_bbox_source` before counting.
+            return bool(frame_user_bboxes(lf))
         if lf.has_user_instances:
             return True
         if self.model_type == "centroid":
@@ -473,6 +487,11 @@ class ModelTrainer:
         # such labels have no trainable frame at all until it has (#586 / #674) —
         # and on the raw lists, so every split inherits the derived centroids.
         self._apply_centroids_from_masks(labels, val_labels)
+
+        # Bounding-box models: give every frame its GT boxes (`data_config.
+        # bbox_source`), deriving them from poses/masks when the labels carry no
+        # boxes. Same ordering constraint: before splitting and counting.
+        self._apply_bbox_source(labels, val_labels)
 
         # Check if we should count only user-labeled frames
         user_instances_only = OmegaConf.select(
@@ -641,6 +660,99 @@ class ModelTrainer:
         for label_list in label_lists:
             for labels in label_list or []:
                 add_centroids_from_masks(labels, method=method)
+
+    def _apply_bbox_source(self, *label_lists):
+        """Resolve each labels file's ground-truth boxes for a ``bbox_*`` model.
+
+        No-op for every other model type. Mutates the labels in place (in memory)
+        via :func:`sleap_nn.data.bboxes.add_bboxes_to_labels`; see
+        ``data_config.bbox_source`` / ``data_config.bbox_padding``.
+
+        Args:
+            *label_lists: The raw ``List[sio.Labels]`` inputs (train, val).
+                ``None`` entries are skipped.
+        """
+        if self.model_type not in BBOX_MODEL_TYPES:
+            return
+        source = OmegaConf.select(
+            self.config, "data_config.bbox_source", default="auto"
+        )
+        padding = OmegaConf.select(self.config, "data_config.bbox_padding", default=0.0)
+        for label_list in label_lists:
+            for labels in label_list or []:
+                add_bboxes_to_labels(labels, source=source, padding=padding)
+
+    # Box metrics a `bbox_*` model can select checkpoints on (all higher-is-better).
+    _BBOX_SELECT_METRICS = ("bbox_mAP", "bbox_AP50", "bbox_AP75", "bbox_AR", "bbox_f1")
+
+    def _bbox_select_metric(self) -> Optional[str]:
+        """The eval metric a ``bbox_*`` model selects checkpoints on, or ``None``.
+
+        ``trainer_config.eval.select_metric`` names one of ``_BBOX_SELECT_METRICS``,
+        or ``val_loss`` for the loss. Left at its schema default (``"rank1"``, an
+        embedding metric), detectors select on ``bbox_mAP`` when
+        ``trainer_config.eval.enabled`` (the metric only exists then) and on the
+        val loss otherwise.
+
+        Raises:
+            ValueError: For an unknown metric name, or a box metric requested with
+                evaluation disabled (the metric would never be logged).
+        """
+        select = OmegaConf.select(
+            self.config, "trainer_config.eval.select_metric", default="rank1"
+        )
+        eval_enabled = bool(
+            OmegaConf.select(self.config, "trainer_config.eval.enabled", default=False)
+        )
+        if select in ("rank1", None):
+            return "bbox_mAP" if eval_enabled else None
+        if select == "val_loss":
+            return None
+        if select not in self._BBOX_SELECT_METRICS:
+            raise ValueError(
+                f"trainer_config.eval.select_metric='{select}' is not a valid "
+                "selection metric for a bounding-box model; choose one of "
+                f"{'|'.join(self._BBOX_SELECT_METRICS + ('val_loss',))}."
+            )
+        if not eval_enabled:
+            raise ValueError(
+                f"trainer_config.eval.select_metric='{select}' needs "
+                "trainer_config.eval.enabled=true (box metrics are only computed "
+                "by the epoch-end evaluation)."
+            )
+        return select
+
+    def _setup_bbox_head_config(self):
+        """Fill in a ``bbox_*`` model's categories (and SSD's anchor sizes) from labels.
+
+        ``categories`` defaults to the training boxes' categories in first-seen order
+        (``["object"]`` when none has one). SSD ``anchor_sizes`` default to sizes
+        spanning the training boxes in model-input pixels
+        (:func:`sleap_nn.data.bboxes.auto_anchor_sizes`). Both are written into the
+        config, so the saved model carries them to inference.
+        """
+        head_configs = self.config.model_config.head_configs
+        leaf = bbox_head_leaf(self.model_type, head_configs)
+        if leaf.categories is None:
+            leaf.categories = labels_bbox_categories(
+                self.train_labels + self.val_labels
+            )
+            logger.info(f"Bounding-box categories: {list(leaf.categories)}")
+        if self.model_type == "bbox_ssd" and leaf.anchor_sizes is None:
+            preprocessing = self.config.data_config.preprocessing
+            sizes = bbox_size_stats(
+                self.train_labels,
+                max_hw=(preprocessing.max_height, preprocessing.max_width),
+                scale=preprocessing.scale,
+            )
+            leaf.anchor_sizes = auto_anchor_sizes(
+                sizes, int(leaf.num_levels), ssd_level_strides(leaf)
+            )
+            logger.info(
+                "SSD anchor sizes (model-input px, per level "
+                f"{ssd_level_strides(leaf)}): "
+                f"{[round(a, 1) for a in leaf.anchor_sizes]}"
+            )
 
     def _validate_nonempty_labels(self, n_labeled_frames: int, split_name: str):
         """Ensure a split has at least one trainable labeled frame.
@@ -1420,6 +1532,9 @@ class ModelTrainer:
             # "identity"` multi_class model emits `sio.Identity(name=<class name>)` at
             # inference (see `predictor._multiclass_identities`).
 
+        if self.model_type in BBOX_MODEL_TYPES:
+            self._setup_bbox_head_config()
+
     def _setup_ckpt_path(self):
         """Setup checkpoint path."""
         # if run_name is None, assign a new dir name
@@ -1897,6 +2012,10 @@ class ModelTrainer:
                     if test_path.endswith(".slp") or test_path.endswith(".pkg.slp"):
                         try:
                             test_labels = sio.load_slp(test_path)
+                            # Same GT boxes as training/eval derive (no-op for
+                            # non-bbox models), or the bbox filter drops every
+                            # frame of a pose/mask test file.
+                            self._apply_bbox_source([test_labels])
                             if user_instances_only:
                                 test_filtered = self._filter_to_user_labeled(
                                     test_labels
@@ -2050,6 +2169,20 @@ class ModelTrainer:
                     self.config, "trainer_config.eval.frequency", default=1
                 )
             )
+        elif self.model_type in BBOX_MODEL_TYPES:
+            bbox_select = self._bbox_select_metric()
+            if bbox_select is None:
+                ckpt_monitor, ckpt_mode = "val/loss", "min"
+                ckpt_every_n_epochs = 1
+            else:
+                # Box quality is measured every `eval.frequency` epochs; select and
+                # early-stop on those epochs only (as for the embedding metric).
+                ckpt_monitor, ckpt_mode = f"eval/val/{bbox_select}", "max"
+                ckpt_every_n_epochs = int(
+                    OmegaConf.select(
+                        self.config, "trainer_config.eval.frequency", default=1
+                    )
+                )
         else:
             ckpt_monitor, ckpt_mode = "val/loss", "min"
             ckpt_every_n_epochs = 1
@@ -2244,6 +2377,22 @@ class ModelTrainer:
                         "val/fg_iou",
                     ]
                 )
+            if self.model_type == "bbox_centernet":
+                csv_log_keys.extend(
+                    [
+                        f"{stage}/{term}"
+                        for stage in ("train", "val")
+                        for term in ("center_loss", "size_loss", "offset_loss")
+                    ]
+                )
+            if self.model_type == "bbox_ssd":
+                csv_log_keys.extend(
+                    [
+                        f"{stage}/{term}"
+                        for stage in ("train", "val")
+                        for term in ("cls_loss", "box_loss")
+                    ]
+                )
             # The embedding model's retrieval callback is NOT gated on eval.enabled
             # (ModelCheckpoint selects on its metric, so it always runs -- see the
             # callback branching below). Its keys therefore must NOT sit inside the
@@ -2282,6 +2431,8 @@ class ModelTrainer:
                             "eval/val/centroid_n_fn",
                         ]
                     )
+                elif self.model_type in BBOX_MODEL_TYPES:
+                    csv_log_keys.extend([f"eval/val/{k}" for k in BBOX_EVAL_LOG_KEYS])
                 elif self.model_type == "semantic_segmentation":
                     csv_log_keys.extend(
                         [
@@ -2342,10 +2493,12 @@ class ModelTrainer:
                 min_delta=self.config.trainer_config.early_stopping.min_delta,
                 patience=self.config.trainer_config.early_stopping.patience,
             )
-            if self.model_type == "embedding":
+            if self.model_type == "embedding" or ckpt_monitor.startswith(
+                "eval/val/bbox_"
+            ):
                 # The verification metrics (auc/eer) can be NaN on a degenerate val
                 # set/shard; don't let that abort the run — pose/seg models keep the
-                # strict defaults.
+                # strict defaults. Box metrics likewise exist on eval epochs only.
                 es_kwargs["strict"] = False
                 es_kwargs["check_finite"] = False
                 # The retrieval metric is measured every `eval.frequency` epochs and
@@ -2496,6 +2649,14 @@ class ModelTrainer:
                         videos=self.val_labels[0].videos,
                         eval_frequency=self.config.trainer_config.eval.frequency,
                         match_threshold=self.config.trainer_config.eval.match_threshold,
+                    )
+                )
+            elif self.model_type in BBOX_MODEL_TYPES:
+                # Detectors have no keypoints for OKS/PCK: COCO-style box AP over
+                # the val set, decoded with the same decoder as inference.
+                callbacks.append(
+                    BBoxEvaluationCallback(
+                        eval_frequency=self.config.trainer_config.eval.frequency,
                     )
                 )
             elif self.model_type in (

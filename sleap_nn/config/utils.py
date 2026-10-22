@@ -130,6 +130,29 @@ def check_output_strides(config: OmegaConf) -> OmegaConf:
             )
 
     model_type = get_model_type_from_cfg(config)
+    if model_type == "bbox_centernet":
+        # The three heads read one target grid: a size/offset at a different stride
+        # than the heatmap would regress values for cells that are not centers.
+        head_strides = {
+            leaf: config.model_config.head_configs.bbox_centernet[leaf].output_stride
+            for leaf in config.model_config.head_configs.bbox_centernet
+        }
+        if len(set(head_strides.values())) != 1:
+            message = (
+                "model_config.head_configs.bbox_centernet heads must share one "
+                f"output_stride, got {head_strides}."
+            )
+            logger.error(message)
+            raise ValueError(message)
+    if model_type == "bbox_ssd":
+        # Only the finest level's stride is an `output_stride` field; the deepest
+        # pyramid level must also be one the backbone produces.
+        from sleap_nn.config.model_config import ssd_level_strides
+
+        deepest = max(ssd_level_strides(config.model_config.head_configs.bbox_ssd.ssd))
+        backbone_cfg = config.model_config.backbone_config[f"{backbone_type}"]
+        if backbone_cfg["max_stride"] < deepest:
+            backbone_cfg["max_stride"] = deepest
     if model_type == "multi_class_topdown":
         config.model_config.head_configs.multi_class_topdown.class_vectors.output_stride = config.model_config.backbone_config[
             f"{backbone_type}"

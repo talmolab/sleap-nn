@@ -39,6 +39,12 @@ from sleap_nn.config.model_config import (
     CenteredInstanceSegmentationConfig,
     CenteredInstanceSegmentationHeadConfig,
     SemanticSegmentationConfig,
+    BBoxCenterNetConfig,
+    BBoxCenterHeadConfig,
+    BBoxSizeHeadConfig,
+    BBoxOffsetHeadConfig,
+    BBoxSSDConfig,
+    SSDHeadConfig,
     SegmentationHeadConfig,
     InstanceCenterConfig,
     CenterOffsetConfig,
@@ -436,9 +442,17 @@ def get_head_configs(head_cfg: Union[str, Dict[str, Any]]):
                     )
                 )
             )
+        elif head_cfg == "bbox_centernet":
+            head_configs.bbox_centernet = BBoxCenterNetConfig(
+                center=BBoxCenterHeadConfig(),
+                size=BBoxSizeHeadConfig(),
+                offset=BBoxOffsetHeadConfig(),
+            )
+        elif head_cfg == "bbox_ssd":
+            head_configs.bbox_ssd = BBoxSSDConfig(ssd=SSDHeadConfig())
         else:
             raise ValueError(
-                f"{head_cfg} is not a valid head type. Please choose one of ['bottomup', 'centered_instance', 'centroid', 'single_instance', 'multi_class_bottomup', 'multi_class_topdown', 'bottomup_segmentation', 'centered_instance_segmentation', 'semantic_segmentation', 'embedding']"
+                f"{head_cfg} is not a valid head type. Please choose one of ['bottomup', 'centered_instance', 'centroid', 'single_instance', 'multi_class_bottomup', 'multi_class_topdown', 'bottomup_segmentation', 'centered_instance_segmentation', 'semantic_segmentation', 'embedding', 'bbox_centernet', 'bbox_ssd']"
             )
 
     elif isinstance(head_cfg, dict):
@@ -546,6 +560,17 @@ def get_head_configs(head_cfg: Union[str, Dict[str, Any]]):
             head_configs.embedding = EmbeddingConfig(
                 embedding=EmbeddingHeadConfig(objective=objective, **leaf_scalars)
             )
+        elif "bbox_centernet" in head_cfg and head_cfg["bbox_centernet"] is not None:
+            cn = head_cfg["bbox_centernet"]
+            head_configs.bbox_centernet = BBoxCenterNetConfig(
+                center=BBoxCenterHeadConfig(**(cn.get("center") or {})),
+                size=BBoxSizeHeadConfig(**(cn.get("size") or {})),
+                offset=BBoxOffsetHeadConfig(**(cn.get("offset") or {})),
+            )
+        elif "bbox_ssd" in head_cfg and head_cfg["bbox_ssd"] is not None:
+            head_configs.bbox_ssd = BBoxSSDConfig(
+                ssd=SSDHeadConfig(**(head_cfg["bbox_ssd"].get("ssd") or {}))
+            )
 
     return head_configs
 
@@ -573,6 +598,8 @@ def get_data_config(
     use_augmentations_train: bool = True,
     intensity_aug: Optional[Union[str, List[str], Dict[str, Any]]] = None,
     geometry_aug: Optional[Union[str, List[str], Dict[str, Any]]] = "rotation",
+    bbox_source: str = "auto",
+    bbox_padding: float = 0.0,
 ):
     """Train a pose-estimation model with SLEAP-NN framework.
 
@@ -640,6 +667,14 @@ def get_data_config(
                         "rotation_max": 45,
                         "affine_p": 1.0
                     }
+        bbox_source: Where bounding-box models (`bbox_centernet`, `bbox_ssd`) take
+            their ground-truth boxes from: "auto" (the file's user boxes if it has
+            any, else the tight box of each user instance's visible points, else of
+            each mask), "bboxes", "instances" or "masks". Ignored by other model
+            types.
+            Default: "auto".
+        bbox_padding: Pixels added on every side of boxes derived from instances or
+            masks. Default: 0.0.
     """
     preprocessing_config = PreprocessingConfig(
         ensure_rgb=ensure_rgb,
@@ -673,6 +708,8 @@ def get_data_config(
         preprocessing=preprocessing_config,
         use_augmentations_train=use_augmentations_train,
         augmentation_config=augmentation_config,
+        bbox_source=bbox_source,
+        bbox_padding=bbox_padding,
     )
 
     return data_config

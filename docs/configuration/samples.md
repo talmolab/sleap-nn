@@ -70,6 +70,16 @@ keypoints). `fg_threshold` / `min_mask_area` are inference-time args; train at
 | [bottomup_segmentation_unet](https://github.com/talmolab/sleap-nn/blob/main/docs/sample_configs/config_bottomup_segmentation_unet.yaml) | UNet | Foreground + center + offsets heads |
 | [bottomup_segmentation_pretrained](https://github.com/talmolab/sleap-nn/blob/main/docs/sample_configs/config_bottomup_segmentation_pretrained.yaml) | Pretrained (HuggingFace ConvNeXtV2) | Reuse an external pretrained encoder; see the [Pretrained Backbones guide](../guides/pretrained-backbones.md) |
 
+### Bounding boxes
+
+Box detectors trained on the labels' boxes, or on boxes derived from poses / masks
+(`data_config.bbox_source`). See the [Bounding-box detection guide](../guides/bbox-detection.md).
+
+| Config | Backbone | Notes |
+|--------|----------|-------|
+| [bbox_centernet_unet](https://github.com/talmolab/sleap-nn/blob/main/docs/sample_configs/config_bbox_centernet_unet.yaml) | UNet | CenterNet-style: center heatmap + size + offset at stride 4 |
+| [bbox_ssd_unet](https://github.com/talmolab/sleap-nn/blob/main/docs/sample_configs/config_bbox_ssd_unet.yaml) | UNet | SSD-style: anchors over strides 8/16/32, auto-sized from the training boxes |
+
 ---
 
 ## Quick Start Templates

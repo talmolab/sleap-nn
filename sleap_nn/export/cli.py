@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Optional
 import json
+import math
 import shutil
 
 import click
@@ -126,6 +127,7 @@ def export(
         resolve_pafs_output_stride,
     )
     from sleap_nn.export.wrappers import (
+        BBoxONNXWrapper,
         BottomUpMultiClassONNXWrapper,
         BottomUpONNXWrapper,
         CenteredInstanceONNXWrapper,
@@ -181,6 +183,8 @@ def export(
             "multi_class_topdown",
             "multi_class_bottomup",
             "embedding",
+            "bbox_centernet",
+            "bbox_ssd",
         ):
             raise click.ClickException(
                 f"Model type '{model_type}' is not supported for export yet."
@@ -364,6 +368,26 @@ def export(
                     "parity, or train/export a burn_in=False model for a faithful "
                     "single-input ONNX embedder."
                 )
+        elif model_type in ("bbox_centernet", "bbox_ssd"):
+            # Detectors export the network only (decoder-ready head outputs);
+            # `ExportedBBoxLayer` decodes with the same BBoxDecoder as the
+            # checkpoint path, rebuilt from the copied training config.
+            from sleap_nn.data.bboxes import bbox_head_categories
+            from sleap_nn.export.wrappers.bbox import BBOX_EXPORT_OUTPUTS
+
+            # The graph takes model-input-sized frames; `ExportedBBoxLayer` applies
+            # `input_scale` and the stride padding on the host (the metadata keeps
+            # the scale for it).
+            wrapper = BBoxONNXWrapper(torch_model, model_type=model_type)
+            output_names = BBOX_EXPORT_OUTPUTS[model_type]
+            node_names = []
+            edge_inds = []
+            metadata_class_names = bbox_head_categories(
+                model_type, cfg.model_config.head_configs
+            )
+            metadata_n_classes = len(metadata_class_names)
+            metadata_max_instances = max_instances
+            metadata_max_hw = resolve_max_hw(cfg)
         else:
             raise click.ClickException(
                 f"Model type '{model_type}' is not supported for export yet."
@@ -397,6 +421,15 @@ def export(
             # These wrappers take crops: trace at the crop size, the only size the
             # model sees -- and the size a RoPE backbone's static-H/W export fixes.
             input_shape = (input_shape[0], input_shape[1], *resolved_crop_size)
+        if model_type in ("bbox_centernet", "bbox_ssd"):
+            # Trace on a model-input-sized frame (scaled, stride-padded).
+            max_stride = int(
+                cfg.model_config.backbone_config[backbone_type]["max_stride"]
+            )
+            _, c, h, w = input_shape
+            h = math.ceil(h * resolved_scale / max_stride) * max_stride
+            w = math.ceil(w * resolved_scale / max_stride) * max_stride
+            input_shape = (1, c, h, w)
         model_out_path = export_dir / "model.onnx"
 
         export_to_onnx(
@@ -1008,6 +1041,8 @@ def _load_lightning_model(
     device: str,
 ):
     from sleap_nn.training.lightning_modules import (
+        BBoxCenterNetLightningModule,
+        BBoxSSDLightningModule,
         BottomUpLightningModule,
         BottomUpMultiClassLightningModule,
         CentroidLightningModule,
@@ -1025,6 +1060,8 @@ def _load_lightning_model(
         "multi_class_topdown": TopDownCenteredInstanceMultiClassLightningModule,
         "multi_class_bottomup": BottomUpMultiClassLightningModule,
         "embedding": EmbeddingLightningModule,
+        "bbox_centernet": BBoxCenterNetLightningModule,
+        "bbox_ssd": BBoxSSDLightningModule,
     }.get(model_type)
 
     if lightning_cls is None:

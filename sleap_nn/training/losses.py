@@ -203,6 +203,122 @@ def compute_centroid_focal_loss(
 
 
 # ---------------------------------------------------------------------------
+# Bounding-box detection losses (the `bbox_*` model types).
+# ---------------------------------------------------------------------------
+def compute_centernet_focal_loss(
+    logits: torch.Tensor,
+    target: torch.Tensor,
+    alpha: float = 2.0,
+    beta: float = 4.0,
+    eps: float = 1e-4,
+) -> torch.Tensor:
+    """CenterNet's penalty-reduced focal loss, normalized by the number of objects.
+
+    Unlike :func:`compute_centroid_focal_loss` (a per-pixel mean over continuous
+    sub-pixel targets), this is the reference CenterNet formulation: the target
+    heatmap has exact peaks of 1 at each object's center cell
+    (:class:`sleap_nn.data.bboxes.CenterNetTargetEncoder`), and the summed loss is
+    divided by the number of peaks, so its scale does not depend on the image size.
+
+    Args:
+        logits: Pre-sigmoid heatmap ``(B, C, H, W)``.
+        target: Target heatmap ``(B, C, H, W)`` with peaks of exactly 1.
+        alpha: Focal exponent on the prediction error.
+        beta: Penalty-reduction exponent around peaks.
+        eps: Clamp margin to keep ``log`` finite.
+
+    Returns:
+        Scalar loss.
+    """
+    pred = torch.sigmoid(logits).clamp(eps, 1.0 - eps)
+    pos = target.eq(1.0).to(pred.dtype)
+    neg = 1.0 - pos
+    pos_loss = (torch.log(pred) * torch.pow(1.0 - pred, alpha) * pos).sum()
+    neg_loss = (
+        torch.log(1.0 - pred)
+        * torch.pow(pred, alpha)
+        * torch.pow(1.0 - target, beta)
+        * neg
+    ).sum()
+    return -(pos_loss + neg_loss) / pos.sum().clamp(min=1.0)
+
+
+def compute_masked_l1(
+    y_pred: torch.Tensor, y_gt: torch.Tensor, mask: torch.Tensor
+) -> torch.Tensor:
+    """Mean L1 over the masked cells of a dense regression map (CenterNet's RegL1).
+
+    Args:
+        y_pred: Predicted map ``(B, K, H, W)``.
+        y_gt: Target map ``(B, K, H, W)``.
+        mask: ``(B, 1, H, W)`` with 1 at supervised cells.
+
+    Returns:
+        Scalar loss; ``0`` (with grad) when no cell is supervised.
+    """
+    mask = mask.expand_as(y_pred)
+    loss = F.l1_loss(y_pred * mask, y_gt * mask, reduction="sum")
+    return loss / (mask.sum() + 1e-4)
+
+
+def compute_ssd_loss(
+    pred: torch.Tensor,
+    cls_target: torch.Tensor,
+    box_target: torch.Tensor,
+    neg_pos_ratio: float = 3.0,
+    box_weight: float = 1.0,
+):
+    """SSD's multibox loss: hard-negative-mined softmax CE + smooth-L1 on positives.
+
+    Background anchors are ranked by their classification loss per image and the
+    hardest ``neg_pos_ratio`` per positive are kept (at least ``neg_pos_ratio`` for
+    an image without objects, so negative frames still teach background). Both
+    terms are summed and divided by the batch's number of positive anchors
+    (Liu et al. 2016).
+
+    Args:
+        pred: ``(B, A, K + 4)`` head output: ``K`` class logits (0 = background)
+            then 4 box deltas per anchor.
+        cls_target: ``(B, A)`` long targets: ``0`` background, ``k + 1`` class
+            ``k``, ``-1`` ignore.
+        box_target: ``(B, A, 4)`` encoded box targets (read at positives).
+        neg_pos_ratio: Hard negatives kept per positive.
+        box_weight: Weight of the box regression term.
+
+    Returns:
+        ``(loss, cls_loss, box_loss)`` scalars.
+    """
+    num_logits = pred.shape[-1] - 4
+    logits, deltas = pred[..., :num_logits], pred[..., num_logits:]
+    pos = cls_target > 0
+    neg_candidates = cls_target == 0
+    ce = F.cross_entropy(
+        logits.reshape(-1, num_logits).float(),
+        cls_target.clamp(min=0).reshape(-1),
+        reduction="none",
+    ).view(cls_target.shape)
+
+    num_pos = pos.sum(dim=1)
+    num_neg = (neg_pos_ratio * num_pos.clamp(min=1)).long()
+    num_neg = torch.minimum(num_neg, neg_candidates.sum(dim=1))
+    neg_ce = ce.detach().masked_fill(~neg_candidates, float("-inf"))
+    order = neg_ce.argsort(dim=1, descending=True)
+    rank = order.argsort(dim=1)
+    hard_neg = neg_candidates & (rank < num_neg[:, None])
+
+    normalizer = num_pos.sum().clamp(min=1).to(ce.dtype)
+    cls_loss = ce[pos | hard_neg].sum() / normalizer
+    if pos.any():
+        box_loss = (
+            F.smooth_l1_loss(deltas[pos].float(), box_target[pos], reduction="sum")
+            / normalizer
+        )
+    else:
+        box_loss = deltas.sum() * 0.0
+    return cls_loss + box_weight * box_loss, cls_loss, box_loss
+
+
+# ---------------------------------------------------------------------------
 # Contrastive losses for the `embedding` model type.
 #
 # The OBJECTIVE = positives x negatives x loss (SPEC §4). Sampling builds a batch;

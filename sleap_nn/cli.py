@@ -2527,6 +2527,7 @@ def _run_in_memory_new_flow(
         "min_line_scores": kwargs.get("min_line_scores", 0.25),
         # Bottom-up segmentation knobs (inert for non-segmentation models).
         "fg_threshold": kwargs.get("fg_threshold", 0.5),
+        "bbox_nms_iou": kwargs.get("bbox_nms_iou"),
         "min_mask_area": kwargs.get("min_mask_area", 0),
         "center_nms_kernel": kwargs.get("center_nms_kernel", 3),
         "mask_cleanup": kwargs.get("mask_cleanup", False),
@@ -2999,6 +3000,7 @@ def _run_stream_to_file(
         "min_line_scores": kwargs.get("min_line_scores", 0.25),
         # Bottom-up segmentation knobs (inert for non-segmentation models).
         "fg_threshold": kwargs.get("fg_threshold", 0.5),
+        "bbox_nms_iou": kwargs.get("bbox_nms_iou"),
         "min_mask_area": kwargs.get("min_mask_area", 0),
         "center_nms_kernel": kwargs.get("center_nms_kernel", 3),
         "mask_cleanup": kwargs.get("mask_cleanup", False),
@@ -3316,6 +3318,17 @@ def _common_inference_options(f):
         click.option("--n_points", type=int, default=10),
         click.option("--min_instance_peaks", type=float, default=0),
         click.option("--min_line_scores", type=float, default=0.25),
+        click.option(
+            "--bbox_nms_iou",
+            "--bbox-nms-iou",
+            "bbox_nms_iou",
+            type=float,
+            default=None,
+            help="Class-wise IoU-NMS threshold for bounding-box detectors "
+            "(bbox_centernet / bbox_ssd). Default: 0.45 for SSD, off for "
+            "CenterNet; 1.0 disables it. --peak_threshold is the detection "
+            "score threshold and --max_instances the per-frame cap.",
+        ),
         click.option(
             "--fg_threshold",
             "--fg-threshold",
@@ -3802,13 +3815,34 @@ def infer(**kwargs):
 )
 @click.option(
     "--match_method",
-    type=click.Choice(["oks", "centroid", "mask", "semantic", "auto"]),
+    type=click.Choice(["oks", "centroid", "mask", "semantic", "bbox", "auto"]),
     default="auto",
     help=(
         "Matching method: 'oks' (full-skeleton), 'centroid' (single-point "
         "pixel-distance), 'mask' (instance-segmentation mask IoU), 'semantic' "
-        "(whole-frame foreground IoU/clDice, no matching), or 'auto' (centroid "
-        "when the prediction skeleton is single-node). Default: auto."
+        "(whole-frame foreground IoU/clDice, no matching), 'bbox' (COCO box AP of "
+        "predicted bounding boxes), or 'auto' (bbox when the predictions are "
+        "boxes only, centroid when the prediction skeleton is single-node). "
+        "Default: auto."
+    ),
+)
+@click.option(
+    "--bbox_source",
+    type=click.Choice(["auto", "bboxes", "instances", "masks"]),
+    default="auto",
+    help=(
+        "bbox mode: where ground-truth boxes come from (user boxes, or derived "
+        "from poses / masks). Pass the model's data_config.bbox_source."
+    ),
+)
+@click.option(
+    "--bbox_padding",
+    type=float,
+    default=0.0,
+    help=(
+        "bbox mode: pixels of padding on ground-truth boxes derived from poses or "
+        "masks (when the ground truth has no boxes). Pass the model's "
+        "data_config.bbox_padding."
     ),
 )
 @click.option(
@@ -4018,13 +4052,16 @@ def _register_export_commands():
             "topdown",
             "multi_class_bottomup",
             "multi_class_topdown",
+            "bbox_centernet",
+            "bbox_ssd",
         ]
     ),
     default=None,
     help=(
         "Override model pipeline type. 'centroid' generates a single STANDALONE "
         "centroid config (one point per animal); 'topdown' generates paired "
-        "centroid + centered_instance configs."
+        "centroid + centered_instance configs; 'bbox_centernet' / 'bbox_ssd' "
+        "generate a bounding-box detector trained on boxes derived from the poses."
     ),
 )
 @click.option(

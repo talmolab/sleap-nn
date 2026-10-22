@@ -1060,3 +1060,208 @@ class CenterOffsetHead(Head):
     def loss_function(self) -> str:
         """Return the name of the loss function to use for this head."""
         return "smooth_l1"
+
+
+class BBoxCenterHead(Head):
+    """Center heatmap head of a ``bbox_centernet`` (CenterNet-style) detector.
+
+    One channel per box category; outputs logits (the sigmoid is applied by the
+    loss and the inference forward) so the bias can take the focal-loss prior
+    initialization.
+
+    Attributes:
+        categories: Ordered class names, one channel each.
+        output_stride: Stride of the output head tensor.
+        loss_weight: Weight of the loss term for this head during optimization.
+    """
+
+    def __init__(
+        self,
+        categories: Sequence[Text],
+        output_stride: int = 4,
+        loss_weight: float = 1.0,
+    ) -> None:
+        """Initialize the object with the specified attributes."""
+        super().__init__(output_stride, loss_weight)
+        self.categories = list(categories)
+
+    @property
+    def channels(self) -> int:
+        """Return the number of channels in the tensor output by this head."""
+        return len(self.categories)
+
+    @property
+    def loss_function(self) -> str:
+        """Return the name of the loss function to use for this head."""
+        return "centernet_focal"
+
+
+class BBoxSizeHead(Head):
+    """Box size (width, height in output-grid cells) head of a ``bbox_centernet``."""
+
+    def __init__(self, output_stride: int = 4, loss_weight: float = 0.1) -> None:
+        """Initialize the object with the specified attributes."""
+        super().__init__(output_stride, loss_weight)
+
+    @property
+    def channels(self) -> int:
+        """Return the number of channels in the tensor output by this head."""
+        return 2
+
+    @property
+    def loss_function(self) -> str:
+        """Return the name of the loss function to use for this head."""
+        return "masked_l1"
+
+
+class BBoxOffsetHead(Head):
+    """Sub-cell center offset head of a ``bbox_centernet``."""
+
+    def __init__(self, output_stride: int = 4, loss_weight: float = 1.0) -> None:
+        """Initialize the object with the specified attributes."""
+        super().__init__(output_stride, loss_weight)
+
+    @property
+    def channels(self) -> int:
+        """Return the number of channels in the tensor output by this head."""
+        return 2
+
+    @property
+    def loss_function(self) -> str:
+        """Return the name of the loss function to use for this head."""
+        return "masked_l1"
+
+
+class MultiScaleHead(Head):
+    """Base class for heads that read several backbone strides at once.
+
+    ``Model`` binds a ``MultiScaleHead`` to the feature map at every stride in
+    ``output_strides`` (decoder outputs, plus the bottleneck for the deepest one)
+    and calls its layer with the list of those maps, finest first.
+    ``output_stride`` is the finest of them.
+
+    Attributes:
+        output_strides: Feature strides to read, finest first.
+        loss_weight: Weight of the loss term for this head during optimization.
+    """
+
+    def __init__(self, output_strides: Sequence[int], loss_weight: float = 1.0):
+        """Initialize the object with the specified attributes."""
+        self.output_strides = sorted(int(s) for s in output_strides)
+        super().__init__(self.output_strides[0], loss_weight)
+
+    def make_head(self, x_in: Sequence[int]) -> nn.Module:
+        """Make the head from the input channels of each stride, finest first."""
+        message = "Subclasses must implement this method."
+        logger.error(message)
+        raise NotImplementedError(message)
+
+
+class _SSDPredictor(nn.Module):
+    """Per-level conv towers + class/box predictors of an ``SSDHead``."""
+
+    def __init__(
+        self,
+        in_channels: Sequence[int],
+        anchors_per_location: int,
+        num_logits: int,
+        head_channels: int,
+        head_convs: int,
+    ) -> None:
+        super().__init__()
+        self.anchors_per_location = anchors_per_location
+        self.num_logits = num_logits
+        self.towers = nn.ModuleList()
+        self.cls_preds = nn.ModuleList()
+        self.box_preds = nn.ModuleList()
+        for c_in in in_channels:
+            layers = []
+            for i in range(head_convs):
+                layers += [
+                    nn.Conv2d(
+                        c_in if i == 0 else head_channels, head_channels, 3, 1, 1
+                    ),
+                    nn.ReLU(inplace=True),
+                ]
+            c_out = head_channels if head_convs > 0 else c_in
+            self.towers.append(nn.Sequential(*layers))
+            self.cls_preds.append(
+                nn.Conv2d(c_out, anchors_per_location * num_logits, 3, 1, 1)
+            )
+            self.box_preds.append(nn.Conv2d(c_out, anchors_per_location * 4, 3, 1, 1))
+
+    def forward(self, features: List[torch.Tensor]) -> torch.Tensor:
+        """``[(B, C_l, h_l, w_l)]`` -> ``(B, A_total, num_logits + 4)``.
+
+        Per level, predictions are flattened in (row, column, anchor) order, the
+        order :func:`sleap_nn.data.bboxes.make_anchors` lays anchors out in.
+        """
+        outputs = []
+        for feat, tower, cls_pred, box_pred in zip(
+            features, self.towers, self.cls_preds, self.box_preds
+        ):
+            x = tower(feat)
+            b = x.shape[0]
+            cls = cls_pred(x).permute(0, 2, 3, 1).reshape(b, -1, self.num_logits)
+            box = box_pred(x).permute(0, 2, 3, 1).reshape(b, -1, 4)
+            outputs.append(torch.cat([cls, box], dim=-1))
+        return torch.cat(outputs, dim=1)
+
+
+class SSDHead(MultiScaleHead):
+    """Multi-scale anchor head of a ``bbox_ssd`` (SSD-style) detector.
+
+    At every pyramid level, a small conv tower feeds two 3x3 predictors: per anchor,
+    ``len(categories) + 1`` class logits (index 0 is background) and 4 box deltas.
+    The layer outputs one ``(B, A_total, len(categories) + 5)`` tensor with all
+    levels' anchors concatenated (finest level first).
+
+    Attributes:
+        categories: Ordered class names (background excluded).
+        anchors_per_location: Anchors at each feature-map cell.
+        output_strides: Pyramid level strides, finest first.
+        head_channels: Channels of each level's conv tower.
+        head_convs: 3x3 conv + ReLU layers per tower.
+        loss_weight: Weight of the box regression loss.
+    """
+
+    def __init__(
+        self,
+        categories: Sequence[Text],
+        anchors_per_location: int,
+        output_strides: Sequence[int],
+        head_channels: int = 128,
+        head_convs: int = 1,
+        loss_weight: float = 1.0,
+    ) -> None:
+        """Initialize the object with the specified attributes."""
+        super().__init__(output_strides, loss_weight)
+        self.categories = list(categories)
+        self.anchors_per_location = int(anchors_per_location)
+        self.head_channels = int(head_channels)
+        self.head_convs = int(head_convs)
+
+    @property
+    def num_logits(self) -> int:
+        """Class logits per anchor (background included)."""
+        return len(self.categories) + 1
+
+    @property
+    def channels(self) -> int:
+        """Values predicted per anchor (class logits + 4 box deltas)."""
+        return self.num_logits + 4
+
+    @property
+    def loss_function(self) -> str:
+        """Return the name of the loss function to use for this head."""
+        return "ssd_multibox"
+
+    def make_head(self, x_in: Sequence[int]) -> nn.Module:
+        """Make the per-level predictor from each level's input channels."""
+        return _SSDPredictor(
+            in_channels=list(x_in),
+            anchors_per_location=self.anchors_per_location,
+            num_logits=self.num_logits,
+            head_channels=self.head_channels,
+            head_convs=self.head_convs,
+        )

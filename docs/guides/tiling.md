@@ -19,7 +19,7 @@ it is off.
     later releases. Tiling requires a **UNet / ConvNeXt / SwinT** backbone;
     pretrained HuggingFace-encoder backbones and `ClassVectorsHead` /
     `multi_class_topdown` models are not supported with tiling (training will
-    raise a clear error). Tiled ONNX/TensorRT **export** is not yet implemented —
+    raise a clear error), and neither are the bounding-box detectors (`bbox_*`). Tiled ONNX/TensorRT **export** is not yet implemented —
     exporting a tiled model warns and produces a whole-frame graph; use PyTorch
     inference for tiled prediction.
 
