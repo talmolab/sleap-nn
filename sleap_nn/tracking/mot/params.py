@@ -10,14 +10,18 @@ Every tracker in :mod:`sleap_nn.tracking.mot` is driven by one frozen
 - ``"animal"`` (default): sleap-nn's defaults for animal pose/mask tracking. They
   start from ``"paper"`` and change what does not transfer to SLEAP data: SLEAP
   detection scores (mean point confidences) sit well below a pedestrian
-  detector's, the reference re-ID thresholds assume a person re-ID embedder, and
-  per-track appearance is better smoothed with a shorter EMA memory.
+  detector's (so scores are normalized per video, ``normalize_scores``), the
+  reference re-ID thresholds assume a person re-ID embedder, per-track
+  appearance is better smoothed with a shorter EMA memory, and the pedestrian
+  ``xyah`` Kalman filter (a slowly varying aspect ratio) cannot follow a turning
+  animal, so DeepSORT, StrongSORT and ByteTrack use ``xywh``.
 
 All user-facing thresholds are SIMILARITIES in ``[0, 1]`` (higher is stricter),
 whatever the geometric similarity in use (``iou``, ``oks`` or ``centroid``); each
 tracker converts them to the costs its algorithm minimizes.
 """
 
+import math
 from typing import Any, Dict, Optional, Union
 
 import attrs
@@ -46,6 +50,16 @@ TIME_BASES = ("auto", "frames", "steps")
 def _check_unit_interval(instance, attribute, value):
     if value is not None and not (0.0 <= float(value) <= 1.0):
         raise ValueError(f"{attribute.name} must be in [0, 1], got {value!r}.")
+
+
+def _check_positive_or_none(instance, attribute, value):
+    if value is not None and not (math.isfinite(value) and value > 0):
+        raise ValueError(f"{attribute.name} must be > 0 (or None), got {value!r}.")
+
+
+def _optional_float(value: Any) -> Optional[float]:
+    """``None`` stays ``None``; anything else becomes a float."""
+    return None if value is None else float(value)
 
 
 def _check_choice(choices):
@@ -86,6 +100,15 @@ class MOTParams:
             track's predicted pose), ``"centroid"`` (Gaussian on the box-center
             distance, scale ``body_size / 2``) or ``"auto"`` (masks -> iou,
             single-node skeletons -> centroid, otherwise iou).
+        body_size: Animal size in px (box diagonal), or ``None`` to measure it
+            per video. It scales the ``centroid`` similarity (``body_size / 2``),
+            sizes the pseudo boxes of single-node detections and floors thin
+            boxes. ``None``: the video's calibration (``prepare()``): the median
+            box diagonal of multi-node poses / masks; single-node poses have no
+            extent, so ``8 x`` the per-step motion p99 (at least 16 px, at most
+            the nearest-neighbor spacing), else the spacing, else 50 px; without
+            ``prepare()``, the same chain on the frames seen so far. Set it for
+            centroid-only models whose calibration cannot size the animal.
         oks_stddev: OKS per-node standard deviation for ``similarity="oks"``. The
             MOT default (0.1) is 4x the evaluation default: tracking compares two
             noisy observations a frame apart, and at 0.025 an OKS threshold is
@@ -95,15 +118,32 @@ class MOTParams:
         score_mode: Detection confidence: ``"auto"`` (mean visible point score
             for predicted poses, ``score`` for masks, 1.0 for user instances),
             ``"instance"`` (the object's ``score``) or ``"none"`` (all 1.0).
+        normalize_scores: Divide every detection score by the video's
+            95th-percentile score (``max(q95, 1e-6)`` of the calibration's raw
+            ``score_quantiles``) and clip to ``[0, 1]`` before any score
+            threshold applies. SLEAP mean point scores depend on the model (q95
+            ~0.56 for one mouse model, ~0.97 for a fly model), so fixed
+            thresholds tuned for pedestrian detectors (0.5-0.7) can silently
+            block every track start; normalized, a typical detection of the
+            video scores ~0.85-1.0 and a 1.0-scored (user) detection is
+            unchanged. Needs ``prepare()`` (the calibration): without it scores
+            are used as they are. ``animal`` preset: on; ``paper``: off (the
+            published thresholds on raw scores).
         kalman: Kalman filter state parameterization; ``"auto"`` uses the
             tracker's own (``xysr`` SORT/OC-SORT, ``xyah`` DeepSORT/StrongSORT/
-            ByteTrack, ``xywh`` BoT-SORT/Deep OC-SORT).
+            ByteTrack, ``xywh`` BoT-SORT/Deep OC-SORT). The ``animal`` preset
+            sets ``xywh`` for DeepSORT/StrongSORT/ByteTrack: ``xyah`` assumes a
+            slowly varying aspect ratio, which a turning animal's box breaks.
         time_base: How time advances between processed frames: ``"frames"``
-            (frame-index deltas, normalized by the video's regular stride),
-            ``"steps"`` (one step per processed frame) or ``"auto"`` (frames when
-            the processed frames are regularly spaced, else steps).
+            (frame-index deltas, normalized by the video's stride: the most
+            common delta), ``"steps"`` (one step per processed frame) or
+            ``"auto"`` (frames when the processed frames are regularly spaced,
+            else steps). ``prepare()`` resolves it over the whole video; without
+            it the stride and regularity are inferred online from the deltas
+            seen so far (same rule), so a strided stream counts one step per
+            processed frame from its first gap on.
         track_buffer: Steps a lost track is kept alive for re-association
-            (``max_age``).
+            (``max_age``; 1 in SORT's ``paper`` preset, as published).
         min_hits: Matches required before a track is confirmed (``n_init``).
             Detections of a track that is later confirmed are labeled
             retroactively.
@@ -153,9 +193,13 @@ class MOTParams:
     similarity: str = attrs.field(
         default="auto", validator=_check_choice(SIMILARITY_KINDS)
     )
+    body_size: Optional[float] = attrs.field(
+        default=None, converter=_optional_float, validator=_check_positive_or_none
+    )
     oks_stddev: float = 0.1
     box_padding: float = 0.1
     score_mode: str = attrs.field(default="auto", validator=_check_choice(SCORE_MODES))
+    normalize_scores: bool = False
     kalman: str = attrs.field(default="auto", validator=_check_choice(KALMAN_KINDS))
     time_base: str = attrs.field(default="auto", validator=_check_choice(TIME_BASES))
     track_buffer: int = 30
@@ -280,8 +324,10 @@ class MOTParams:
                 f"Unknown MOT parameter(s) {unknown}; valid parameters are "
                 f"{sorted(valid)}."
             )
-        values: Dict[str, Any] = dict(_PAPER[tracker])
+        values: Dict[str, Any] = dict(_PAPER_COMMON)
+        values.update(_PAPER[tracker])
         if preset == "animal":
+            values.update(_ANIMAL_COMMON)
             values.update(_ANIMAL.get(tracker, {}))
         values.update({k: v for k, v in overrides.items() if v is not None})
         return cls(tracker=tracker, preset=preset, **values)
@@ -291,12 +337,18 @@ class MOTParams:
         return attrs.asdict(self)
 
 
+# Published constants shared by every tracker: thresholds apply to raw scores.
+_PAPER_COMMON: Dict[str, Any] = dict(normalize_scores=False)
+
 # Published constants per tracker (reference implementations' defaults). Fields
-# not listed take the class defaults above.
+# not listed take `_PAPER_COMMON`, then the class defaults above.
 _PAPER: Dict[str, Dict[str, Any]] = {
     "sort": dict(
         kalman="xysr",
         min_hits=3,
+        # Reference `Sort(max_age=1)` (T_lost = 1 in Bewley et al. 2016): a track
+        # is removed after more than one missed step.
+        track_buffer=1,
         # SORT has no score logic: the caller filters detections. Keep everything.
         track_high_threshold=0.0,
         track_low_threshold=0.0,
@@ -387,13 +439,25 @@ _PAPER: Dict[str, Dict[str, Any]] = {
     ),
 }
 
-# sleap-nn animal defaults: what differs from `_PAPER`. Tuned on the DEV clips of
-# the benchmark (see the tracking guide); everything else is the paper value.
+# sleap-nn animal defaults shared by every tracker: per-video score
+# normalization (SLEAP mean point scores sit far below pedestrian-detector
+# scores, and their scale depends on the model).
+_ANIMAL_COMMON: Dict[str, Any] = dict(normalize_scores=True)
+
+# sleap-nn animal defaults: what differs from `_PAPER` (after `_ANIMAL_COMMON`).
+# Tuned on the DEV clips of the benchmark (see the tracking guide); everything
+# else is the paper value. `xyah` (DeepSORT/StrongSORT/ByteTrack) carries the
+# aspect ratio with pedestrian process noise: a turning animal's predicted box
+# inflates and loses IoU, so the animal preset tracks `xywh` instead.
 _ANIMAL: Dict[str, Dict[str, Any]] = {
     "sort": dict(
-        track_high_threshold=0.1, track_low_threshold=0.1, new_track_threshold=0.1
+        track_buffer=30,
+        track_high_threshold=0.1,
+        track_low_threshold=0.1,
+        new_track_threshold=0.1,
     ),
     "deepsort": dict(
+        kalman="xywh",
         track_high_threshold=0.5,
         track_low_threshold=0.1,
         new_track_threshold=0.1,
@@ -401,25 +465,32 @@ _ANIMAL: Dict[str, Dict[str, Any]] = {
         gallery_budget=30,
     ),
     "strongsort": dict(
+        kalman="xywh",
         track_high_threshold=0.5,
         track_low_threshold=0.1,
         new_track_threshold=0.1,
         appearance_threshold="auto",
         ema_alpha=0.8,
     ),
-    "bytetrack": dict(),
+    "bytetrack": dict(kalman="xywh"),
     "botsort": dict(appearance_threshold="auto", ema_alpha=0.8),
     "ocsort": dict(),
     "deepocsort": dict(appearance_threshold="auto", rescue=True),
 }
 
 
+# Optional (None-default) fields, by value type, for `parse_mot_param`.
+_OPTIONAL_INTS = ("max_tracks",)
+_OPTIONAL_FLOATS = ("body_size",)
+
+
 def parse_mot_param(text: str) -> tuple:
     """Parse one ``KEY=VALUE`` override for :class:`MOTParams`.
 
     The value is coerced to the field's type: ``true``/``false`` for booleans,
-    ``none`` for optional fields, ``auto`` or a number for
-    ``appearance_threshold``, int/float/str otherwise. ``preset`` is accepted too.
+    ``none`` for optional fields (``max_tracks``, ``body_size``), ``auto`` or a
+    number for ``appearance_threshold``, int/float/str otherwise. ``preset`` is
+    accepted too.
 
     Args:
         text: ``"key=value"``.
@@ -446,16 +517,21 @@ def parse_mot_param(text: str) -> tuple:
     if key == "appearance_threshold":
         return key, _convert_appearance_threshold(raw)
     if lowered == "none":
-        if key != "max_tracks":
+        if key not in _OPTIONAL_INTS + _OPTIONAL_FLOATS:
             raise ValueError(f"{key} cannot be None.")
         return key, None
+    if key in _OPTIONAL_FLOATS:
+        try:
+            return key, float(raw)
+        except ValueError:
+            raise ValueError(f"{key} expects a number, got {raw!r}.") from None
     if isinstance(default, bool):
         if lowered in ("true", "1", "yes", "on"):
             return key, True
         if lowered in ("false", "0", "no", "off"):
             return key, False
         raise ValueError(f"{key} expects a boolean, got {raw!r}.")
-    if key == "max_tracks" or isinstance(default, int):
+    if key in _OPTIONAL_INTS or isinstance(default, int):
         try:
             return key, int(raw)
         except ValueError:

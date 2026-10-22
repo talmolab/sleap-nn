@@ -28,44 +28,63 @@ detection score):
    stage-1 cost, cap ``1 - unconfirmed_min_similarity``. A tentative track left
    unmatched dies (``tentative_dies_on_miss``).
 5. **Duplicate removal** (reference ``remove_duplicate_stracks``): every pair of a
-   track matched this frame and a lost track whose predicted similarity to that
-   detection exceeds ``duplicate_similarity`` is a duplicate; the one with the
-   shorter history (``last_frame - start_frame``; ties remove the matched one) is
-   removed. A removed matched track's detection stays untracked and does not start
-   a track. Detections that would start a track count as matched tracks with an
-   empty history, so a would-be track duplicating a lost track is not started.
+   track matched this frame and a lost track whose predicted box overlaps that
+   detection's box with IoU above ``duplicate_similarity`` is a duplicate; the one
+   with the shorter history (``last_frame - start_frame``; ties remove the
+   matched one) is removed. A removed matched track's detection stays untracked
+   and does not start a track. Detections that would start a track count as
+   matched tracks with an empty history, so a would-be track duplicating a lost
+   track is not started.
 
 BoT-SORT changes stages 1 and 3 only (stage 2 stays geometric)::
 
     d_geo = 1 - sim * s           (or 1 - sim without fuse_score)
     far   = sim < proximity_threshold
     cos   = cosine(track appearance EMA, detection vector)
-    use appearance where: cos >= gate, not far, and the cell's row AND column
-          cosine margins (top-1 minus top-2 among in-gate cells) >= margin
+    in_gate = cos >= gate and not far
+    use appearance where: in_gate, and the cell is the top in-gate cosine of its
+          row AND of its column, each by a top-1 minus top-2 margin > 0 and
+          >= margin (``paper`` preset: every in-gate cell, as published)
     C     = min(d_geo, (1 - cos) / 2) + 1e-3 * d_geo   where appearance is used
           = d_geo                                        elsewhere
 
 The gate is ``appearance_threshold`` (calibrated EMA gate under ``"auto"``,
 disabled when the video's calibration says appearance does not discriminate; see
 :meth:`BaseMOTTracker._appearance_gate`); the margin is the calibrated
-``m_assoc`` (0 under the ``paper`` preset). Appearance therefore never creates a
-match outside the geometric gate, and non-discriminative vectors leave the
-tracker identical to its geometric (ByteTrack-style) self.
+``m_assoc``. Appearance therefore never creates a match outside the geometric
+gate, never lowers the cost of a pair it ranks below another candidate, and
+non-discriminative vectors leave the tracker identical to its geometric
+(ByteTrack-style) self.
 
 Adaptations to sleap-nn (documented deviations from the references):
 
 - The geometric similarity is the tracker's resolved kind (IoU of padded boxes,
-  OKS of the predicted pose, or centroid proximity), also for duplicate removal.
-  The reference duplicate test is the IoU of the updated tracked box vs the lost
-  box; here the matched track's detection stands in for its updated box.
+  OKS of the predicted pose, or centroid proximity).
+- Pose IoU compares the same physical extent on both sides. A keypoint box only
+  spans the VISIBLE nodes, so occlusion -- exactly when a detection's score drops
+  into ``D_lo`` -- shrinks it, while the track's Kalman box keeps the full body
+  (the references' detectors predict full-extent boxes even under occlusion).
+  The similarity of a pose pair is therefore the larger of the Kalman-box IoU
+  and the IoU of the padded boxes of the nodes visible in BOTH the track's
+  predicted pose (last pose shifted by the Kalman motion) and the detection
+  (:func:`shared_node_iou`; at least 2 shared nodes). The published thresholds
+  (stage-2 0.5, fused stage-1 0.2) keep their IoU meaning.
+- Duplicate removal uses the IoU of the lost track's predicted box and the
+  matched detection's box (the reference test; the detection stands in for the
+  updated tracked box) for the ``iou`` and ``centroid`` similarities, and the
+  OKS of the predicted pose for ``oks`` (a left/right-flipped pose overlaps its
+  original box). The centroid kernel must not be used here: at 0.85 it admits
+  ~3.5x the displacement an IoU of 0.85 does, which removed the tracks of
+  nearby animals after a single missed detection.
 - Tracks are labeled from ``min_hits`` matches on (retroactively), never on the
   first frame alone; BoT-SORT's reference also emits unconfirmed tracks, these
   stay unlabeled until confirmed.
 - The geometric tie-break ``1e-3 * d_geo`` only applies where the appearance cost
   is in use, so BoT-SORT without usable appearance reproduces ByteTrack's costs
   exactly.
-- BoT-SORT with no appearance vectors at all associates on geometry alone (with a
-  warning) unless ``strict_vectors`` is set, in which case :meth:`prepare` raises.
+- BoT-SORT with no usable appearance vector (``FrameDetections.has_embedding``)
+  associates on geometry alone, with a warning; refusing vector-less input is
+  ``apply_tracking``'s job.
 """
 
 from typing import ClassVar, Dict, List, Optional, Sequence, Tuple
@@ -76,17 +95,158 @@ from loguru import logger
 from sleap_nn.tracking.mot.association import (
     appearance_margins,
     fuse_score,
+    iou_matrix,
     linear_assignment,
 )
-from sleap_nn.tracking.mot.base import AssociationResult, BaseMOTTracker
+from sleap_nn.tracking.mot.base import (
+    MIN_BOX_FRACTION,
+    AssociationResult,
+    BaseMOTTracker,
+)
 from sleap_nn.tracking.mot.detections import FrameDetections
 from sleap_nn.tracking.mot.params import MOTParams
 from sleap_nn.tracking.mot.track import MOTTrack, TrackState
-from sleap_nn.tracking.utils import get_embedding
 
 # Weight of the geometric cost added to BoT-SORT's appearance-based cost, so that
 # pairs with equally good appearance are ordered by geometry.
 GEOMETRY_TIE_BREAK = 1e-3
+
+# `shared_node_iou`: fewest nodes visible on both sides of a pair, and the
+# narrowest extent (px) of those nodes, for their boxes to be compared. A single
+# node or coincident nodes carry no extent (the Kalman-box IoU decides); nodes
+# collinear on an image axis are compared when the boxes are floored.
+MIN_SHARED_NODES = 2
+MIN_SHARED_EXTENT = 1.0
+
+
+def _pad_nodes(kp: np.ndarray, n_nodes: int) -> np.ndarray:
+    """NaN-pad ``(n, K, 2)`` keypoints to ``n_nodes`` nodes."""
+    kp = np.asarray(kp, dtype=np.float64)
+    if kp.shape[1] >= n_nodes:
+        return kp
+    out = np.full((kp.shape[0], n_nodes, 2), np.nan, dtype=np.float64)
+    out[:, : kp.shape[1]] = kp
+    return out
+
+
+def _padded_extent(
+    lo: np.ndarray,
+    hi: np.ndarray,
+    box_padding: float,
+    min_box_size: Optional[float],
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Pad ``(..., 2)`` extents like ``extract_detections`` and floor their sides."""
+    pad = float(box_padding) * (hi - lo).max(axis=-1, keepdims=True)
+    lo, hi = lo - pad, hi + pad
+    if min_box_size is not None and np.isfinite(min_box_size) and min_box_size > 0:
+        grow = 0.5 * np.maximum(float(min_box_size) - (hi - lo), 0.0)
+        lo, hi = lo - grow, hi + grow
+    return lo, hi
+
+
+def shared_node_iou(
+    track_keypoints: np.ndarray,
+    det_keypoints: np.ndarray,
+    *,
+    box_padding: float = 0.1,
+    min_box_size: Optional[float] = None,
+) -> np.ndarray:
+    """IoU of keypoint boxes built from the nodes visible on BOTH sides of a pair.
+
+    For each (track, detection) pair, both boxes span only the nodes visible in
+    the track's pose AND in the detection, and are padded and floored with the
+    detection rules (``box_padding * max(w, h)`` per side, then at least
+    ``min_box_size`` per axis). A partial (occluded) detection is thus compared
+    with the same part of the track's pose instead of its full-body box.
+
+    Args:
+        track_keypoints: ``(n, K, 2)`` track poses (NaN = not visible).
+        det_keypoints: ``(m, K', 2)`` detection poses (NaN = not visible).
+        box_padding: Padding per side, as a fraction of ``max(w, h)``.
+        min_box_size: Minimum padded side (px) per axis; ``None`` disables it.
+
+    Returns:
+        ``(n, m)`` IoU in ``[0, 1]``; NaN where fewer than
+        :data:`MIN_SHARED_NODES` nodes are shared, or where the shared nodes of
+        either side span less than :data:`MIN_SHARED_EXTENT` px on every axis
+        (on either axis when ``min_box_size`` is ``None``: nothing then gives the
+        thin axis a size).
+    """
+    trk = np.asarray(track_keypoints, dtype=np.float64)
+    det = np.asarray(det_keypoints, dtype=np.float64)
+    n, m = len(trk), len(det)
+    out = np.full((n, m), np.nan, dtype=np.float64)
+    if n == 0 or m == 0:
+        return out
+    k = max(trk.shape[1], det.shape[1])
+    trk, det = _pad_nodes(trk, k), _pad_nodes(det, k)
+
+    # (n, m, K): node visible on both sides of the pair.
+    shared = np.isfinite(trk).all(-1)[:, None, :] & np.isfinite(det).all(-1)[None]
+    sel = shared[..., None]
+    lo_t = np.where(sel, trk[:, None], np.inf).min(axis=2)  # (n, m, 2)
+    hi_t = np.where(sel, trk[:, None], -np.inf).max(axis=2)
+    lo_d = np.where(sel, det[None], np.inf).min(axis=2)
+    hi_d = np.where(sel, det[None], -np.inf).max(axis=2)
+    floored = min_box_size is not None and np.isfinite(min_box_size)
+    floored = floored and min_box_size > 0
+    with np.errstate(invalid="ignore"):  # inf - inf where nothing is shared
+        wide_t = (hi_t - lo_t) >= MIN_SHARED_EXTENT
+        wide_d = (hi_d - lo_d) >= MIN_SHARED_EXTENT
+    if floored:
+        wide_t, wide_d = wide_t.any(axis=-1), wide_d.any(axis=-1)
+    else:
+        wide_t, wide_d = wide_t.all(axis=-1), wide_d.all(axis=-1)
+    ok = (shared.sum(axis=-1) >= MIN_SHARED_NODES) & wide_t & wide_d
+    if not ok.any():
+        return out
+
+    lo_t, hi_t, lo_d, hi_d = lo_t[ok], hi_t[ok], lo_d[ok], hi_d[ok]
+    lo_t, hi_t = _padded_extent(lo_t, hi_t, box_padding, min_box_size)
+    lo_d, hi_d = _padded_extent(lo_d, hi_d, box_padding, min_box_size)
+    overlap = np.clip(np.minimum(hi_t, hi_d) - np.maximum(lo_t, lo_d), 0.0, None)
+    inter = overlap.prod(axis=-1)
+    union = (hi_t - lo_t).prod(axis=-1) + (hi_d - lo_d).prod(axis=-1) - inter
+    iou = np.zeros_like(inter)
+    np.divide(inter, union, out=iou, where=union > 0)
+    out[ok] = np.clip(iou, 0.0, 1.0)
+    return out
+
+
+def decisive_cells(
+    cos: np.ndarray, admissible: np.ndarray, margin: float = 0.0
+) -> np.ndarray:
+    """Cells where appearance decides a pair (per cell, not per row/column).
+
+    A cell is decisive when it is admissible and its cosine is the top admissible
+    cosine of its row AND of its column, with each top-1 minus top-2 margin
+    strictly positive and at least ``margin`` (a lone admissible cell has an
+    infinite margin). A row's runner-up is never decisive, even when the row's
+    margin is large: appearance ranks it below another candidate.
+
+    Args:
+        cos: ``(n, m)`` cosines (NaN where unavailable).
+        admissible: ``(n, m)`` bool cells appearance may decide at all.
+        margin: Minimum row and column margin (the calibrated ``m_assoc``).
+
+    Returns:
+        ``(n, m)`` bool mask.
+    """
+    cos = np.asarray(cos, dtype=np.float64)
+    admissible = np.asarray(admissible, dtype=bool) & np.isfinite(cos)
+    if cos.size == 0 or not admissible.any():
+        return np.zeros(cos.shape, dtype=bool)
+    row_margin, col_margin = appearance_margins(np.where(admissible, cos, np.nan))
+    filled = np.where(admissible, cos, -np.inf)
+    is_top = (filled >= filled.max(axis=1, keepdims=True)) & (
+        filled >= filled.max(axis=0, keepdims=True)
+    )
+    row_margin = np.nan_to_num(row_margin, nan=0.0)
+    col_margin = np.nan_to_num(col_margin, nan=0.0)
+    margin = max(float(margin), 0.0)
+    row_ok = (row_margin > 0.0) & (row_margin >= margin)
+    col_ok = (col_margin > 0.0) & (col_margin >= margin)
+    return admissible & is_top & row_ok[:, None] & col_ok[None, :]
 
 
 class ByteTracker(BaseMOTTracker):
@@ -127,6 +287,42 @@ class ByteTracker(BaseMOTTracker):
         # Zero the velocities that exist in the filter actually in use (a
         # `kalman` override changes the state layout).
         self.lost_zero_velocity = self.size_velocity[self.kalman_kind]
+
+    def prepare(self, frames: Sequence[Tuple[int, Sequence]]) -> None:
+        """Per-video pre-pass (see :meth:`BaseMOTTracker.prepare`).
+
+        Also warns when the video's detections cannot start tracks because of the
+        STRICT high-score split (only ``s > track_high_threshold`` may start a
+        track), which the base check on ``new_track_threshold`` does not cover.
+
+        Args:
+            frames: ``(frame_idx, objects)`` per frame, in temporal order.
+        """
+        super().prepare(frames)
+        self._check_spawn_gate()
+
+    def _check_spawn_gate(self) -> None:
+        """Warn when 95% of the (possibly normalized) scores are not ``D_hi``."""
+        p = self.params
+        cal = self.calibration
+        if cal is None or not cal.score_quantiles:
+            return
+        q95 = float(cal.score_quantiles[-1])
+        if not np.isfinite(q95):
+            return
+        normalizer = self._score_normalizer
+        if normalizer is not None and np.isfinite(normalizer) and normalizer > 0:
+            q95 = min(max(q95 / normalizer, 0.0), 1.0)
+        # The base already warned for raw scores below the new-track threshold.
+        base_warned = not p.normalize_scores and q95 < p.new_track_threshold
+        if q95 <= p.track_high_threshold and not base_warned:
+            logger.warning(
+                f"{self.name}: 95% of this video's detections score at or below "
+                f"track_high_threshold={p.track_high_threshold} (score q95 "
+                f"{q95:.3f}{', normalized' if p.normalize_scores else ''}); only "
+                "detections scoring above it can start a track, so most "
+                "detections can never start one. Lower --track_high_threshold."
+            )
 
     def _associate(self, dets: FrameDetections) -> AssociationResult:
         """BYTE association: high, low and unconfirmed stages, then de-duplication.
@@ -202,6 +398,43 @@ class ByteTracker(BaseMOTTracker):
         return result
 
     # ------------------------------------------------------------- helpers
+    def _geometric_similarity(
+        self, tracks: Sequence[MOTTrack], dets: FrameDetections
+    ) -> np.ndarray:
+        """Base similarity; pose IoU also scores the shared visible nodes.
+
+        For the ``iou`` similarity on the pose carrier, each pair scores the
+        larger of the Kalman-box IoU and :func:`shared_node_iou` of the track's
+        predicted pose (last pose shifted by the Kalman center's motion) and the
+        detection, so a partly occluded detection is compared with the same part
+        of the track (see the module docstring). Other kinds are unchanged.
+
+        Args:
+            tracks: Live tracks (rows), already predicted to this step.
+            dets: This frame's detections.
+
+        Returns:
+            ``(len(tracks), len(dets))`` similarity in ``[0, 1]``.
+        """
+        tracks = list(tracks)
+        sim = super()._geometric_similarity(tracks, dets)
+        if (
+            sim.size == 0
+            or self.carrier != "pose"
+            or dets.keypoints is None
+            or self._similarity(dets) != "iou"
+        ):
+            return sim
+        means = np.stack([t.mean for t in tracks])
+        predicted, _ = self._predicted_poses(tracks, means)
+        shared = shared_node_iou(
+            predicted,
+            dets.keypoints,
+            box_padding=self.params.box_padding,
+            min_box_size=MIN_BOX_FRACTION * self._body_size(),
+        )
+        return self._finish_similarity(np.fmax(sim, shared), dets)
+
     def _assign(
         self,
         tracks: Sequence[MOTTrack],
@@ -263,6 +496,26 @@ class ByteTracker(BaseMOTTracker):
             sim = fuse_score(sim, np.asarray(dets.scores, dtype=np.float64)[det_idx])
         return 1.0 - sim
 
+    def _duplicate_similarity(
+        self,
+        lost: Sequence[MOTTrack],
+        cols: Sequence[int],
+        sim: np.ndarray,
+        rows: Dict[int, int],
+        dets: FrameDetections,
+    ) -> np.ndarray:
+        """``(len(lost), len(cols))`` overlap compared with ``duplicate_similarity``.
+
+        The IoU of each lost track's predicted (Kalman) box and the detection's
+        padded box -- the reference test -- for the ``iou`` and ``centroid``
+        similarities (single-node detections carry body-sized pseudo boxes); the
+        association OKS for ``oks``.
+        """
+        if self._similarity(dets) == "oks":
+            return sim[np.ix_([rows[t.tid] for t in lost], list(cols))]
+        boxes = self.kf.xyxy_from_mean(np.stack([t.mean for t in lost]))
+        return iou_matrix(boxes, np.asarray(dets.boxes, dtype=np.float64)[list(cols)])
+
     def _remove_duplicates(
         self,
         tracks: Sequence[MOTTrack],
@@ -278,10 +531,10 @@ class ByteTracker(BaseMOTTracker):
         The tracked side holds this frame's matched tracks (box: the matched
         detection) and the detections about to start a track (empty history); the
         lost side holds the live tracks left unmatched (box: their prediction)
-        that survive this step. A pair whose geometric similarity exceeds
-        ``duplicate_similarity`` drops the one with the shorter history; ties drop
-        the tracked one (reference semantics). Every pair is decided
-        independently.
+        that survive this step. A pair whose overlap
+        (:meth:`_duplicate_similarity`) exceeds ``duplicate_similarity`` drops the
+        one with the shorter history; ties drop the tracked one (reference
+        semantics). Every pair is decided independently.
 
         Args:
             tracks: Every live track (rows of ``sim``).
@@ -312,7 +565,9 @@ class ByteTracker(BaseMOTTracker):
         if not tracked:
             return
 
-        dup = sim[np.ix_([rows[t.tid] for t in lost], [j for _, j, _ in tracked])]
+        dup = self._duplicate_similarity(
+            lost, [j for _, j, _ in tracked], sim, rows, dets
+        )
         drop_tracked, drop_lost = set(), set()
         for q, k in np.argwhere(dup > p.duplicate_similarity):
             lost_history = int(lost[q].last_frame) - int(lost[q].start_frame)
@@ -341,14 +596,7 @@ class ByteTracker(BaseMOTTracker):
 
 
 class BoTSORTTracker(ByteTracker):
-    """BoT-SORT tracker (see :mod:`sleap_nn.tracking.mot.bytetrack`).
-
-    Attributes:
-        strict_vectors: When ``True``, :meth:`prepare` raises if the video's
-            detections carry no appearance vector at all (the "no silent no-op"
-            rule of the CLI path); when ``False`` (default, library use) the
-            tracker warns and associates on geometry alone.
-    """
+    """BoT-SORT tracker (see :mod:`sleap_nn.tracking.mot.bytetrack`)."""
 
     name = "botsort"
     default_kalman = "xywh"
@@ -376,31 +624,7 @@ class BoTSORTTracker(ByteTracker):
             n_nodes: Skeleton size for pose detections (``None`` if unknown).
         """
         super().__init__(params, carrier=carrier, n_nodes=n_nodes)
-        self.strict_vectors = False
         self._warned_no_vectors = False
-
-    def prepare(self, frames: Sequence[Tuple[int, Sequence]]) -> None:
-        """Per-video pre-pass (see :meth:`BaseMOTTracker.prepare`).
-
-        Args:
-            frames: ``(frame_idx, objects)`` per frame, in temporal order.
-
-        Raises:
-            ValueError: If ``strict_vectors`` is set and the frames hold
-                detections but none carries an appearance vector.
-        """
-        frames = [(int(fi), list(objs)) for fi, objs in frames]
-        if self.strict_vectors:
-            objs = [obj for _, frame_objs in frames for obj in frame_objs]
-            if objs and not any(_has_vector(obj) for obj in objs):
-                raise ValueError(
-                    "botsort associates by appearance, but none of the tracked "
-                    "detections carries an appearance vector (identity_embedding). "
-                    "Run an embedding model first (or track the carrier that holds "
-                    "the vectors), or use --tracker bytetrack for the same "
-                    "algorithm without appearance."
-                )
-        super().prepare(frames)
 
     def _associate(self, dets: FrameDetections) -> AssociationResult:
         """BYTE association with BoT-SORT's gated appearance cost (stages 1 and 3).
@@ -419,20 +643,10 @@ class BoTSORTTracker(ByteTracker):
         ):
             self._warned_no_vectors = True
             logger.warning(
-                "botsort: the detections carry no appearance vectors; associating "
-                "on geometry alone until vectors appear."
+                "botsort: the detections carry no usable appearance vectors; "
+                "associating on geometry alone until vectors appear."
             )
         return super()._associate(dets)
-
-    def _association_margin(self) -> float:
-        """Row/column cosine margin required for appearance to decide a pair.
-
-        The calibrated ``m_assoc`` (see :meth:`BaseMOTTracker._appearance_margin`);
-        0 under the ``paper`` preset (the published algorithm has no margin).
-        """
-        if self.params.preset == "paper":
-            return 0.0
-        return self._appearance_margin()
 
     def _fused_cost(
         self,
@@ -442,6 +656,10 @@ class BoTSORTTracker(ByteTracker):
         sim: np.ndarray,
     ) -> np.ndarray:
         """Stage-1/3 cost: geometric cost, lowered by gated decisive appearance.
+
+        Under the ``paper`` preset every in-gate cell takes the appearance cost
+        (published min-fusion); otherwise only :func:`decisive_cells` with the
+        calibrated margin ``m_assoc`` do.
 
         Args:
             tracks: The stage's tracks (rows).
@@ -462,27 +680,15 @@ class BoTSORTTracker(ByteTracker):
         in_gate = np.isfinite(cos) & (cos >= gate) & near
         if not in_gate.any():
             return d_geo
-        # ...and only where it discriminates among the in-gate candidates.
-        row_margin, col_margin = appearance_margins(np.where(in_gate, cos, np.nan))
-        margin = self._association_margin()
-        decisive = (
-            in_gate & (row_margin[:, None] >= margin) & (col_margin[None, :] >= margin)
-        )
+        if self.params.preset == "paper":
+            decisive = in_gate
+        else:
+            # ...and only where it discriminates: the cell is the top in-gate
+            # cosine of its row and of its column, by the calibrated margin.
+            decisive = decisive_cells(cos, in_gate, self._appearance_margin())
         d_emb = np.where(decisive, 0.5 * (1.0 - np.nan_to_num(cos)), 1.0)
         return np.where(
             decisive,
             np.minimum(d_geo, d_emb) + GEOMETRY_TIE_BREAK * d_geo,
             d_geo,
         )
-
-
-def _has_vector(obj) -> bool:
-    """Whether ``obj`` carries a usable (finite, non-zero) appearance vector."""
-    try:
-        vec = get_embedding(obj)
-    except (AttributeError, TypeError, ValueError):
-        return False
-    if vec is None:
-        return False
-    vec = np.asarray(vec, dtype=np.float64).reshape(-1)
-    return bool(vec.size) and bool(np.isfinite(vec).all()) and bool(np.any(vec != 0))

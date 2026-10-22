@@ -454,6 +454,26 @@ def _widened(boxes: np.ndarray, valid: np.ndarray, min_box_size) -> np.ndarray:
     return boxes + np.concatenate([-grow, grow], axis=1)
 
 
+def normalize_scores(dets: FrameDetections, normalizer: Optional[float]) -> None:
+    """Divide ``dets.scores`` by ``normalizer`` and clip to ``[0, 1]``, in place.
+
+    The per-video score normalization of ``MOTParams.normalize_scores`` (the
+    normalizer is :func:`~sleap_nn.tracking.mot.calibration.score_normalizer`:
+    the video's score q95). Apply it exactly once per extraction.
+
+    Args:
+        dets: Detections to modify.
+        normalizer: Positive divisor; ``None``, non-finite or non-positive is a
+            no-op.
+    """
+    if normalizer is None or not np.isfinite(normalizer) or normalizer <= 0:
+        return
+    if len(dets):
+        dets.scores = np.clip(
+            np.asarray(dets.scores, dtype=np.float64) / float(normalizer), 0.0, 1.0
+        )
+
+
 def widen_boxes(dets: FrameDetections, min_box_size: Optional[float]) -> None:
     """Floor ``dets.boxes`` (padded) at ``min_box_size`` per axis, in place.
 

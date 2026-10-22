@@ -48,11 +48,21 @@ Kalman filter whose size velocities are zeroed while a track is frozen, with:
   (``cos``: cosine of the detection vector to the track's EMA; ``mu_pos`` /
   ``mu_neg``: the video's calibrated median true / competitor EMA cosines), so
   the term means the same thing whatever the embedding model's cosine scale.
-  ``E' = 0`` (neutral) where either side has no vector, where the pair has no
-  geometric overlap, and everywhere when appearance is disabled or the video is
-  uncalibrated. ``W`` is the adaptive weight (``w_assoc_emb`` plus half the
-  row and column top-1/top-2 margins of ``E'``, each capped at ``aw_param``) or
-  the constant ``w_assoc_emb`` with ``aw_off``;
+  When appearance is enabled for association but the video has no usable
+  ``mu_pos`` / ``mu_neg`` spread -- an explicit ``appearance_threshold`` on a
+  video that is uncalibrated (no ``prepare()``) or too short / with too few
+  animals to calibrate -- ``E'`` is replaced by the raw EMA cosine, the
+  reference's term (logged once; ``resolved["appearance"]["association_term"]``
+  records which term ran). The term is 0 (neutral) where either side has no
+  vector, where the pair has no geometric overlap, and everywhere when
+  appearance is disabled. ``W`` is the adaptive weight (``w_assoc_emb`` plus
+  half the row and column top-1/top-2 margins of ``E'``, each capped at
+  ``aw_param``) or the constant ``w_assoc_emb`` with ``aw_off``. Appearance
+  orders COMPETING candidates but never vetoes an uncontested one: on a pair
+  that is the only admissible candidate of both its row and its column a
+  negative ``W * E'`` is clamped to 0 (otherwise the masked assignment trades
+  it for an inadmissible, zero-evidence cell whenever an unrelated ambiguity
+  elsewhere in the frame stops the one-to-one shortcut);
 - an optional appearance **rescue** (``rescue``): a pair below
   ``min_match_similarity`` but at or above ``rescue_min_similarity`` is also
   admissible when appearance is DECISIVE: its EMA cosine clears the appearance
@@ -65,7 +75,7 @@ always the geometric similarity of the matched pair (prediction or last
 observation), never the composite objective.
 """
 
-from typing import Any, Optional, Sequence, Tuple
+from typing import Any, Dict, Optional, Sequence, Tuple
 
 import numpy as np
 from loguru import logger
@@ -89,6 +99,11 @@ _MIN_APPEARANCE_SPREAD = 1e-6
 # XYWH state indices of the size velocities (v_w, v_h), zeroed while frozen.
 _XYWH_SIZE_VELOCITY = (6, 7)
 
+# The appearance term Deep OC-SORT adds to its stage-1 objective (provenance).
+_TERM_STANDARDIZED = "standardized"  # E' from the calibrated mu_pos / mu_neg.
+_TERM_RAW_COSINE = "raw_cosine"  # The reference's raw EMA cosine (no spread).
+_TERM_OFF = "off"  # Appearance disabled for association.
+
 
 class OCSORTTracker(BaseMOTTracker):
     """OC-SORT tracker (see :mod:`sleap_nn.tracking.mot.ocsort`)."""
@@ -99,6 +114,8 @@ class OCSORTTracker(BaseMOTTracker):
     hits_start = 0
     confirm_on_streak = True
     use_oru = True
+    # OCM reads `velocity` / `observations` (the base keeps them on request).
+    keeps_observation_history = True
 
     # Whether the optional BYTE (low-score) stage is available to this family.
     _supports_byte = True
@@ -306,6 +323,7 @@ class DeepOCSORTTracker(OCSORTTracker):
                 "deepocsort has no BYTE (low-score) stage; use_byte is ignored."
             )
         self._appearance_noticed = False
+        self._raw_term_noticed = False
 
     def prepare(self, frames: Sequence[Tuple[int, Sequence[Any]]]) -> None:
         """Per-video pre-pass (see :meth:`BaseMOTTracker.prepare`).
@@ -314,7 +332,9 @@ class DeepOCSORTTracker(OCSORTTracker):
         h]`` filter: with ``appearance_threshold="auto"`` this is logged and the
         video is tracked on geometry alone; an explicit (float)
         ``appearance_threshold`` asks for appearance that does not exist and
-        raises.
+        raises. An explicit threshold on a video whose calibration cannot
+        standardize the cosines (too few trials) logs that the raw EMA cosine
+        is used instead of ``E'``.
 
         Args:
             frames: ``(frame_idx, objects)`` per frame, in temporal order, holding
@@ -341,6 +361,7 @@ class DeepOCSORTTracker(OCSORTTracker):
                 "algorithm without appearance)."
             )
         super().prepare(frames)
+        self._raw_term_notice()
 
     # ------------------------------------------------------------ stages
     def _first_stage(
@@ -361,14 +382,19 @@ class DeepOCSORTTracker(OCSORTTracker):
 
         Returns:
             ``(valid, score)``: ``sim >= min_match_similarity`` extended by
-            decisive-appearance rescues, and ``sim + OCM + W * E'``.
+            decisive-appearance rescues, and ``sim + OCM + W * E'`` (``E'``: the
+            standardized term, or the raw EMA cosine when the video has no
+            usable calibrated spread), where a negative ``W * E'`` on a pair
+            that is the only admissible candidate of both its row and its
+            column is clamped to 0.
         """
         valid, score = super()._first_stage(tracks, dets, cols, sim)
         cos = self._appearance_cos(tracks, dets, "ema")[:, cols]
         if not np.isfinite(cos).any():
             return valid, score  # No appearance evidence: plain OC-SORT.
 
-        appearance = self._standardized_appearance(cos)
+        valid = valid | self._rescue(cos, sim)
+        appearance = self._association_appearance(cos)
         # As in the reference, appearance only counts where geometry overlaps.
         appearance[sim <= 0.0] = 0.0
         if appearance.any():
@@ -379,8 +405,58 @@ class DeepOCSORTTracker(OCSORTTracker):
                 weight = adaptive_weight(
                     appearance, aw_param=p.aw_param, base=p.w_assoc_emb
                 )
-            score = score + weight * appearance
-        return valid | self._rescue(cos, sim), score
+            term = weight * appearance
+            # Appearance orders competing candidates; it must not veto an
+            # uncontested one. The masked assignment maximizes over the WHOLE
+            # matrix, so a lone admissible pair scored below an inadmissible,
+            # zero-evidence cell (a spare false positive, a lost track) would be
+            # traded for it and dropped -- but only when some unrelated pair in
+            # the frame stops the one-to-one shortcut. Such a pair keeps at least
+            # its OC-SORT score.
+            lone = (
+                valid
+                & (valid.sum(axis=1, keepdims=True) == 1)
+                & (valid.sum(axis=0, keepdims=True) == 1)
+            )
+            score = score + np.where(lone, np.maximum(term, 0.0), term)
+        return valid, score
+
+    def _association_term(self) -> str:
+        """Which appearance term stage 1 adds to its objective.
+
+        Returns:
+            ``"off"`` when appearance is disabled for association (no vectors,
+            or ``"auto"`` without a calibration enabling it); ``"standardized"``
+            (``E'``) when the calibration has a usable ``mu_pos`` / ``mu_neg``
+            spread; otherwise ``"raw_cosine"``: the reference's raw EMA cosine
+            (e.g. an explicit ``appearance_threshold`` on a video that is
+            uncalibrated or has too few trials to calibrate).
+        """
+        if self._appearance_gate("ema") is None:
+            return _TERM_OFF
+        if self._appearance_spread() is None:
+            return _TERM_RAW_COSINE
+        return _TERM_STANDARDIZED
+
+    def _association_appearance(self, cos: np.ndarray) -> np.ndarray:
+        """The appearance values of the stage-1 term (see :meth:`_association_term`).
+
+        Args:
+            cos: ``(n, m)`` EMA cosines, NaN where unavailable.
+
+        Returns:
+            ``(n, m)`` values in ``[-1, 1]``: the standardized ``E'``, or the raw
+            cosine without a usable calibrated spread; 0 where a cosine is
+            missing and everywhere when appearance is off.
+        """
+        term = self._association_term()
+        if term == _TERM_STANDARDIZED:
+            return self._standardized_appearance(cos)
+        out = np.zeros(cos.shape, dtype=np.float64)
+        if term == _TERM_RAW_COSINE:
+            ok = np.isfinite(cos)
+            out[ok] = np.clip(cos[ok], -1.0, 1.0)
+        return out
 
     def _standardized_appearance(self, cos: np.ndarray) -> np.ndarray:
         """``E' = clip(2 (cos - mu_neg) / (mu_pos - mu_neg) - 1, -1, 1)``.
@@ -465,25 +541,70 @@ class DeepOCSORTTracker(OCSORTTracker):
         return rescued
 
     def _appearance_notice(self, dets: FrameDetections) -> None:
-        """Log once when a run without ``prepare()`` associates on geometry alone.
+        """Log once how a run associates when the standardized term is unavailable.
 
         Covers the two prepare-less cases where appearance is unavailable: no
         appearance vectors (so far), or ``appearance_threshold="auto"`` without a
-        calibration. With ``prepare()`` the base class reports the decision.
+        calibration (with ``prepare()`` the base class reports the decision);
+        and, once, any run whose stage-1 term falls back to the raw cosine.
         """
-        if self._appearance_noticed or self.calibration is not None or len(dets) == 0:
+        if len(dets) == 0:
             return
-        self._appearance_noticed = True
-        if not self._vectors_seen:
-            logger.warning(
-                "deepocsort: the tracked detections carry no appearance vectors; "
-                "associating on geometry alone (OC-SORT on a [cx, cy, w, h] "
-                "filter)."
+        if not self._appearance_noticed and self.calibration is None:
+            self._appearance_noticed = True
+            if not self._vectors_seen:
+                logger.warning(
+                    "deepocsort: the tracked detections carry no appearance "
+                    "vectors; associating on geometry alone (OC-SORT on a [cx, cy, "
+                    "w, h] filter)."
+                )
+            elif self._appearance_gate("ema") is None:
+                logger.warning(
+                    "deepocsort: appearance_threshold='auto' needs the per-video "
+                    "calibration of prepare(); without it appearance is disabled "
+                    "and association uses geometry alone. Call prepare() (the "
+                    "calibrated, standardized appearance term) or pass an explicit "
+                    "appearance_threshold (the reference's raw-cosine term)."
+                )
+        self._raw_term_notice()
+
+    def _raw_term_notice(self) -> None:
+        """Log once when stage 1 uses the raw EMA cosine instead of ``E'``."""
+        if self._raw_term_noticed or self._association_term() != _TERM_RAW_COSINE:
+            return
+        self._raw_term_noticed = True
+        logger.warning(
+            f"deepocsort: {self._raw_term_reason()}, so appearance cosines cannot "
+            "be standardized; the stage-1 appearance term is the raw EMA cosine "
+            "(as in the reference Deep OC-SORT) instead of the standardized E'."
+        )
+
+    def _raw_term_reason(self) -> str:
+        """Why the calibration gives no usable ``mu_pos`` / ``mu_neg`` spread."""
+        cal = self.calibration
+        if cal is None:
+            return "the video is uncalibrated (prepare() was not called)"
+        detail = f"status={cal.status!r}, {cal.n_trials} trials"
+        if cal.mu_pos is not None and cal.mu_neg is not None:
+            detail += f", mu_pos={cal.mu_pos:.3g}, mu_neg={cal.mu_neg:.3g}"
+        return (
+            f"the video's calibration has no usable true/competitor cosine spread "
+            f"({detail})"
+        )
+
+    def _appearance_summary(self) -> Dict[str, Any]:
+        """JSON-safe record of the appearance decisions, with the stage-1 term.
+
+        Adds ``association_term`` (``"standardized"``, ``"raw_cosine"`` or
+        ``"off"``, see :meth:`_association_term`) to the base record and, for the
+        raw-cosine fallback, why the calibrated term is unavailable.
+        """
+        summary = super()._appearance_summary()
+        term = self._association_term()
+        summary["association_term"] = term
+        if term == _TERM_RAW_COSINE:
+            summary["reason"] = (
+                f"{summary['reason']}; {self._raw_term_reason()}: the stage-1 "
+                "term is the raw EMA cosine"
             )
-        elif self._appearance_gate("ema") is None:
-            logger.warning(
-                "deepocsort: appearance_threshold='auto' needs the per-video "
-                "calibration of prepare(); without it appearance is disabled and "
-                "association uses geometry alone. Call prepare() or pass an "
-                "explicit appearance_threshold."
-            )
+        return summary

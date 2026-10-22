@@ -3,7 +3,11 @@
 import numpy as np
 import pytest
 
-from sleap_nn.tracking.mot.appearance import AppearanceMemory, passes_quality_gate
+from sleap_nn.tracking.mot.appearance import (
+    AppearanceMemory,
+    passes_quality_gate,
+    unit_rows,
+)
 
 
 def _unit(v):
@@ -237,4 +241,81 @@ def test_quality_gate_custom_fractions():
     assert passes_quality_gate(**kwargs, min_visible_fraction=0.75, max_overlap_iou=0.3)
     assert not passes_quality_gate(
         **kwargs, min_visible_fraction=0.8, max_overlap_iou=0.3
+    )
+
+
+def _random_memory(rng, n_vectors, dim=8, gallery_size=6):
+    mem = AppearanceMemory(gallery_size=gallery_size)
+    mem.seed(rng.standard_normal(dim))
+    for _ in range(n_vectors - 1):
+        mem.update(rng.standard_normal(dim))
+    return mem
+
+
+def test_stacked_gallery_is_cached_until_the_gallery_changes():
+    """`vectors()` restacks only after a change (also one made directly on the
+    deque) and is read-only, so the cache cannot be corrupted."""
+    rng = np.random.default_rng(0)
+    mem = _random_memory(rng, 3)
+    stack = mem.vectors()
+    assert mem.vectors() is stack and not stack.flags.writeable
+    with pytest.raises(ValueError):
+        stack[0, 0] = 1.0
+    np.testing.assert_array_equal(stack, np.stack(list(mem.gallery)))
+
+    for change in (
+        lambda: mem.update(rng.standard_normal(8)),
+        lambda: mem.update(rng.standard_normal(8), gated=False),
+        lambda: mem.seed(rng.standard_normal(8)),
+        lambda: mem.gallery.append(_unit(rng.standard_normal(8))),
+        lambda: [mem.update(rng.standard_normal(8)) for _ in range(10)],  # full
+        lambda: mem.gallery.popleft(),
+    ):
+        change()
+        np.testing.assert_array_equal(mem.vectors(), np.stack(list(mem.gallery)))
+    mem.gallery.clear()
+    assert mem.vectors().shape == (0, 0)
+    np.testing.assert_array_equal(mem.gallery_max_cos(E0[None]), [np.nan])
+
+
+@pytest.mark.parametrize("n_vectors", [1, 3, 9])
+def test_unit_query_variants_equal_the_plain_statistics(n_vectors):
+    """Normalizing a frame's queries once (`unit_rows` + `*_unit`) gives
+    bit-identical statistics, also for unusable rows, an empty gallery and a
+    dimension mismatch."""
+    rng = np.random.default_rng(n_vectors)
+    q = rng.standard_normal((5, 8)).astype(np.float32)
+    q[1] = 0.0
+    q[3, 2] = np.nan
+    mem = _random_memory(rng, n_vectors)
+    rows, ok = unit_rows(q)
+    assert ok.tolist() == [True, False, True, False, True]
+    np.testing.assert_array_equal(
+        mem.gallery_max_cos_unit(rows, ok), mem.gallery_max_cos(q)
+    )
+    np.testing.assert_array_equal(mem.ema_cos_unit(rows, ok), mem.ema_cos(q))
+
+    mem.gallery.clear()  # empty gallery: the EMA cosine
+    np.testing.assert_array_equal(mem.gallery_max_cos_unit(rows, ok), mem.ema_cos(q))
+    wrong = unit_rows(rng.standard_normal((2, 4)))
+    assert np.isnan(mem.gallery_max_cos_unit(*wrong)).all()
+
+
+@pytest.mark.parametrize("n_gallery", [1, 3, 5, 12, 30])
+def test_topk_mean_matches_the_identity_linker(n_gallery):
+    """`gallery_topk_mean` is the linker's top-k statistic (the calibration is
+    pinned to it in test_calibration): mean over queries of the mean of each
+    query's top-5 gallery cosines, all of them for galleries shorter than 5."""
+    from sleap_nn.tracking.mot.linking import _s_link
+
+    rng = np.random.default_rng(n_gallery)
+    mem = AppearanceMemory(gallery_size=30)
+    vecs = rng.standard_normal((n_gallery, 16))
+    mem.seed(vecs[0])
+    for v in vecs[1:]:
+        mem.update(v)
+    queries = unit_rows(rng.standard_normal((10, 16)))[0]
+    expected = _s_link(queries, mem.vectors(), k=5)
+    np.testing.assert_allclose(
+        mem.gallery_topk_mean(queries, k=5).mean(), expected, rtol=0, atol=1e-12
     )

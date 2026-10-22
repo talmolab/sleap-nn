@@ -160,6 +160,50 @@ def _mask_pair(n_frames=10, swap_at=()):
     )
 
 
+def _as_predicted(inst, skeleton, track):
+    """A tracked ``PredictedInstance`` at ``inst``'s points."""
+    points = inst.numpy()
+    return sio.PredictedInstance.from_numpy(
+        points,
+        skeleton=skeleton,
+        score=1.0,
+        point_scores=np.ones(len(points)),
+        tracking_score=1.0,
+        track=track,
+    )
+
+
+def _gui_corrected(gt, corrected_frames, animal=0, shift=0.3, untrack_source=False):
+    """Ground truth made the GUI way: tracked predictions, a few poses corrected.
+
+    Every GT instance becomes a tracked ``PredictedInstance``; on
+    ``corrected_frames`` one animal's pose is corrected as SLEAP's GUI does it --
+    a user ``Instance`` on the same track, linked through ``from_predicted``, with
+    the prediction left in the frame. ``untrack_source`` clears the replaced
+    prediction's track (a merged or scripted file; sleap-io's own track rule
+    then misses the link).
+    """
+    skeleton = gt.skeletons[0]
+    for lf in gt:
+        lf.instances = [
+            _as_predicted(inst, skeleton, inst.track) for inst in lf.instances
+        ]
+        if lf.frame_idx not in corrected_frames:
+            continue
+        source = lf.instances[animal]
+        lf.instances.append(
+            sio.Instance.from_numpy(
+                source.numpy() + np.array([shift, 0.0]),
+                skeleton=skeleton,
+                track=source.track,
+                from_predicted=source,
+            )
+        )
+        if untrack_source:
+            source.track = None
+    return gt
+
+
 def _assert_same_metrics(a: dict, b: dict) -> None:
     """Equal up to float summation order (1e-12), NaN equal to NaN; notes ignored."""
     assert set(a) == set(b)
@@ -341,6 +385,152 @@ def test_duplicate_track_in_a_frame_raises():
     )
     with pytest.raises(ValueError, match=r"Predicted track\(s\) \['p0'\].*frame 3"):
         compute_mot_metrics(gt, pred, "pose")
+
+
+def test_duplicate_ground_truth_track_error_points_at_user_labels_only():
+    gt, pred = _pose_pair()
+    frame = gt.labeled_frames[4]
+    frame.instances[1].track = frame.instances[0].track
+    with pytest.raises(ValueError, match=r"Ground-truth.*frame 4.*user_labels_only"):
+        compute_mot_metrics(gt, pred, "pose")
+
+
+# ---------------------------------------------------------------------------
+# Ground truth corrected in the GUI (a user copy next to the prediction)
+# ---------------------------------------------------------------------------
+@pytest.mark.parametrize("untrack_source", [False, True])
+def test_gui_corrected_ground_truth_scores_the_user_copy(untrack_source):
+    """A corrected pose is ONE ground-truth detection, in both blocks.
+
+    The GUI keeps the replaced ``PredictedInstance`` beside the user copy, on
+    the same track: scored as is, the MOT block raised (a track on two
+    detections) and the legacy block double-counted it (21 GT dets, a fake
+    Frag). With the replaced prediction untracked, it became don't-care ground
+    truth that took the tracker's matches instead.
+    """
+    gt, pred = _pose_pair()
+    gt = _gui_corrected(gt, corrected_frames=(3, 7), untrack_source=untrack_source)
+    m = compute_mot_metrics(gt, pred, "pose")
+
+    assert (m.clr_tp, m.clr_fn, m.clr_fp) == (20, 0, 0)
+    assert m.n_gt_dets == 20
+    assert (m.n_gt_untracked, m.n_dont_care) == (0, 0)
+    assert m.mota == pytest.approx(1.0)
+    assert m.idf1 == pytest.approx(1.0)
+    assert any(n.startswith("2 ground-truth detections were left out") for n in m.notes)
+
+    legacy = identity_metrics(gt, pred, "pose")
+    assert legacy.n_gt_dets == 20
+    assert (legacy.fragmentations, legacy.id_switches) == (0, 0)
+    assert legacy.idf1 == pytest.approx(1.0)
+    assert legacy.n_gt_untracked == 0
+    # The scored predicted GT (18) is reported apart from the replaced ones (2).
+    assert any(n.startswith("18 of the ground-truth") for n in legacy.notes)
+
+
+def test_gui_corrected_ground_truth_through_a_saved_file(tmp_path):
+    """``from_predicted`` survives the .slp round trip; the MOT block computes."""
+    gt, pred = _pose_pair(swap_at=[5])
+    gt = _gui_corrected(gt, corrected_frames=(0, 5, 9), animal=1, shift=0.0)
+    gt_path, pred_path = _save(gt, pred, tmp_path)
+
+    result = run_identity_evaluation(gt_path, pred_path)
+
+    assert "error" not in result["mot"]
+    assert result["mot"]["n_gt_dets"] == result["n_gt_dets"] == 20
+    # The uncorrected run's numbers (toy B): nothing double-counted.
+    assert result["mot"]["hota"] == pytest.approx(np.sqrt(1 / 3))
+    assert result["mot"]["idsw"] == result["id_switches"] == 2
+    assert result["fragmentations"] == 0
+
+
+def test_unlinked_stale_ground_truth_taking_every_match_says_so():
+    """Untracked, unlinked stale predictions stay don't-care -- with a hint.
+
+    Nothing links them to the user labels, so they are not left out; when they
+    take every match the notes point at ``user_labels_only``, which scores the
+    run correctly.
+    """
+    gt, pred = _pose_pair()
+    skeleton = gt.skeletons[0]
+    for gt_lf, pred_lf in zip(gt, pred):
+        for inst in gt_lf.instances:
+            inst.points["xy"] += np.array([0.4, 0.0])
+        gt_lf.instances += [
+            _as_predicted(inst, skeleton, None) for inst in pred_lf.instances
+        ]
+
+    m = compute_mot_metrics(gt, pred, "pose")
+    assert (m.clr_tp, m.n_dont_care) == (0, 20)
+    assert any("user_labels_only=True" in n for n in m.notes)
+    legacy = identity_metrics(gt, pred, "pose")
+    assert any("user_labels_only=True (--user_labels_only)" in n for n in legacy.notes)
+
+    users_only = compute_mot_metrics(gt, pred, "pose", user_labels_only=True)
+    assert (users_only.clr_tp, users_only.n_dont_care) == (20, 0)
+    assert users_only.mota == pytest.approx(1.0)
+
+
+def _mask_on(points, size=300):
+    """A square mask around a pose's first node, big enough to be unambiguous."""
+    x, y = np.round(points[0]).astype(int)
+    mask = np.zeros((size, size), dtype=bool)
+    mask[y : y + 10, x : x + 14] = True
+    return mask
+
+
+@pytest.mark.parametrize("user_copy_has_mask", [True, False])
+def test_gui_corrected_ground_truth_on_the_mask_carrier(user_copy_has_mask):
+    """Masks follow the instance they are linked to.
+
+    The replaced prediction's mask is left out when the user copy has its own
+    mask (it would hold the same track twice), and kept when it is the
+    animal's only mask.
+    """
+    gt, pred = _pose_pair(n_frames=6)
+    gt = _gui_corrected(gt, corrected_frames=(2,), shift=0.0)
+    pred_tracks = pred.tracks
+    for gt_lf, pred_lf in zip(gt, pred):
+        gt_lf.masks = []
+        for inst in gt_lf.instances:
+            if type(inst) is sio.Instance and not user_copy_has_mask:
+                continue
+            mask = sio.UserSegmentationMask.from_numpy(_mask_on(inst.numpy()))
+            mask.instance = inst  # untracked: the track comes through the link
+            gt_lf.masks.append(mask)
+        pred_lf.masks = [
+            sio.PredictedSegmentationMask.from_numpy(
+                _mask_on(inst.numpy()), score=0.9, track=pred_tracks[k]
+            )
+            for k, inst in enumerate(pred_lf.instances)
+        ]
+
+    m = compute_mot_metrics(gt, pred, "mask")
+    assert m.match_method == "iou"
+    assert (m.clr_tp, m.clr_fn, m.clr_fp) == (12, 0, 0)
+    assert m.mota == pytest.approx(1.0)
+    left_out = any(n.startswith("1 ground-truth detections were left") for n in m.notes)
+    assert left_out == user_copy_has_mask
+    legacy = identity_metrics(gt, pred, "mask")
+    assert (legacy.n_gt_dets, legacy.n_matched) == (12, 12)
+    assert legacy.fragmentations == 0
+
+
+# ---------------------------------------------------------------------------
+# oks_stddev validation
+# ---------------------------------------------------------------------------
+@pytest.mark.parametrize("bad", [0.0, -0.1, float("nan"), float("inf"), "wide"])
+def test_oks_stddev_must_be_finite_and_positive(bad, tmp_path):
+    """0 / NaN crashed the legacy matcher and zeroed the MOT block silently;
+    inf matched every pair; a negative spread was squared away unnoticed."""
+    gt, pred = _pose_pair()
+    for score in (compute_mot_metrics, identity_metrics):
+        with pytest.raises(ValueError, match="oks_stddev"):
+            score(gt, pred, "pose", oks_stddev=bad)
+    # Checked before either file is read: these paths do not exist.
+    missing = (tmp_path / "missing.slp").as_posix()
+    with pytest.raises(ValueError, match="finite number greater than 0"):
+        run_identity_evaluation(missing, missing, oks_stddev=bad)
 
 
 def test_no_frames_in_common_returns_nan_with_a_note():

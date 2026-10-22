@@ -93,7 +93,7 @@ def test_long_occlusion_gets_new_identity():
     seq = names_by_identity(names, scene.gt)[0]
     assert seq[:15] == ["track_0"] * 15
     assert seq[15:] == ["track_1"] * len(seq[15:])
-    assert [t.public_id for t in tracker.finished] == [0]
+    assert tracker.n_removed == 1 and tracker.tracks[0].public_id == 1
 
 
 def test_gap_longer_than_buffer_expires_before_association():
@@ -293,3 +293,15 @@ def test_rejects_parameters_of_another_tracker():
         SORTTracker(MOTParams.for_tracker("bytetrack"))
     with pytest.raises(ValueError, match="carrier"):
         SORTTracker(MOTParams.for_tracker("sort"), carrier="bbox")
+
+
+def test_paper_preset_removes_tracks_after_two_misses():
+    """preset='paper' is the reference SORT (max_age=1): a 2-frame gap starts a
+    new identity; a 1-frame gap does not. The animal preset coasts (30)."""
+    for gap, expected in ((1, 1), (2, 2), (5, 2)):
+        traj = with_gaps(_one_animal(30), {0: range(15, 15 + gap)})
+        scene = make_scene(traj)
+        names = run_tracker(build_tracker("sort", preset="paper"), scene.frames)
+        assert len(distinct_names(names)) == expected, gap
+        names = run_tracker(build_tracker("sort"), make_scene(traj).frames)
+        assert len(distinct_names(names)) == 1, gap

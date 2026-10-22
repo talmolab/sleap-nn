@@ -175,10 +175,10 @@ shown). Giving a classic-only option to a MOT tracker, or a MOT-only option to
 | `--appearance_threshold` | Appearance trackers (`deepsort`, `strongsort`, `botsort`, `deepocsort`): minimum cosine, or `auto` (calibrated per video) | `auto`, `FLOAT` in `[-1, 1]` | `auto` |
 | `--link_tracklets` | Identity linking after tracking each video | Flag | `false` |
 | `--max_tracks` | Known number of animals: closed-set identity linking, at most N tracks per video | `INT` | `None` |
-| `--mot_param` | Override any MOT parameter, e.g. `preset=paper`, `score_mode=none`, `use_byte=true` (repeatable) | `KEY=VALUE` | — |
+| `--mot_param` | Override any MOT parameter, e.g. `preset=paper`, `score_mode=none`, `use_byte=true`, `normalize_scores=false`, `body_size=40` (repeatable) | `KEY=VALUE` | — |
 | `--scoring_method` | Geometric similarity | `iou`, `oks`, `euclidean_dist` (centroid) | auto |
-| `--oks_stddev` | OKS spread for `--scoring_method oks` | `FLOAT` | `0.1` |
-| `--features` | Carrier to track | `keypoints`, `masks` | auto |
+| `--oks_stddev` | OKS spread for `--scoring_method oks` (refused with any other similarity) | `FLOAT` | `0.1` |
+| `--features` | Carrier to track (one the labels do not hold is an error) | `keypoints`, `masks` | auto |
 
 ### Examples
 
@@ -291,8 +291,8 @@ sleap-nn eval-tracking --ground_truth_path GT --predicted_path PRED [OPTIONS]
 | `--save_metrics` | `-s` | Save metrics to .json | `PATH` | None |
 | `--carrier` | | What carries identity | `auto`, `pose`, `mask` | `auto` |
 | `--match_threshold` | | Minimum OKS / mask IoU to match; maximum centroid distance (px) for single-node skeletons | `FLOAT` | `0.5` (`50` px) |
-| `--mt_threshold` / `--ml_threshold` | | Coverage cuts for mostly-tracked / mostly-lost | `FLOAT` | `0.8` / `0.2` |
-| `--oks_stddev` | | OKS keypoint spread used to match poses | `FLOAT` | `0.025` |
+| `--mt_threshold` / `--ml_threshold` | | Coverage cuts for mostly-tracked / mostly-lost (legacy identity block; the `mot` block keeps TrackEval's fixed 0.8 / 0.2) | `FLOAT` | `0.8` / `0.2` |
+| `--oks_stddev` | | OKS keypoint spread used to match poses | `FLOAT` > 0, finite | `0.025` |
 | `--user_labels_only` / `--no-user_labels_only` | | Drop predicted detections from the ground-truth side | Flag | `False` |
 | `--global_identity` / `--per_video_identity` | | Score track names as identities shared across videos | Flag | per video |
 

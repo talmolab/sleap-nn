@@ -11,10 +11,22 @@ from _pytest.logging import LogCaptureFixture
 from loguru import logger
 
 from sleap_nn.tracking.mot.calibration import (
+    MAX_TRIAL_STRIDE,
     MIN_ASSOC_RANK1,
+    MIN_MOTION_BODY,
+    MIN_TRIALS,
+    MOTION_BODY_FACTOR,
     NEG_COLLISION_WARN,
     VideoCalibration,
     calibrate,
+    frame_steps,
+    frame_stride,
+    pair_geometry,
+    resolve_body_size,
+    resolve_time_base,
+    score_normalizer,
+    steps_between,
+    stride_from_counts,
 )
 from sleap_nn.tracking.mot.detections import FrameDetections, extract_detections
 
@@ -166,10 +178,31 @@ def test_single_animal_is_insufficient():
 
 def test_too_few_trials_is_insufficient():
     """Fewer than MIN_TRIALS g=1 trials -> insufficient, appearance off."""
-    cal = calibrate(_video(n_frames=120, n_animals=2))
+    # 40 frames x 2 animals: 78 split positions even at stride 1.
+    cal = calibrate(_video(n_frames=40, n_animals=2))
     assert cal.status == "insufficient"
-    assert 0 < cal.n_trials < 100
+    assert 0 < cal.n_trials < MIN_TRIALS
     assert not cal.appearance_for_association
+
+
+def test_short_clip_reaches_min_trials():
+    """The trial stride adapts: a 400-frame clip of 2 animals is calibrated.
+
+    With a fixed stride of 10 it had ~80 trials (< MIN_TRIALS) and appearance
+    was always off for short clips.
+    """
+    cal = calibrate(_video(n_frames=400, n_animals=2))
+    assert cal.status == "ok"
+    assert cal.n_trials >= MIN_TRIALS
+    assert cal.appearance_for_association and cal.appearance_for_linking
+
+    from sleap_nn.tracking.mot.calibration import _trial_stride
+
+    assert _trial_stride(798, 2000) == 1
+    assert _trial_stride(12000, 2000) == 6
+    assert _trial_stride(10**6, 2000) == MAX_TRIAL_STRIDE
+    assert _trial_stride(0, 2000) == 1
+    assert _trial_stride(50, 0) == MAX_TRIAL_STRIDE
 
 
 @pytest.mark.parametrize("n_frames", [0, 5])
@@ -268,27 +301,194 @@ def test_step_statistics_are_per_step():
         calibrate(frames, time_base="seconds")
 
 
-def test_single_node_body_size_falls_back_to_nn_distance():
-    """(h) Single-node poses have no extent: body_size = nn_distance."""
+def _single_node_frames(n_frames, xs, speed=1.0, y=100.0):
+    """Single-node poses at ``x + speed * f`` for each ``x`` in ``xs``."""
     skel = sio.Skeleton(nodes=["c"], name="one")
     frames = []
-    for f in range(20):
+    for f in range(n_frames):
         objs = [
             sio.PredictedInstance.from_numpy(
-                np.array([[100.0 + x + f, 100.0]]),
+                np.array([[100.0 + x + speed * f, y]]),
                 skeleton=skel,
                 score=0.9,
                 point_scores=np.array([0.9]),
             )
-            for x in (0.0, 80.0, 200.0)
+            for x in xs
         ]
         frames.append(extract_detections(objs, f))
-    cal = calibrate(frames)
+    return frames
+
+
+def test_single_node_body_size_is_motion_derived():
+    """(h) Single-node poses have no extent: the body size comes from motion.
+
+    It used to fall back to the inter-animal spacing (80 px here), which sized
+    the centroid gate by how sparse the arena is, not by the animal.
+    """
+    cal = calibrate(_single_node_frames(20, (0.0, 80.0, 200.0), speed=1.0))
     # NN distances: 80, 80, 120 -> median 80.
     np.testing.assert_allclose(cal.nn_distance, 80.0)
-    np.testing.assert_allclose(cal.body_size, 80.0)
     assert cal.n_anchors == 3
+    np.testing.assert_allclose(cal.step_p99, 1.0)
+    # 8 x 1 px/step, floored at MIN_MOTION_BODY.
+    assert cal.body_size_source == "motion"
+    np.testing.assert_allclose(cal.body_size, MIN_MOTION_BODY)
     assert cal.status == "no_vectors"
+
+    # Faster animals: MOTION_BODY_FACTOR x step_p99, capped at the spacing.
+    cal = calibrate(_single_node_frames(20, (0.0, 300.0), speed=5.0))
+    np.testing.assert_allclose(cal.body_size, MOTION_BODY_FACTOR * 5.0)
+    cal = calibrate(_single_node_frames(20, (0.0, 30.0), speed=5.0))
+    assert cal.body_size_source == "motion"
+    np.testing.assert_allclose(cal.body_size, 30.0)
+
+    # No anchor (too short to chain): the spacing, with a warning.
+    cal = calibrate(_single_node_frames(5, (0.0, 80.0, 200.0)))
+    assert cal.n_anchors == 0 and cal.body_size_source == "nn_distance"
+    np.testing.assert_allclose(cal.body_size, 80.0)
+
+
+def test_single_fast_animal_is_sized_from_motion():
+    """One single-node animal at 40 px/frame: no spacing, so links are not
+    distance-gated, and the motion sizes the body (it was 50 px, too small for
+    the centroid similarity to follow it)."""
+    cal = calibrate(_single_node_frames(30, (0.0,), speed=40.0))
+    assert cal.n_anchors == 1
+    np.testing.assert_allclose([cal.step_p95, cal.step_p99], 40.0)
+    assert cal.body_size_source == "motion"
+    np.testing.assert_allclose(cal.body_size, 320.0)
+    assert cal.nn_distance == cal.body_size
+
+
+def test_body_size_warning_and_override(caplog):
+    """No extent and no motion -> WARNING; an explicit body size wins."""
+    cal = calibrate(_single_node_frames(3, (0.0,)))
+    assert cal.body_size_source == "default" and cal.body_size == 50.0
+    assert any(
+        "body size" in r.getMessage() and r.levelname == "WARNING"
+        for r in caplog.records
+    )
+    cal = calibrate(_single_node_frames(20, (0.0, 80.0, 200.0)), body_size=33.0)
+    assert cal.body_size_source == "override" and cal.body_size == 33.0
+    # Measured sizes are unchanged.
+    cal = calibrate(_video(n_frames=50, dim=0))
+    assert cal.body_size_source == "measured"
+    assert "(measured)" in cal.summary()
+
+
+def test_resolve_body_size_chain():
+    """measured > motion (clipped) > spacing > default."""
+    nan = float("nan")
+    assert resolve_body_size(40.0, 3.0, 500.0) == (40.0, "measured")
+    assert resolve_body_size(nan, 3.0, 500.0) == (24.0, "motion")
+    assert resolve_body_size(nan, 0.5, 500.0) == (MIN_MOTION_BODY, "motion")
+    assert resolve_body_size(nan, 100.0, 500.0) == (500.0, "motion")
+    assert resolve_body_size(nan, 3.0, nan) == (24.0, "motion")
+    assert resolve_body_size(nan, nan, 500.0) == (500.0, "nn_distance")
+    assert resolve_body_size(nan, nan, nan) == (50.0, "default")
+    assert resolve_body_size(0.0, nan, 0.0) == (50.0, "default")
+
+
+def test_score_normalizer():
+    """q95 of the raw scores (floored), 1.0 without scores or calibration."""
+    assert score_normalizer(None) == 1.0
+    assert score_normalizer(VideoCalibration()) == 1.0
+    cal = calibrate(_video(n_frames=30, dim=0))
+    assert score_normalizer(cal) == pytest.approx(0.9)
+    cal = VideoCalibration(score_quantiles=(0.0, 0.0, 0.0, 0.0, 0.0))
+    assert score_normalizer(cal) == 1e-6
+
+
+def test_step_helpers():
+    """The one stride / rounding rule shared by trackers, calibration, linker."""
+    assert stride_from_counts({}) == (1, True)
+    assert stride_from_counts({2: 3, 5: 1}) == (2, True)
+    assert stride_from_counts({1: 2, 3: 2}) == (1, True)  # tie -> smallest
+    assert stride_from_counts({1: 1, 2: 1, 3: 1}) == (1, False)
+    assert stride_from_counts({0: 9, -3: 2, 4: 1}) == (4, True)
+    assert frame_stride([0, 3, 6, 9, 30]) == (3, True)
+    assert frame_stride([5]) == (1, True)
+
+    assert resolve_time_base("auto", True) == "frames"
+    assert resolve_time_base("auto", False) == "steps"
+    assert resolve_time_base("steps", True) == "steps"
+    with pytest.raises(ValueError, match="time_base"):
+        resolve_time_base("seconds", True)
+
+    # max(1, round(delta / step)), half to even; non-positive deltas -> 1.
+    assert steps_between(5, 2) == 2 and steps_between(7, 2) == 4
+    assert steps_between(6, 2) == 3 and steps_between(1, 2) == 1
+    assert steps_between(0, 1) == 1 and steps_between(-50, 1) == 1
+    assert steps_between(10, 0) == 10
+    np.testing.assert_array_equal(steps_between(np.array([2, 5, 9]), 2), [1, 2, 4])
+
+    idx = [0, 2, 4, 6, 11, 13, 15, 17]
+    np.testing.assert_array_equal(
+        frame_steps(idx, "frames", 2), [0, 1, 2, 3, 5, 6, 7, 8]
+    )
+    np.testing.assert_array_equal(frame_steps(idx, "steps", 2), np.arange(8))
+    assert frame_steps([], "frames").shape == (0,)
+    with pytest.raises(ValueError, match="resolved"):
+        frame_steps(idx, "auto")
+
+
+def test_time_base_is_recorded():
+    """VideoCalibration.time_base is the resolved time base."""
+    cal = calibrate(_video(n_frames=30, dim=0))
+    assert cal.time_base == "frames"
+    idx = [0, 3, 10, 11, 25, 40, 41, 70, 71, 120, 200, 201, 260]
+    assert calibrate(_video(n_frames=len(idx), frame_indices=idx)).time_base == (
+        "steps"
+    )
+    frames = _video(n_frames=len(idx), frame_indices=idx)
+    assert calibrate(frames, time_base="frames").time_base == "frames"
+    # A regular video with a hole, forced to steps: steps count processed frames.
+    idx = list(range(20)) + list(range(300, 320))
+    cal = calibrate(_constant_velocity(idx), time_base="steps")
+    assert cal.time_base == "steps" and cal.regular_stride
+    np.testing.assert_array_equal(
+        frame_steps(idx, cal.time_base, cal.frame_step), np.arange(40)
+    )
+    assert "time base steps" in cal.summary()
+
+
+def _points(frame_idx, xs, pseudo_box_size=None):
+    """Single-node pose detections at ``(x, 100)``, as a tracker extracts them."""
+    skel = sio.Skeleton(nodes=["c"], name="one")
+    objs = [
+        sio.PredictedInstance.from_numpy(
+            np.array([[float(x), 100.0]]),
+            skeleton=skel,
+            score=0.9,
+            point_scores=np.array([0.9]),
+        )
+        for x in xs
+    ]
+    return extract_detections(objs, frame_idx, pseudo_box_size=pseudo_box_size)
+
+
+def test_pair_geometry():
+    """Online spacing / unambiguous links, with calibrate's rules."""
+    a, b = _points(0, [100, 300]), _points(1, [104, 303])
+    nn, links = pair_geometry(a, b)
+    np.testing.assert_allclose(nn, [199.0, 199.0])
+    np.testing.assert_allclose(np.sort(links), [3.0, 4.0])
+    # Gate: links longer than max_dist are dropped.
+    _, links = pair_geometry(a, b, max_dist=3.5)
+    np.testing.assert_allclose(links, [3.0])
+    # No previous frame: spacing only. A lone detection: no spacing, no gate.
+    nn, links = pair_geometry(None, b)
+    assert len(links) == 0 and len(nn) == 2
+    nn, links = pair_geometry(_points(0, [0]), _points(1, [90]))
+    assert len(nn) == 0
+    np.testing.assert_allclose(links, [90.0])
+    # Ambiguous: the runner-up is not 2x farther.
+    _, links = pair_geometry(_points(0, [100, 130]), _points(1, [115, 140]))
+    assert len(links) <= 1
+    # Pseudo boxes (a tracker's body-size squares) do not make two close
+    # animals duplicates: the spacing is measured as calibrate measures it.
+    nn, _ = pair_geometry(None, _points(0, [100, 120], pseudo_box_size=200.0))
+    np.testing.assert_allclose(nn, [20.0, 20.0])
 
 
 def test_masks_and_sleap_io_vectors():
@@ -383,6 +583,9 @@ def test_trial_statistics_match_appearance_memory():
         max_trials=1000,
         rng=np.random.default_rng(0),
     )
+    # 2 x 77 candidate positions, far below max_trials: every one is a trial.
+    stride = cal_mod._trial_stride(int(sum(av.lengths)) - 2 * 3, 1000)
+    assert stride == 1
 
     def memory(anchor, upto):
         mem = AppearanceMemory(ema_alpha=0.8, gallery_size=6)
@@ -390,11 +593,13 @@ def test_trial_statistics_match_appearance_memory():
             mem.update(av.vectors[av.offsets[anchor] + i])
         return mem
 
-    # Trials in order: anchor 0 then 1, split positions 3, 13, 23, ...
+    # Trials in order: anchor 0 then 1, split positions 3, 3 + stride, ...
     expected = []
     for a in (0, 1):
-        for j in range(3, int(av.lengths[a]), 10):
-            q = av.vectors[av.offsets[a] + j : av.offsets[a] + j + 4]
+        for j in range(3, int(av.lengths[a]), stride):
+            # The query stops at the anchor's last vector.
+            end = min(j + 4, int(av.lengths[a]))
+            q = av.vectors[av.offsets[a] + j : av.offsets[a] + end]
             true, comp = memory(a, j - 3), memory(1 - a, j - 3)
             expected.append(
                 (
@@ -416,3 +621,146 @@ def test_trial_statistics_match_appearance_memory():
     np.testing.assert_allclose(
         np.concatenate(stats.comp_link), expected[:, 4], atol=1e-5
     )
+
+
+def test_appearance_switch_skips_the_vector_work():
+    """``appearance=False``: same geometry, no appearance part, status "skipped"."""
+    frames = _video(n_frames=300, n_animals=3)
+    full = calibrate(frames)
+    geo = calibrate(frames, appearance=False)
+    assert full.status == "ok" and geo.status == "skipped"
+    for name in (
+        "n_frames",
+        "n_detections",
+        "frame_step",
+        "regular_stride",
+        "time_base",
+        "body_size",
+        "body_size_source",
+        "nn_distance",
+        "step_p95",
+        "step_p99",
+        "score_quantiles",
+        "n_anchors",
+    ):
+        assert getattr(geo, name) == getattr(full, name), name
+    assert geo.n_trials == 0 and geo.link_thresh is None
+    assert geo.neg_collision_rate is None and not geo.appearance_for_linking
+    assert "appearance not calibrated (not used)" in geo.summary()
+
+
+def test_link_rule_uses_the_linkers_gallery_length():
+    """The linking rule ignores ``gallery_size`` (the linker scores 30-galleries).
+
+    ``gallery_size`` only sets the ``g = 1`` gallery statistic (the tracker's
+    memory, e.g. DeepSORT's ``gallery_budget``).
+    """
+    from sleap_nn.tracking.mot.calibration import LINK_GALLERY_LEN
+    from sleap_nn.tracking.mot.linking import GALLERY_SIZE
+
+    assert GALLERY_SIZE == LINK_GALLERY_LEN
+    frames = _video(n_frames=400, n_animals=4, noise=0.3)
+    ref = calibrate(frames)
+    for gallery_size in (5, 100):
+        cal = calibrate(frames, gallery_size=gallery_size)
+        assert cal.link_thresh == ref.link_thresh
+        assert cal.link_margin == ref.link_margin
+        assert cal.link_thresh_by_len == ref.link_thresh_by_len
+    assert calibrate(frames, gallery_size=5).gallery_cos_gate != ref.gallery_cos_gate
+    # track_buffer=1: the long-gap trials are rerun with the linker's gallery.
+    one = calibrate(frames, track_buffer=1, gallery_size=5)
+    assert one.link_thresh == calibrate(frames, track_buffer=1).link_thresh
+
+
+def test_link_rule_is_calibrated_per_query_length():
+    """Shorter queries are noisier: their threshold is calibrated separately."""
+    from sleap_nn.tracking.mot.calibration import LINK_QUERY_LEN, link_rule_tables
+
+    cal = calibrate(_video(n_frames=600, n_animals=4, noise=0.3))
+    assert cal.status == "ok"
+    assert len(cal.link_thresh_by_len) == LINK_QUERY_LEN
+    assert len(cal.link_margin_by_len) == LINK_QUERY_LEN
+    assert cal.link_thresh_by_len[-1] == pytest.approx(cal.link_thresh)
+    assert cal.link_margin_by_len[-1] == cal.link_margin
+    # A single query vector has a much wider competitor distribution.
+    assert cal.link_thresh_by_len[0] > cal.link_thresh_by_len[-1] + 0.02
+    json.dumps(cal.as_dict(), allow_nan=False)
+
+    thresh, margin = link_rule_tables(cal)
+    np.testing.assert_allclose(thresh, cal.link_thresh_by_len)
+    # Hand-built / older calibrations: the full-length rule for every length.
+    flat = VideoCalibration(link_thresh=0.7, link_margin=0.05)
+    thresh, margin = link_rule_tables(flat, 4)
+    np.testing.assert_allclose(thresh, 0.7)
+    np.testing.assert_allclose(margin, 0.05)
+    # A length without a calibrated margin cannot be decided.
+    gappy = VideoCalibration(
+        link_thresh_by_len=(0.9, 0.8, 0.7), link_margin_by_len=(None, 0.1, 0.05)
+    )
+    thresh, margin = link_rule_tables(gappy, 5)
+    assert np.isnan(thresh[0]) and np.isnan(margin[0])
+    np.testing.assert_allclose(thresh[1:], [0.8, 0.7, 0.7, 0.7])
+    assert np.isnan(link_rule_tables(None)[0]).all()
+
+
+@pytest.mark.parametrize(
+    "name, overrides, expected",
+    [
+        ("sort", {}, "skipped"),
+        ("bytetrack", {}, "skipped"),
+        ("sort", {"link_tracklets": True}, "ok"),
+        ("sort", {"max_tracks": 4}, "ok"),
+        ("botsort", {}, "ok"),
+    ],
+)
+def test_prepare_calibrates_appearance_only_when_read(name, overrides, expected):
+    """Geometry-only trackers without linking skip the appearance calibration."""
+    from sleap_nn.tracking.mot import MOT_TRACKERS, MOTParams
+
+    tracker = MOT_TRACKERS[name](
+        MOTParams.for_tracker(name, **overrides), carrier="pose", n_nodes=4
+    )
+    objs = _sio_frames(_video(n_frames=300, n_animals=4))
+    tracker.prepare(objs)
+    assert tracker.calibration.status == expected
+
+
+def test_prepare_calibrates_deepsorts_gallery_gate_on_its_budget(monkeypatch):
+    """DeepSORT's gallery gate is calibrated on its own memory (gallery_budget)."""
+    from sleap_nn.tracking.mot import MOT_TRACKERS, MOTParams, base
+
+    seen = {}
+    real = base.calibrate
+
+    def spy(frames, **kwargs):
+        seen.update(kwargs)
+        return real(frames, **kwargs)
+
+    monkeypatch.setattr(base, "calibrate", spy)
+    params = MOTParams.for_tracker("deepsort", gallery_budget=100, gallery_size=7)
+    tracker = MOT_TRACKERS["deepsort"](params, carrier="pose", n_nodes=4)
+    tracker.prepare(_sio_frames(_video(n_frames=60, n_animals=2)))
+    assert seen["gallery_size"] == 100 and seen["appearance"] is True
+    params = MOTParams.for_tracker("botsort", gallery_size=7)
+    tracker = MOT_TRACKERS["botsort"](params, carrier="pose", n_nodes=4)
+    tracker.prepare(_sio_frames(_video(n_frames=60, n_animals=2)))
+    assert seen["gallery_size"] == 7
+
+
+def _sio_frames(frames):
+    """``FrameDetections`` -> ``(frame_idx, [PredictedInstance])`` with vectors."""
+    skel = sio.Skeleton(nodes=["a", "b", "c", "d"], name="sq")
+    out = []
+    for fd in frames:
+        objs = []
+        for k in range(len(fd)):
+            x0, y0, x1, y1 = fd.raw_boxes[k]
+            pts = np.array([[x0, y0], [x1, y0], [x1, y1], [x0, y1]])
+            inst = sio.PredictedInstance.from_numpy(
+                pts, skeleton=skel, score=0.9, point_scores=np.full(4, 0.9)
+            )
+            if fd.embeddings is not None:
+                inst.identity_embedding = sio.Embedding(fd.embeddings[k])
+            objs.append(inst)
+        out.append((fd.frame_idx, objs))
+    return out

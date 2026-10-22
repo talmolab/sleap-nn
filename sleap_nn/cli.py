@@ -2,6 +2,7 @@
 
 import __main__
 import functools
+import math
 import subprocess
 import sys
 import tempfile
@@ -1486,18 +1487,33 @@ def _detection_stack_output(detection_dirs, centroid_only: bool = False):
 
 
 def _check_fused_tracking_early(
-    tracker_config: "object", detection_dirs, embedding_dir, centroid_only: bool
+    tracker_config: "object",
+    detection_dirs,
+    embedding_dir,
+    centroid_only: bool,
+    vectors_kept: bool = False,
 ) -> None:
-    """Refuse a fused run that ``apply_tracking`` would refuse, BEFORE it detects.
+    """Refuse a run that ``apply_tracking`` would refuse, BEFORE it detects.
 
-    The fused route tracks last, after the detection stack and the embedding pass.
-    What tracking will be handed is known up front: the carrier the detection stack
-    emits (its model types), and the carrier the embedder puts its vectors on (the
-    one the model was trained on when the output holds it, else the other; see
+    The fused route (and the plain inference route, ``embedding_dir=None``) tracks
+    last, after the detection stack (and the embedding pass). What tracking will be
+    handed is known up front: the carrier the detection stack emits (its model
+    types), and the carrier the embedder puts its vectors on (the one the model
+    was trained on when the output holds it, else the other; see
     :func:`~sleap_nn.data.custom_datasets.predict_embedding_carrier`). So the
     carrier rules :func:`~sleap_nn.inference.tracking.check_tracking_plan` shares
     with ``apply_tracking`` -- e.g. a segmentation stack's masks cannot be tracked
-    with a pose ``--features`` -- fail here instead of after the inference.
+    with a pose ``--features``, nor a pose stack's poses with ``--features
+    masks`` -- fail here instead of after the inference.
+
+    Args:
+        tracker_config: The tracker configuration.
+        detection_dirs: The detection stack's model directories.
+        embedding_dir: The embedding model's directory, or ``None`` (no
+            embedding pass: no vectors).
+        centroid_only: ``--centroid_only``.
+        vectors_kept: Whether the vectors persist in the output
+            (``--save_embeddings slp``).
     """
     from sleap_nn.config.utils import resolve_model_dir
     from sleap_nn.data.custom_datasets import (
@@ -1510,23 +1526,27 @@ def _check_fused_tracking_early(
     carrier, types = _detection_stack_output(detection_dirs, centroid_only)
     if carrier is None:
         return
-    try:
-        preferred = embedding_preferred_carrier(
-            _load_training_config(resolve_model_dir(embedding_dir))[0]
-        )
-    except Exception:  # noqa: BLE001 -- best effort; the embedding pass loads it
-        preferred = None
+    vector_carrier = None
+    if embedding_dir is not None:
+        try:
+            preferred = embedding_preferred_carrier(
+                _load_training_config(resolve_model_dir(embedding_dir))[0]
+            )
+        except Exception:  # noqa: BLE001 -- best effort; the embedding pass loads it
+            preferred = None
+        vector_carrier = predict_embedding_carrier({carrier}, preferred)
     try:
         check_tracking_plan(
             tracker_config,
             has_masks=carrier == MASK_CARRIER,
             has_predicted_instances=carrier != MASK_CARRIER,
-            vector_carrier=predict_embedding_carrier({carrier}, preferred),
+            vector_carrier=vector_carrier,
             vectors_from="the only carrier the detection stack emits",
+            vectors_kept=vectors_kept,
         )
     except ValueError as e:
         raise click.UsageError(
-            f"the fused route's detection stack ({', '.join(types)}) emits "
+            f"the detection stack ({', '.join(types)}) emits "
             f"{carrier} detections only, and they cannot be tracked as configured: "
             f"{e}"
         ) from e
@@ -2226,7 +2246,7 @@ def _run_embeddings(
     if (
         tracking
         and save_embeddings == "none"
-        and not (tracker_config.uses_appearance or tracker_config.link_tracklets)
+        and not (tracker_config.uses_appearance or tracker_config.runs_linking)
     ):
         # Geometry-only tracking that neither uses nor keeps the vectors: the
         # embedding pass would run and its output be thrown away. (With
@@ -2257,6 +2277,7 @@ def _run_embeddings(
             detection_dirs,
             embedding_dirs[0],
             centroid_only=bool(kwargs.get("centroid_only")),
+            vectors_kept=save_embeddings == "slp",
         )
 
     data_path = kwargs["data_path"]
@@ -2811,6 +2832,16 @@ def _run_in_memory_new_flow(
             model_paths=kwargs.get("model_paths"),
             check_appearance=False,
         )
+        if kwargs.get("model_paths"):
+            # The carrier rules, from the carrier the detection stack will emit
+            # (e.g. `--features masks` on a pose model): the predictions are
+            # built from the model output alone, whatever the input holds.
+            _check_fused_tracking_early(
+                tracker_config,
+                list(kwargs["model_paths"]),
+                None,
+                centroid_only=bool(kwargs.get("centroid_only")),
+            )
         predict_kwargs["tracker_config"] = tracker_config
     if kwargs.get("centroid_only"):
         predict_kwargs["centroid_only"] = True
@@ -2943,6 +2974,10 @@ def _run_retrack_only(kwargs: dict, predictor_cls) -> "object":
         _progress = _make_rich_progress()
         tracking_cb = _rich_task_callback(_progress, "Tracking...")
 
+    # Snapshot the input's provenance BEFORE tracking: tracking works in place and
+    # replaces (or removes) the input's own `provenance["tracking"]` record, which
+    # belongs in the output's input lineage.
+    input_provenance = dict(getattr(labels, "provenance", None) or {})
     _start = datetime.now()
     _gui = bool(kwargs.get("gui"))
     try:
@@ -2963,7 +2998,7 @@ def _run_retrack_only(kwargs: dict, predictor_cls) -> "object":
     # set it; the new retrack flow previously saved with empty provenance). #583.
     out.provenance = carry_tracking_record(
         build_tracking_only_provenance(
-            input_labels=labels,
+            input_provenance=input_provenance,
             input_path=source_str,
             start_time=_start,
             end_time=datetime.now(),
@@ -3953,7 +3988,8 @@ def _common_inference_options(f):
             type=float,
             default=None,
             help="Per-keypoint spread of the OKS track-association score. Unset: "
-            "0.025 for the classic tracker, 0.1 for the MOT trackers.",
+            "0.025 for the classic tracker, 0.1 for the MOT trackers, which read "
+            "it only with OKS scoring (--scoring_method oks).",
         ),
         click.option("--kf_init_frame_count", type=int, default=10),
         click.option(
@@ -4047,7 +4083,9 @@ def _common_inference_options(f):
             multiple=True,
             metavar="KEY=VALUE",
             help="MOT trackers: override any MOT parameter (repeatable), e.g. "
-            "--mot_param preset=paper --mot_param gallery_size=50 (see "
+            "--mot_param preset=paper --mot_param gallery_size=50, "
+            "normalize_scores=false (score thresholds on raw scores), or "
+            "body_size=40 (animal size in px for centroid-only models) (see "
             "sleap_nn.tracking.mot.params.MOTParams).",
         ),
         click.option("--gui", is_flag=True, default=False),
@@ -4235,6 +4273,13 @@ def info(path):
     print_model_info(path)
 
 
+def _require_finite(ctx, param, value):
+    """Click callback: refuse ``nan`` / ``inf`` (a ``FloatRange`` lets them through)."""
+    if value is not None and not math.isfinite(value):
+        raise click.BadParameter(f"must be a finite number, got {value!r}.")
+    return value
+
+
 @cli.command("eval-tracking", context_settings=CONTEXT_SETTINGS)
 @click.option(
     "--ground_truth_path",
@@ -4282,13 +4327,21 @@ def info(path):
     "--mt_threshold",
     type=float,
     default=0.8,
-    help="Coverage at or above which a GT trajectory is mostly-tracked (MT).",
+    help=(
+        "Coverage at or above which a GT trajectory is mostly-tracked (MT). "
+        "Legacy identity block only; the TrackEval `mot` block always uses its "
+        "fixed MT > 0.8."
+    ),
 )
 @click.option(
     "--ml_threshold",
     type=float,
     default=0.2,
-    help="Coverage below which a GT trajectory is mostly-lost (ML).",
+    help=(
+        "Coverage below which a GT trajectory is mostly-lost (ML). Legacy "
+        "identity block only; the TrackEval `mot` block always uses its fixed "
+        "ML < 0.2."
+    ),
 )
 @click.option(
     "--user_labels_only/--no-user_labels_only",
@@ -4315,13 +4368,14 @@ def info(path):
 )
 @click.option(
     "--oks_stddev",
-    type=float,
+    type=click.FloatRange(min=0, min_open=True),
     default=0.025,
     show_default=True,
+    callback=_require_finite,
     help=(
         "Per-keypoint spread of the OKS used to match poses (both the identity "
-        "and the MOT metrics). Larger values match looser poses. Ignored for "
-        "masks and single-node skeletons."
+        "and the MOT metrics); a finite number > 0. Larger values match looser "
+        "poses. Ignored for masks and single-node skeletons."
     ),
 )
 def eval_tracking(**kwargs):

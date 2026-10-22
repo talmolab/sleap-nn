@@ -440,21 +440,48 @@ tracked.save("tracked_ocsort.slp")
     `"centroid"` and `"auto"`. An explicit non-default `scoring_method`
     (`"iou"`, `"euclidean_dist"`) also works.
 
-The trackers can also be driven frame by frame without `apply_tracking`:
+The trackers can also be driven frame by frame without `apply_tracking`. A
+tracker tracks **one video, in increasing frame order**, so build one per video
+(this is what `apply_tracking` does):
 
 ```python
 from sleap_nn.tracking.mot import MOTParams, build_mot_tracker
 
-tracker = build_mot_tracker(MOTParams.for_tracker("bytetrack"), carrier="pose")
-frames = [(lf.frame_idx, lf.predicted_instances) for lf in labels.labeled_frames]
-tracker.prepare(frames)       # optional: calibration and time base
-for frame_idx, instances in frames:
-    tracker.track(instances, frame_idx)   # sets .track / .tracking_score in place
-tracker.finalize()            # optional: identity linking, if enabled
+params = MOTParams.for_tracker("bytetrack")
+offset = 0
+for video in labels.videos:
+    lfs = sorted(labels.find(video), key=lambda lf: lf.frame_idx)
+    frames = [(lf.frame_idx, lf.predicted_instances) for lf in lfs]
+    tracker = build_mot_tracker(params, carrier="pose")
+    tracker.track_name_offset = offset   # names continue across videos
+    tracker.prepare(frames)       # optional: calibration, time base, score scale
+    for frame_idx, instances in frames:
+        tracker.track(instances, frame_idx)   # sets .track / .tracking_score
+    tracker.finalize()            # optional: identity linking, if enabled
+    offset = tracker.next_track_name_offset
+
+labels.tracks = []   # rebuild the track list from the new assignments
+labels.update()
+labels.reindex()
+labels.save("tracked.slp")
 ```
 
-`prepare()` and `finalize()` are optional. Without `prepare()`, an `"auto"`
-appearance threshold disables appearance, because there is no calibration.
+`prepare()` and `finalize()` are optional, but `prepare()` needs every frame up
+front, so a live stream skips it. Without `prepare()`:
+
+- an `"auto"` appearance threshold disables appearance (there is no
+  calibration);
+- scores are not normalized per video (`normalize_scores` needs the
+  calibration's score quantiles), so the thresholds apply to raw scores;
+- the frame stride and time base are inferred from the frame indices seen so
+  far, so tracking every k-th frame works;
+- the body size of single-node (centroid) detections is estimated from the
+  motion seen so far; pass `body_size=<px>` to `MOTParams.for_tracker` if you
+  know it.
+
+A frame index that repeats or goes backwards logs a warning: it means two videos
+(or unsorted frames) are going through one tracker. `finalize()` also warns when
+no track was ever confirmed.
 
 ---
 

@@ -10,18 +10,25 @@ the `provenance["tracking"]` record, and that the classic default is untouched.
 from __future__ import annotations
 
 import json
+import pickle
 
+import attrs
 import numpy as np
 import pytest
 import sleap_io as sio
 from _pytest.logging import LogCaptureFixture
 from loguru import logger
 
-from sleap_nn.inference.provenance import carry_tracking_record
+from sleap_nn.inference.provenance import (
+    build_inference_provenance,
+    carry_tracking_record,
+)
 from sleap_nn.inference.tracking import (
+    CLASSIC_ONLY_OPTIONS,
     MOT_ONLY_OPTIONS,
     TRACKER_NAMES,
     TrackerConfig,
+    _inherit_mask_tracks,
     apply_tracking,
     check_tracking_plan,
     resolve_mot_params,
@@ -528,3 +535,298 @@ def test_appearance_threshold_needs_an_appearance_tracker():
     with pytest.raises(ValueError, match="only applies to the appearance trackers"):
         validate_mot_config(TrackerConfig(tracker="sort", appearance_threshold=0.5))
     validate_mot_config(TrackerConfig(tracker="botsort", appearance_threshold=0.5))
+
+
+# ── Review round 2 regressions ─────────────────────────────────────────────
+
+
+def _mask_labels(skeleton, spans, n_frames=12, track_poses=False):
+    """Pose+mask labels, each pose linked to its mask (``mask.instance``).
+
+    ``spans``: per animal, the frames it is present on. ``track_poses``: the poses
+    carry a previous run's tracks, ``track_<k>`` for animal ``k``.
+    """
+    video = sio.Video(filename="a.mp4")
+    old = [sio.Track(f"track_{k}") for k in range(len(spans))]
+    lfs = []
+    for i in range(n_frames):
+        insts, masks = [], []
+        for k, span in enumerate(spans):
+            if i not in span:
+                continue
+            cx = 20 + 40 * k + i
+            inst = _pose(skeleton, cx - 5.0, 30.0)
+            if track_poses:
+                inst.track = old[k]
+                inst.tracking_score = 1.0
+            mask = sio.PredictedSegmentationMask.from_numpy(
+                _disk(80, 200, 30, cx, 8), score=0.9
+            )
+            mask.instance = inst
+            insts.append(inst)
+            masks.append(mask)
+        lfs.append(
+            sio.LabeledFrame(video=video, frame_idx=i, instances=insts, masks=masks)
+        )
+    labels = sio.Labels(videos=[video], skeletons=[skeleton], labeled_frames=lfs)
+    return labels, old
+
+
+@pytest.mark.parametrize("name", ["sort", "ocsort"])
+def test_mask_carrier_retrack_clears_stale_pose_tracks(skeleton, name):
+    """#25: a pose whose mask stays unconfirmed must not keep a previous run's
+    track, which would sit in the catalog next to this run's same-named track."""
+    every, blip = range(12), range(2)
+    labels, old = _mask_labels(skeleton, [every, blip, every], track_poses=True)
+    # An unlinked predicted pose with an old track: cleared too (MOT, M11).
+    unlinked = _pose(skeleton, 150.0, 60.0)
+    unlinked.track = old[1]
+    labels.labeled_frames[5].instances.append(unlinked)
+
+    out = apply_tracking(labels, TrackerConfig(tracker=name, features="masks"))
+
+    names = [t.name for t in out.tracks]
+    assert len(names) == len(set(names)), names
+    assert not set(map(id, old)) & set(map(id, out.tracks))
+    for lf in out.labeled_frames:
+        for mask in lf.masks:
+            # The mask is this run's authority, "untracked" included.
+            assert mask.instance.track is mask.track, lf.frame_idx
+    # The blip animal is never confirmed (min_hits=3): untracked, pose included.
+    blip_poses = [lf.instances[1] for lf in out.labeled_frames if lf.frame_idx < 2]
+    assert all(p.track is None and p.tracking_score == 0.0 for p in blip_poses)
+    assert unlinked.track is None
+
+
+def test_mask_inheritance_clear_linked_only_touches_predicted_linked_poses(skeleton):
+    """#25 (classic + identity linking): a predicted pose linked to a mask left
+    untracked loses its old track; unlinked poses and user instances keep theirs."""
+    video = sio.Video(filename="a.mp4")
+    old = sio.Track("old")
+    linked, unlinked = _pose(skeleton, 0.0, 0.0), _pose(skeleton, 50.0, 0.0)
+    user = sio.Instance.from_numpy(np.array([[9.0, 9.0], [19.0, 9.0]]), skeleton)
+    for inst in (linked, unlinked, user):
+        inst.track = old
+    masks = []
+    for inst in (linked, user):
+        mask = sio.PredictedSegmentationMask.from_numpy(_disk(20, 20, 9, 9, 3))
+        mask.instance = inst  # left untracked (track None)
+        masks.append(mask)
+    lf = sio.LabeledFrame(
+        video=video, frame_idx=0, instances=[linked, unlinked, user], masks=masks
+    )
+
+    assert _inherit_mask_tracks(lf) == 0
+    assert linked.track is old  # the classic tracker alone: left as it was
+    assert _inherit_mask_tracks(lf, clear_linked=True) == 0
+    assert linked.track is None and linked.tracking_score == 0.0
+    assert unlinked.track is old and user.track is old
+
+
+def test_linking_reads_only_the_tracked_carrier_vectors(skeleton, caplog):
+    """#26: vectors on the other carrier are never read by identity linking: the
+    plan check refuses it (the embedding pass would be wasted), apply_tracking
+    warns."""
+    for cfg in (
+        TrackerConfig(tracker="sort", max_tracks=2),
+        TrackerConfig(tracker="bytetrack", link_tracklets=True),
+        TrackerConfig(tracker="sort", mot_params={"max_tracks": 2}),
+        TrackerConfig(link_tracklets=True),  # classic
+    ):
+        plan = dict(has_masks=True, has_predicted_instances=True)
+        with pytest.raises(ValueError, match="Identity linking reads"):
+            check_tracking_plan(cfg, **plan, vector_carrier="mask")
+        # Kept in the output (--save_embeddings slp): not wasted, not refused.
+        check_tracking_plan(cfg, **plan, vector_carrier="mask", vectors_kept=True)
+        check_tracking_plan(cfg, **plan, vector_carrier="pose")
+
+        caplog.clear()
+        apply_tracking(_pose_mask_labels_vectors_on_masks(skeleton), cfg)
+        assert "Identity linking reads the re-ID vectors of the tracked pose" in (
+            caplog.text
+        ), cfg.tracker
+        assert "--features masks" in caplog.text
+    # No linking, or linking the carrier that holds them: nothing to say.
+    for cfg in (
+        TrackerConfig(tracker="sort"),
+        TrackerConfig(tracker="sort", features="masks", max_tracks=2),
+    ):
+        check_tracking_plan(
+            cfg, has_masks=True, has_predicted_instances=True, vector_carrier="mask"
+        )
+
+
+def test_linking_requested_through_mot_params_counts_as_linking():
+    """#29: `--mot_param max_tracks=N` / `link_tracklets=true` runs linking."""
+    from sleap_nn.inference.embedding import _describe_association
+
+    for overrides in ({"max_tracks": 2}, {"link_tracklets": True}):
+        cfg = TrackerConfig(tracker="sort", mot_params=overrides)
+        assert resolve_mot_params(cfg).link
+        assert cfg.runs_linking and cfg.uses_appearance
+        assert "identity linking" in _describe_association(cfg)
+    for overrides in ({"max_tracks": None}, {"link_tracklets": False}, None):
+        cfg = TrackerConfig(tracker="sort", mot_params=overrides)
+        assert not resolve_mot_params(cfg).link
+        assert not cfg.runs_linking and not cfg.uses_appearance
+    assert TrackerConfig(link_tracklets=True).runs_linking  # classic
+    assert not TrackerConfig(max_tracks=2).runs_linking  # classic: a track cap
+
+
+def test_provenance_video_index_is_the_labels_videos_index(skeleton):
+    """#27: per-video records index `labels.videos`, even past a video with no
+    frames (which has no record)."""
+    v0, v1, v2 = (sio.Video(filename=f"v{i}.mp4") for i in range(3))
+    for cfg in (TrackerConfig(tracker="sort"), TrackerConfig(link_tracklets=True)):
+        labels = _make_labels(skeleton, [v1, v2], n_frames=6)
+        labels.videos = [v0, v1, v2]  # v0: no frames
+        out = apply_tracking(labels, cfg)
+        records = out.provenance["tracking"]["videos"]
+        assert [r["video"] for r in records] == [1, 2], cfg.tracker
+        assert [r["video_filename"] for r in records] == ["v1.mp4", "v2.mp4"]
+        for r in records:
+            assert out.videos[r["video"]].filename == r["video_filename"]
+
+
+def test_tracker_config_params_is_json_safe_for_numpy_knobs():
+    """#28: numpy scalars from an API sweep must not break saving the provenance."""
+    cfg = TrackerConfig(
+        tracker="bytetrack",
+        track_buffer=np.arange(30, 31)[0],
+        track_high_threshold=np.float32(0.5),
+        mot_params={"inertia": np.float32(0.3)},
+    )
+    params = tracker_config_params(cfg)
+    assert type(params["track_buffer"]) is int
+    assert type(params["mot_params"]["inertia"]) is float
+    json.dumps(
+        build_inference_provenance(tracking_params=params, include_system_info=False)
+    )
+    classic = tracker_config_params(TrackerConfig(window_size=np.int64(7)))
+    assert type(classic["window_size"]) is int
+
+
+def test_explicit_flags_are_rederived_by_evolve():
+    """#30: `attrs.evolve` re-derives the unset `*_explicit` flags."""
+    # classic -> MOT: classic's "always explicit" must not travel along.
+    validate_mot_config(attrs.evolve(TrackerConfig(), tracker="bytetrack"))
+    sort = TrackerConfig(tracker="sort")
+    evolved = attrs.evolve(sort, scoring_method="euclidean_dist")
+    assert evolved.scoring_method_explicit
+    assert resolve_mot_params(evolved).similarity == "centroid"
+    assert not attrs.evolve(
+        TrackerConfig(tracker="botsort"), features="masks"
+    ).follows_vector_carrier
+    back = attrs.evolve(sort, tracker="classic")
+    assert back.scoring_method_explicit and back.features_explicit
+    assert back.candidates_method_explicit
+    # A flag set explicitly (the CLI) sticks.
+    pinned = TrackerConfig(tracker="sort", scoring_method_explicit=False)
+    assert not attrs.evolve(pinned, tracker="classic").scoring_method_explicit
+    restored = pickle.loads(pickle.dumps(pinned))
+    assert not restored.scoring_method_explicit and not restored.features_explicit
+    # Provenance keeps the public names.
+    params = tracker_config_params(TrackerConfig())
+    assert params["scoring_method_explicit"] is True
+    assert not any(k.startswith("_") for k in params)
+
+
+def test_mot_tracking_config_records_only_what_applied():
+    """#33: a MOT run's `tracking_config` leaves out the classic-only options and
+    an unset scoring_method / features (the preset's are in `tracking`)."""
+    params = tracker_config_params(TrackerConfig(tracker="bytetrack"))
+    for name in (*CLASSIC_ONLY_OPTIONS, "candidates_method", "scoring_method"):
+        assert name not in params, name
+    assert "features" not in params
+    assert not any(k.endswith("_explicit") for k in params)
+    assert params["tracker"] == "bytetrack"
+    explicit = tracker_config_params(
+        TrackerConfig(tracker="bytetrack", scoring_method="iou", features="masks")
+    )
+    assert (explicit["scoring_method"], explicit["features"]) == ("iou", "masks")
+
+
+def test_explicit_carrier_the_labels_do_not_hold_is_refused(skeleton):
+    """#32/#34: an explicit `features` naming a carrier the labels do not hold is
+    refused (before inference by the plan check, and by apply_tracking)."""
+    sort_kp = TrackerConfig(
+        tracker="sort", features="keypoints", features_explicit=True
+    )
+    with pytest.raises(ValueError, match="--features keypoints"):
+        check_tracking_plan(
+            sort_kp, has_masks=True, has_predicted_instances=False, vector_carrier=None
+        )
+    for cfg in (
+        TrackerConfig(tracker="sort", features="masks"),
+        TrackerConfig(features="masks", scoring_method="mask_iou"),  # classic
+    ):
+        with pytest.raises(ValueError, match="no frame holds a mask"):
+            check_tracking_plan(
+                cfg, has_masks=False, has_predicted_instances=True, vector_carrier=None
+            )
+
+    labels, _ = _mask_labels(skeleton, [range(6), range(6)])
+    for lf in labels.labeled_frames:
+        lf.instances = []  # mask-only labels
+    with pytest.raises(ValueError, match="--features keypoints"):
+        apply_tracking(labels, sort_kp)
+    # Unset: the masks are tracked.
+    out = apply_tracking(labels, TrackerConfig(tracker="sort"))
+    assert out.provenance["tracking"]["carrier"] == "mask"
+
+
+def test_oks_stddev_needs_oks_similarity():
+    """#35: `oks_stddev` is refused when nothing reads it."""
+    for cfg in (
+        TrackerConfig(tracker="sort", oks_stddev=0.05),
+        TrackerConfig(tracker="sort", oks_stddev=0.05, scoring_method="iou"),
+        TrackerConfig(tracker="sort", mot_params={"oks_stddev": 0.05}),
+    ):
+        with pytest.raises(ValueError, match="only applies to OKS scoring"):
+            validate_mot_config(cfg)
+    # `scoring_method="oks"` is the default value: not a choice without the flag.
+    with pytest.raises(ValueError, match="scoring_method_explicit=True"):
+        validate_mot_config(
+            TrackerConfig(tracker="sort", oks_stddev=0.05, scoring_method="oks")
+        )
+    validate_mot_config(
+        TrackerConfig(
+            tracker="sort",
+            oks_stddev=0.05,
+            scoring_method="oks",
+            scoring_method_explicit=True,
+        )
+    )
+    validate_mot_config(
+        TrackerConfig(tracker="sort", oks_stddev=0.05, mot_params={"similarity": "oks"})
+    )
+
+
+def test_tracking_record_always_describes_the_latest_run(skeleton):
+    """#31: a classic retrack removes a MOT run's record (it no longer describes
+    the tracks); a MOT retrack replaces it."""
+    labels = _make_labels(skeleton, [sio.Video(filename="a.mp4")])
+    apply_tracking(labels, TrackerConfig(tracker="bytetrack"))
+    assert labels.provenance["tracking"]["tracker"] == "bytetrack"
+    apply_tracking(labels, TrackerConfig(tracker="sort"))
+    assert labels.provenance["tracking"]["tracker"] == "sort"
+    apply_tracking(labels, TrackerConfig())
+    assert "tracking" not in labels.provenance
+
+    # A run refused before tracking leaves the record alone.
+    apply_tracking(labels, TrackerConfig(tracker="bytetrack"))
+    with pytest.raises(ValueError):
+        apply_tracking(labels, TrackerConfig(tracker="deepsort"))
+    assert labels.provenance["tracking"]["tracker"] == "bytetrack"
+
+
+def test_new_mot_params_reach_the_provenance(skeleton):
+    """The wave-1 knobs (`normalize_scores`, `body_size`) are `mot_params` keys and
+    are recorded, as given and as resolved."""
+    labels = _make_labels(skeleton, [sio.Video(filename="a.mp4")])
+    overrides = {"normalize_scores": False, "body_size": 40.0}
+    cfg = TrackerConfig(tracker="sort", mot_params=overrides)
+    out = apply_tracking(labels, cfg)
+    resolved = out.provenance["tracking"]["params"]
+    assert resolved["normalize_scores"] is False and resolved["body_size"] == 40.0
+    assert tracker_config_params(cfg)["mot_params"] == overrides

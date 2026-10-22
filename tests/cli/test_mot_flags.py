@@ -98,7 +98,7 @@ def test_every_mot_flag_maps_to_tracker_config():
         "--mot_param",
         "gallery_size=50",
         "--scoring_method",
-        "iou",
+        "oks",
         "--oks_stddev",
         "0.05",
     )
@@ -109,7 +109,7 @@ def test_every_mot_flag_maps_to_tracker_config():
     assert (cfg.new_track_threshold, cfg.min_match_similarity) == (0.7, 0.25)
     assert cfg.link_tracklets is True
     assert cfg.mot_params == {"preset": "paper", "gallery_size": 50}
-    assert cfg.scoring_method == "iou" and cfg.scoring_method_explicit
+    assert cfg.scoring_method == "oks" and cfg.scoring_method_explicit
     assert cfg.oks_stddev == 0.05
     assert cfg.appearance_threshold is None
 
@@ -376,3 +376,184 @@ def test_embedding_route_geometry_mot_tracker_with_linking_is_accepted(
     )
     assert result.exit_code == 0, result.output
     assert ran["cfg"].tracker == "sort" and ran["cfg"].link_tracklets
+
+
+# ── Review round 2 regressions ─────────────────────────────────────────────
+
+
+@pytest.mark.parametrize("value", ["0", "-0.1", "nan", "inf"])
+def test_eval_tracking_rejects_a_bad_oks_stddev(value):
+    """#24: 0 / negative crash or silently miss everything; nan / inf too (a
+    `FloatRange` alone lets them through). Refused before any file is read."""
+    with patch("sleap_nn.evaluation.run_identity_evaluation") as run:
+        result = CliRunner().invoke(
+            cli,
+            ["eval-tracking", "-g", "gt.slp", "-p", "pred.slp", "--oks_stddev", value],
+        )
+    assert result.exit_code == 2, result.output
+    assert "--oks_stddev" in _flat(result) and not run.called
+
+
+def test_eval_tracking_accepts_a_positive_oks_stddev():
+    with patch("sleap_nn.evaluation.run_identity_evaluation") as run:
+        result = CliRunner().invoke(
+            cli,
+            ["eval-tracking", "-g", "gt.slp", "-p", "pred.slp", "--oks_stddev", "0.05"],
+        )
+    assert result.exit_code == 0, result.output
+    assert run.call_args.kwargs["oks_stddev"] == 0.05
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        ("--tracker", "sort", "--features", "masks"),
+        ("--features", "masks", "--scoring_method", "mask_iou"),  # classic
+    ],
+    ids=["sort", "classic"],
+)
+def test_features_masks_on_a_pose_stack_is_refused_before_inference(extra):
+    """#32: a pose model's predictions never hold masks; refused up front instead of
+    after the whole inference."""
+    with patch("sleap_nn.inference.run.predict") as predict:
+        result = CliRunner().invoke(
+            cli,
+            [
+                "predict",
+                "-i",
+                "/fake/path.mp4",
+                "-m",
+                CENTROID_CKPT,
+                "--tracking",
+                *extra,
+            ],
+        )
+    assert result.exit_code == 2 and not predict.called, result.output
+    flat = _flat(result)
+    assert "emits pose detections only" in flat and "no frame holds a mask" in flat
+
+
+def test_pose_features_on_a_pose_stack_gets_to_inference():
+    with patch("sleap_nn.inference.run.predict", return_value=MagicMock()) as predict:
+        result = CliRunner().invoke(
+            cli,
+            [
+                "predict",
+                "-i",
+                "/fake/path.mp4",
+                "-m",
+                CENTROID_CKPT,
+                "--tracking",
+                "--tracker",
+                "sort",
+                "--features",
+                "keypoints",
+            ],
+        )
+    assert result.exit_code == 0, result.output
+    assert predict.called
+
+
+def test_oks_stddev_without_oks_scoring_is_rejected():
+    """#35: the MOT `auto` similarity never reads --oks_stddev."""
+    result, cfg = _predict_video(
+        "--tracking", "--tracker", "sort", "--oks_stddev", "0.05"
+    )
+    assert result.exit_code == 2 and cfg is None
+    assert "only applies to OKS scoring" in _flat(result)
+
+
+def test_new_mot_params_are_mot_param_keys():
+    """`normalize_scores` / `body_size` are exposed through --mot_param."""
+    result, cfg = _predict_video(
+        "--tracking",
+        "--tracker",
+        "sort",
+        "--mot_param",
+        "normalize_scores=false",
+        "--mot_param",
+        "body_size=40",
+    )
+    assert result.exit_code == 0, result.output
+    assert cfg.mot_params == {"normalize_scores": False, "body_size": 40.0}
+
+
+def test_embedding_route_mot_param_linking_is_accepted(
+    embedding_model_dir, monkeypatch
+):
+    """#29: linking requested through --mot_param reads the vectors too."""
+    ran = {}
+    monkeypatch.setattr(
+        "sleap_nn.inference.embedding.predict_embeddings_to_slp",
+        lambda **kw: ran.update(cfg=kw["tracker_config"]) or "out.slp",
+    )
+    result = CliRunner().invoke(
+        cli,
+        [
+            "predict",
+            "-m",
+            embedding_model_dir,
+            "-i",
+            SLP,
+            "-t",
+            "--tracker",
+            "sort",
+            "--mot_param",
+            "max_tracks=2",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert ran["cfg"].runs_linking
+
+
+def _tracked_slp(path):
+    """A 2-animal `.slp` tracked by bytetrack (its provenance holds the record)."""
+    import numpy as np
+    import sleap_io as sio
+
+    from sleap_nn.inference.tracking import TrackerConfig, apply_tracking
+
+    skeleton = sio.Skeleton(nodes=["head", "tail"])
+    video = sio.Video(filename=str(path.parent / "a.mp4"))
+
+    def pose(x):
+        return sio.PredictedInstance.from_numpy(
+            points_data=np.array([[x, 50.0], [x + 30.0, 60.0]], dtype=np.float32),
+            skeleton=skeleton,
+            score=0.9,
+            point_scores=np.full(2, 0.9, dtype=np.float32),
+        )
+
+    labels = sio.Labels(
+        videos=[video],
+        skeletons=[skeleton],
+        labeled_frames=[
+            sio.LabeledFrame(
+                video=video, frame_idx=i, instances=[pose(2.0 * i), pose(200 + 2.0 * i)]
+            )
+            for i in range(12)
+        ],
+    )
+    apply_tracking(labels, TrackerConfig(tracker="bytetrack"))
+    sio.save_slp(labels, str(path))
+    return str(path)
+
+
+@pytest.mark.parametrize(
+    "extra,top", [(("--tracker", "sort"), "sort"), ((), None)], ids=["sort", "classic"]
+)
+def test_retrack_keeps_the_input_tracking_record_as_lineage(tmp_path, extra, top):
+    """#31: the input's own `tracking` record stays in `input_provenance` (it was
+    lost when the input was tracked in place before its provenance was copied),
+    and the output's top-level record is this run's (none for plain classic)."""
+    import sleap_io as sio
+
+    src = _tracked_slp(tmp_path / "in.slp")
+    out = tmp_path / "out.slp"
+    result = CliRunner().invoke(
+        cli, ["predict", "-i", src, "--tracking", "-o", str(out), *extra]
+    )
+    assert result.exit_code == 0, result.output
+    prov = sio.load_slp(str(out)).provenance
+    assert (prov.get("tracking") or {}).get("tracker") == top
+    assert prov["input_provenance"]["tracking"]["tracker"] == "bytetrack"

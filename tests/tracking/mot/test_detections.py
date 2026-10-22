@@ -277,3 +277,20 @@ def test_mixed_skeleton_sizes_are_nan_padded():
     np.testing.assert_allclose(dets.keypoints[1, 0], [20, 20])
     assert np.isnan(dets.keypoints[1, 1:]).all()
     np.testing.assert_allclose(dets.raw_boxes[1], [15, 15, 25, 25])
+
+
+def test_normalize_scores():
+    """Divide by the video's normalizer, clip to [0, 1]; no-op without one."""
+    from sleap_nn.tracking.mot.detections import normalize_scores
+
+    objs = [_pred([[0, 0], [5, 5]] * 2, point_scores=np.full(4, s)) for s in (0.3, 0.6)]
+    dets = extract_detections(objs, 0)
+    np.testing.assert_allclose(dets.scores, [0.3, 0.6])
+    normalize_scores(dets, 0.5)
+    np.testing.assert_allclose(dets.scores, [0.6, 1.0])
+    for normalizer in (None, 0.0, -1.0, float("nan")):
+        normalize_scores(dets, normalizer)
+        np.testing.assert_allclose(dets.scores, [0.6, 1.0])
+    empty = FrameDetections.empty(0)
+    normalize_scores(empty, 0.5)
+    assert empty.scores.shape == (0,)

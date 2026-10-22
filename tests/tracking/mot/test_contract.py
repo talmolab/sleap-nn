@@ -7,11 +7,15 @@ ids and naming, degenerate input, pose and mask carriers, score thresholds).
 Scenes carry appearance vectors so appearance trackers run their full path.
 """
 
+import gc
 import json
+import weakref
 
 import numpy as np
 import pytest
 import sleap_io as sio
+from _pytest.logging import LogCaptureFixture
+from loguru import logger
 from conftest import (
     build_tracker,
     count_id_switches,
@@ -29,14 +33,34 @@ from conftest import (
 
 from sleap_nn.tracking.mot import (
     MOT_TRACKER_NAMES,
+    MOT_TRACKERS,
     BaseMOTTracker,
     MOTParams,
     SORTTracker,
 )
+from sleap_nn.tracking.mot.calibration import frame_steps
 from sleap_nn.tracking.mot.kalman import oru_replay
 from sleap_nn.tracking.mot.track import TrackState
 
 NAMES = MOT_TRACKER_NAMES
+
+
+@pytest.fixture
+def caplog(caplog: LogCaptureFixture):
+    """Route loguru records into pytest's caplog."""
+    handler_id = logger.add(
+        caplog.handler,
+        format="{message}",
+        level=0,
+        filter=lambda record: record["level"].no >= caplog.handler.level,
+        enqueue=False,
+    )
+    yield caplog
+    logger.remove(handler_id)
+
+
+def _warnings(caplog):
+    return [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
 
 
 def _trajectories(n_frames=24):
@@ -361,14 +385,56 @@ def test_mask_carrier(name):
 
 
 @pytest.mark.parametrize("name", NAMES)
-def test_scores_below_thresholds_are_not_tracked(name):
-    """Detections scoring below every threshold never start a track."""
-    scene = _scene(scores=0.01)
+def test_scores_below_thresholds_are_not_tracked(name, caplog):
+    """Detections scoring below every threshold never start a track.
+
+    With the animal preset's per-video normalization (scores / video q95), a
+    detection is low RELATIVE to the video: here two animals score 0.9 and one
+    0.01. On raw scores (normalize_scores=False) a uniformly low video is not
+    tracked at all, and finalize() says so.
+    """
+    scores = np.tile([0.9, 0.9, 0.01], (24, 1))
+    scene = _scene(scores=scores)
     tracker = build_tracker(name)
+    names = run_tracker(tracker, scene.frames)
+    assert tracker.resolved["score_normalizer"] == pytest.approx(0.9)
+    assert len(distinct_names(names)) == 2
+    low = [obj for t, (_, objs) in enumerate(scene.frames) for obj in objs[2:]]
+    assert all(obj.track is None and obj.tracking_score == 0.0 for obj in low)
+
+    scene = _scene(scores=0.01)
+    tracker = build_tracker(name, normalize_scores=False)
     names = run_tracker(tracker, scene.frames)
     assert distinct_names(names) == []
     assert tracker._track_objects == {}
+    assert tracker.resolved["score_normalizer"] is None
     assert all(obj.tracking_score == 0.0 for obj in scene.objects())
+    warnings = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
+    assert any("no track was ever confirmed" in m for m in warnings)
+    assert any("can never start a track" in m for m in warnings)
+
+
+@pytest.mark.parametrize("name", NAMES)
+def test_low_scale_scores_are_normalized_per_video(name):
+    """A model whose scores all sit low (q95 0.45) still starts tracks under the
+    animal preset: scores are divided by the video's q95. Without prepare()
+    there is no calibration and no normalization."""
+    scene = _scene(scores=0.45)
+    tracker = build_tracker(name)
+    names = run_tracker(tracker, scene.frames)
+    assert tracker.params.normalize_scores
+    assert tracker.resolved["score_normalizer"] == pytest.approx(0.45)
+    assert tracker.calibration.score_quantiles[-1] == pytest.approx(0.45)  # raw
+    assert count_id_switches(names, scene.gt) == 0
+    assert len(distinct_names(names)) == 3
+    dets = tracker._detections(list(scene.frames[0][1]), 0)
+    np.testing.assert_allclose(dets.scores, 1.0)
+
+    tracker = build_tracker(name)
+    run_tracker(tracker, scene.frames, prepare=False)
+    assert tracker.resolved["score_normalizer"] is None
+    dets = tracker._detections(list(scene.frames[0][1]), 0)
+    np.testing.assert_allclose(dets.scores, 0.45)
 
 
 @pytest.mark.parametrize("name", NAMES)
@@ -404,6 +470,169 @@ def test_resolved_is_json_safe(name):
     assert isinstance(record["calibration"], dict)
     assert isinstance(record["appearance"], dict)
     assert "linking" in record
+    assert record["body_size_source"] == "measured"
+    assert record["calibration"]["time_base"] == record["time_base"]
+
+
+@pytest.mark.parametrize("name", NAMES)
+@pytest.mark.parametrize("stride", [2, 3])
+def test_strided_frames_without_prepare(name, stride, caplog):
+    """No prepare(), every k-th frame: the stride is inferred online.
+
+    It used to stay 1, so every processed frame was a k-step gap: tentative
+    tracks died / never reached their streak and NOTHING was tracked, silently.
+    """
+    n_frames = 24
+    scene = make_scene(
+        _trajectories(n_frames),
+        frame_indices=[stride * t for t in range(n_frames)],
+        embeddings=True,
+    )
+    tracker = build_tracker(name)
+    names = run_tracker(tracker, scene.frames, prepare=False)
+    assert tracker.calibration is None
+    assert tracker.resolved["time_base"] == "frames"
+    assert tracker.resolved["frame_step"] == stride
+    assert tracker._step == n_frames - 1
+    assert count_id_switches(names, scene.gt) == 0
+    assert len(distinct_names(names)) == 3
+    assert all(n is not None for frame in names[5:] for n in frame)
+    assert not any("no track was ever confirmed" in m for m in _warnings(caplog))
+
+    # Same names as the calibrated run.
+    scene_p = make_scene(
+        _trajectories(n_frames),
+        frame_indices=[stride * t for t in range(n_frames)],
+        embeddings=True,
+    )
+    assert run_tracker(build_tracker(name), scene_p.frames) == names
+
+
+@pytest.mark.parametrize("name", ["sort", "bytetrack"])
+def test_irregular_frames_without_prepare_count_steps(name, caplog):
+    """No prepare(), irregular frame indices: one step per processed frame
+    (as prepare() would decide), with a warning."""
+    n_frames = 24
+    rng = np.random.default_rng(3)
+    frame_indices = np.cumsum(rng.integers(1, 60, size=n_frames)).tolist()
+    scene = make_scene(_trajectories(n_frames), frame_indices=frame_indices)
+    tracker = build_tracker(name)
+    names = run_tracker(tracker, scene.frames, prepare=False)
+    assert tracker.resolved["time_base"] == "steps"
+    # (The first deltas, before the irregularity shows, may count a few steps.)
+    assert n_frames - 1 <= tracker._step <= n_frames + 2
+    assert count_id_switches(names, scene.gt) == 0
+    assert len(distinct_names(names)) == 3
+    assert any("irregularly spaced" in m for m in _warnings(caplog))
+
+
+@pytest.mark.parametrize("name", NAMES)
+@pytest.mark.parametrize("prepare", [True, False])
+def test_step_rounding_matches_calibration(name, prepare):
+    """The tracker counts the same steps as the calibration / linker helpers,
+    including half-stride deltas (one rounding rule: half to even)."""
+    idx = [0, 2, 4, 6, 11, 13, 15, 17, 19, 21, 23, 25]
+    traj = _trajectories(26)[idx]
+    scene = make_scene(traj, frame_indices=idx, embeddings=True)
+    tracker = build_tracker(name)
+    run_tracker(tracker, scene.frames, prepare=prepare)
+    expected = frame_steps(idx, "frames", 2)
+    assert expected[4] == 5  # delta 5 at stride 2 -> 2 steps
+    assert tracker._step == expected[-1]
+    if prepare:
+        cal = tracker.calibration
+        assert (cal.time_base, cal.frame_step) == ("frames", 2)
+
+
+@pytest.mark.parametrize("name", NAMES)
+def test_backwards_frames_warn(name, caplog):
+    """Two videos fed to ONE tracker (frame indices restart): a warning, from
+    prepare() and from track() (once)."""
+    scene = _scene(n_frames=12)
+    frames = scene.frames + _scene(n_frames=12, seed=1).frames
+    tracker = build_tracker(name)
+    run_tracker(tracker, frames)
+    warnings = _warnings(caplog)
+    assert sum("increasing frame order" in m for m in warnings) == 2
+    assert any("prepare() got" in m for m in warnings)
+
+    caplog.clear()
+    tracker = build_tracker(name)
+    run_tracker(tracker, frames, prepare=False)
+    assert sum("does not come after" in m for m in _warnings(caplog)) == 1
+
+
+def _single_node_scene(**kwargs):
+    """Two centroid-only animals 600 px apart moving 3 px/frame; animal 0 is not
+    detected on frames 20-22 and a confident false positive appears 250 px from
+    it on frame 21."""
+    traj = linear_trajectories([(100, 100), (100, 700)], [(3, 0), (3, 0)], 40)
+    traj = with_gaps(traj, {0: range(20, 23)})
+    fp = (float(traj[19, 0, 0] + 9.0), float(traj[19, 0, 1] + 250.0))
+    return make_scene(
+        traj, n_nodes=1, false_positives=[(21, fp, 0.95)], embeddings=True, **kwargs
+    )
+
+
+@pytest.mark.parametrize("name", NAMES)
+def test_single_node_gate_is_sized_by_motion(name):
+    """Centroid-only: the gate is sized by the calibrated motion, not by the
+    inter-animal spacing, so a far false positive does not take the identity
+    of a briefly undetected animal."""
+    scene = _single_node_scene()
+    tracker = build_tracker(name, n_nodes=1)
+    names = run_tracker(tracker, scene.frames)
+    assert tracker.resolved["similarity"] == "centroid"
+    assert tracker.calibration.body_size_source == "motion"
+    assert tracker.resolved["body_size_source"] == "motion"
+    assert tracker._body_size() < 50.0  # was the 600 px spacing
+    fp = [obj for obj, g in zip(scene.frames[21][1], scene.gt[21]) if g < 0]
+    assert len(fp) == 1
+    assert fp[0].track is None or fp[0].track.name != names[19][0]
+    assert count_id_switches(names, scene.gt) == 0
+
+
+@pytest.mark.parametrize("name", NAMES)
+@pytest.mark.parametrize("n_animals", [1, 2])
+@pytest.mark.parametrize("prepare", [True, False])
+def test_single_node_fast_animals(name, n_animals, prepare):
+    """Centroid-only animals at 40 px/frame are tracked, calibrated or not, alone
+    or not (a fixed 50 px body size could not follow them)."""
+    starts = [(20, 100), (20, 600)][:n_animals]
+    traj = linear_trajectories(starts, [(40, 0)] * n_animals, 30)
+    scene = make_scene(traj, n_nodes=1, embeddings=True)
+    tracker = build_tracker(name, n_nodes=1)
+    names = run_tracker(tracker, scene.frames, prepare=prepare)
+    assert len(distinct_names(names)) == n_animals
+    assert count_id_switches(names, scene.gt) == 0
+    assert all(n is not None for frame in names[5:] for n in frame)
+    assert tracker.resolved["body_size_source"] == "motion"
+    assert tracker._body_size() >= 8 * 40.0 - 1e-6 or n_animals == 2
+
+
+@pytest.mark.parametrize("prepare", [True, False])
+def test_body_size_override(prepare):
+    """MOTParams.body_size wins over every estimate (and reaches the calibration,
+    which the identity linker reads)."""
+    scene = make_scene(_trajectories(), n_nodes=1)
+    tracker = build_tracker("sort", n_nodes=1, body_size=70.0)
+    run_tracker(tracker, scene.frames, prepare=prepare)
+    assert tracker._body_size() == 70.0
+    assert tracker.resolved["body_size_source"] == "override"
+    if prepare:
+        assert tracker.calibration.body_size == 70.0
+        assert tracker.calibration.body_size_source == "override"
+    dets = tracker._detections(list(scene.frames[0][1]), 0)
+    side = dets.raw_boxes[:, 2] - dets.raw_boxes[:, 0]
+    np.testing.assert_allclose(side, 70.0)
+
+
+def test_next_track_name_offset():
+    """Per-video trackers chained with next_track_name_offset never reuse names."""
+    tracker = build_tracker("sort", track_name_offset=4)
+    assert tracker.next_track_name_offset == 4
+    run_tracker(tracker, _scene().frames)
+    assert tracker.next_track_name_offset == 7
 
 
 # ---------------------------------------------------------------------------
@@ -433,6 +662,12 @@ class _ZeroVelocitySORT(SORTTracker):
     """SORT zeroing the XYSR center velocity of unmatched tracks."""
 
     lost_zero_velocity = (4, 5)
+
+
+class _HistorySORT(SORTTracker):
+    """SORT keeping OC-SORT's observation history and velocity direction."""
+
+    keeps_observation_history = True
 
 
 def _make(cls, **overrides):
@@ -517,7 +752,7 @@ def test_frame_gap_equals_empty_frames(cls):
         n for frame in names_b for n in frame
     ]
     assert _states(a) == _states(b)
-    assert [t.tid for t in a.finished] == [t.tid for t in b.finished]
+    assert a.n_removed == b.n_removed
     for ta, tb in zip(a.tracks, b.tracks):
         np.testing.assert_allclose(ta.mean, tb.mean, rtol=1e-9, atol=1e-9)
         np.testing.assert_allclose(ta.cov, tb.cov, rtol=1e-9, atol=1e-9)
@@ -561,14 +796,14 @@ def test_tentative_dies_on_miss():
     scene = make_scene(traj)
     tracker = _make(_DyingSORT, min_hits=3)
     run_tracker(tracker, scene.frames[:4], prepare=False)
-    assert [t.tid for t in tracker.finished] == [0]
+    assert tracker.n_removed == 1
     assert [t.tid for t in tracker.tracks] == [1]
 
     keep = [0, 1, 3, 4]
     scene = make_scene(_one_animal(6)[keep], frame_indices=keep)
     tracker = _make(_DyingSORT, min_hits=3)
     run_tracker(tracker, scene.frames, prepare=False)
-    assert [t.tid for t in tracker.finished] == [0]
+    assert tracker.n_removed == 1 and [t.tid for t in tracker.tracks] == [1]
     assert all(obj.track is None for obj in scene.objects())
 
     # hits_start=1, min_hits=1: a spawn confirms immediately.
@@ -595,17 +830,27 @@ def test_lost_zero_velocity():
 
 
 def test_observation_history_and_velocity():
-    """OC-SORT observations are bounded to 2*delta_t+1 and give the direction."""
+    """OC-SORT observations are bounded to 2*delta_t+1 and give the direction;
+    trackers that do not keep the history still keep the last observation."""
     scene = make_scene(_one_animal(15, velocity=(0.0, 4.0)))
-    tracker = _make(SORTTracker, delta_t=2)
+    tracker = _make(_HistorySORT, delta_t=2)
     run_tracker(tracker, scene.frames, prepare=False)
     track = tracker.tracks[0]
     assert sorted(track.observations) == [10, 11, 12, 13, 14]
     np.testing.assert_allclose(track.velocity, [1.0, 0.0])  # (dy, dx)
     np.testing.assert_allclose(track.last_observation, track.observations[14])
 
+    # Without the history (SORT): no observations / velocity, same tracking.
+    plain = _make(SORTTracker, delta_t=2)
+    run_tracker(plain, make_scene(_one_animal(15, velocity=(0.0, 4.0))).frames)
+    other = plain.tracks[0]
+    assert other.observations == {} and other.velocity is None
+    np.testing.assert_array_equal(other.last_observation, track.last_observation)
+    np.testing.assert_array_equal(other.mean, track.mean)
+    assert _states(plain) == _states(tracker)
+
     # The spawn box is not an observation (OC-SORT reference).
-    tracker = _make(SORTTracker)
+    tracker = _make(_HistorySORT)
     frame_idx, objs = scene.frames[0]
     tracker.track(objs, frame_idx)
     assert tracker.tracks[0].observations == {}
@@ -640,3 +885,114 @@ def test_similarity_matrices(kind):
     assert tracker._geometric_similarity([], dets).shape == (0, 3)
     empty = tracker._detections([], 6)
     assert tracker._geometric_similarity(tracker.tracks, empty).shape == (2, 0)
+
+
+@pytest.mark.parametrize("name", NAMES)
+def test_only_ocsort_family_keeps_observation_history(name):
+    """The OC-SORT history (OCM velocity, `observations`) is kept exactly by
+    the trackers that read it; every tracker keeps `last_observation`."""
+    cls = MOT_TRACKERS[name]
+    assert cls.keeps_observation_history == (name in ("ocsort", "deepocsort"))
+    scene = _scene(n_frames=8)
+    tracker = build_tracker(name)
+    run_tracker(tracker, scene.frames)
+    for track in tracker.tracks:
+        assert track.last_observation is not None
+        assert bool(track.observations) == cls.keeps_observation_history
+        assert (track.velocity is not None) == cls.keeps_observation_history
+
+
+def _churn_scene(n_frames=60, seed=0):
+    """Three animals plus one confident one-frame false positive per frame."""
+    rng = np.random.default_rng(seed)
+    fps = [(t, tuple(rng.uniform(20, 300, size=2)), 0.95) for t in range(n_frames)]
+    return _scene(n_frames=n_frames, false_positives=fps, seed=seed)
+
+
+@pytest.mark.parametrize("name", NAMES)
+def test_removed_tracks_are_not_retained(name):
+    """Track turnover does not grow memory: removed tracks (with their Kalman
+    state, members and appearance memory) are dropped, only counted."""
+    scene = _churn_scene()
+    tracker = build_tracker(name)
+    tracker.prepare(scene.frames)
+    refs = []
+    for frame_idx, objs in scene.frames:
+        tracker.track(objs, frame_idx)
+        refs.extend(weakref.ref(t) for t in tracker.tracks)
+    tracker.finalize()
+    assert not hasattr(tracker, "finished")
+    gc.collect()
+    alive = {id(r()) for r in refs if r() is not None}
+    assert alive == {id(t) for t in tracker.tracks}
+    assert tracker.n_removed >= 15  # the false positives' tentative tracks
+    assert len(tracker.tracks) < 3 + 35  # bounded by the buffer, not the video
+
+
+@pytest.mark.parametrize("name", NAMES)
+@pytest.mark.parametrize("link", [False, True])
+def test_confirmed_tracks_keep_no_members(name, link):
+    """`members` only holds a tentative track's detections (labeled when it
+    confirms); processed frames are kept only for identity linking."""
+    scene = _scene(n_frames=12)
+    tracker = build_tracker(name, min_hits=3, link_tracklets=link)
+    tracker.prepare(scene.frames)
+    saw_tentative_members = False
+    for frame_idx, objs in scene.frames:
+        tracker.track(objs, frame_idx)
+        for track in tracker.tracks:
+            if track.public_id is None:
+                saw_tentative_members |= len(track.members) > 0
+            else:
+                assert track.members == []
+    assert saw_tentative_members
+    assert len(tracker._seen_frames) == (len(scene.frames) if link else 0)
+    tracker.finalize()
+    assert ("linking" in tracker.resolved) == link
+    # Retroactive labels were still written (frame 0 is tentative everywhere).
+    assert all(obj.track is not None for obj in scene.frames[0][1])
+
+
+_ODD_GAPS = [0, 2, 4, 6, 11, 13, 15, 17, 26, 28, 30, 32, 34, 36, 38]
+_IRREGULAR = [0, 1, 5, 6, 14, 15, 33, 34, 35, 61, 62, 90, 91, 92, 140]
+
+
+@pytest.mark.parametrize("name", ["sort", "bytetrack", "deepsort", "ocsort"])
+@pytest.mark.parametrize("time_base", ["auto", "frames", "steps"])
+@pytest.mark.parametrize("idx", [_ODD_GAPS, _IRREGULAR], ids=["odd_gaps", "irregular"])
+def test_tracker_clock_is_the_calibration_clock(name, time_base, idx):
+    """After prepare(), every frame's step equals the shared helper's
+    `frame_steps(idx, cal.time_base, cal.frame_step)` for every time base (one
+    clock for the tracker, the calibration and the identity linker)."""
+    scene = make_scene(
+        _trajectories(idx[-1] + 1)[idx], frame_indices=idx, embeddings=True
+    )
+    tracker = build_tracker(name, time_base=time_base)
+    tracker.prepare(scene.frames)
+    cal = tracker.calibration
+    if time_base != "auto":
+        assert cal.time_base == time_base
+    steps = []
+    for frame_idx, objs in scene.frames:
+        tracker.track(objs, frame_idx)
+        steps.append(tracker._step)
+    expected = frame_steps(idx, cal.time_base, cal.frame_step)
+    np.testing.assert_array_equal(steps, expected)
+    assert (tracker.resolved["time_base"], tracker.resolved["frame_step"]) == (
+        cal.time_base,
+        int(cal.frame_step) if cal.time_base == "frames" else 1,
+    )
+
+
+@pytest.mark.parametrize("time_base", ["frames", "steps"])
+def test_uncalibrated_clock_matches_frame_steps(time_base):
+    """Without prepare(), an explicit time base counts the same steps as
+    `frame_steps` with the stride inferred from the first gap."""
+    idx = _ODD_GAPS
+    scene = make_scene(_trajectories(idx[-1] + 1)[idx], frame_indices=idx)
+    tracker = build_tracker("sort", time_base=time_base)
+    steps = []
+    for frame_idx, objs in scene.frames:
+        tracker.track(objs, frame_idx)
+        steps.append(tracker._step)
+    np.testing.assert_array_equal(steps, frame_steps(idx, time_base, 2))

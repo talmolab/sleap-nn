@@ -18,8 +18,9 @@ Algorithm (per frame, after every live track is predicted to this step):
    ``hits = hit_streak = 0`` (the spawn detection does not count), is confirmed
    once ``hit_streak >= min_hits`` (``min_hits=3``: four consecutive detections),
    survives misses while tentative, and every track is removed after more than
-   ``track_buffer`` unmatched steps. Unmatched detections scoring at least
-   ``new_track_threshold`` start tracks.
+   ``track_buffer`` unmatched steps (the reference ``max_age``: 1 in the
+   ``paper`` preset, as published; 30 in ``animal``). Unmatched detections
+   scoring at least ``new_track_threshold`` start tracks.
 """
 
 import numpy as np

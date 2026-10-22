@@ -251,7 +251,11 @@ def test_strongsort_mc_cost_hand_checked():
     """MC cost: lambda * (1 - cos) + (1 - lambda) * d^2, gated cells at 1e5 first."""
     dim = 16
     tracker = _confirmed_tracks(
-        "strongsort", [(100.0, 100.0)], [_unit(dim, 1.0)], appearance_threshold=0.7
+        "strongsort",
+        [(100.0, 100.0)],
+        [_unit(dim, 1.0)],
+        appearance_threshold=0.7,
+        kalman="xyah",
     )
     track = tracker.tracks[0]
     # XYAH state at (100, 100), h = 40 -> R std (1/20) h = 2 px (variance 4); the
@@ -345,7 +349,11 @@ def test_spawn_seeds_the_gallery(name):
 def test_strongsort_nsa_kalman_update():
     """StrongSORT's filter is NSA: the update uses R * (1 - score)^2."""
     assert build_tracker("deepsort").kf.nsa is False
-    tracker = build_tracker("strongsort", score_mode="instance")
+    # Animal preset: `xywh` (NSA too); the published filter is `xyah`.
+    animal = build_tracker("strongsort")
+    assert animal.kalman_kind == "xywh" and animal.kf.nsa is True
+    assert build_tracker("strongsort", preset="paper").kalman_kind == "xyah"
+    tracker = build_tracker("strongsort", score_mode="instance", kalman="xyah")
     assert tracker.params.nsa is True and tracker.kf.nsa is True
     assert isinstance(tracker.kf, KalmanFilterXYAH)
 
@@ -489,3 +497,101 @@ def test_vectorless_track_matched_by_geometry(name):
     names = run_tracker(tracker, scene.frames)
     assert count_id_switches(names, scene.gt) == 0
     assert len(distinct_names(names)) == 2
+
+
+def _broken(kind, dim=16):
+    """A vector the tracker cannot use: all NaN, all zero, or of another dim."""
+    if kind == "nan":
+        return np.full(dim, np.nan)
+    if kind == "zero":
+        return np.zeros(dim)
+    return _unit(dim // 2, 1.0)  # "dim": the video's other vectors are 16-D
+
+
+@pytest.mark.parametrize("name", NAMES)
+@pytest.mark.parametrize("kind", ["nan", "zero"])
+def test_unusable_vectors_count_as_missing(name, kind, log_messages):
+    """All-NaN / all-zero vectors are the same as no vector.
+
+    One rule (``FrameDetections.has_embedding``), and prepare() says why: the
+    detections DO hold an ``identity_embedding``, but none is usable.
+    """
+    traj = linear_trajectories([(40, 50), (40, 120), (60, 190)], [(3, 0)] * 3, 30)
+    keep = [t for t in range(30) if not 12 <= t < 16]
+    reference = run_tracker(
+        build_tracker(name), make_scene(traj[keep], frame_indices=keep).frames
+    )
+    log_messages.clear()
+
+    scene = make_scene(traj[keep], frame_indices=keep)
+    for obj in scene.objects():
+        obj.identity_embedding = sio.Embedding(_broken(kind).astype(np.float32))
+    tracker = build_tracker(name)
+    names = run_tracker(tracker, scene.frames)
+    assert names == reference
+    assert tracker._vectors_seen is False
+    assert "no appearance vectors" in tracker.resolved["appearance"]["reason"]
+    notices = [m for m in log_messages if "cannot be used" in m]
+    assert len(notices) == 1
+    assert "78 of 78 detection(s)" in notices[0] and "geometry alone" in notices[0]
+
+
+@pytest.mark.parametrize("name", NAMES)
+@pytest.mark.parametrize("kind", ["nan", "dim"])
+def test_partly_unusable_vectors_are_reported(name, kind, log_messages):
+    """One animal's vectors are unusable: it is tracked as vector-less.
+
+    It is matched by geometry, the others by appearance, and prepare() reports
+    the count.
+    """
+    traj = linear_trajectories([(80, 120), (240, 120)], [(1, 0), (1, 0)], 20)
+    scene = make_scene(traj, heading=VERTICAL, embeddings=True, seed=3)
+    for (_, objs), ids in zip(scene.frames, scene.gt):
+        for obj, gid in zip(objs, ids):
+            if gid == 1:
+                obj.identity_embedding = sio.Embedding(_broken(kind).astype(np.float32))
+    tracker = build_tracker(name, appearance_threshold=0.5)
+    names = run_tracker(tracker, scene.frames)
+    assert count_id_switches(names, scene.gt) == 0
+    assert len(distinct_names(names)) == 2
+    assert tracker._embedding_dim == 16
+    notices = [m for m in log_messages if "cannot be used" in m]
+    assert len(notices) == 1
+    assert "20 of 40 detection(s)" in notices[0] and "(16-D)" in notices[0]
+    assert "geometry alone" not in notices[0]
+
+    # Vector-less (None) detections are not "unusable": no notice.
+    log_messages.clear()
+    scene = make_scene(traj, heading=VERTICAL, embeddings=True, seed=3)
+    for obj in scene.objects()[1::2]:
+        obj.identity_embedding = None
+    run_tracker(build_tracker(name, appearance_threshold=0.5), scene.frames)
+    assert not any("cannot be used" in m for m in log_messages)
+
+
+@pytest.mark.parametrize("name", NAMES)
+def test_low_threshold_gate_warns(name, log_messages):
+    """Scores never above track_low_threshold: every detection is ignored.
+
+    prepare() says so even though the scores clear new_track_threshold.
+    """
+    scene = make_scene(
+        linear_trajectories([(60, 120)], [(3, 0)], 12), embeddings=True, scores=0.7
+    )
+    tracker = build_tracker(
+        name,
+        normalize_scores=False,
+        track_high_threshold=0.8,
+        track_low_threshold=0.75,
+        new_track_threshold=0.1,
+    )
+    assert distinct_names(run_tracker(tracker, scene.frames)) == []
+    assert any("track_low_threshold=0.75" in m for m in log_messages)
+
+    # Animal preset (normalized scores, low threshold 0.1): tracked, no warning.
+    log_messages.clear()
+    scene = make_scene(
+        linear_trajectories([(60, 120)], [(3, 0)], 12), embeddings=True, scores=0.7
+    )
+    assert len(distinct_names(run_tracker(build_tracker(name), scene.frames))) == 1
+    assert not any("track_low_threshold" in m for m in log_messages)

@@ -47,14 +47,17 @@ class MOTTrack:
             update; the predicted pose is ``last_keypoints + (predicted center -
             kf_center_at_update)`` so both terms use the same reference point.
         last_score: Latest matched detection score.
-        observations: OC-SORT observation history ``{step: xyxy}`` (bounded).
-        last_observation: Latest observed ``xyxy`` (OC-SORT), or ``None``.
-        velocity: OC-SORT unit velocity direction ``(dy, dx)`` or ``None``.
+        observations: OC-SORT observation history ``{step: xyxy}`` (bounded;
+            kept only by trackers with ``keeps_observation_history``).
+        last_observation: Latest observed ``xyxy`` (spawn excluded), or ``None``.
+        velocity: OC-SORT unit velocity direction ``(dy, dx)`` or ``None``
+            (``keeps_observation_history`` trackers only).
         frozen: OC-SORT state saved at the first miss ``(mean, cov, step)`` or
             ``None``.
         appearance: Appearance memory (appearance-using trackers) or ``None``.
-        members: ``(frame_idx, source_object, similarity)`` of every assigned
-            detection, for retroactive labeling and identity linking.
+        members: ``(frame_idx, source_object, similarity)`` of the detections
+            assigned while the track is tentative, labeled retroactively when it
+            confirms (then emptied: later detections are labeled as matched).
         public_id: Public id (``sio.Track`` key) once confirmed, else ``None``.
     """
 
@@ -86,8 +89,3 @@ class MOTTrack:
     def is_live(self) -> bool:
         """Whether the track can still be matched (not removed)."""
         return self.state != TrackState.REMOVED
-
-    @property
-    def is_confirmed(self) -> bool:
-        """Whether the track has been confirmed (``CONFIRMED`` or ``LOST``)."""
-        return self.state in (TrackState.CONFIRMED, TrackState.LOST)

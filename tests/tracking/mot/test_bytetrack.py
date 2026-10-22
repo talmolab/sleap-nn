@@ -9,14 +9,19 @@ from conftest import (
     distinct_names,
     identity_vectors,
     linear_trajectories,
+    make_pose,
     make_scene,
+    pose_points,
     run_tracker,
     static_trajectories,
     track_names,
     with_gaps,
 )
+from loguru import logger
 
 from sleap_nn.tracking.mot import BoTSORTTracker, ByteTracker
+from sleap_nn.tracking.mot.association import iou_matrix
+from sleap_nn.tracking.mot.bytetrack import decisive_cells, shared_node_iou
 from sleap_nn.tracking.mot.calibration import VideoCalibration
 from sleap_nn.tracking.mot.track import TrackState
 
@@ -73,6 +78,15 @@ def _calibration(m_assoc=0.1, gate=0.5):
 def _scores_of(frames):
     """Tracking score of every object, per frame."""
     return [[o.tracking_score for o in objs] for _, objs in frames]
+
+
+@pytest.fixture
+def log_messages():
+    """Capture loguru messages (WARNING and above) emitted during a test."""
+    messages = []
+    handler_id = logger.add(lambda m: messages.append(str(m)), level="WARNING")
+    yield messages
+    logger.remove(handler_id)
 
 
 # ------------------------------------------------------------------ ByteTrack
@@ -133,21 +147,25 @@ def test_low_score_detections_never_spawn():
     """D_lo detections never start a track, whatever new_track_threshold says."""
     for new_track_threshold in (0.6, 0.2):
         scene = make_scene(_one_animal(12), scores=0.3)
-        tracker = build_tracker("bytetrack", new_track_threshold=new_track_threshold)
+        tracker = build_tracker(
+            "bytetrack", new_track_threshold=new_track_threshold, normalize_scores=False
+        )
         names = run_tracker(tracker, scene.frames)
         assert distinct_names(names) == []
-        assert tracker.tracks == [] and tracker.finished == []
+        assert tracker.tracks == [] and tracker.n_removed == 0
 
 
 def test_new_tracks_need_new_track_threshold():
     """High-score detections start tracks only from new_track_threshold on."""
     scene = make_scene(_one_animal(12), scores=0.55)  # D_hi (> 0.5) but < 0.6
-    tracker = build_tracker("bytetrack")
+    tracker = build_tracker("bytetrack", normalize_scores=False)
     assert distinct_names(run_tracker(tracker, scene.frames)) == []
-    assert tracker.finished == []
+    assert tracker.n_removed == 0
 
     scene = make_scene(_one_animal(12), scores=0.65)
-    names = run_tracker(build_tracker("bytetrack"), scene.frames)
+    names = run_tracker(
+        build_tracker("bytetrack", normalize_scores=False), scene.frames
+    )
     assert len(distinct_names(names)) == 1
     assert all(frame[0] is not None for frame in names)
 
@@ -155,7 +173,9 @@ def test_new_tracks_need_new_track_threshold():
     scores = np.full((12, 1), 0.9)
     scores[6:] = 0.55
     scene = make_scene(_one_animal(12), scores=scores)
-    names = run_tracker(build_tracker("bytetrack"), scene.frames)
+    names = run_tracker(
+        build_tracker("bytetrack", normalize_scores=False), scene.frames
+    )
     assert len(distinct_names(names)) == 1
     assert all(frame[0] is not None for frame in names)
 
@@ -165,7 +185,7 @@ def test_high_threshold_is_strict():
     scores = np.full((14, 1), 0.9)
     scores[8] = 0.5
     scene = make_scene(_one_animal(14), scores=scores)
-    tracker = build_tracker("bytetrack")
+    tracker = build_tracker("bytetrack", normalize_scores=False)
     names = run_tracker(tracker, scene.frames)
     assert names[8] == [None]
     assert len(distinct_names(names)) == 1  # re-found from LOST at frame 9
@@ -177,9 +197,14 @@ def test_tentative_track_dies_on_first_miss():
     traj = with_gaps(_one_animal(8), {0: [1]})
     scene = make_scene(traj)
     tracker = build_tracker("bytetrack", min_hits=2)
-    names = run_tracker(tracker, scene.frames, finalize=False)
-    assert [t.tid for t in tracker.finished] == [0]
-    assert tracker.finished[0].state == TrackState.REMOVED
+    tracker.prepare(scene.frames)
+    tracker.track(*scene.frames[0][::-1])
+    (first,) = tracker.tracks
+    for frame_idx, objs in scene.frames[1:]:
+        tracker.track(objs, frame_idx)
+    names = track_names(scene.frames)
+    assert first.tid == 0 and first.state == TrackState.REMOVED
+    assert first not in tracker.tracks and tracker.n_removed == 1
     assert names[0] == [None]
     assert names[1] == []
     assert all(frame == ["track_0"] for frame in names[2:])
@@ -207,7 +232,7 @@ def test_fuse_score(fuse):
     scores = np.full((12, 1), 0.9)
     scores[10] = 0.55
     scene = make_scene(traj, scores=scores)
-    tracker = build_tracker("bytetrack", fuse_score=fuse)
+    tracker = build_tracker("bytetrack", fuse_score=fuse, normalize_scores=False)
     names = run_tracker(tracker, scene.frames)
     if fuse:
         assert names[10] == [None]
@@ -243,7 +268,7 @@ def test_duplicate_removal_drops_younger_lost_track():
     t1.start_frame = 5  # history 4 < t0's 10
     objs = make_scene(static_trajectories([(100.0, 60.0)], 1)).frames[0][1]
     tracker.track(objs, 10)
-    assert t1.state == TrackState.REMOVED and t1 in tracker.finished
+    assert t1.state == TrackState.REMOVED and t1 not in tracker.tracks
     assert tracker.tracks == [t0] and t0.state == TrackState.CONFIRMED
     assert objs[0].track is tracker._track_objects[t0.public_id]
 
@@ -256,7 +281,7 @@ def test_duplicate_removal_drops_younger_matched_track():
     t1.start_frame = -50  # history 59 > t0's 10
     objs = make_scene(static_trajectories([(100.0, 60.0)], 1)).frames[0][1]
     tracker.track(objs, 10)
-    assert t0.state == TrackState.REMOVED and t0 in tracker.finished
+    assert t0.state == TrackState.REMOVED and t0 not in tracker.tracks
     assert tracker.tracks == [t1] and t1.state == TrackState.LOST
     assert objs[0].track is None and objs[0].tracking_score == 0.0
 
@@ -314,7 +339,12 @@ def test_bytetrack_defaults():
     assert (p.track_high_threshold, p.track_low_threshold) == (0.5, 0.1)
     assert (p.new_track_threshold, p.min_match_similarity) == (0.6, 0.2)
     assert p.fuse_score and p.duplicate_similarity == 0.85
-    assert tracker.kalman_kind == "xyah" and tracker.lost_zero_velocity == (7,)
+    # Animal preset: per-video score normalization and an `xywh` filter (a
+    # turning animal breaks `xyah`'s slowly varying aspect); paper: as published.
+    assert p.normalize_scores and tracker.kalman_kind == "xywh"
+    assert tracker.lost_zero_velocity == (7,)
+    paper = build_tracker("bytetrack", preset="paper")
+    assert not paper.params.normalize_scores and paper.kalman_kind == "xyah"
     assert ByteTracker.tentative_dies_on_miss and not ByteTracker.uses_appearance
     botsort = build_tracker("botsort")
     assert botsort.kalman_kind == "xywh" and botsort.lost_zero_velocity == (6, 7)
@@ -425,27 +455,295 @@ def test_botsort_without_usable_appearance_is_geometric():
     assert _run_bounce(bytetrack) == reference
 
 
-def test_botsort_no_vectors():
-    """No vectors: strict mode raises up front, library mode tracks on geometry."""
-    scene = make_scene(_one_animal(12))
-    tracker = build_tracker("botsort")
-    tracker.strict_vectors = True
-    with pytest.raises(ValueError, match="bytetrack"):
-        tracker.prepare(scene.frames)
+@pytest.mark.parametrize("bad", [None, "nan", "zero"])
+def test_botsort_no_usable_vectors(bad):
+    """No usable vector at all: BoT-SORT tracks on geometry alone.
 
-    # Empty videos and videos with vectors pass the strict check.
-    tracker = build_tracker("botsort")
-    tracker.strict_vectors = True
-    tracker.prepare([(i, []) for i in range(3)])
-    tracker = build_tracker("botsort")
-    tracker.strict_vectors = True
-    names = run_tracker(tracker, make_scene(_one_animal(12), embeddings=True).frames)
-    assert len(distinct_names(names)) == 1
-
+    None, all NaN or all zero (the ``FrameDetections.has_embedding`` rule) give
+    the same result whether or not the detections hold a (broken) vector.
+    """
+    reference = run_tracker(
+        build_tracker("botsort"), make_scene(_one_animal(12)).frames
+    )
+    assert len(distinct_names(reference)) == 1
     for prepare in (True, False):
+        scene = make_scene(_one_animal(12))
+        if bad is not None:
+            vec = np.full(16, np.nan if bad == "nan" else 0.0)
+            _attach(scene, [vec])
         tracker = build_tracker("botsort")
-        names = run_tracker(
-            tracker, make_scene(_one_animal(12)).frames, prepare=prepare
+        names = run_tracker(tracker, scene.frames, prepare=prepare)
+        assert names == reference
+        assert tracker._vectors_seen is False
+        appearance = tracker.resolved["appearance"]
+        assert appearance["enabled"] is False
+        assert "no appearance vectors" in appearance["reason"]
+    assert not hasattr(
+        BoTSORTTracker(build_tracker("botsort").params), "strict_vectors"
+    )
+
+
+# ------------------------------------------------- duplicate removal (kinds)
+def _huddle(n_frames=90, dropout=75):
+    """Two single-node animals 150 px apart; B then rests 30 px from A.
+
+    B misses one detection (frame ``dropout``) while resting there.
+    """
+    traj = np.zeros((n_frames, 2, 2))
+    traj[:, 0] = (100.0, 120.0)
+    traj[:, 1, 0] = np.concatenate(
+        [
+            np.full(50, 250.0),
+            np.linspace(250.0, 130.0, 11),
+            np.full(n_frames - 61, 130.0),
+        ]
+    )
+    traj[:, 1, 1] = 120.0
+    traj[dropout, 1] = np.nan
+    return traj
+
+
+@pytest.mark.parametrize("name", ["bytetrack", "botsort"])
+def test_single_node_huddle_is_not_a_duplicate(name):
+    """Centroid similarity: a one-frame dropout in a huddle removes no track.
+
+    Body 150 px, the animals rest 30 px apart: no identity switches either. The
+    centroid kernel at 0.85 admits 0.285 body (43 px): it used to call the
+    pair a duplicate and remove a real track. Duplicates are decided on the box
+    IoU (body-sized pseudo boxes: 120/180 = 0.67 here).
+    """
+    scene = make_scene(_huddle(), n_nodes=1)
+    tracker = build_tracker(name, n_nodes=1, body_size=150.0)
+    names = run_tracker(tracker, scene.frames)
+    assert tracker.resolved["similarity"] == "centroid"
+    assert count_id_switches(names, scene.gt) == 0
+    assert distinct_names(names) == ["track_0", "track_1"]
+    assert all(n is not None for frame in names[5:] for n in frame)
+    assert tracker.n_removed == 0
+
+
+def _two_static_single_node_tracks():
+    """A ByteTracker with two confirmed static single-node tracks (body 150 px)."""
+    scene = make_scene(
+        static_trajectories([(100.0, 60.0), (100.0, 400.0)], 10), n_nodes=1
+    )
+    tracker = build_tracker("bytetrack", n_nodes=1, body_size=150.0)
+    run_tracker(tracker, scene.frames, prepare=False, finalize=False)
+    t0, t1 = tracker.tracks
+    assert t0.state == t1.state == TrackState.CONFIRMED
+    return tracker, t0, t1
+
+
+@pytest.mark.parametrize("dx,removed", [(3.0, True), (30.0, False)])
+def test_single_node_duplicate_threshold_is_box_overlap(dx, removed):
+    """A LOST single-node track ``dx`` px off a matched detection.
+
+    It is a duplicate only when their (pseudo) boxes overlap above IoU 0.85.
+    """
+    tracker, t0, t1 = _two_static_single_node_tracks()
+    _make_lost_duplicate(tracker, t0, t1, dx=dx)
+    t1.start_frame = 5  # the younger one
+    objs = make_scene(static_trajectories([(100.0, 60.0)], 1), n_nodes=1).frames[0][1]
+    tracker.track(objs, 10)
+    assert (t1.state == TrackState.REMOVED) == removed
+    assert objs[0].track is tracker._track_objects[t0.public_id]
+    # The centroid kernel (scale body / 2 = 75 px) would call both a duplicate.
+    assert np.exp(-(dx**2) / (2 * 75.0**2)) > tracker.params.duplicate_similarity
+
+
+# --------------------------------------------- partial (occluded) poses, IoU
+def _partial_pose_frames(n_frames, occluded, hidden, low=0.3, lane=(60.0, 120.0)):
+    """One animal moving 2 px/frame, occluded on the ``occluded`` frames.
+
+    There it scores ``low`` and the ``hidden`` nodes are invisible.
+    """
+    frames = []
+    for t in range(n_frames):
+        occ = t in occluded
+        center = (lane[0] + 2.0 * t, lane[1])
+        pose = make_pose(
+            center, score=low if occ else 0.9, nan_nodes=hidden if occ else ()
         )
-        assert len(distinct_names(names)) == 1
-        assert tracker.resolved["appearance"]["enabled"] is False
+        frames.append((t, [pose]))
+    return frames
+
+
+@pytest.mark.parametrize("name", ["bytetrack", "botsort"])
+@pytest.mark.parametrize("hidden", [(2,), (2, 3, 4)], ids=["no_tail", "head_thorax"])
+@pytest.mark.parametrize("n_occluded", [10, 40])
+def test_partial_low_score_pose_stays_on_track(name, hidden, n_occluded):
+    """A low-score (D_lo) pose with its tail hidden matches its track in stage 2.
+
+    Its visible-node box (IoU 0.42 with the full predicted box for "no tail") was
+    rejected at the 0.5 low-stage cap: the track went LOST and, past
+    ``track_buffer`` (40 frames), came back as a new identity. Pose IoU now also
+    compares the nodes visible on both sides.
+    """
+    occluded = range(10, 10 + n_occluded)
+    frames = _partial_pose_frames(20 + n_occluded, occluded, hidden)
+    tracker = build_tracker(name)
+    names = run_tracker(tracker, frames)
+    assert tracker.resolved["similarity"] == "iou"
+    assert distinct_names(names) == ["track_0"]
+    assert all(frame == ["track_0"] for frame in names)
+    assert all(frames[t][1][0].tracking_score > 0.5 for t in occluded)
+
+
+def test_partial_poses_in_contact_keep_identities():
+    """Two animals side by side (overlapping boxes); one turns partial, low-score.
+
+    The shared-node IoU does not pull it onto its neighbor's track.
+    """
+    n = 30
+    occluded = range(10, 20)
+    frames = []
+    for t in range(n):
+        objs = []
+        for k, y in enumerate((120.0, 138.0)):
+            occ = k == 0 and t in occluded
+            objs.append(
+                make_pose(
+                    (60.0 + 2.0 * t, y),
+                    score=0.3 if occ else 0.9,
+                    nan_nodes=(2,) if occ else (),
+                )
+            )
+        frames.append((t, objs))
+    gt = [[0, 1]] * n
+    for name in ("bytetrack", "botsort"):
+        names = run_tracker(build_tracker(name), frames)
+        assert count_id_switches(names, gt) == 0
+        assert len(distinct_names(names)) == 2
+        assert all(n is not None for frame in names for n in frame)
+
+
+def test_shared_node_iou():
+    """Boxes from the nodes visible on both sides, padded and floored.
+
+    Same rules as detection boxes; NaN where the shared nodes carry no extent.
+    """
+    full = pose_points((100.0, 120.0))
+    no_tail = full.copy()
+    no_tail[2] = np.nan
+    head_thorax = full.copy()
+    head_thorax[2:] = np.nan
+    single = full.copy()
+    single[1:] = np.nan
+    trk = np.stack([full])
+    det = np.stack([no_tail, head_thorax, single, full])
+    iou = shared_node_iou(trk, det, box_padding=0.1, min_box_size=10.0)
+    np.testing.assert_allclose(iou[0, :2], 1.0)  # the same part of the body
+    assert np.isnan(iou[0, 2])  # one shared node: no extent
+    assert iou[0, 3] == pytest.approx(1.0)
+    # Collinear (axis-aligned) shared nodes need the floor to have a size.
+    no_floor = shared_node_iou(trk, det, box_padding=0.1, min_box_size=None)
+    assert np.isnan(no_floor[0, 1]) and no_floor[0, 0] == pytest.approx(1.0)
+
+    # The full predicted box vs the no-tail detection box: IoU 0.42 < 0.5.
+    def padded(kp):
+        lo, hi = np.nanmin(kp, axis=0), np.nanmax(kp, axis=0)
+        pad = 0.1 * (hi - lo).max()
+        return np.concatenate([lo - pad, hi + pad])
+
+    box_iou = iou_matrix(padded(full)[None], padded(no_tail)[None])[0, 0]
+    assert box_iou == pytest.approx(480.0 / 1152.0)
+
+    # Shifted by 6 px: (24 - 6) * 20 / (2 * 24 * 20 - 18 * 20) for the no-tail box.
+    shifted = no_tail + np.array([6.0, 0.0])
+    iou = shared_node_iou(trk, shifted[None], box_padding=0.1, min_box_size=10.0)
+    assert iou[0, 0] == pytest.approx(18.0 / 30.0)
+    assert shared_node_iou(trk[:0], det).shape == (0, 4)
+
+
+# ---------------------------------------------------- BoT-SORT decisive cells
+def test_decisive_cells_are_per_cell():
+    """Only a row's AND column's top in-gate cosine, by the margin, decides."""
+    cos = np.array([[0.62, 0.56], [0.0, 0.45]])
+    gate = cos >= 0.5
+    decisive = decisive_cells(cos, gate, margin=0.05)
+    # T1's row margin (0.06) clears 0.05, but D2 is T1's runner-up.
+    np.testing.assert_array_equal(decisive, [[True, False], [False, False]])
+    assert not decisive_cells(cos, gate, margin=0.1).any()
+    # Ties never decide; a lone in-gate cell does (infinite margin).
+    tie = np.array([[0.8, 0.8]])
+    assert not decisive_cells(tie, tie >= 0.5).any()
+    lone = np.array([[0.8, np.nan]])
+    np.testing.assert_array_equal(decisive_cells(lone, lone >= 0.5), [[True, False]])
+    assert decisive_cells(np.zeros((0, 2)), np.zeros((0, 2), dtype=bool)).shape == (
+        0,
+        2,
+    )
+
+
+@pytest.mark.parametrize("cos22", [0.45, 0.51])
+def test_botsort_runner_up_cell_is_not_discounted(cos22):
+    """BoT-SORT keeps the identities geometry and appearance both prefer.
+
+    Two static tracks 10 px apart; then D1 at +7 px and D2 at +5.5 px. Cosines
+    T1-D1 0.62, T1-D2 0.56, T2-D1 0, T2-D2 ``cos22``; gate 0.5, m_assoc 0.05.
+    Discounting T1's runner-up cell (T1-D2) made the swap cheaper. The paper
+    preset (published min-fusion over every in-gate cell) still swaps.
+    """
+    e = np.eye(8)
+    u1, u2 = e[0], e[1]
+    v1 = 0.62 * e[0] + np.sqrt(1 - 0.62**2) * e[2]
+    v2 = 0.56 * e[0] + cos22 * e[1]
+    v2 = v2 + np.sqrt(1 - v2 @ v2) * e[3]
+
+    def run(name, **overrides):
+        tracker = build_tracker(name, **overrides)
+        tracker.calibration = _calibration(m_assoc=0.05, gate=0.5)
+        frames = [
+            (
+                t,
+                [
+                    make_pose((100.0, 120.0), embedding=u1),
+                    make_pose((110.0, 120.0), embedding=u2),
+                ],
+            )
+            for t in range(10)
+        ]
+        frames.append(
+            (
+                10,
+                [
+                    make_pose((107.0, 120.0), embedding=v1),
+                    make_pose((115.5, 120.0), embedding=v2),
+                ],
+            )
+        )
+        names = run_tracker(tracker, frames, prepare=False)
+        return names[9], names[10]
+
+    before, after = run(
+        "bytetrack", kalman="xywh", track_high_threshold=0.6, new_track_threshold=0.7
+    )
+    assert after == before
+    before, after = run("botsort")
+    assert after == before
+    before, after = run("botsort", preset="paper")
+    assert after == before[::-1]
+
+
+# ------------------------------------------------------- score-gate warnings
+def test_strict_high_threshold_warns(log_messages):
+    """Scores never above track_high_threshold: no track can start.
+
+    prepare() says so even though the scores clear new_track_threshold.
+    """
+    scene = make_scene(_one_animal(12), scores=0.7)
+    tracker = build_tracker(
+        "bytetrack",
+        normalize_scores=False,
+        track_high_threshold=0.8,
+        new_track_threshold=0.3,
+    )
+    assert distinct_names(run_tracker(tracker, scene.frames)) == []
+    assert any("track_high_threshold=0.8" in m for m in log_messages)
+
+    # Normalized (animal preset): the same video starts its track, silently.
+    log_messages.clear()
+    scene = make_scene(_one_animal(12), scores=0.7)
+    names = run_tracker(build_tracker("bytetrack"), scene.frames)
+    assert len(distinct_names(names)) == 1
+    assert not any("track_high_threshold" in m for m in log_messages)

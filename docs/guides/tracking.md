@@ -241,7 +241,10 @@ All seven share these properties, and differ from `classic` in the same ways:
   covers low-score detections and detections of a track that never reached
   `--min_hits`. When a track is confirmed, the detections from its tentative
   frames are labeled retroactively. Unlike `classic`, these trackers never cull
-  instances.
+  instances. A predicted detection's track from an earlier run is cleared, never
+  kept next to this run's tracks. On the mask carrier, each predicted pose takes the track
+  of the one mask linked to it (`mask.instance`), `None` included: a pose whose
+  mask stays untracked, or that no mask links to, comes out untracked.
 - **No images.** Association uses only the detections, which assumes a fixed
   camera (there is no camera-motion compensation). `--use_flow` and `--use_kalman`
   therefore do not apply.
@@ -310,8 +313,8 @@ Every MOT option defaults to *unset*, which means the tracker's
 | `--max_tracks INT` | The known number of animals. Enables closed-set identity linking (implies `--link_tracklets`), which leaves at most N tracks per video. | unset |
 | `--mot_param KEY=VALUE` | Override any [MOT parameter](#mot-parameter-overrides). Repeatable, and accepts `preset=paper`. | — |
 | `--scoring_method` | Geometric [similarity](#geometric-similarity): `iou`, `oks`, or `euclidean_dist` (centroid). | `auto` |
-| `--oks_stddev FLOAT` | Per-keypoint spread used by `--scoring_method oks`. | `0.1` |
-| `--features` | Carrier to track: `keypoints` (pose instances) or `masks`. Left unset, the masks are tracked when the file has masks but no predicted poses. Appearance trackers track whichever carrier holds more re-ID vectors. | auto |
+| `--oks_stddev FLOAT` | Per-keypoint spread used by `--scoring_method oks`. Refused with any other similarity, which would ignore it. | `0.1` |
+| `--features` | Carrier to track: `keypoints` (pose instances) or `masks`. Left unset, the masks are tracked when the file has masks but no predicted poses. Appearance trackers track whichever carrier holds more re-ID vectors. Naming a carrier the labels do not hold is an error. | auto |
 
 The following combinations are refused with an error rather than silently
 ignored. Checks that do not need the labels run before any inference:
@@ -330,6 +333,17 @@ ignored. Checks that do not need the labels run before any inference:
 - `--tracker` other than `classic`, or `--link_tracklets`, without `-t`.
 - `--appearance_threshold` with a geometry-only tracker (`sort`, `bytetrack`,
   `ocsort`).
+- `--oks_stddev` unless the similarity is `oks` (`--scoring_method oks`, or
+  `--mot_param similarity=oks`). The `auto` similarity never resolves to `oks`.
+- `--features masks` when no frame holds a mask, and `--features keypoints` when
+  the labels hold masks but no predicted pose. With `-m` this is checked from the
+  models' types before inference (a pose model's predictions never hold masks).
+- Identity linking (`--link_tracklets`, `--max_tracks`) after a geometry-only
+  tracker on an embedding route whose re-ID vectors will land on the carrier it
+  does not track: linking reads only the tracked carrier's vectors, so the
+  embedding pass would be wasted. `--save_embeddings slp` keeps the vectors and
+  lets the run go ahead; tracking then warns, as it does for any labels whose
+  vectors all ride on the other carrier.
 - `--features embeddings` / `centroids` / `bboxes`, or `--scoring_method
   mask_iou` / `cosine_sim`, with a MOT tracker.
 - An appearance tracker when the detections cannot carry re-ID vectors: the input
@@ -402,6 +416,8 @@ own:
 | `box_padding` | `0.1` | all | Padding added to each side of a keypoint or mask box, as a fraction of `max(w, h)`. |
 | `kalman` | `auto` | all | Replace the tracker's own filter with `xywh`, `xyah` or `xysr`. |
 | `time_base` | `auto` | all | `frames` or `steps`. See [Time base](#time-base). |
+| `normalize_scores` | `true` (`paper`: `false`) | all | Divide each detection score by the video's 95th-percentile score before the score thresholds apply. `false` compares raw scores. |
+| `body_size` | measured per video | all | Animal size in px (box diagonal). Scales the `centroid` similarity and sizes single-node detections; set it for centroid-only models whose calibration cannot size the animal. |
 | `fuse_score` | `true` for `bytetrack` / `botsort` | ByteTrack, BoT-SORT | Multiply the similarity by the detection score in the first and unconfirmed stages. |
 | `low_stage_min_similarity` | `0.5` | ByteTrack, BoT-SORT | Minimum similarity in the low-score stage. |
 | `unconfirmed_min_similarity` | `0.3` | ByteTrack, BoT-SORT | Minimum similarity in the tentative-track stage. |
@@ -541,6 +557,11 @@ MOT tracker never enforces the count by refusing to start new tracks.
 Linking works **within a video**. It does not link one animal across the videos
 or sessions of a multi-video file.
 
+Linking reads the re-ID vectors of the **tracked carrier** only. On a pose+mask
+file whose vectors ride on the masks (a mask-trained embedder), pass
+`--features masks` to track and link the masks by appearance; otherwise linking
+uses spatial rules alone and logs a warning.
+
 ### Per-video calibration of appearance thresholds
 
 The re-ID cosines that separate two animals depend on the embedding model, the
@@ -611,7 +632,8 @@ JSON:
     "params": {...},            # every resolved MOTParams value (preset + overrides)
     "videos": [
         {
-            "video": 0,
+            "video": 0,             # index into labels.videos
+            "video_filename": "video.mp4",
             "kalman": "xywh",
             "time_base": "frames",
             "frame_step": 1,
@@ -625,11 +647,19 @@ JSON:
 }
 ```
 
-`linking` appears only when linking ran. A classic run with `--link_tracklets`
-records `{"tracker": "classic", "carrier", "link_tracklets": true, "videos":
-[{"video", "calibration", "linking"}]}`. The flags themselves are saved under
-`provenance["tracking_config"]`, as for every tracking run. A plain classic run's
-provenance is unchanged.
+`video` is the video's index in `labels.videos`; a video with no frames has no
+entry. `linking` appears only when linking ran. A classic run with
+`--link_tracklets` records `{"tracker": "classic", "carrier", "link_tracklets":
+true, "videos": [{"video", "video_filename", "calibration", "linking"}]}`. The
+flags themselves are saved under `provenance["tracking_config"]`, as for every
+tracking run; for a MOT tracker that leaves out the classic-only options, and
+`--scoring_method` / `--features` when they were not given (the resolved
+similarity and carrier are in this record). A plain classic run's provenance is
+unchanged.
+
+The record always describes the latest tracking of the file. Retracking replaces
+it (MOT, identity linking) or removes it (plain classic); a retracked `.slp` keeps
+the input's record as lineage under `provenance["input_provenance"]["tracking"]`.
 
 ### Worked examples
 
@@ -810,7 +840,10 @@ published multi-object-tracking results, `eval-tracking` also computes the
 standard metrics exactly as **TrackEval** (the reference HOTA / MOTChallenge
 evaluation code) does: they are logged as "TrackEval-faithful MOT" and saved
 under the `"mot"` key of the `-s` JSON. Same detections, carrier, matcher and
-`--match_threshold`; no extra flags.
+`--match_threshold`; no extra flags. `--mt_threshold` / `--ml_threshold` move
+only the legacy block's MT / ML cuts: the `mot` block's `mt` / `pt` / `ml`
+always use TrackEval's fixed cuts (more than 80% / less than 20%), so with a
+custom cut the two blocks print different MT/PT/ML side by side.
 
 | `mot` field | what it measures | better |
 |---|---|---|
@@ -845,10 +878,21 @@ How sleap-nn data maps onto TrackEval:
   `max(0, 1 − d / (2 · match_threshold))`, so the 0.5 cut is exactly
   `--match_threshold` pixels, and `motp` / `loc_a` are in that unit.
 - **`--oks_stddev`** (default `0.025`) is the per-keypoint OKS spread used to
-  match poses, in both blocks.
-- A track on two detections of one frame is ambiguous; TrackEval refuses it, so
-  the `mot` block then holds `{"error": ...}` naming the frame while the legacy
-  block is still computed.
+  match poses, in both blocks. It must be a finite number greater than 0; any
+  other value is an error, raised before either file is read.
+- **Corrected predictions are not ground truth.** Correcting a pose in the GUI
+  adds a user instance on the prediction's track (linked to it through
+  `from_predicted`) and leaves the prediction in the frame. Both blocks score
+  the user copy and leave the replaced prediction out -- sleap-io's own rule
+  (`LabeledFrame.unused_predictions`), plus any prediction a user instance
+  links to -- and say how many in `notes`. On the mask carrier, the replaced
+  prediction's mask is left out too when the user copy has a mask of its own.
+  Untracked predictions that nothing links to (stale output of an earlier
+  run) stay don't-care; if they take every match, `notes` says so and
+  `--user_labels_only` scores the run.
+- A track on two detections of one frame that remains after that is
+  ambiguous; TrackEval refuses it, so the `mot` block then holds
+  `{"error": ...}` naming the frame while the legacy block is still computed.
 
 In Python, `compute_mot_metrics(gt, pred, "pose")` returns a `MOTMetrics`
 (`summary()`, `as_dict()`), and `sleap_nn.tracking.mot_metrics` scores raw

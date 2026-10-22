@@ -16,10 +16,16 @@ Contract (every tracker, tested generically):
    ``[0, 1]``; 0.0 when untracked). Stale tracks from a previous run are cleared.
 2. Empty frames are fine (time still advances); degenerate input never raises.
 3. ``track()`` works without ``prepare()`` / ``finalize()`` (uncalibrated:
-   ``"auto"`` appearance is disabled, degenerate boxes use a running body size).
+   ``"auto"`` appearance is disabled, scores are not normalized, the stride and
+   time base are inferred online from the frame deltas seen so far, and the
+   body size is a running estimate with calibration's fallback chain
+   (:func:`~sleap_nn.tracking.mot.calibration.resolve_body_size`): box
+   diagonals, else per-step motion, else spacing, else its 50 px default).
 4. Time advances in steps (see :class:`~sleap_nn.tracking.mot.params.MOTParams`
    ``time_base``); Kalman prediction, ``time_since_update``, ``track_buffer`` and
-   ``delta_t`` all count steps.
+   ``delta_t`` all count steps, with the shared step rule of
+   :func:`~sleap_nn.tracking.mot.calibration.steps_between` (also used by the
+   calibration and the identity linker).
 5. A track's detections are labeled when it is confirmed, retroactively for its
    tentative frames; a track that never confirms leaves its detections untracked.
 6. ``image`` is ignored (fixed cameras: no camera-motion compensation).
@@ -27,6 +33,9 @@ Contract (every tracker, tested generically):
    at confirmation, so names are compact.
 8. ``tracking_score`` is the GEOMETRIC similarity of the matched pair (1.0 at
    spawn), comparable across trackers.
+9. A tracker tracks ONE video, in increasing frame order (``apply_tracking``
+   builds one per video and sorts its frames). A repeated or backwards frame
+   index counts one step and logs a WARNING (once); ``prepare()`` warns too.
 
 Frame gaps: in the ``"frames"`` time base a gap of ``n`` steps behaves like ``n - 1``
 empty processed frames followed by this one (the dense equivalent): a track that
@@ -43,7 +52,11 @@ import numpy as np
 import sleap_io as sio
 from loguru import logger
 
-from sleap_nn.tracking.mot.appearance import AppearanceMemory, passes_quality_gate
+from sleap_nn.tracking.mot.appearance import (
+    AppearanceMemory,
+    passes_quality_gate,
+    unit_rows,
+)
 from sleap_nn.tracking.mot.association import (
     centroid_similarity,
     cosine_matrix,
@@ -51,11 +64,21 @@ from sleap_nn.tracking.mot.association import (
     oks_matrix,
     speed_direction,
 )
-from sleap_nn.tracking.mot.calibration import VideoCalibration, calibrate
+from sleap_nn.tracking.mot.calibration import (
+    VideoCalibration,
+    calibrate,
+    pair_geometry,
+    resolve_body_size,
+    resolve_time_base,
+    score_normalizer,
+    steps_between,
+    stride_from_counts,
+)
 from sleap_nn.tracking.mot.detections import (
     CARRIERS,
     FrameDetections,
     extract_detections,
+    normalize_scores,
     widen_boxes,
 )
 from sleap_nn.tracking.mot.kalman import make_kalman_filter, oru_replay
@@ -63,11 +86,13 @@ from sleap_nn.tracking.mot.linking import link_tracklets
 from sleap_nn.tracking.mot.params import MOTParams
 from sleap_nn.tracking.mot.track import MOTTrack, TrackState
 
-# Body size (px) assumed before any detection has been seen (no calibration).
-DEFAULT_BODY_SIZE = 50.0
-
-# Raw-box diagonals remembered for the running body-size median (no calibration).
+# Samples (raw-box diagonals, same-frame spacings, per-step link lengths)
+# remembered for the running body-size estimate (no calibration).
 BODY_SIZE_HISTORY = 2048
+
+# Uncalibrated: frame deltas seen before an "irregular spacing" verdict is worth a
+# warning (the first few deltas of a dense stream with drops look irregular).
+MIN_DELTAS_TO_WARN = 10
 
 # A LOST track still counts as a neighbor in the appearance quality gate's
 # isolation test while it has been missing for at most this many steps.
@@ -156,6 +181,11 @@ class BaseMOTTracker:
             instead of ``hits >= min_hits``.
         use_oru: Freeze the state at the first miss and apply OC-SORT's
             observation-centric re-update when re-matched.
+        keeps_observation_history: Maintain OC-SORT's observation history on
+            every match: ``observations`` (the last ``2 * delta_t + 1``) and the
+            ``velocity`` direction its OCM term reads (OC-SORT family). Off for
+            the other trackers, which never read them; ``last_observation`` is
+            kept by every tracker.
         lost_zero_velocity: State indices zeroed before predicting a track that is
             not ``CONFIRMED`` (ByteTrack: ``(7,)``; BoT-SORT: ``(6, 7)``). Precisely:
             a track that was not matched at the previous step (the references'
@@ -170,7 +200,9 @@ class BaseMOTTracker:
         calibration: Per-video :class:`VideoCalibration` (``None`` before
             ``prepare``).
         tracks: Live (not removed) tracks.
-        finished: Removed tracks (kept for identity linking).
+        n_removed: Number of tracks removed so far. Removed tracks are dropped
+            (identity linking re-reads the processed frames, not the tracks), so
+            memory does not grow with track turnover.
         track_name_offset: Added to public ids when naming ``sio.Track``s.
         resolved: JSON-safe record of what ran (resolved params, time base,
             calibration, appearance decisions, linking result) for provenance.
@@ -184,6 +216,7 @@ class BaseMOTTracker:
     hits_start: ClassVar[int] = 1
     confirm_on_streak: ClassVar[bool] = False
     use_oru: ClassVar[bool] = False
+    keeps_observation_history: ClassVar[bool] = False
     lost_zero_velocity: ClassVar[Tuple[int, ...]] = ()
 
     def __init__(
@@ -221,7 +254,7 @@ class BaseMOTTracker:
 
         self.calibration: Optional[VideoCalibration] = None
         self.tracks: List[MOTTrack] = []
-        self.finished: List[MOTTrack] = []
+        self.n_removed = 0
         self.track_name_offset = 0
         self._track_objects: Dict[int, sio.Track] = {}
 
@@ -230,23 +263,39 @@ class BaseMOTTracker:
         # Step index of the latest processed frame (-1: nothing processed yet).
         self._step = -1
         self._last_frame_idx: Optional[int] = None
-        # Without `prepare`, frame indices are taken at face value (stride 1).
-        self._time_base = "frames" if params.time_base == "auto" else params.time_base
+        # Frame-index delta to the previous processed frame (None at the first).
+        self._last_delta: Optional[int] = None
+        # Until `prepare` (or without it), the stride and time base are inferred
+        # online from the positive frame deltas seen so far (`_infer_stride`).
+        self._time_base = resolve_time_base(params.time_base, True)
         self._frame_step = 1
+        self._delta_counts: Dict[int, int] = {}
 
         self._similarity_kind: Optional[str] = None
         if carrier == "mask" or self.n_nodes is not None:
             self._similarity_kind = self._resolve_similarity(self.n_nodes)
 
-        # Running raw-box diagonals (body size before / without calibration).
+        # Running body-size evidence without calibration: raw-box diagonals,
+        # else (extent-less detections) same-frame spacings and per-step lengths
+        # of unambiguous frame-to-frame links, with the previous frame for them.
         self._diagonals: deque = deque(maxlen=BODY_SIZE_HISTORY)
+        self._spacings: deque = deque(maxlen=BODY_SIZE_HISTORY)
+        self._step_lengths: deque = deque(maxlen=BODY_SIZE_HISTORY)
+        self._prev_dets: Optional[FrameDetections] = None
         self._embedding_dim: Optional[int] = None
         self._vectors_seen = False
+        # Divisor of every detection score (`normalize_scores`; set by `prepare`).
+        self._score_normalizer: Optional[float] = None
+        self._n_valid_seen = 0
+        self._warned: Set[str] = set()
 
-        # `prepare` cache: frame_idx -> FrameDetections (validated by identity).
+        # `prepare` cache: frame_idx -> FrameDetections (validated by identity);
+        # each entry is dropped when its frame is tracked.
         self._cache: Dict[int, FrameDetections] = {}
-        # Every processed frame's objects, for identity linking in `finalize`.
+        # Every processed frame's objects, for identity linking in `finalize`
+        # (kept only when linking runs).
         self._seen_frames: List[Tuple[int, list]] = []
+        self._n_frames_seen = 0
         self._finalized = False
         self.resolved: Dict[str, Any] = {}
         self._refresh_resolved()
@@ -255,25 +304,51 @@ class BaseMOTTracker:
     track_name_offset: int = 0
     _track_objects: Dict[int, sio.Track]
 
+    @property
+    def next_track_name_offset(self) -> int:
+        """``track_name_offset`` for the NEXT video's tracker.
+
+        Every name this tracker minted (``track_{public_id + offset}``) is below
+        it, so per-video trackers chained with it never reuse a name.
+        """
+        return int(self.track_name_offset) + int(self._next_public_id)
+
     def prepare(self, frames: Sequence[Tuple[int, Sequence[Any]]]) -> None:
         """Optional per-video pre-pass over every frame that will be tracked.
 
         Extracts (and caches, keyed by frame index and object identities) each
         frame's :class:`FrameDetections`, calibrates the video
         (:func:`~sleap_nn.tracking.mot.calibration.calibrate`), resolves the
-        time base and the pseudo-box size for degenerate geometry, and records
-        everything in ``resolved``. ``prepare([])`` is a no-op.
+        time base, the body size (pseudo-box size of degenerate geometry and the
+        ``centroid`` similarity scale) and, with ``normalize_scores``, the score
+        normalizer applied to every detection from then on; records everything
+        in ``resolved``. ``prepare([])`` is a no-op.
 
         Args:
-            frames: ``(frame_idx, objects)`` per frame, in temporal order, holding
-                exactly the objects ``track()`` will receive.
+            frames: ``(frame_idx, objects)`` per frame of ONE video, in
+                increasing frame order, holding exactly the objects ``track()``
+                will receive. Repeated or backwards frame indices are logged
+                (WARNING): the calibration would measure motion across them.
         """
         frames = [(int(fi), list(objs)) for fi, objs in frames]
         if not frames:
             return
+        p = self.params
+        frame_idx = np.array([fi for fi, _ in frames], dtype=np.int64)
+        n_bad = int(np.count_nonzero(np.diff(frame_idx) <= 0))
+        if n_bad:
+            logger.warning(
+                f"{self.name}: prepare() got {n_bad} repeated or backwards frame "
+                "index step(s). A MOT tracker tracks ONE video in increasing frame "
+                "order: build one tracker per video and sort its frames (as "
+                "apply_tracking does). The calibration measures motion across "
+                "these jumps and tracks may continue across them."
+            )
 
-        # First pass: geometry without a pseudo box (calibration measures the
-        # body size on non-degenerate detections only).
+        # First pass: raw scores (the calibration measures them) and geometry
+        # without a pseudo box (it measures the body size on non-degenerate
+        # detections only).
+        self._score_normalizer = None
         extracted = [
             self._extract(objs, fi, pseudo_box_size=None) for fi, objs in frames
         ]
@@ -282,19 +357,45 @@ class BaseMOTTracker:
             if n_nodes:
                 self._similarity_kind = self._resolve_similarity(max(n_nodes))
 
-        p = self.params
+        # The g = 1 trials (gallery_cos_gate) use the gallery length the
+        # tracker's memory actually keeps (DeepSORT: gallery_budget); the
+        # appearance part is skipped when neither association nor linking
+        # reads it.
         cal = calibrate(
             extracted,
             track_buffer=p.track_buffer,
-            gallery_size=p.gallery_size,
+            gallery_size=self._make_appearance_memory().gallery_size,
             ema_alpha=p.ema_alpha,
             time_base=p.time_base,
+            body_size=p.body_size,
+            appearance=self.uses_appearance or p.link,
         )
         self.calibration = cal
 
-        # Degenerate detections (single node, sub-pixel extent) get the
-        # calibrated body size as their box; every padded box is floored at
-        # MIN_BOX_FRACTION of it.
+        # Scores: normalized per video, or a warning when the raw scores of
+        # most detections cannot start a track.
+        q95 = cal.score_quantiles[-1] if cal.score_quantiles else None
+        if p.normalize_scores:
+            self._score_normalizer = score_normalizer(cal)
+        if self._score_normalizer is not None and self._score_normalizer != 1.0:
+            logger.info(
+                f"{self.name}: detection scores divided by the video's score q95 "
+                f"({self._score_normalizer:.3f}) and clipped to [0, 1] "
+                "(normalize_scores)."
+            )
+        if not p.normalize_scores and q95 is not None and q95 < p.new_track_threshold:
+            logger.warning(
+                f"{self.name}: 95% of this video's detections score below "
+                f"new_track_threshold={p.new_track_threshold} (score q95 "
+                f"{q95:.3f}): most detections can never start a track; lower "
+                "--new_track_threshold or use the animal preset "
+                "(normalize_scores=True)."
+            )
+
+        # Degenerate detections (single node, sub-pixel extent) get the body
+        # size as their box; every padded box is floored at MIN_BOX_FRACTION of
+        # it. Scores are normalized exactly once (`_extract` does it for the
+        # re-extracted frames).
         body = self._body_size()
         for i, dets in enumerate(extracted):
             if self._has_degenerate(dets):
@@ -303,21 +404,20 @@ class BaseMOTTracker:
                 )
             else:
                 widen_boxes(extracted[i], MIN_BOX_FRACTION * body)
+                normalize_scores(extracted[i], self._score_normalizer)
         self._cache = {dets.frame_idx: dets for dets in extracted}
 
-        # Time base.
-        if p.time_base == "auto":
-            self._time_base = "frames" if cal.regular_stride else "steps"
-            if self._time_base == "steps":
-                logger.warning(
-                    "The frames to track are irregularly spaced (the most common "
-                    f"frame step, {cal.frame_step}, covers less than half of the "
-                    "gaps): counting one step per processed frame (time_base="
-                    "'steps'). Kalman prediction, track_buffer and min_hits then "
-                    "count processed frames, not video frames."
-                )
-        else:
-            self._time_base = p.time_base
+        # Time base: the calibration's (it resolved `p.time_base` with the same
+        # rule), and its stride in the frames time base.
+        self._time_base = cal.time_base
+        if p.time_base == "auto" and self._time_base == "steps":
+            logger.warning(
+                "The frames to track are irregularly spaced (the most common "
+                f"frame step, {cal.frame_step}, covers less than half of the "
+                "gaps): counting one step per processed frame (time_base="
+                "'steps'). Kalman prediction, track_buffer and min_hits then "
+                "count processed frames, not video frames."
+            )
         self._frame_step = (
             max(1, int(cal.frame_step)) if self._time_base == "frames" else 1
         )
@@ -344,10 +444,16 @@ class BaseMOTTracker:
         frame_idx = int(frame_idx)
         for obj in objs:
             _set_label(obj, None, 0.0)
-        self._seen_frames.append((frame_idx, objs))
+        self._n_frames_seen += 1
+        if self.params.link:
+            self._seen_frames.append((frame_idx, objs))
 
         dets = self._detections(objs, frame_idx)
-        self._advance(frame_idx)
+        n_steps = self._advance(frame_idx)
+        if self.calibration is None:
+            # Before association, so this frame already uses the evidence.
+            self._observe_uncalibrated(dets, n_steps)
+        self._n_valid_seen += int(np.count_nonzero(dets.valid))
 
         if len(dets) == 0:
             # Nothing to match; the bookkeeping below still ages every track.
@@ -424,11 +530,31 @@ class BaseMOTTracker:
         return list(objs)
 
     def finalize(self) -> None:
-        """End-of-video pass: identity linking when enabled. Idempotent."""
+        """End-of-video pass: identity linking when enabled. Idempotent.
+
+        Logs a WARNING when valid detections were tracked but no track was ever
+        confirmed (every detection came back untracked).
+        """
         if self._finalized:
             return
         self._finalized = True
         p = self.params
+        if self._n_valid_seen and self._next_public_id == 0:
+            logger.warning(
+                f"{self.name}: {self._n_valid_seen} valid detection(s) over "
+                f"{self._n_frames_seen} frame(s), but no track was ever "
+                "confirmed: every detection is untracked. Check the score "
+                f"thresholds (new_track_threshold={p.new_track_threshold}, "
+                f"track_low_threshold={p.track_low_threshold}; normalize_scores="
+                f"{p.normalize_scores}), min_hits={p.min_hits} and the frame "
+                "order / time base"
+                + (
+                    "; without prepare() scores are not normalized and nothing is "
+                    "calibrated."
+                    if self.calibration is None
+                    else "."
+                )
+            )
         if p.link:
             result = link_tracklets(
                 self._seen_frames,
@@ -441,6 +567,9 @@ class BaseMOTTracker:
                 box_padding=p.box_padding,
                 high_threshold=p.track_high_threshold,
                 score_mode=p.score_mode,
+                score_normalizer=self._score_normalizer,
+                time_base=p.time_base,
+                body_size=p.body_size,
                 track_objects=self._track_objects,
             )
             self.resolved["linking"] = result.as_dict()
@@ -535,15 +664,16 @@ class BaseMOTTracker:
         if statistic == "ema":
             return self._ema_cos(tracks, dets)
         q_idx = np.flatnonzero(dets.has_embedding)
-        queries = np.asarray(dets.embeddings[q_idx], dtype=np.float64)
+        # Normalized once for every track (the memory would redo it per track).
+        rows, ok = unit_rows(np.asarray(dets.embeddings[q_idx], dtype=np.float64))
         for i, t in enumerate(tracks):
             mem = t.appearance
             if mem is None or mem.is_empty:
                 continue
             ema = np.asarray(mem.ema).reshape(-1)
-            if ema.shape[0] != queries.shape[1]:
+            if ema.shape[0] != rows.shape[1]:
                 continue  # A vector of another model's dimension: no evidence.
-            out[i, q_idx] = mem.gallery_max_cos(queries)
+            out[i, q_idx] = mem.gallery_max_cos_unit(rows, ok)
         return out
 
     def _appearance_gate(self, statistic: str = "ema") -> Optional[float]:
@@ -581,27 +711,46 @@ class BaseMOTTracker:
         return float(cal.m_assoc)
 
     # --------------------------------------------------------- private: time
-    def _advance(self, frame_idx: int) -> None:
+    def _advance(self, frame_idx: int) -> int:
         """Advance the clock to ``frame_idx`` and predict every live track.
 
         The first processed frame is step 0. Later frames advance by ``n`` steps
-        (``1`` in the ``"steps"`` time base; the stride-normalized frame delta in
-        the ``"frames"`` time base) and the gap's intermediate steps are treated
-        as empty frames (see the module docstring).
+        (``1`` in the ``"steps"`` time base; :func:`steps_between` of the frame
+        delta and the stride in the ``"frames"`` time base) and the gap's
+        intermediate steps are treated as empty frames (see the module
+        docstring). Uncalibrated, the stride and time base are first updated
+        with this delta (:meth:`_infer_stride`). A repeated or backwards frame
+        index counts one step and logs a WARNING once.
+
+        Returns:
+            The number of steps advanced (0 at the first processed frame).
         """
         if self._step < 0:
             self._step = 0
             self._last_frame_idx = frame_idx
-            return
+            self._last_delta = None
+            return 0
+        delta = int(frame_idx - self._last_frame_idx)
+        self._last_delta = delta
+        if delta <= 0:
+            self._warn_once(
+                "order",
+                f"{self.name}: frame {frame_idx} does not come after frame "
+                f"{self._last_frame_idx} (repeated or backwards frame index). A MOT "
+                "tracker tracks ONE video in increasing frame order: build one "
+                "tracker per video and sort its frames (as apply_tracking does). "
+                "Counting it as one step; live tracks continue across the jump.",
+            )
+        elif self.calibration is None:
+            self._infer_stride(delta)
         n_steps = 1
-        if self._time_base == "frames" and self._last_frame_idx is not None:
-            delta = (frame_idx - self._last_frame_idx) / self._frame_step
-            n_steps = max(1, int(np.floor(delta + 0.5)))
+        if self._time_base == "frames":
+            n_steps = steps_between(delta, self._frame_step)
         first_step = self._step + 1
         self._step += n_steps
         self._last_frame_idx = frame_idx
         if not self.tracks:
-            return
+            return n_steps
 
         # Tracks that the gap's empty steps would already have removed.
         for track in list(self.tracks):
@@ -615,7 +764,7 @@ class BaseMOTTracker:
                 self._remove(track)
         tracks = self.tracks
         if not tracks:
-            return
+            return n_steps
 
         means = np.stack([t.mean for t in tracks])
         covs = np.stack([t.cov for t in tracks])
@@ -648,6 +797,46 @@ class BaseMOTTracker:
                 track.hit_streak = 0
             if n_steps > 1 and track.state == TrackState.CONFIRMED:
                 track.state = TrackState.LOST
+        return n_steps
+
+    def _infer_stride(self, delta: int) -> None:
+        """Uncalibrated: update the stride and time base with a positive delta.
+
+        Same rule as the calibration over the deltas seen so far
+        (:func:`stride_from_counts`, :func:`resolve_time_base`), applied BEFORE
+        this frame's steps are counted, so a strided stream counts one step per
+        processed frame from its first gap on, a dense stream with dropped frames
+        keeps stride 1 (genuine gaps still count) and, under ``"auto"``,
+        irregular input falls back to one step per processed frame (WARNING,
+        once). Recorded in ``resolved``.
+        """
+        self._delta_counts[delta] = self._delta_counts.get(delta, 0) + 1
+        frame_step, regular = stride_from_counts(self._delta_counts)
+        time_base = resolve_time_base(self.params.time_base, regular)
+        n_deltas = sum(self._delta_counts.values())
+        if (
+            self.params.time_base == "auto"
+            and time_base == "steps"
+            and n_deltas >= MIN_DELTAS_TO_WARN
+        ):
+            self._warn_once(
+                "irregular",
+                f"{self.name}: the frames tracked so far are irregularly spaced "
+                f"(the most common frame step, {frame_step}, covers less than half "
+                "of the gaps): counting one step per processed frame (time_base="
+                "'steps') while that holds. prepare() decides this once over the "
+                "whole video.",
+            )
+        self._time_base = time_base
+        self._frame_step = frame_step if time_base == "frames" else 1
+        self.resolved["time_base"] = self._time_base
+        self.resolved["frame_step"] = int(self._frame_step)
+
+    def _warn_once(self, key: str, message: str) -> None:
+        """Log ``message`` as a WARNING the first time ``key`` is seen."""
+        if key not in self._warned:
+            self._warned.add(key)
+            logger.warning(message)
 
     # ---------------------------------------------------- private: lifecycle
     def _apply_match(
@@ -695,24 +884,28 @@ class BaseMOTTracker:
         if track.state == TrackState.LOST:
             track.state = TrackState.CONFIRMED
 
-        # OC-SORT observation history and velocity direction: from the
-        # observation `delta_t` steps back (the oldest within that window), else
-        # the latest observation, to this one.
-        if track.last_observation is not None:
-            previous = None
-            for dt in range(self.params.delta_t, 0, -1):
-                previous = track.observations.get(self._step - dt)
-                if previous is not None:
-                    break
-            if previous is None:
-                previous = track.last_observation
-            track.velocity = np.asarray(speed_direction(previous, box), dtype=float)
-        track.observations[self._step] = box
-        while len(track.observations) > 2 * self.params.delta_t + 1:
-            del track.observations[min(track.observations)]
+        if self.keeps_observation_history:
+            # OC-SORT observation history and velocity direction: from the
+            # observation `delta_t` steps back (the oldest within that window),
+            # else the latest observation, to this one.
+            if track.last_observation is not None:
+                previous = None
+                for dt in range(self.params.delta_t, 0, -1):
+                    previous = track.observations.get(self._step - dt)
+                    if previous is not None:
+                        break
+                if previous is None:
+                    previous = track.last_observation
+                track.velocity = np.asarray(speed_direction(previous, box), dtype=float)
+            track.observations[self._step] = box
+            while len(track.observations) > 2 * self.params.delta_t + 1:
+                del track.observations[min(track.observations)]
         track.last_observation = box
 
-        track.members.append((dets.frame_idx, dets.sources[det_idx], sim))
+        if track.public_id is None:
+            # Labeled when the track confirms; a confirmed track's detections
+            # are labeled as they are matched (`track`), so none are kept.
+            track.members.append((dets.frame_idx, dets.sources[det_idx], sim))
         self._update_appearance(track, dets, det_idx, gate_ctx)
 
     def _mark_missed(self, track: MOTTrack) -> None:
@@ -776,14 +969,15 @@ class BaseMOTTracker:
         self._track_objects[track.public_id] = track_obj
         for _, obj, sim in track.members:
             _set_label(obj, track_obj, sim)
+        track.members.clear()
 
     def _remove(self, track: MOTTrack) -> None:
-        """Mark ``track`` removed and move it to ``finished``."""
+        """Mark ``track`` removed and drop it (counted in ``n_removed``)."""
         if track.state == TrackState.REMOVED:
             return
         track.state = TrackState.REMOVED
         self.tracks = [t for t in self.tracks if t is not track]
-        self.finished.append(track)
+        self.n_removed += 1
 
     # --------------------------------------------------- private: appearance
     def _make_appearance_memory(self) -> AppearanceMemory:
@@ -992,13 +1186,41 @@ class BaseMOTTracker:
         return sim.T
 
     def _body_size(self) -> float:
-        """Body size (px): calibrated, else the running median, else the default."""
+        """Body size (px); see :meth:`_body_size_info`."""
+        return self._body_size_info()[0]
+
+    def _body_size_info(self) -> Tuple[float, str]:
+        """Body size (px) and its source.
+
+        ``params.body_size`` (``"override"``), else the calibration's, else
+        (uncalibrated) calibration's fallback chain
+        (:func:`~sleap_nn.tracking.mot.calibration.resolve_body_size`) on the
+        frames seen so far: the median raw-box diagonal, else 8x the per-step
+        p99 of unambiguous links (single-node detections), else the median
+        same-frame spacing, else the chain's default (50 px).
+        """
+        if self.params.body_size is not None:
+            return float(self.params.body_size), "override"
         cal = self.calibration
         if cal is not None and np.isfinite(cal.body_size) and cal.body_size > 0:
-            return float(cal.body_size)
-        if self._diagonals:
-            return float(np.median(np.asarray(self._diagonals)))
-        return DEFAULT_BODY_SIZE
+            return float(cal.body_size), str(cal.body_size_source)
+        measured = (
+            float(np.median(np.asarray(self._diagonals)))
+            if self._diagonals
+            else float("nan")
+        )
+        step_p99 = (
+            float(np.percentile(np.asarray(self._step_lengths), 99))
+            if self._step_lengths
+            else float("nan")
+        )
+        spacing = (
+            float(np.median(np.asarray(self._spacings)))
+            if self._spacings
+            else float("nan")
+        )
+        body, source = resolve_body_size(measured, step_p99, spacing)
+        return float(body), source
 
     # -------------------------------------------------- private: detections
     def _extract(
@@ -1026,6 +1248,8 @@ class BaseMOTTracker:
             self._vectors_seen = True
             if self._embedding_dim is None:
                 self._embedding_dim = int(dets.embeddings.shape[1])
+        # Per-video score normalization (set by `prepare`; exactly once here).
+        normalize_scores(dets, self._score_normalizer)
         return dets
 
     def _detections(self, objs: List[Any], frame_idx: int) -> FrameDetections:
@@ -1037,10 +1261,34 @@ class BaseMOTTracker:
             and all(a is b for a, b in zip(cached.sources, objs))
         ):
             return cached
-        dets = self._extract(objs, frame_idx, pseudo_box_size=self._body_size())
-        if self.calibration is None:
-            self._remember_diagonals(dets)
-        return dets
+        return self._extract(objs, frame_idx, pseudo_box_size=self._body_size())
+
+    def _observe_uncalibrated(self, dets: FrameDetections, n_steps: int) -> None:
+        """Uncalibrated: add this frame's body-size evidence (see `_body_size_info`).
+
+        Extents feed the running diagonal median. While no extent has been seen
+        (single-node detections), the frame's same-frame spacings and the
+        per-step lengths of its unambiguous links to the previous processed
+        frame (:func:`~sleap_nn.tracking.mot.calibration.pair_geometry`; not
+        across a repeated or backwards frame) are remembered instead.
+        """
+        self._remember_diagonals(dets)
+        if self._diagonals or self.params.body_size is not None:
+            self._prev_dets = None
+            return
+        prev = self._prev_dets
+        if self._last_delta is not None and self._last_delta <= 0:
+            prev = None
+        max_dist = (
+            0.5 * float(np.median(np.asarray(self._spacings)))
+            if self._spacings
+            else None
+        )
+        spacings, links = pair_geometry(prev, dets, max_dist=max_dist)
+        self._spacings.extend(spacings.tolist())
+        if n_steps > 0 and len(links):
+            self._step_lengths.extend((links / n_steps).tolist())
+        self._prev_dets = dets
 
     def _remember_diagonals(self, dets: FrameDetections) -> None:
         """Add the frame's non-degenerate extents to the running body size."""
@@ -1102,6 +1350,7 @@ class BaseMOTTracker:
     def _refresh_resolved(self) -> None:
         """Rebuild ``resolved`` (keeps the linking result once recorded)."""
         linking = self.resolved.get("linking") if self.resolved else None
+        body, body_source = self._body_size_info()
         self.resolved = {
             "tracker": self.name,
             "params": self.params.as_dict(),
@@ -1109,6 +1358,13 @@ class BaseMOTTracker:
             "time_base": self._time_base,
             "frame_step": int(self._frame_step),
             "similarity": self._similarity(),
+            "body_size": float(body),
+            "body_size_source": body_source,
+            "score_normalizer": (
+                None
+                if self._score_normalizer is None
+                else float(self._score_normalizer)
+            ),
             "calibration": (
                 None if self.calibration is None else self.calibration.as_dict()
             ),

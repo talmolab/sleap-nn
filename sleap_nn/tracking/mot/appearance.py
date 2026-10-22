@@ -35,8 +35,16 @@ def _unit(vec) -> Optional[np.ndarray]:
     return v / norm
 
 
-def _unit_rows(queries) -> Tuple[np.ndarray, np.ndarray]:
+def unit_rows(queries) -> Tuple[np.ndarray, np.ndarray]:
     """Row-normalize ``(n, D)`` (or a single ``(D,)``) queries.
+
+    Every :class:`AppearanceMemory` statistic normalizes its queries with this;
+    a caller scoring the same queries against many memories normalizes them
+    once and uses the ``*_unit`` methods (e.g.
+    :meth:`AppearanceMemory.gallery_max_cos_unit`).
+
+    Args:
+        queries: ``(n, D)`` vectors, or one ``(D,)``.
 
     Returns:
         ``(rows, ok)``: float64 unit rows (zeros where unusable) and an ``(n,)``
@@ -72,7 +80,9 @@ class AppearanceMemory:
             trust)``.
         score_floor: ``floor`` of the adaptive EMA.
         ema: Current EMA vector (L2-normalized) or ``None``.
-        gallery: ``deque`` of recent gated vectors.
+        gallery: ``deque`` of recent gated vectors. Change it through
+            :meth:`seed` / :meth:`update` (or ``clear()`` it): the stacked
+            gallery behind the statistics is cached until then.
         n_updates: Number of vectors absorbed (seed included).
     """
 
@@ -91,6 +101,13 @@ class AppearanceMemory:
         self.ema: Optional[np.ndarray] = None
         self.gallery: deque = deque(maxlen=gallery_size)
         self.n_updates = 0
+        # `vectors()` cache: the stacked gallery and its first/last elements
+        # (identity-checked, so a gallery changed behind our back restacks).
+        self._stack: Optional[np.ndarray] = None
+        self._stack_ends: Tuple[Optional[np.ndarray], Optional[np.ndarray]] = (
+            None,
+            None,
+        )
 
     def seed(self, vec: np.ndarray) -> None:
         """Initialize from a track's first vector (always accepted).
@@ -109,6 +126,7 @@ class AppearanceMemory:
         self.ema = v.copy()
         self.gallery.clear()
         self.gallery.append(v)
+        self._stack = None
         self.n_updates = 1
 
     def update(self, vec: np.ndarray, score: float = 1.0, gated: bool = True) -> None:
@@ -142,6 +160,7 @@ class AppearanceMemory:
         if np.isfinite(norm) and norm > _EPS:
             self.ema = mixed / norm
         self.gallery.append(v)
+        self._stack = None
         self.n_updates += 1
 
     def _momentum(self, score: float) -> float:
@@ -175,25 +194,35 @@ class AppearanceMemory:
             ``(n,)`` cosines; NaN for every query when the memory is empty or the
             dimension differs, and for unusable (zero / non-finite) query rows.
         """
-        rows, ok = _unit_rows(queries)
+        return self.ema_cos_unit(*unit_rows(queries))
+
+    def ema_cos_unit(self, rows: np.ndarray, ok: np.ndarray) -> np.ndarray:
+        """:meth:`ema_cos` of queries already normalized by :func:`unit_rows`.
+
+        Args:
+            rows: ``(n, D)`` unit rows from :func:`unit_rows`.
+            ok: ``(n,)`` usable-row flags from :func:`unit_rows`.
+
+        Returns:
+            ``(n,)`` cosines, exactly as :meth:`ema_cos`.
+        """
         out = np.full(rows.shape[0], np.nan)
         if self.ema is None or rows.shape[1] != self.ema.size:
             return out
         out[ok] = np.clip(rows[ok] @ self.ema, -1.0, 1.0)
         return out
 
-    def _gallery_cos(self, queries: np.ndarray) -> Optional[Tuple[np.ndarray, ...]]:
-        """``(n, G)`` query-to-gallery cosines and usable-row flags.
+    def _gallery_cos(self, rows: np.ndarray) -> Optional[np.ndarray]:
+        """``(n, G)`` cosines of unit query rows to the gallery.
 
         Returns ``None`` when the gallery is empty or of another dimension.
         """
         if len(self.gallery) == 0:
             return None
         gallery = self.vectors()
-        rows, ok = _unit_rows(queries)
         if rows.shape[1] != gallery.shape[1]:
             return None
-        return np.clip(rows @ gallery.T, -1.0, 1.0), ok
+        return np.clip(rows @ gallery.T, -1.0, 1.0)
 
     def gallery_max_cos(self, queries: np.ndarray) -> np.ndarray:
         """Max cosine of each query over the gallery (EMA if the gallery is empty).
@@ -207,10 +236,23 @@ class AppearanceMemory:
             ``(n,)`` cosines; NaN when the memory is empty and for unusable
             query rows.
         """
-        res = self._gallery_cos(queries)
-        if res is None:
-            return self.ema_cos(queries)
-        cos, ok = res
+        return self.gallery_max_cos_unit(*unit_rows(queries))
+
+    def gallery_max_cos_unit(self, rows: np.ndarray, ok: np.ndarray) -> np.ndarray:
+        """:meth:`gallery_max_cos` of queries already normalized by :func:`unit_rows`.
+
+        Lets a tracker normalize a frame's queries once for all its tracks.
+
+        Args:
+            rows: ``(n, D)`` unit rows from :func:`unit_rows`.
+            ok: ``(n,)`` usable-row flags from :func:`unit_rows`.
+
+        Returns:
+            ``(n,)`` cosines, exactly as :meth:`gallery_max_cos`.
+        """
+        cos = self._gallery_cos(rows)
+        if cos is None:
+            return self.ema_cos_unit(rows, ok)
         out = np.full(cos.shape[0], np.nan)
         out[ok] = cos[ok].max(axis=1)
         return out
@@ -219,7 +261,9 @@ class AppearanceMemory:
         """Mean of the top-``k`` gallery cosines per query; NaN if empty.
 
         With fewer than ``k`` gallery vectors, all of them are averaged; with an
-        empty gallery (e.g. ``gallery_size=0``) the EMA cosine is used.
+        empty gallery (e.g. ``gallery_size=0``) the EMA cosine is used. This is
+        the identity linker's statistic (the oracle its calibration is tested
+        against).
 
         Args:
             queries: ``(n, D)`` vectors (or one ``(D,)``); renormalized here.
@@ -229,10 +273,10 @@ class AppearanceMemory:
             ``(n,)`` statistics; NaN when the memory is empty and for unusable
             query rows.
         """
-        res = self._gallery_cos(queries)
-        if res is None:
-            return self.ema_cos(queries)
-        cos, ok = res
+        rows, ok = unit_rows(queries)
+        cos = self._gallery_cos(rows)
+        if cos is None:
+            return self.ema_cos_unit(rows, ok)
         k_eff = int(min(max(int(k), 1), cos.shape[1]))
         top = np.partition(cos, cos.shape[1] - k_eff, axis=1)[:, -k_eff:]
         out = np.full(cos.shape[0], np.nan)
@@ -240,10 +284,26 @@ class AppearanceMemory:
         return out
 
     def vectors(self) -> np.ndarray:
-        """Gallery as an ``(G, D)`` array (``(0, 0)`` when empty)."""
+        """Gallery as a read-only ``(G, D)`` array (``(0, 0)`` when empty).
+
+        The stacked array is cached until the gallery changes (every statistic
+        reads it, once per track and frame).
+        """
         if len(self.gallery) == 0:
             return np.zeros((0, 0), dtype=np.float64)
-        return np.stack(list(self.gallery), axis=0)
+        first, last = self._stack_ends
+        stack = self._stack
+        if (
+            stack is None
+            or stack.shape[0] != len(self.gallery)
+            or self.gallery[0] is not first
+            or self.gallery[-1] is not last
+        ):
+            stack = np.stack(list(self.gallery), axis=0)
+            stack.flags.writeable = False
+            self._stack = stack
+            self._stack_ends = (self.gallery[0], self.gallery[-1])
+        return stack
 
 
 def passes_quality_gate(

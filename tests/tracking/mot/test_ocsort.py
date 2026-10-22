@@ -359,9 +359,12 @@ def test_deepocsort_appearance_resolves_ambiguous_crossing():
     identities where OC-SORT (and Deep OC-SORT without vectors) swap them."""
     scene = _ambiguous_crossing(embeddings=True)
     tracker = build_tracker("deepocsort")
-    names = run_tracker(tracker, scene.frames)
+    with _warnings() as messages:
+        names = run_tracker(tracker, scene.frames)
     assert tracker.calibration.appearance_for_association
     assert tracker.resolved["appearance"]["enabled"]
+    assert tracker.resolved["appearance"]["association_term"] == "standardized"
+    assert not any("raw EMA cosine" in m for m in messages)
     assert count_id_switches(names, scene.gt) == 0
     assert len(distinct_names(names)) == 4
 
@@ -412,6 +415,86 @@ def test_standardized_appearance():
     ):
         tracker.calibration = calibration
         np.testing.assert_array_equal(tracker._standardized_appearance(cos), 0.0)
+
+
+def test_association_term_falls_back_to_raw_cosine():
+    """An enabled appearance gate without a usable calibrated spread (no
+    calibration, too few trials, degenerate spread) uses the reference's raw EMA
+    cosine instead of a neutral E' = 0; the calibrated spread standardizes; a
+    disabled gate ("auto" without calibration) gives no term."""
+    tracker, _ = _two_tracks()
+    cos = np.array([[0.9, 0.1, 0.5, np.nan], [1.0, -0.5, 0.3, 0.7]])
+    raw = np.nan_to_num(cos, nan=0.0)
+    assert tracker._association_term() == "standardized"
+    np.testing.assert_allclose(
+        tracker._association_appearance(cos), tracker._standardized_appearance(cos)
+    )
+    for calibration in (
+        None,
+        _calibration(mu_pos=None, mu_neg=None, status="insufficient", n_trials=8),
+        _calibration(mu_pos=0.4, mu_neg=0.4),
+        _calibration(mu_pos=float("nan")),
+    ):
+        tracker.calibration = calibration
+        assert tracker._association_term() == "raw_cosine"
+        np.testing.assert_allclose(tracker._association_appearance(cos), raw)
+
+    tracker = build_tracker("deepocsort")  # "auto", uncalibrated: disabled
+    traj = linear_trajectories([(40, 60), (40, 180)], [(3, 0), (3, 0)], 8)
+    _track_all(tracker, make_scene(traj, embeddings=True).frames)
+    assert tracker._association_term() == "off"
+    np.testing.assert_array_equal(tracker._association_appearance(cos), 0.0)
+
+
+def _bounce_scene(n_frames=30, speed=2.0, center=(160.0, 120.0), seed=0):
+    """Two animals walking sideways (heading vertical) meet head-on and turn back.
+
+    Too short for the per-video calibration (status "insufficient": no
+    calibrated mu_pos / mu_neg), and geometry alone swaps the identities.
+    """
+    d = np.abs(np.arange(n_frames) - n_frames // 2) * speed
+    traj = np.empty((n_frames, 2, 2))
+    traj[:, 0] = np.stack([center[0] - d, np.full(n_frames, center[1])], axis=1)
+    traj[:, 1] = np.stack([center[0] + d, np.full(n_frames, center[1])], axis=1)
+    return make_scene(
+        traj, heading=np.pi / 2, embeddings=True, position_noise=0.5, seed=seed
+    )
+
+
+@pytest.mark.parametrize("prepare", [True, False])
+def test_explicit_threshold_uses_appearance_without_calibrated_spread(prepare):
+    """Regression: an explicit appearance_threshold on a clip too short to
+    calibrate (or without prepare()) silently reduced Deep OC-SORT to OC-SORT
+    (E' = 0 everywhere) while provenance reported appearance as enabled. The
+    raw-cosine term now keeps the identities, the fallback is logged once and
+    recorded in the provenance."""
+    scene = _bounce_scene()
+    names = run_tracker(build_tracker("ocsort"), scene.frames, prepare=prepare)
+    assert count_id_switches(names, scene.gt) > 0  # geometry alone swaps
+
+    scene = _bounce_scene()
+    tracker = build_tracker("deepocsort", appearance_threshold=0.5)
+    with _warnings() as messages:
+        names = run_tracker(tracker, scene.frames, prepare=prepare)
+    if prepare:
+        assert tracker.calibration.status == "insufficient"
+        assert tracker.calibration.mu_pos is None
+    else:
+        assert tracker.calibration is None
+    assert count_id_switches(names, scene.gt) == 0
+    assert len(distinct_names(names)) == 2
+    assert sum("raw EMA cosine" in m for m in messages) == 1
+    summary = tracker.resolved["appearance"]
+    assert summary["enabled"] and summary["association_term"] == "raw_cosine"
+    assert "raw EMA cosine" in summary["reason"]
+
+    # "auto" keeps its calibrated semantics: insufficient -> geometry only.
+    scene = _bounce_scene()
+    tracker = build_tracker("deepocsort")
+    names_auto = run_tracker(tracker, scene.frames)
+    assert tracker.resolved["appearance"]["enabled"] is False
+    assert tracker.resolved["appearance"]["association_term"] == "off"
+    assert count_id_switches(names_auto, scene.gt) > 0
 
 
 def _stage1(tracker, objs, frame_idx=8):
@@ -477,6 +560,84 @@ def test_adaptive_weight_or_constant(aw_off):
         weight = adaptive_weight(e, aw_param=tracker.params.aw_param, base=w)
         np.testing.assert_allclose(score - oc_score, weight * e)
         assert (weight > w).all()
+
+
+def _veto_frames(atypical_cos=0.1, jump=14.0):
+    """Animal A alone, walking sideways (heading vertical: 16 px wide boxes) at 10
+    px/frame; on frame 10 it moves ``jump`` px (too far from its last observation
+    for OCR) and its crop is atypical (cosine ``atypical_cos`` to its identity:
+    E' < 0). B and C stand 5 px apart, so each of their rows has two admissible
+    pairs (no one-to-one shortcut); D leaves after frame 7 (a lost track: a
+    spare row of zero-evidence cells)."""
+    vecs = np.eye(16)
+    atypical = atypical_cos * vecs[0] + np.sqrt(1 - atypical_cos**2) * vecs[15]
+    frames, xa = [], 40.0
+    for t in range(16):
+        if t > 0:
+            xa += jump if t == 10 else 10.0
+        objs = [
+            (
+                make_pose((xa, 60.0), heading=np.pi / 2, embedding=atypical)
+                if t == 10
+                else make_pose((xa, 60.0), heading=np.pi / 2, embedding=vecs[0])
+            ),
+            make_pose((200.0, 160.0), heading=np.pi / 2, embedding=vecs[1]),
+            make_pose((205.0, 160.0), heading=np.pi / 2, embedding=vecs[2]),
+        ]
+        if t < 8:
+            objs.append(make_pose((280.0, 200.0), heading=np.pi / 2, embedding=vecs[3]))
+        frames.append((t, objs))
+    return frames
+
+
+def test_appearance_never_vetoes_an_uncontested_pair():
+    """Regression: a negative appearance term on the ONLY admissible pair of its
+    row and column made the masked assignment drop it for a zero-evidence
+    inadmissible cell (here the lost track D's) whenever an unrelated pair (B/C)
+    stopped the one-to-one shortcut; OCR could not recover the jump, so A's
+    detection went untracked. Such a pair keeps its OC-SORT score; contested
+    pairs keep their negative appearance term."""
+    frames = _veto_frames()
+    tracker = build_tracker("deepocsort", preset="animal")
+    tracker.calibration = _calibration()
+    _track_all(tracker, frames[:10])
+
+    captured = {}
+    original = tracker._first_stage
+
+    def spy(tracks, dets, cols, sim):
+        valid, score = original(tracks, dets, cols, sim)
+        _, oc_score = OCSORTTracker._first_stage(tracker, tracks, dets, cols, sim)
+        cos = tracker._appearance_cos(tracks, dets, "ema")[:, cols]
+        captured.update(
+            rows=[t.tid for t in tracks],
+            valid=valid,
+            score=score,
+            oc_score=oc_score,
+            e=tracker._association_appearance(cos),
+        )
+        return valid, score
+
+    tracker._first_stage = spy
+    frame_idx, objs = frames[10]
+    tracker.track(objs, frame_idx)
+
+    valid, score, oc_score, e = (
+        captured[k] for k in ("valid", "score", "oc_score", "e")
+    )
+    a, b = captured["rows"].index(0), captured["rows"].index(1)
+    assert ocsort_module.one_to_one_pattern(valid) is None
+    # A's pair is uncontested with a negative E': clamped to its OC-SORT score.
+    assert valid[a].sum() == 1 and valid[:, 0].sum() == 1 and valid[a, 0]
+    assert e[a, 0] < 0.0
+    assert score[a, 0] == pytest.approx(oc_score[a, 0])
+    # B's competing pair (B vs C's detection) keeps its appearance penalty.
+    assert valid[b, 2] and e[b, 2] < 0.0 and score[b, 2] < oc_score[b, 2]
+
+    assert objs[0].track is not None and objs[0].track.name == "track_0"
+    _track_all(tracker, frames[11:])
+    names = track_names(frames)
+    assert all(n[0] == "track_0" for n in names[5:])
 
 
 def _rescue_frames(vec_a, vec_jump, vec_b=None, n_hist=8):
