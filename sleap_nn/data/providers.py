@@ -61,6 +61,7 @@ def check_video_readable(video: sio.Video, frames: Optional[list] = None) -> Non
 
     The video counts as readable if frame 0 or the first of `frames` reads. Frame
     0 alone is not enough: a `.pkg.slp` embeds only some frames, often not 0.
+    An empty `frames` asks for nothing, so there is nothing to check.
 
     Args:
         video: The video to check. Its video plugin may be changed to "pyav".
@@ -69,6 +70,8 @@ def check_video_readable(video: sio.Video, frames: Optional[list] = None) -> Non
     Raises:
         ValueError: If no available plugin can read the video.
     """
+    if frames is not None and len(frames) == 0:
+        return
     frame_inds = [0]
     if frames is not None and len(frames) > 0 and int(frames[0]) != 0:
         frame_inds.append(int(frames[0]))
@@ -288,9 +291,8 @@ class VideoReader(Thread):
         self.frame_buffer = frame_buffer
         self.frames = frames
         self._daemonic = True  # needs to be set to True for graceful stop; all threads should be killed when main thread is killed
-        if self.frames is None or len(self.frames) > 0:
-            # Fail here, not in `run`, which logs read errors and stops quietly.
-            check_video_readable(self.video, self.frames)
+        # Fail here, not in `run`, which logs read errors and stops quietly.
+        check_video_readable(self.video, self.frames)
         if self.frames is None:
             self.frames = [x for x in range(0, len(self.video))]
 

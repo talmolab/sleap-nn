@@ -162,6 +162,9 @@ class VideoProvider:
             prefetch queue ahead of the consumer. Kept small and explicit
             (like ``paf_workers``' ``max_in_flight``) so a fast decoder
             can't race far ahead of a slow GPU stage and balloon memory.
+        check_readable: If ``True`` (default), make sure the video can be
+            decoded (falling back to PyAV) before reading it. ``False`` when
+            the caller already checked, e.g. :class:`VideoSelection`.
 
     Notes:
         Yields raw ``(B, H, W, C)`` frames as ``np.uint8``. The
@@ -177,6 +180,7 @@ class VideoProvider:
     remote_kwargs: Optional[dict] = None
     prefetch: bool = True
     queue_maxsize: int = 4
+    check_readable: bool = True
 
     _sio_video: "Optional[sio.Video]" = attrs.field(
         default=None, init=False, repr=False
@@ -201,7 +205,7 @@ class VideoProvider:
                 kwargs.update(self.remote_kwargs)
             self._sio_video = sio.load_video(str(self.video), **kwargs)
 
-        if self.frames is None or len(self.frames) > 0:
+        if self.check_readable:
             # An undecodable video reports 0 frames: raise instead of yielding
             # nothing.
             check_video_readable(self._sio_video, self.frames)
@@ -749,6 +753,7 @@ class VideoSelection:
     only_suggested_frames: bool = False
     exclude_user_labeled: bool = False
     only_predicted_frames: bool = False
+    _readable_checked: bool = attrs.field(default=False, init=False, repr=False)
 
     def __attrs_post_init__(self) -> None:
         """Validate ``video_index`` and the filter combination."""
@@ -788,8 +793,34 @@ class VideoSelection:
             if lf.has_user_instances
         }
 
+    def _check_readable(self) -> None:
+        """Raise if the video can't be decoded, falling back to PyAV (once).
+
+        An undecodable video reports 0 frames, which would make every requested
+        index "out of range" and select nothing, so this runs before anything
+        trusts the video's length. Not done at construction so the CLI's
+        ``--gui`` error reporting, which wraps prediction, sees the error.
+        """
+        if self._readable_checked:
+            return
+        from sleap_nn.data.providers import check_video_readable
+
+        frames = self.frames
+        n_frames = len(self.video)
+        if frames is not None and len(frames) > 0 and n_frames > 0:
+            # Probe a frame that will actually be read, not whatever came first
+            # in the request (which may be out of range).
+            frames = [i for i in sorted(set(frames)) if 0 <= i < n_frames] or None
+        check_video_readable(self.video, frames)
+        self._readable_checked = True
+
     def candidate_indices(self, warn: bool = True) -> "Union[range, list[int]]":
-        """The video's frames, restricted to ``frames`` if given."""
+        """The video's frames, restricted to ``frames`` if given.
+
+        Raises:
+            ValueError: If the video can't be decoded with any available plugin.
+        """
+        self._check_readable()
         n_frames = len(self.video)
         if self.frames is None:
             return range(n_frames)
@@ -856,15 +887,7 @@ class VideoSelection:
         """
         import sleap_io as sio
 
-        from sleap_nn.data.providers import check_video_readable
-
-        if self.frames is None or len(self.frames) > 0:
-            # An undecodable video reports 0 frames, which would make every
-            # requested index "out of range" and predict nothing. Check (and fall
-            # back to PyAV) before anything reads the video's length. Done here
-            # rather than at construction so the CLI's `--gui` error reporting,
-            # which wraps prediction, sees the error.
-            check_video_readable(self.video, self.frames)
+        self._check_readable()
 
         if needs_gt_instances or self.only_labeled_frames:
             # GT instances must ride along, so only user-labeled frames can
@@ -911,7 +934,10 @@ class VideoSelection:
                 else list(self.frame_indices())
             )
             provider = VideoProvider(
-                video=self.video, batch_size=batch_size, frames=frames
+                video=self.video,
+                batch_size=batch_size,
+                frames=frames,
+                check_readable=False,
             )
         if provider.num_frames() == 0:
             logger.warning(

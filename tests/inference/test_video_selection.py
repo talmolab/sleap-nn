@@ -317,6 +317,49 @@ def test_undecodable_video_raises(undecodable_project, frames):
     assert _indices(VideoSelection(undecodable_project, 0, frames=[])) == []
 
 
+@pytest.mark.parametrize(
+    "kw, gt",
+    [({"only_labeled_frames": True}, False), ({}, True)],
+    ids=["only_labeled_frames", "needs_gt_instances"],
+)
+def test_undecodable_video_raises_on_gt_path(undecodable_project, kw, gt):
+    """The LabelsProvider branch (GT instances ride along) checks the video too."""
+    selection = VideoSelection(undecodable_project, 0, frames=[0, 1, 2], **kw)
+    with pytest.raises(ValueError, match="Could not read"):
+        selection.to_provider(needs_gt_instances=gt)
+
+
+def test_frame_indices_raises_on_undecodable_video(undecodable_project):
+    """Asking for the selection directly raises too, not only ``to_provider``."""
+    selection = VideoSelection(undecodable_project, 0, frames=[0, 1, 2])
+    with pytest.raises(ValueError, match="Could not read"):
+        selection.frame_indices()
+
+
+def test_readability_probe_uses_an_in_range_requested_frame(project, monkeypatch):
+    """If frame 0 won't decode, probe the first requested frame that exists.
+
+    The request's first index may be out of range; probing it would call a video
+    whose requested frames all decode unreadable.
+    """
+    from sleap_io.io.video_reading import MediaVideo
+
+    # Known length, as for a project video whose shape the .slp stored.
+    assert len(project.videos[0]) == 166
+    read_frame = MediaVideo._read_frame
+
+    def _read_frame(self, frame_idx):
+        if frame_idx == 0:
+            raise IndexError("Failed to read frame index 0.")
+        return read_frame(self, frame_idx)
+
+    monkeypatch.setattr(MediaVideo, "_read_frame", _read_frame)
+
+    selection = VideoSelection(project, 0, frames=[100000, 7, 5])
+
+    assert _indices(selection) == [5, 7]
+
+
 def test_falls_back_to_pyav_before_counting_frames(project, monkeypatch):
     """A video OpenCV can't decode is read with PyAV, not treated as empty."""
     pytest.importorskip("av")
