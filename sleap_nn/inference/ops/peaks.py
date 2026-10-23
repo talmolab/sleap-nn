@@ -2,8 +2,10 @@
 
 Functions provided:
 
-- :func:`morphological_dilation` — pure-PyTorch 3×3 dilation used as the
-  non-maximum suppression kernel below.
+- :func:`morphological_dilation` — pure-PyTorch 3×3 dilation (max over the
+  8 neighbors).
+- :func:`morphological_dilation_split` — the same 8-neighbor max, split into
+  the neighbors before and after each pixel in raster order.
 - :func:`integral_regression` — sub-pixel refinement by integrating expected
   coordinates over a local patch.
 - :func:`find_global_peaks_rough` / :func:`find_global_peaks` — single peak
@@ -15,6 +17,7 @@ PR 1 is a pure relocation — every function below preserves the exact
 signature and behavior of its old home in ``sleap_nn/inference/peak_finding.py``.
 """
 
+import functools
 from typing import Optional, Tuple
 
 import torch
@@ -26,12 +29,11 @@ from sleap_nn.inference.ops.crops import crop_bboxes, make_centered_bboxes
 def morphological_dilation(image: torch.Tensor, kernel: torch.Tensor) -> torch.Tensor:
     """Compute the per-pixel max over the 8-neighborhood (excluding center).
 
-    Used by :func:`find_local_peaks_rough` as the NMS dilation step. The
-    ``kernel`` argument is preserved for API compatibility but is currently
-    ignored — the 8-neighbor pattern is hardcoded so the function lowers
-    cleanly to ``torch.stack + max``, which exports to ONNX (PR 5 of #508
-    rewrote the original ``Tensor.unfold`` formulation that the legacy ONNX
-    exporter rejected).
+    The ``kernel`` argument is preserved for API compatibility but is
+    currently ignored — the 8-neighbor pattern is hardcoded as shifted slices
+    of a padded image combined with elementwise ``torch.maximum``, which
+    exports to ONNX (PR 5 of #508 rewrote the original ``Tensor.unfold``
+    formulation that the legacy ONNX exporter rejected).
 
     Args:
         image: Input tensor of shape ``(B, 1, H, W)``.
@@ -44,23 +46,148 @@ def morphological_dilation(image: torch.Tensor, kernel: torch.Tensor) -> torch.T
         i.e. pad-with-minimum).
     """
     del kernel  # see docstring
+    return torch.maximum(*morphological_dilation_split(image))
+
+
+def morphological_dilation_split(
+    image: torch.Tensor,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Compute the 8-neighbor max split into earlier and later neighbors.
+
+    The 8 neighbors of each pixel are split by raster order (row, then column):
+    the 4 that come before it (NW, N, NE, W) and the 4 that come after it
+    (E, SW, S, SE). The elementwise max of the two outputs equals
+    :func:`morphological_dilation`.
+
+    Args:
+        image: Input tensor of shape ``(..., H, W)``.
+
+    Returns:
+        ``(before, after)``, each the same shape as ``image``: the max over the
+        4 earlier and over the 4 later neighbors (out-of-image neighbors are
+        ``-inf``).
+    """
     padded = F.pad(image, (1, 1, 1, 1), mode="constant", value=float("-inf"))
-    # Stack the eight 1-pixel shifts of the padded image. Each slice shape is
-    # (B, 1, H, W); stacked dim 0 has length 8.
-    eight = torch.stack(
-        [
-            padded[..., :-2, :-2],  # NW
-            padded[..., :-2, 1:-1],  # N
-            padded[..., :-2, 2:],  # NE
-            padded[..., 1:-1, :-2],  # W
-            padded[..., 1:-1, 2:],  # E (center skipped)
-            padded[..., 2:, :-2],  # SW
-            padded[..., 2:, 1:-1],  # S
-            padded[..., 2:, 2:],  # SE
-        ],
-        dim=0,
+    return _neighbor_max_split(padded)
+
+
+def _neighbor_max_split(padded: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+    """``(before, after)`` neighbor maxima of the image inside a 1-pixel border.
+
+    Pairwise ``torch.maximum`` of shifted views never materializes the shifts
+    (stacking them costs ~1.5x the time and twice the memory on CUDA), and
+    exports to ONNX as ``Max``.
+    """
+    p = padded
+    before = torch.maximum(
+        torch.maximum(p[..., :-2, :-2], p[..., :-2, 1:-1]),  # NW, N
+        torch.maximum(p[..., :-2, 2:], p[..., 1:-1, :-2]),  # NE, W
     )
-    return eight.max(dim=0)[0]
+    after = torch.maximum(
+        torch.maximum(p[..., 1:-1, 2:], p[..., 2:, :-2]),  # E, SW
+        torch.maximum(p[..., 2:, 1:-1], p[..., 2:, 2:]),  # S, SE
+    )
+    return before, after
+
+
+# (row, col) offsets of the 8 neighbors of a pixel (row 0 of the table) and of
+# the 8 neighbors of each of those neighbors (rows 1-8), relative to the pixel.
+_NEIGHBORS = [(dr, dc) for dr in (-1, 0, 1) for dc in (-1, 0, 1) if dr or dc]
+_NEIGHBOR_TABLE = torch.tensor(
+    [[(r + dr, c + dc) for dr, dc in _NEIGHBORS] for r, c in [(0, 0)] + _NEIGHBORS]
+)  # (9, 8, 2)
+
+
+@functools.lru_cache(maxsize=16)
+def _gather_layout(
+    device: torch.device, channels: int, height: int, width: int
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Flat-index strides and neighbor offsets into a ``(S, C, H, W)`` tensor.
+
+    Cached so that a call costs a lookup rather than a host-to-device copy.
+
+    Returns:
+        ``(strides, offsets)``: ``strides`` ``(4,)`` maps ``(sample, row, col,
+        channel)`` to a flat index; ``offsets`` ``(9, 8)`` are the flat offsets
+        of ``_NEIGHBOR_TABLE``.
+    """
+    strides = torch.tensor([channels * height * width, width, 1, height * width])
+    offsets = _NEIGHBOR_TABLE[..., 0] * width + _NEIGHBOR_TABLE[..., 1]
+    return strides.to(device), offsets.to(device)
+
+
+@functools.lru_cache(maxsize=16)
+def _flat_top_tables(
+    device: torch.device,
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Lookup tables for :func:`_flat_tops`, indexed by an 8-bit tie pattern.
+
+    Bit ``k`` of a pattern is set if neighbor ``k`` (in ``_NEIGHBORS`` order)
+    of a candidate equals it; the flat top is the candidate plus those
+    neighbors. All neighbors are after the candidate in raster order.
+
+    Returns:
+        ``(bits, fits, offsets, outside)``: ``bits`` ``(8,)`` turns tie masks
+        into patterns; ``fits`` ``(256,)``: the top fits in a 2x2 block;
+        ``offsets`` ``(256, 2)``: ``(x, y)`` from the candidate to the mean of
+        the top's pixels; ``outside`` ``(256, 64)``: neighbor ``j`` of neighbor
+        ``k`` (at ``8 * k + j``) is outside the top while ``k`` is in it.
+    """
+    blocks = [{(0, 1), (1, 0), (1, 1)}, {(1, -1), (1, 0)}]  # E, S, SE / SW, S
+    fits, offsets, outside = [], [], []
+    for pattern in range(256):
+        tied = {d for k, d in enumerate(_NEIGHBORS) if pattern >> k & 1}
+        top = tied | {(0, 0)}
+        fits.append(any(tied <= block for block in blocks))
+        offsets.append(
+            [sum(c for _, c in top) / len(top), sum(r for r, _ in top) / len(top)]
+        )
+        outside.append(
+            [
+                (r, c) in tied and (r + dr, c + dc) not in top
+                for r, c in _NEIGHBORS
+                for dr, dc in _NEIGHBORS
+            ]
+        )
+    return (
+        (2 ** torch.arange(8)).to(device),
+        torch.tensor(fits).to(device),
+        torch.tensor(offsets, dtype=torch.float32).to(device),
+        torch.tensor(outside).to(device),
+    )
+
+
+def _flat_tops(
+    padded: torch.Tensor, peak_subs: torch.Tensor, peak_vals: torch.Tensor
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Check which candidate peaks have a flat top that fits in a 2x2 block.
+
+    Each candidate is ``>=`` its 8 neighbors and ``>`` the 4 before it, so its
+    equal neighbors come after it and, with it, form the flat top if the top
+    fits in a 2x2 block. The candidate is kept if they do fit in one, and no
+    pixel of the top has a neighbor ``>=`` it outside the top.
+
+    Args:
+        padded: ``(samples, channels, height + 4, width + 4)`` confidence maps
+            with a 2-pixel ``-inf`` border.
+        peak_subs: ``(n_peaks, 4)`` ``(sample, row, col, channel)`` of the
+            candidates, in unpadded coordinates.
+        peak_vals: ``(n_peaks,)`` candidate values.
+
+    Returns:
+        ``(keep, offsets)``: ``keep`` ``(n_peaks,)`` bool; ``offsets``
+        ``(n_peaks, 2)`` ``(x, y)`` from the candidate to the mean of its flat
+        top's pixel coordinates (zero for a one-pixel top).
+    """
+    _, channels, height, width = padded.shape
+    strides, offsets = _gather_layout(padded.device, channels, height, width)
+    bits, fits, top_offsets, outside = _flat_top_tables(padded.device)
+    center = (peak_subs * strides).sum(1) + (2 * width + 2)
+    neighbors = padded.reshape(-1)[center[:, None, None] + offsets]  # (n, 9, 8)
+    ge = neighbors >= peak_vals[:, None, None]
+    pattern = (ge[:, 0] * bits).sum(1)  # the candidate's equal neighbors
+    leaks = (ge[:, 1:].flatten(1) & outside[pattern]).any(1)
+    return fits[pattern] & ~leaks, top_offsets[pattern]
 
 
 def integral_regression(
@@ -186,6 +313,13 @@ def find_local_peaks_rough(
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     """Find local maxima via non-maximum suppression.
 
+    A pixel is a peak if it is above ``threshold`` and greater than all 8 of
+    its neighbors. A flat top of equal pixels (common with fp16 confidence
+    maps) is one peak if it fits in a 2x2 block (2 pixels, an L of 3, or all
+    4) and is higher than every pixel around it; its point is the mean of the
+    pixels' coordinates, so it can be fractional. A wider flat top, or one
+    next to a higher pixel, gives no peak. See #781.
+
     Args:
         cms: ``(samples, channels, height, width)``.
         threshold: Peaks below this are dropped.
@@ -196,23 +330,26 @@ def find_local_peaks_rough(
         ``peak_vals`` is ``(n_peaks,)``;
         the index tensors are ``(n_peaks,)`` ``int32``.
     """
-    kernel = torch.tensor([[1, 1, 1], [1, 0, 1], [1, 1, 1]], dtype=torch.float32)
-
-    height = cms.size(2)
-    width = cms.size(3)
-    channels = cms.size(1)
-    flat_img = cms.reshape(-1, 1, height, width)
-
-    max_img = morphological_dilation(flat_img, kernel.to(flat_img.device))
-    max_img = max_img.reshape(-1, channels, height, width)
-
-    argmax_and_thresh_img = (cms > max_img) & (cms > threshold)
+    padded = F.pad(cms, (2, 2, 2, 2), mode="constant", value=float("-inf"))
+    before_img, after_img = _neighbor_max_split(padded[..., 1:-1, 1:-1])
+    # >= all 8 neighbors and > the 4 before it: the first pixel of a flat top.
+    argmax_and_thresh_img = (cms > before_img) & (cms >= after_img) & (cms > threshold)
 
     peak_subs = torch.stack(
         torch.where(argmax_and_thresh_img.permute(0, 2, 3, 1)), axis=-1
     )
-    peak_vals = cms[peak_subs[:, 0], peak_subs[:, 3], peak_subs[:, 1], peak_subs[:, 2]]
+    s, y, x, c = peak_subs.unbind(1)
+    peak_vals = cms[s, c, y, x]
     peak_points = peak_subs[:, [2, 1]].to(torch.float32)
+    tied = peak_vals == after_img[s, c, y, x]
+    # Ties are rare in fp32, so the flat-top check only runs when there is one.
+    # Traced or compiled graphs always run it (it keeps every untied peak).
+    tracing = torch.jit.is_tracing() or torch.compiler.is_compiling()
+    if tracing or bool(tied.any()):
+        keep, offsets = _flat_tops(padded, peak_subs, peak_vals)
+        keep = torch.nonzero(keep)[:, 0]
+        peak_subs, peak_vals = peak_subs[keep], peak_vals[keep]
+        peak_points = peak_points[keep] + offsets[keep]
     peak_sample_inds = peak_subs[:, 0].to(torch.int32)
     peak_channel_inds = peak_subs[:, 3].to(torch.int32)
     return peak_points, peak_vals, peak_sample_inds, peak_channel_inds
@@ -240,9 +377,10 @@ def find_local_peaks(
 
     crop_size = integral_patch_size
 
-    bboxes = make_centered_bboxes(
-        rough_peaks, box_height=crop_size, box_width=crop_size
-    )
+    # A flat top's rough peak can be fractional; refine around the pixel it
+    # floors to, since the crops are taken on the pixel grid.
+    anchors = torch.floor(rough_peaks)
+    bboxes = make_centered_bboxes(anchors, box_height=crop_size, box_width=crop_size)
 
     samples = cms.size(0)
     channels = cms.size(1)
@@ -255,5 +393,5 @@ def find_local_peaks(
     dx_hat, dy_hat = integral_regression(cm_crops, xv=gv, yv=gv)
     offsets = torch.cat([dx_hat, dy_hat], dim=1)
 
-    refined_peaks = rough_peaks + offsets
+    refined_peaks = anchors + offsets
     return refined_peaks, peak_vals, peak_sample_inds, peak_channel_inds
