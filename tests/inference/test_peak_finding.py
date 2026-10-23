@@ -1,5 +1,8 @@
+import numpy as np
 import pytest
 import torch
+import torch.nn.functional as F
+from scipy.ndimage import binary_dilation, label, maximum_filter
 
 from sleap_nn.inference.ops.peaks import (
     morphological_dilation,
@@ -490,12 +493,53 @@ def _strict_peak_mask(cms, threshold=0.2):
     return (cms > max_img.reshape(cms.shape)) & (cms > threshold)
 
 
+def _plateau_peaks_reference(img, threshold=0.2):
+    """Brute-force peaks of one ``(H, W)`` map as a bool mask.
+
+    A peak is the first pixel in raster order of a plateau (8-connected equal
+    pixels) of 1 or 2 pixels above ``threshold`` whose surrounding pixels are
+    all lower.
+    """
+    out = np.zeros(img.shape, bool)
+    # Every pixel of a peak's plateau is >= its neighbors.
+    is_max = maximum_filter(img, size=3, mode="constant", cval=-np.inf) == img
+    for v in np.unique(img[is_max]):
+        if not v > threshold:
+            continue
+        plateaus, n = label(img == v, structure=np.ones((3, 3)))
+        for i in range(1, n + 1):
+            plateau = plateaus == i
+            ring = binary_dilation(plateau, structure=np.ones((3, 3))) & ~plateau
+            if plateau.sum() <= 2 and (img[ring] < v).all():
+                ys, xs = np.nonzero(plateau)  # raster order
+                out[ys[0], xs[0]] = True
+    return out
+
+
+def _peak_mask(cms, threshold=0.2):
+    """``find_local_peaks_rough`` output as a bool mask shaped like ``cms``."""
+    points, _vals, samples, channels = find_local_peaks_rough(cms, threshold)
+    mask = np.zeros(cms.shape, bool)
+    xs, ys = points.long().cpu().T
+    mask[samples.long().cpu(), channels.long().cpu(), ys, xs] = True
+    return mask
+
+
 def test_morphological_dilation_split_matches_dilation():
     torch.manual_seed(0)
     img = torch.randn(3, 1, 9, 11)
     before, after = morphological_dilation_split(img)
     assert before.shape == after.shape == img.shape
-    assert torch.equal(torch.maximum(before, after), morphological_dilation(img, None))
+    padded = F.pad(img, (1, 1, 1, 1), value=float("-inf"))
+    shifts = [
+        padded[..., 1 + dy : 10 + dy, 1 + dx : 12 + dx]
+        for dy in (-1, 0, 1)
+        for dx in (-1, 0, 1)
+        if dy or dx
+    ]
+    assert torch.equal(torch.stack(shifts[:4]).amax(0), before)
+    assert torch.equal(torch.stack(shifts[4:]).amax(0), after)
+    assert torch.equal(torch.stack(shifts).amax(0), morphological_dilation(img, None))
     # The first pixel has no earlier neighbors; the last has no later ones.
     assert torch.all(before[..., 0, 0] == float("-inf"))
     assert torch.all(after[..., -1, -1] == float("-inf"))
@@ -518,13 +562,67 @@ def test_find_local_peaks_rough_two_equal_top_pixels(dx, dy):
 
 
 def test_find_local_peaks_rough_flat_top():
-    # A Gaussian centered between two pixels has two equal top pixels; one
-    # centered between four has a 2x2 flat top. Each gives one peak.
+    # A Gaussian centered between two pixels has two equal top pixels: one
+    # peak. One centered between four has a 2x2 flat top: no peak.
     cms = _gaussian(20, 24, 10.5, 8)[None, None]
     assert cms[0, 0, 8, 10] == cms[0, 0, 8, 11]
     assert _peak_list(cms) == [(0, 0, 10, 8)]
     cms = _gaussian(20, 24, 10.5, 8.5)[None, None]
-    assert _peak_list(cms) == [(0, 0, 10, 8)]
+    assert _peak_list(cms) == []
+
+
+@pytest.mark.parametrize(
+    "tied",
+    [
+        [(4, 4), (5, 4), (6, 4)],  # a row of 3
+        [(5, 3), (4, 4), (3, 4)],  # an L
+        [(4, 4), (5, 4), (4, 5), (5, 5)],  # 2x2
+        # a flat top that widens by 2 pixels per side
+        [(4, 3), (5, 3)] + [(x, y) for x in range(2, 8) for y in (4, 5)],
+    ],
+)
+def test_find_local_peaks_rough_rejects_three_or_more_tied(tied):
+    cms = torch.full((1, 1, 9, 10), 0.3)
+    for x, y in tied:
+        cms[0, 0, y, x] = 0.9
+    assert _peak_list(cms) == []
+
+
+def test_find_local_peaks_rough_rejects_tie_next_to_higher():
+    # Two equal pixels, one of them next to a higher pixel: a shoulder.
+    cms = torch.zeros(1, 1, 7, 9)
+    cms[0, 0, 3, 2] = cms[0, 0, 3, 3] = 0.6
+    cms[0, 0, 3, 4] = 0.9
+    assert _peak_list(cms) == [(0, 0, 4, 3)]
+    # ... and the same pair with the higher pixel 2 away from both is a peak.
+    cms[0, 0, 3, 4] = 0.0
+    cms[0, 0, 3, 5] = 0.9
+    assert _peak_list(cms) == [(0, 0, 2, 3), (0, 0, 5, 3)]
+
+
+@pytest.mark.parametrize(
+    "device",
+    [
+        "cpu",
+        pytest.param(
+            "cuda",
+            marks=pytest.mark.skipif(
+                not torch.cuda.is_available(), reason="needs CUDA"
+            ),
+        ),
+    ],
+)
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float16])
+@pytest.mark.parametrize("levels", [3, 5, 9, 33])
+def test_find_local_peaks_rough_matches_plateau_reference(device, dtype, levels):
+    # Coarsely quantized random maps are full of ties of every shape.
+    torch.manual_seed(levels)
+    cms = (torch.rand(8, 2, 13, 17) * (levels - 1)).round() / (levels - 1)
+    cms = cms.to(device, dtype)
+    want = [[_plateau_peaks_reference(m) for m in s] for s in cms.float().cpu()]
+    assert (_peak_mask(cms) == np.array(want)).all()
+    _points, vals, samples, channels = find_local_peaks_rough(cms)
+    assert vals.dtype == dtype and samples.dtype == channels.dtype == torch.int32
 
 
 def test_find_local_peaks_rough_ties_at_edges():
@@ -557,18 +655,16 @@ def test_find_local_peaks_rough_fp16_ties():
     """In fp16, the top two pixels of a Gaussian sometimes round to one value.
 
     Every peak the strict rule finds is still found; the extra ones are
-    exactly at tied tops, one per tie.
+    exactly at two-pixel tops, one per tie.
     """
     torch.manual_seed(1)
     height, width = 64, 80
-    cms = torch.zeros(200, 1, height, width)
-    for i in range(cms.shape[0]):
-        for _ in range(5):
-            cx, cy = torch.rand(2) * torch.tensor([width - 10.0, height - 10.0]) + 5
-            peak = _gaussian(height, width, float(cx), float(cy))
-            peak = peak * (0.6 + 0.4 * float(torch.rand(1)))
-            cms[i, 0] = torch.maximum(cms[i, 0], peak)
-    cms = cms.half()
+    # 200 maps of 5 Gaussians each, at random positions and heights.
+    cx = (torch.rand(200, 5, 1, 1) * (width - 10.0) + 5).float()
+    cy = (torch.rand(200, 5, 1, 1) * (height - 10.0) + 5).float()
+    amp = 0.6 + 0.4 * torch.rand(200, 5, 1, 1)
+    peaks = amp * _gaussian(height, width, cx, cy)
+    cms = peaks.amax(1, keepdim=True).half()
 
     found = set(_peak_list(cms))
     strict = {
@@ -583,4 +679,6 @@ def test_find_local_peaks_rough_fp16_ties():
     for s, c, x, y in extra:
         top = cms[s, c, y, x]
         around = cms[s, c, max(y - 1, 0) : y + 2, max(x - 1, 0) : x + 2]
-        assert (around == top).sum() >= 2 and (around <= top).all()
+        assert (around == top).sum() == 2 and (around <= top).all()
+    want = [[_plateau_peaks_reference(m) for m in s] for s in cms.float()]
+    assert (_peak_mask(cms) == np.array(want)).all()

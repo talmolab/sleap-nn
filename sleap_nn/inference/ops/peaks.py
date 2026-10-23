@@ -5,8 +5,7 @@ Functions provided:
 - :func:`morphological_dilation` — pure-PyTorch 3×3 dilation (max over the
   8 neighbors).
 - :func:`morphological_dilation_split` — the same 8-neighbor max, split into
-  the neighbors before and after each pixel in raster order, so that
-  :func:`find_local_peaks_rough` can keep one pixel of a tied peak.
+  the neighbors before and after each pixel in raster order.
 - :func:`integral_regression` — sub-pixel refinement by integrating expected
   coordinates over a local patch.
 - :func:`find_global_peaks_rough` / :func:`find_global_peaks` — single peak
@@ -18,6 +17,7 @@ PR 1 is a pure relocation — every function below preserves the exact
 signature and behavior of its old home in ``sleap_nn/inference/peak_finding.py``.
 """
 
+import functools
 from typing import Optional, Tuple
 
 import torch
@@ -29,13 +29,11 @@ from sleap_nn.inference.ops.crops import crop_bboxes, make_centered_bboxes
 def morphological_dilation(image: torch.Tensor, kernel: torch.Tensor) -> torch.Tensor:
     """Compute the per-pixel max over the 8-neighborhood (excluding center).
 
-    :func:`find_local_peaks_rough` now uses :func:`morphological_dilation_split`
-    (the same max, split by raster order) so it can break ties. The
-    ``kernel`` argument is preserved for API compatibility but is currently
-    ignored — the 8-neighbor pattern is hardcoded so the function lowers
-    cleanly to ``torch.stack + max``, which exports to ONNX (PR 5 of #508
-    rewrote the original ``Tensor.unfold`` formulation that the legacy ONNX
-    exporter rejected).
+    The ``kernel`` argument is preserved for API compatibility but is
+    currently ignored — the 8-neighbor pattern is hardcoded as shifted slices
+    of a padded image combined with elementwise ``torch.maximum``, which
+    exports to ONNX (PR 5 of #508 rewrote the original ``Tensor.unfold``
+    formulation that the legacy ONNX exporter rejected).
 
     Args:
         image: Input tensor of shape ``(B, 1, H, W)``.
@@ -48,23 +46,7 @@ def morphological_dilation(image: torch.Tensor, kernel: torch.Tensor) -> torch.T
         i.e. pad-with-minimum).
     """
     del kernel  # see docstring
-    padded = F.pad(image, (1, 1, 1, 1), mode="constant", value=float("-inf"))
-    # Stack the eight 1-pixel shifts of the padded image. Each slice shape is
-    # (B, 1, H, W); stacked dim 0 has length 8.
-    eight = torch.stack(
-        [
-            padded[..., :-2, :-2],  # NW
-            padded[..., :-2, 1:-1],  # N
-            padded[..., :-2, 2:],  # NE
-            padded[..., 1:-1, :-2],  # W
-            padded[..., 1:-1, 2:],  # E (center skipped)
-            padded[..., 2:, :-2],  # SW
-            padded[..., 2:, 1:-1],  # S
-            padded[..., 2:, 2:],  # SE
-        ],
-        dim=0,
-    )
-    return eight.max(dim=0)[0]
+    return torch.maximum(*morphological_dilation_split(image))
 
 
 def morphological_dilation_split(
@@ -75,11 +57,10 @@ def morphological_dilation_split(
     The 8 neighbors of each pixel are split by raster order (row, then column):
     the 4 that come before it (NW, N, NE, W) and the 4 that come after it
     (E, SW, S, SE). The elementwise max of the two outputs equals
-    :func:`morphological_dilation`. It uses the same pad + shifted slices +
-    ``max``, so it exports to ONNX the same way.
+    :func:`morphological_dilation`.
 
     Args:
-        image: Input tensor of shape ``(B, 1, H, W)``.
+        image: Input tensor of shape ``(..., H, W)``.
 
     Returns:
         ``(before, after)``, each the same shape as ``image``: the max over the
@@ -87,25 +68,82 @@ def morphological_dilation_split(
         ``-inf``).
     """
     padded = F.pad(image, (1, 1, 1, 1), mode="constant", value=float("-inf"))
-    before = torch.stack(
-        [
-            padded[..., :-2, :-2],  # NW
-            padded[..., :-2, 1:-1],  # N
-            padded[..., :-2, 2:],  # NE
-            padded[..., 1:-1, :-2],  # W
-        ],
-        dim=0,
-    ).max(dim=0)[0]
-    after = torch.stack(
-        [
-            padded[..., 1:-1, 2:],  # E
-            padded[..., 2:, :-2],  # SW
-            padded[..., 2:, 1:-1],  # S
-            padded[..., 2:, 2:],  # SE
-        ],
-        dim=0,
-    ).max(dim=0)[0]
+    return _neighbor_max_split(padded)
+
+
+def _neighbor_max_split(padded: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+    """``(before, after)`` neighbor maxima of the image inside a 1-pixel border.
+
+    Pairwise ``torch.maximum`` of shifted views never materializes the shifts
+    (stacking them costs ~1.5x the time and twice the memory on CUDA), and
+    exports to ONNX as ``Max``.
+    """
+    p = padded
+    before = torch.maximum(
+        torch.maximum(p[..., :-2, :-2], p[..., :-2, 1:-1]),  # NW, N
+        torch.maximum(p[..., :-2, 2:], p[..., 1:-1, :-2]),  # NE, W
+    )
+    after = torch.maximum(
+        torch.maximum(p[..., 1:-1, 2:], p[..., 2:, :-2]),  # E, SW
+        torch.maximum(p[..., 2:, 1:-1], p[..., 2:, 2:]),  # S, SE
+    )
     return before, after
+
+
+# (row, col) offsets of the 8 neighbors of a pixel (row 0 of the table) and of
+# the 8 neighbors of each of those neighbors (rows 1-8), relative to the pixel.
+_NEIGHBORS = [(dr, dc) for dr in (-1, 0, 1) for dc in (-1, 0, 1) if dr or dc]
+_NEIGHBOR_TABLE = torch.tensor(
+    [[(r + dr, c + dc) for dr, dc in _NEIGHBORS] for r, c in [(0, 0)] + _NEIGHBORS]
+)  # (9, 8, 2)
+
+
+@functools.lru_cache(maxsize=16)
+def _gather_layout(
+    device: torch.device, channels: int, height: int, width: int
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Flat-index strides and neighbor offsets into a ``(S, C, H, W)`` tensor.
+
+    Cached so that a call costs a lookup rather than a host-to-device copy.
+
+    Returns:
+        ``(strides, offsets)``: ``strides`` ``(4,)`` maps ``(sample, row, col,
+        channel)`` to a flat index; ``offsets`` ``(9, 8)`` are the flat offsets
+        of ``_NEIGHBOR_TABLE``.
+    """
+    strides = torch.tensor([channels * height * width, width, 1, height * width])
+    offsets = _NEIGHBOR_TABLE[..., 0] * width + _NEIGHBOR_TABLE[..., 1]
+    return strides.to(device), offsets.to(device)
+
+
+def _is_one_or_two_pixel_top(
+    padded: torch.Tensor, peak_subs: torch.Tensor, peak_vals: torch.Tensor
+) -> torch.Tensor:
+    """Check which candidate peaks have a top of one pixel or an isolated pair.
+
+    Each candidate is ``>=`` its 8 neighbors and ``>`` the 4 before it. It is
+    kept if no neighbor equals it, or if exactly one does (its partner, which
+    then comes after it) and the partner has no other neighbor ``>=`` it.
+
+    Args:
+        padded: ``(samples, channels, height + 4, width + 4)`` confidence maps
+            with a 2-pixel ``-inf`` border.
+        peak_subs: ``(n_peaks, 4)`` ``(sample, row, col, channel)`` of the
+            candidates, in unpadded coordinates.
+        peak_vals: ``(n_peaks,)`` candidate values.
+
+    Returns:
+        ``(n_peaks,)`` bool, ``True`` for the candidates to keep.
+    """
+    _, channels, height, width = padded.shape
+    strides, offsets = _gather_layout(padded.device, channels, height, width)
+    center = (peak_subs * strides).sum(1) + (2 * width + 2)
+    neighbors = padded.reshape(-1)[center[:, None, None] + offsets]  # (n, 9, 8)
+    ge = neighbors >= peak_vals[:, None, None]
+    # Neighbors >= the peak value, around the candidate and each of its neighbors.
+    n_ge = ge.sum(-1)
+    isolated_partner = (ge[:, 0] & (n_ge[:, 1:] == 1)).any(1)
+    return (n_ge[:, 0] == 0) | ((n_ge[:, 0] == 1) & isolated_partner)
 
 
 def integral_regression(
@@ -231,12 +269,12 @@ def find_local_peaks_rough(
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     """Find local maxima via non-maximum suppression.
 
-    A pixel is a peak if it is above ``threshold``, strictly greater than its
-    4 neighbors before it in raster order (NW, N, NE, W) and greater than or
-    equal to its 4 neighbors after it (E, SW, S, SE). A pixel with no equal
-    neighbor is a peak exactly when it is greater than all 8 neighbors. When
-    the top of a peak is two equal pixels (common with fp16 confidence maps),
-    the first of them in raster order is kept, instead of neither. See #781.
+    A pixel is a peak if it is above ``threshold`` and either greater than
+    all 8 of its neighbors, or one of exactly two equal neighboring pixels
+    that are greater than every other pixel around them. Such two-pixel tops
+    are common with fp16 confidence maps; the first of the two in raster
+    order is kept. A top of 3 or more equal pixels, or equal pixels next to a
+    higher one, gives no peak. See #781.
 
     Args:
         cms: ``(samples, channels, height, width)``.
@@ -248,21 +286,24 @@ def find_local_peaks_rough(
         ``peak_vals`` is ``(n_peaks,)``;
         the index tensors are ``(n_peaks,)`` ``int32``.
     """
-    height = cms.size(2)
-    width = cms.size(3)
-    channels = cms.size(1)
-    flat_img = cms.reshape(-1, 1, height, width)
-
-    before_img, after_img = morphological_dilation_split(flat_img)
-    is_peak = (flat_img > before_img) & (flat_img >= after_img)
-    is_peak = is_peak.reshape(-1, channels, height, width)
-
-    argmax_and_thresh_img = is_peak & (cms > threshold)
+    padded = F.pad(cms, (2, 2, 2, 2), mode="constant", value=float("-inf"))
+    before_img, after_img = _neighbor_max_split(padded[..., 1:-1, 1:-1])
+    # >= all 8 neighbors and > the 4 before it: one pixel per tie.
+    argmax_and_thresh_img = (cms > before_img) & (cms >= after_img) & (cms > threshold)
 
     peak_subs = torch.stack(
         torch.where(argmax_and_thresh_img.permute(0, 2, 3, 1)), axis=-1
     )
-    peak_vals = cms[peak_subs[:, 0], peak_subs[:, 3], peak_subs[:, 1], peak_subs[:, 2]]
+    s, y, x, c = peak_subs.unbind(1)
+    peak_vals = cms[s, c, y, x]
+    tied = peak_vals == after_img[s, c, y, x]
+    # Ties are rare in fp32, so the tie check only runs when there is one.
+    # Traced or compiled graphs always run it (it keeps every untied peak).
+    tracing = torch.jit.is_tracing() or torch.compiler.is_compiling()
+    if tracing or bool(tied.any()):
+        keep = _is_one_or_two_pixel_top(padded, peak_subs, peak_vals)
+        keep = torch.nonzero(keep)[:, 0]
+        peak_subs, peak_vals = peak_subs[keep], peak_vals[keep]
     peak_points = peak_subs[:, [2, 1]].to(torch.float32)
     peak_sample_inds = peak_subs[:, 0].to(torch.int32)
     peak_channel_inds = peak_subs[:, 3].to(torch.int32)
