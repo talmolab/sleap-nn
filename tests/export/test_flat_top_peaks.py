@@ -2,8 +2,8 @@
 
 The export wrappers have their own fixed-shape peak finding
 (``BaseExportWrapper._local_peaks``). These tests check that it gives the same
-peaks as the PyTorch path (``find_local_peaks_rough``), in eager mode and
-through onnxruntime, on maps with ties (fp32 and fp16-quantized), and that it
+peaks as the PyTorch path (``find_local_peaks_rough``), in eager mode,
+through onnxruntime and (on a GPU) in an fp16 TensorRT engine, on maps with ties (fp32 and fp16-quantized), and that it
 is bit-identical to the old strict rule when there are no ties.
 """
 
@@ -15,9 +15,12 @@ from torch.nn import functional as F
 
 from sleap_nn.export.wrappers import BottomUpONNXWrapper, CentroidONNXWrapper
 from sleap_nn.export.wrappers.base import BaseExportWrapper
-from sleap_nn.inference.ops.peaks import find_local_peaks_rough
+from sleap_nn.inference.ops.peaks import (
+    find_local_peaks_rough,
+    morphological_dilation_split,
+)
 
-from .conftest import requires_onnxruntime
+from .conftest import requires_onnxruntime, requires_tensorrt
 
 THRESHOLD = 0.2
 
@@ -331,3 +334,85 @@ class TestFlatTopsONNX:
         assert got == _reference_peaks(cms)
         n_per_node = out["peak_mask"][0].sum(-1).tolist()
         assert n_per_node == [n for _, _, n in FLAT_TOPS] + [1]
+
+
+class _BlurBackbone(nn.Module):
+    """A blur "network" wide enough that TensorRT picks fp16 kernels for it.
+
+    Its confidence maps are smooth blobs; computed in fp16, their top pixels
+    often round to the same value.
+    """
+
+    def __init__(self, channels=32):
+        super().__init__()
+        r = torch.arange(-6, 7, dtype=torch.float32)
+        k = torch.exp(-(r**2) / (2 * 3.0**2))
+        k2 = k[:, None] * k[None, :]
+        self.blur = nn.Conv2d(1, channels, 13, padding=6, bias=False)
+        self.blur.weight.data[:] = k2 / k2.sum()
+        self.mix = nn.Conv2d(channels, channels, 3, padding=1, bias=False)
+        self.mix.weight.data.zero_()
+        idx = torch.arange(channels)
+        self.mix.weight.data[idx, idx, 1, 1] = 1.0
+        self.head = nn.Conv2d(channels, 1, 1, bias=False)
+        self.head.weight.data[:] = 1.0 / channels
+
+    def forward(self, x):
+        return {"CentroidConfmapsHead": self.head(self.mix(self.blur(x)))}
+
+
+def _blob_frames(n_frames, size=96, sigma=4.0, seed=1):
+    """uint8 frames with 5 well-separated blobs at random sub-pixel centers."""
+    g = torch.Generator().manual_seed(seed)
+    yy, xx = torch.meshgrid(
+        torch.arange(size, dtype=torch.float32),
+        torch.arange(size, dtype=torch.float32),
+        indexing="ij",
+    )
+    frames = []
+    for _ in range(n_frames):
+        cx = torch.tensor([15.0, 45, 75, 30, 60]) + torch.rand(5, generator=g) * 6
+        cy = torch.tensor([20.0, 20, 20, 65, 65]) + torch.rand(5, generator=g) * 6
+        d2 = (xx - cx[:, None, None]) ** 2 + (yy - cy[:, None, None]) ** 2
+        img = torch.exp(-d2 / (2 * sigma**2)).amax(0) * 255
+        frames.append(img.round().to(torch.uint8))
+    return torch.stack(frames)[:, None]
+
+
+@requires_tensorrt
+def test_fp16_tensorrt_centroid_engine_finds_tied_peaks(tmp_path):
+    """An fp16 TensorRT centroid engine finds every blob exactly once.
+
+    With the old strict rule, this engine lost ~3% of the centroids (82 of
+    2560 on an RTX A6000, TensorRT 10.15) to fp16 ties.
+    """
+    from sleap_nn.export.exporters.tensorrt_exporter import export_to_tensorrt
+    from sleap_nn.inference.layers.backends.tensorrt_backend import (
+        TensorRTBackend,
+    )
+
+    images = _blob_frames(256)
+    # The fp16 maps have ties, so the test exercises the flat-top rule.
+    with torch.no_grad():
+        backbone = _BlurBackbone().cuda().half()
+        cms16 = backbone(images.cuda().half() / 255)["CentroidConfmapsHead"]
+    neighbor_max = torch.maximum(*morphological_dilation_split(cms16))
+    strict = (cms16 > neighbor_max) & (cms16 > THRESHOLD)
+    assert int(strict.sum()) < 5 * len(images)
+
+    wrapper = CentroidONNXWrapper(
+        _BlurBackbone(), max_instances=8, output_stride=1, peak_threshold=THRESHOLD
+    ).cuda()
+    shape = tuple(images.shape)
+    engine = export_to_tensorrt(
+        wrapper,
+        tmp_path / "centroid.trt",
+        input_shape=shape,
+        precision="fp16",
+        min_shape=shape,
+        opt_shape=shape,
+        max_shape=shape,
+        verbose=False,
+    )
+    out = TensorRTBackend(str(engine))(images.cuda())
+    assert out["instance_valid"].sum(1).tolist() == [5] * len(images)
