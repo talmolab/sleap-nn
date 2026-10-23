@@ -46,6 +46,8 @@ sleap-nn train --config CONFIG_PATH [OPTIONS] [OVERRIDES]
 | `--video-paths` | `-v` | Replace video paths (multiple allowed) |
 | `--video-path-map` | | Map old path to new (OLD NEW) |
 | `--prefix-map` | | Map path prefix (OLD_PREFIX NEW_PREFIX) |
+| `--resume` | | Resume a run from its folder or a `.ckpt` file (writes to a new `<run_name>-1` folder) |
+| `--dry-run` | | Check the config and data (setup + one train/val batch), write nothing, print a summary |
 
 ### Examples
 
@@ -61,6 +63,12 @@ sleap-nn train --config config.yaml trainer_config.max_epochs=200
 
 # Remap video paths
 sleap-nn train --config config.yaml --prefix-map /old/data /new/data
+
+# Check a config before a long run
+sleap-nn train --config config.yaml --dry-run
+
+# Resume a run (and train it longer)
+sleap-nn train --resume models/my_run trainer_config.max_epochs=200
 ```
 
 ---

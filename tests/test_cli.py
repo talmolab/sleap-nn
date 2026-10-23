@@ -1349,3 +1349,207 @@ def test_eval_command(
         cmd, check=True, capture_output=True, text=True, env=cpu_only_env()
     )
     assert Path(f"{tmp_path}/metrics_test.npz").exists()
+
+
+class TestTrainDryRun:
+    """`sleap-nn train --dry-run`: setup + one train/val batch, nothing on disk."""
+
+    def test_dry_run_trains_nothing_and_writes_nothing(self, sample_config, tmp_path):
+        ckpt_dir = tmp_path / "runs"
+        sample_config.trainer_config.ckpt_dir = ckpt_dir.as_posix()
+        sample_config.trainer_config.run_name = "dry"
+        config_path = tmp_path / "config.yaml"
+        OmegaConf.save(sample_config, config_path.as_posix())
+
+        result = subprocess.run(
+            [*sleap_nn_cli(), "train", config_path.as_posix(), "--dry-run"],
+            capture_output=True,
+            text=True,
+            env=cpu_only_env(),
+        )
+        assert result.returncode == 0, result.stderr[-3000:]
+        output = _strip_ansi_codes(result.stdout + result.stderr)
+        assert "Dry run passed" in output
+        assert f"{ckpt_dir.as_posix()}/dry" in output
+        # No run folder, checkpoint, config copy or log was written.
+        assert not ckpt_dir.exists()
+
+    def test_dry_run_surfaces_config_errors(self, sample_config, tmp_path):
+        sample_config.trainer_config.ckpt_dir = (tmp_path / "runs").as_posix()
+        sample_config.model_config.head_configs.centered_instance.confmaps.anchor_part = (
+            "not_a_node"
+        )
+        config_path = tmp_path / "config.yaml"
+        OmegaConf.save(sample_config, config_path.as_posix())
+
+        result = subprocess.run(
+            [*sleap_nn_cli(), "train", config_path.as_posix(), "--dry-run"],
+            capture_output=True,
+            text=True,
+            env=cpu_only_env(),
+        )
+        assert result.returncode != 0
+        assert "not_a_node" in _strip_ansi_codes(result.stdout + result.stderr)
+        assert not (tmp_path / "runs").exists()
+
+    def test_dry_run_forces_one_device(self, sample_config):
+        from sleap_nn.cli import _adjust_train_config
+
+        sample_config.trainer_config.trainer_devices = 4
+        sample_config.trainer_config.trainer_device_indices = [0, 1, 2, 3]
+        cfg = _adjust_train_config(sample_config, [], None, dry_run=True)
+        assert cfg.trainer_config.trainer_devices == 1
+        assert cfg.trainer_config.trainer_device_indices is None
+
+
+class TestTrainResume:
+    """`sleap-nn train --resume <run_dir | ckpt>`."""
+
+    @staticmethod
+    def _train(cmd_args):
+        result = subprocess.run(
+            [*sleap_nn_cli(), "train", *cmd_args],
+            capture_output=True,
+            text=True,
+            env=cpu_only_env(),
+        )
+        assert result.returncode == 0, result.stderr[-3000:]
+        return result
+
+    def test_resume_writes_to_a_new_folder(self, sample_config, tmp_path):
+        ckpt_dir = tmp_path / "runs"
+        sample_config.trainer_config.ckpt_dir = ckpt_dir.as_posix()
+        sample_config.trainer_config.run_name = "orig"
+        config_path = tmp_path / "config.yaml"
+        OmegaConf.save(sample_config, config_path.as_posix())
+        self._train([config_path.as_posix()])
+
+        run_dir = ckpt_dir / "orig"
+        best = run_dir / "best.ckpt"
+        assert best.is_file()
+        original_files = sorted(p.name for p in run_dir.iterdir())
+        original_best = best.read_bytes()
+
+        self._train(["--resume", run_dir.as_posix(), "trainer_config.max_epochs=2"])
+
+        resumed_dir = ckpt_dir / "orig-1"
+        assert (resumed_dir / "best.ckpt").is_file()
+        resumed_cfg = OmegaConf.load(resumed_dir / "training_config.yaml")
+        # A run folder resumes from its most recent epoch when it has one.
+        expected = run_dir / "last.ckpt" if (run_dir / "last.ckpt").is_file() else best
+        assert resumed_cfg.trainer_config.resume_ckpt_path == expected.as_posix()
+        assert resumed_cfg.trainer_config.run_name == "orig-1"
+        assert resumed_cfg.trainer_config.max_epochs == 2
+        # The original run is untouched.
+        assert sorted(p.name for p in run_dir.iterdir()) == original_files
+        assert best.read_bytes() == original_best
+        # The resumed run continued from epoch 1 rather than starting over.
+        ckpt = torch.load(resumed_dir / "best.ckpt", weights_only=False)
+        assert ckpt["epoch"] == 1
+
+        # A dry run of a resume checks it (checkpoint loading included) but
+        # creates no folder.
+        result = self._train(
+            ["--resume", run_dir.as_posix(), "trainer_config.max_epochs=2", "--dry-run"]
+        )
+        output = _strip_ansi_codes(result.stdout + result.stderr)
+        assert "Dry run passed" in output and "Resumes from" in output
+        assert sorted(p.name for p in ckpt_dir.iterdir()) == ["orig", "orig-1"]
+
+        # Resuming the original again picks the next free name.
+        self._train(["--resume", best.as_posix(), "trainer_config.max_epochs=2"])
+        assert (ckpt_dir / "orig-2" / "best.ckpt").is_file()
+
+        # A checkpoint that already reached max_epochs has nothing left to train.
+        result = subprocess.run(
+            [*sleap_nn_cli(), "train", "--resume", best.as_posix()],
+            capture_output=True,
+            text=True,
+            env=cpu_only_env(),
+        )
+        assert result.returncode != 0
+        assert "nothing left to train" in _norm_cli_output(
+            _strip_ansi_codes(result.stdout + result.stderr)
+        )
+        assert not (ckpt_dir / "orig-3").exists()
+
+
+class TestResolveResumeTarget:
+    """Argument handling for `--resume`, without training."""
+
+    @staticmethod
+    def _run_dir(tmp_path, ckpts=("best.ckpt",), config=True):
+        run_dir = tmp_path / "run"
+        run_dir.mkdir()
+        for name in ckpts:
+            torch.save({"epoch": 0}, run_dir / name)
+        if config:
+            (run_dir / "training_config.yaml").write_text("{}")
+        return run_dir
+
+    def test_run_dir_prefers_last_ckpt(self, tmp_path):
+        from sleap_nn.cli import _resolve_resume_target
+
+        run_dir = self._run_dir(tmp_path, ckpts=("best.ckpt", "last.ckpt"))
+        assert _resolve_resume_target(run_dir.as_posix()) == (
+            run_dir.resolve(),
+            (run_dir / "last.ckpt").resolve(),
+        )
+
+    def test_run_dir_falls_back_to_best_ckpt(self, tmp_path):
+        from sleap_nn.cli import _resolve_resume_target
+
+        run_dir = self._run_dir(tmp_path)
+        _, ckpt = _resolve_resume_target(run_dir.as_posix())
+        assert ckpt.name == "best.ckpt"
+
+    def test_ckpt_file(self, tmp_path):
+        from sleap_nn.cli import _resolve_resume_target
+
+        run_dir = self._run_dir(tmp_path, ckpts=("best.ckpt", "epoch3.ckpt"))
+        _, ckpt = _resolve_resume_target((run_dir / "epoch3.ckpt").as_posix())
+        assert ckpt.name == "epoch3.ckpt"
+
+    @pytest.mark.parametrize(
+        "kwargs,target,match",
+        [
+            ({}, "missing", "path not found"),
+            ({"ckpts": ()}, "run", "No last.ckpt or best.ckpt"),
+            ({"config": False}, "run", "No training_config.yaml"),
+            ({}, "run/training_config.yaml", "expects a run folder or a .ckpt"),
+        ],
+        ids=["missing", "no-ckpt", "no-config", "not-a-ckpt"],
+    )
+    def test_errors(self, tmp_path, kwargs, target, match):
+        import click
+        from sleap_nn.cli import _resolve_resume_target
+
+        self._run_dir(tmp_path, **kwargs)
+        with pytest.raises(click.UsageError, match=match):
+            _resolve_resume_target((tmp_path / target).as_posix())
+
+    def test_resume_with_a_config_is_rejected(self, tmp_path):
+        run_dir = self._run_dir(tmp_path)
+        result = CliRunner().invoke(
+            cli, ["train", "config.yaml", "--resume", run_dir.as_posix()]
+        )
+        assert result.exit_code != 0
+        assert "don't pass a config too" in _norm_cli_output(result.output)
+
+    def test_explicit_run_name_override_wins(self, tmp_path, sample_config):
+        from sleap_nn.cli import _adjust_train_config
+
+        run_dir = self._run_dir(tmp_path)
+        target = (run_dir, run_dir / "best.ckpt")
+        sample_config.trainer_config.max_epochs = 5
+        cfg = _adjust_train_config(
+            sample_config.copy(), ["trainer_config.run_name=mine"], target, False
+        )
+        assert cfg.trainer_config.ckpt_dir == tmp_path.as_posix()
+        assert cfg.trainer_config.resume_ckpt_path == (run_dir / "best.ckpt").as_posix()
+        # `sample_config` already says run_name=test_ckpt; an override would have
+        # set it, so it's left alone.
+        assert cfg.trainer_config.run_name == sample_config.trainer_config.run_name
+
+        cfg = _adjust_train_config(sample_config.copy(), [], target, False)
+        assert cfg.trainer_config.run_name == "run-1"

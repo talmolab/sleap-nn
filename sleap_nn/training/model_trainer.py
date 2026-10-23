@@ -2796,9 +2796,19 @@ class ModelTrainer:
                 ignore_errors=True,
             )
 
-    def train(self):
-        """Train the lightning model."""
-        logger.info(f"Setting up for training...")
+    def train(self, dry_run: bool = False):
+        """Train the lightning model.
+
+        Args:
+            dry_run: If True, run every setup step (labels, config resolution and
+                validation, datasets, model, dataloaders) and then a single
+                training batch and a single validation batch (Lightning's
+                `fast_dev_run=1`), without writing anything to disk: no run
+                folder, checkpoints, logs, saved configs, image cache or wandb
+                run. Catches config and data errors in seconds instead of after a
+                real run has started.
+        """
+        logger.info(f"Setting up for {'a dry run' if dry_run else 'training'}...")
         start_setup_time = time.time()
 
         # initialize the labels object and update config.
@@ -2812,21 +2822,36 @@ class ModelTrainer:
             # factory again (it had already lost `_set_seed` and the video check).
             self._initialize_from_config()
 
-        # create the ckpt dir.
-        self._setup_model_ckpt_dir()
+        if dry_run:
+            # Read frames straight from the source instead of caching every image
+            # first (the memory cache can take minutes; the disk cache writes files).
+            if self.config.data_config.data_pipeline_fw != "torch_dataset":
+                logger.info(
+                    "Dry run: reading images directly (data_pipeline_fw="
+                    f"torch_dataset) instead of `{self.config.data_config.data_pipeline_fw}`."
+                )
+                self.config.data_config.data_pipeline_fw = "torch_dataset"
+        else:
+            # create the ckpt dir.
+            self._setup_model_ckpt_dir()
 
         # create the train and val datasets for visualization.
         viz_train_dataset = None
         viz_val_dataset = None
-        if self.config.trainer_config.visualize_preds_during_training:
+        if self.config.trainer_config.visualize_preds_during_training and not dry_run:
             logger.info(f"Setting up visualization train and val datasets...")
             viz_train_dataset, viz_val_dataset = self._setup_viz_datasets()
 
         # setup loggers and callbacks for Trainer.
         logger.info(f"Setting up Trainer...")
-        loggers, callbacks = self._setup_loggers_callbacks(
-            viz_train_dataset=viz_train_dataset, viz_val_dataset=viz_val_dataset
-        )
+        if dry_run:
+            # Every logger and callback writes into the run folder (or publishes
+            # over ZMQ), so a dry run uses none.
+            loggers, callbacks = False, []
+        else:
+            loggers, callbacks = self._setup_loggers_callbacks(
+                viz_train_dataset=viz_train_dataset, viz_val_dataset=viz_val_dataset
+            )
         # set up the strategy (for multi-gpu training)
         strategy = OmegaConf.select(
             self.config, "trainer_config.trainer_strategy", default="auto"
@@ -2886,7 +2911,7 @@ class ModelTrainer:
         self.trainer = L.Trainer(
             callbacks=callbacks,
             logger=loggers,
-            enable_checkpointing=self.config.trainer_config.save_ckpt,
+            enable_checkpointing=self.config.trainer_config.save_ckpt and not dry_run,
             devices=devices,
             max_epochs=self.config.trainer_config.max_epochs,
             accelerator=self.config.trainer_config.trainer_accelerator,
@@ -2895,6 +2920,8 @@ class ModelTrainer:
             profiler=profiler,
             log_every_n_steps=1,
             use_distributed_sampler=use_distributed_sampler,
+            # One train batch + one val batch, then stop.
+            fast_dev_run=1 if dry_run else False,
         )
 
         self.trainer.strategy.barrier()
@@ -2987,7 +3014,8 @@ class ModelTrainer:
             trainer_devices=self.trainer.num_devices,
         )
 
-        if self.trainer.global_rank == 0:  # save config only in rank 0 process
+        # save config only in rank 0 process
+        if self.trainer.global_rank == 0 and not dry_run:
             ckpt_path = (
                 Path(self.config.trainer_config.ckpt_dir)
                 / self.config.trainer_config.run_name
@@ -3091,6 +3119,7 @@ class ModelTrainer:
             if (
                 self.config.trainer_config.visualize_preds_during_training
                 and not self.config.trainer_config.keep_viz
+                and not dry_run
             ):
                 if self.trainer.global_rank == 0:
                     viz_dir = (
@@ -3103,7 +3132,9 @@ class ModelTrainer:
                         shutil.rmtree(viz_dir, ignore_errors=True)
 
             # Clean up entire run folder if training was interrupted (KeyboardInterrupt)
-            if training_interrupted and self.trainer.global_rank == 0:
+            # (Never on a dry run: it created no run folder, so one at this path
+            # belongs to someone else.)
+            if training_interrupted and self.trainer.global_rank == 0 and not dry_run:
                 run_dir = (
                     Path(self.config.trainer_config.ckpt_dir)
                     / self.config.trainer_config.run_name
@@ -3113,3 +3144,32 @@ class ModelTrainer:
                         f"Training canceled - cleaning up run folder at {run_dir}..."
                     )
                     shutil.rmtree(run_dir, ignore_errors=True)
+
+        if dry_run and not training_interrupted:
+            self._log_dry_run_summary(train_dataset, val_dataset, val_steps_per_epoch)
+
+    def _log_dry_run_summary(self, train_dataset, val_dataset, val_steps_per_epoch):
+        """Log what a real run with this config would do, after a passing dry run."""
+        cfg = self.config
+        run_dir = Path(cfg.trainer_config.ckpt_dir) / cfg.trainer_config.run_name
+        lines = [
+            "Dry run passed: setup, one training batch and one validation batch "
+            "all ran. Nothing was written to disk.",
+            f"  Model type:          {self.model_type}",
+            f"  Labeled frames:      {sum(len(x) for x in self.train_labels)} train, "
+            f"{sum(len(x) for x in self.val_labels)} val",
+            f"  Samples:             {len(train_dataset)} train, "
+            f"{len(val_dataset)} val",
+            f"  Steps per epoch:     {cfg.trainer_config.train_steps_per_epoch} "
+            f"train, {val_steps_per_epoch} val",
+            f"  Max epochs:          {cfg.trainer_config.max_epochs}",
+            f"  Model parameters:    {cfg.model_config.total_params:,}",
+            f"  Devices:             {self.trainer.num_devices} x "
+            f"{self.trainer.strategy.root_device}",
+            f"  Run folder:          {run_dir.as_posix() if cfg.trainer_config.save_ckpt else '(none: save_ckpt is false)'}",
+        ]
+        if cfg.trainer_config.resume_ckpt_path is not None:
+            lines.append(
+                f"  Resumes from:        {cfg.trainer_config.resume_ckpt_path}"
+            )
+        logger.info("\n".join(lines))
