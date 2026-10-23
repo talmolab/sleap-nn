@@ -316,3 +316,26 @@ def test_unknown_flag_rejected_cleanly():
     assert (
         "no such option" in result.output.lower() or "unknown" in result.output.lower()
     )
+
+
+def test_upload_batches_flag_reaches_predict():
+    """``--upload_batches`` is passed on to ``run.predict`` (off unless given)."""
+    runner = CliRunner()
+    for args, expected in (([], False), (["--upload_batches"], True)):
+        with patch(
+            "sleap_nn.inference.run.predict",
+            return_value=MagicMock(),
+        ) as mock_predict:
+            result = runner.invoke(
+                cli,
+                [
+                    "predict",
+                    "--data_path",
+                    "/fake/path.mp4",
+                    "--model_paths",
+                    "/fake/model",
+                ]
+                + args,
+            )
+        assert result.exit_code == 0, result.output
+        assert mock_predict.call_args.kwargs["upload_batches"] is expected

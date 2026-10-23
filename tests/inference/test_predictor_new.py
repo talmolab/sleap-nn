@@ -305,3 +305,43 @@ def test_batch_size_stored_on_predictor():
 def test_batch_size_default():
     predictor = Predictor(layer=_StubLayer())
     assert predictor.batch_size == 4
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# upload_batches: numpy batches copied to the GPU before layer.predict
+# ─────────────────────────────────────────────────────────────────────────
+
+
+class _RecordingLayer(_StubLayer):
+    """``_StubLayer`` that remembers what ``predict`` was handed."""
+
+    def __init__(self) -> None:
+        self.seen: list = []
+
+    def predict(self, image, **kwargs) -> Outputs:
+        """Record the input, then return the stub's outputs."""
+        self.seen.append(image)
+        return super().predict(image, **kwargs)
+
+
+@pytest.mark.parametrize(
+    "device, upload_batches",
+    [(None, True), ("cpu", True), ("cuda", False), ("cuda:0", False), ("cuda", None)],
+)
+def test_batches_stay_numpy_unless_uploading_to_cuda(device, upload_batches):
+    """No upload without a CUDA device, or unless ``upload_batches`` is set."""
+    kwargs = {} if upload_batches is None else {"upload_batches": upload_batches}
+    layer = _RecordingLayer()
+    predictor = Predictor(layer=layer, batch_size=2, device=device, **kwargs)
+    images = np.zeros((4, 8, 8, 1), dtype=np.uint8)
+    predictor.predict(NumpyProvider(images=images, batch_size=2), make_labels=False)
+
+    assert len(layer.seen) == 2
+    for seen in layer.seen:
+        assert isinstance(seen, np.ndarray)
+        assert seen.dtype == np.uint8
+
+
+def test_upload_batches_default_off():
+    """``upload_batches`` is opt-in: results stay as before unless asked."""
+    assert Predictor(layer=_StubLayer()).upload_batches is False

@@ -70,7 +70,7 @@ from sleap_nn.inference.layers.topdown_segmentation import (
     TopDownSegmentationLayer,
 )
 from sleap_nn.inference.outputs import Outputs
-from sleap_nn.inference.providers import Provider
+from sleap_nn.inference.providers import Batch, Provider
 from sleap_nn.inference.tracking import (
     TrackerConfig,
     apply_tracking,
@@ -1106,6 +1106,13 @@ class Predictor:
             :meth:`predict` runs the tracker on the resulting
             ``sio.Labels`` (requires ``make_labels=True``) before
             returning.
+        upload_batches: When ``True`` and ``device`` is a CUDA device, each
+            numpy batch from the provider is copied to the GPU (still
+            ``uint8``) before ``layer.predict``, so resizing, cropping and peak
+            finding run on the GPU instead of the CPU (2.2x faster for a
+            top-down pair on an A100). The GPU's ``uint8`` resize rounds some
+            pixels the other way by 1 grey level, so results differ slightly
+            from the default ``False``, which hands the layer the numpy batch.
 
     Notes:
         Keeps no state across calls — same predictor can be reused on
@@ -1126,6 +1133,7 @@ class Predictor:
     # Centroid-only output representation: "instance" (default; single-node
     # PredictedInstance), "centroid" (sio.PredictedCentroid), or "both".
     emit_centroid: str = "instance"
+    upload_batches: bool = False
 
     def __attrs_post_init__(self) -> None:
         """Warn (once) if ``paf_workers`` was set on a layer that can't use it.
@@ -1196,6 +1204,7 @@ class Predictor:
         mask_output: str = "mask",
         polygon_epsilon: float = 0.01,
         bbox_nms_iou: Optional[float] = None,
+        upload_batches: bool = False,
     ) -> "Predictor":
         """Build a :class:`Predictor` from one or more checkpoint paths.
 
@@ -1274,6 +1283,9 @@ class Predictor:
             bbox_nms_iou: Class-wise IoU-NMS threshold for ``bbox_*`` detectors.
                 ``None`` (default) uses the style's default (0.45 for SSD, off for
                 CenterNet, whose peak NMS already dedupes); ``1.0`` disables it.
+            upload_batches: Copy each ``uint8`` batch to the GPU before
+                preprocessing when ``device`` is CUDA (faster; results differ
+                slightly from the default ``False``). See :class:`Predictor`.
         """
         from sleap_nn.inference.loaders import load_model_assets
         from sleap_nn.system_info import get_startup_info_string
@@ -1338,6 +1350,7 @@ class Predictor:
             "model_paths": [str(p) for p in model_paths],
             "device": device,
             "emit_centroid": emit_centroid,
+            "upload_batches": upload_batches,
         }
         if filter_config is not None:
             kwargs["filter_config"] = filter_config
@@ -1358,6 +1371,8 @@ class Predictor:
             f"integral_refinement={integral_refinement}",
             f"paf_workers={paf_workers}",
         ]
+        if upload_batches:
+            spec.append("upload_batches=True")
         if "bottomup_segmentation" in model_types:
             spec.append(f"fg_threshold={fg_threshold}")
             spec.append(f"min_mask_area={min_mask_area}")
@@ -2264,6 +2279,26 @@ class Predictor:
     # Internals
     # ──────────────────────────────────────────────────────────────────
 
+    def _batch_images(self, batch: Batch) -> Any:
+        """Return ``batch.images``, copied to the GPU if ``upload_batches``.
+
+        Providers yield ``uint8`` numpy frames. Handed to a layer as numpy,
+        they stay on the CPU through preprocessing (sizematcher, input
+        scale, top-down crops), and only reach the device inside the
+        backend's forward. Copying the ``uint8`` batch first moves that work
+        to the GPU and copies the fewest bytes (before any float
+        conversion).
+        """
+        images = batch.images
+        if (
+            self.upload_batches
+            and isinstance(images, np.ndarray)
+            and self.device is not None
+            and torch.device(self.device).type == "cuda"
+        ):
+            images = torch.from_numpy(images).to(self.device, non_blocking=True)
+        return images
+
     def _batch_iter(
         self,
         provider: Provider,
@@ -2299,7 +2334,7 @@ class Predictor:
                     if isinstance(batch.instances, torch.Tensor)
                     else torch.from_numpy(batch.instances)
                 )
-            outputs = layer.predict(batch.images, **kwargs)
+            outputs = layer.predict(self._batch_images(batch), **kwargs)
             outputs = pipeline(outputs)
             outputs = self._stamp_metadata(outputs, batch)
             yield outputs
@@ -2358,7 +2393,7 @@ class Predictor:
             n_workers=self.paf_workers, grouping_params=params
         ) as pool:
             for ordinal, batch in enumerate(provider):
-                x, info = layer.preprocess(batch.images)
+                x, info = layer.preprocess(self._batch_images(batch))
                 raw = layer.backend(x)
                 scored = layer._score_pafs_on_gpu(raw, info)
                 pool.submit(ordinal, scored)

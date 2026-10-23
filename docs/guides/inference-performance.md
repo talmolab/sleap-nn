@@ -32,6 +32,13 @@ and can be re-run to validate your own setup.
       `use_compile=True`.
     - **`paf_workers=0`** is the right default. Workers are a net loss
       for typical bottom-up workloads at fixture-checkpoint scale.
+    - **`--upload_batches`** copies each batch to the GPU before
+      preprocessing, so resizing and top-down cropping don't hold up the
+      GPU: about 2× on a top-down pair (see
+      [Batches on the GPU](#batches-on-the-gpu-upload_batches)).
+    - **On NVIDIA, channels-last** (`backend.memory_format = "channels_last"`)
+      roughly doubled a top-down pair's speed on an A100 (see
+      [Channels-last](#channels-last-memory_format)).
 
 ---
 
@@ -131,6 +138,74 @@ predictor.layer.backend.use_compile = True
     shape — which the new flow's sizematcher does automatically when
     `max_height` / `max_width` are set in training config.
 
+### Batches on the GPU (`upload_batches`)
+
+`sleap-nn predict --upload_batches` (or `upload_batches=True` on
+`Predictor.from_model_paths` / `sleap_nn.inference.predict`) copies each
+`uint8` batch from the provider to the GPU before `layer.predict` when the
+device is CUDA. Without it (the default) the layer gets a numpy batch, and
+the sizematcher, input scaling and top-down crop extraction run on the CPU;
+only the networks run on the GPU. It applies to trained checkpoints in
+`sleap-nn predict`; `sleap-nn track` (the legacy pipeline) and exported
+ONNX/TensorRT models are unchanged.
+
+```bash
+sleap-nn predict -i video.mp4 -m models/centroid/ -m models/centered_instance/ \
+    --device cuda --batch_size 16 --upload_batches
+```
+
+Measured on an **NVIDIA A100 40 GB** (torch 2.6, sleap-nn 0.3.3) with a
+top-down pair (centroid at input scale 0.25, output stride 2;
+centered-instance on 320 px crops at scale 0.5, max stride 32, 24
+filters), a 1280×1024 5-animal video, batch 16, fp32:
+
+| | resize | crops | networks + peaks | total ms / frame | fps | GPU busy |
+|---|---:|---:|---:|---:|---:|---:|
+| numpy batch (`upload_batches=False`) | 3.79 | 1.42 | 4.78 | 10.0 | 100 | 38% |
+| uint8 batch on the GPU | 0.04 | 0.07 | 4.50 | 4.6 | 226 | 89% |
+
+Same animals found; 90% of keypoints bit-identical. The rest differ
+because the GPU's `uint8` resize rounds differently from the CPU's: on an
+RTX 6000 Ada, 5–13% of resized pixels came out 1 grey level apart (never
+more). That's why it is opt-in: without it, results are exactly as before.
+
+### Channels-last (`memory_format`)
+
+`TorchBackend(memory_format="channels_last")` stores the model's weights
+channels-last. cuDNN's fastest convolution kernels on NVIDIA GPUs use that
+layout; with channels-first weights the activations are converted around
+every convolution. Can be set on a built predictor; the model is
+converted on the next forward:
+
+```python
+for backend in (
+    predictor.layer.centroid_layer.backend,
+    predictor.layer.centered_instance_layer.backend,
+):
+    backend.memory_format = "channels_last"
+```
+
+Same A100 and top-down pair as above, batches on the GPU, fps:
+
+| | default layout | channels-last |
+|---|---:|---:|
+| fp32, batch 16 | 226 | 493 |
+| `use_fp16`, batch 16 | 244 | 640 |
+| `use_fp16`, batch 64 | – | 801 |
+
+On this GPU fp16 only pays off once the model is channels-last. The fp16
+rows used a peak-finding fix for fp16 confidence maps whose top is two
+equal pixels (#782); without it fp16 loses about 0.8% of the animals.
+
+| Reason to enable | Reason to skip |
+|---|---|
+| NVIDIA GPUs (tensor-core convolutions) | AMD (ROCm): no difference measured |
+| | CPU / MPS: not measured |
+
+The channels-last kernels can differ from the default ones in the last
+bits (fp32, TF32 when allowed), about as much as running the same model
+on a different GPU.
+
 ### `fuse_layers` (Conv-BN fusion)
 
 Disabled by default. The post-PR-26 measurement on every fixture in this
@@ -188,6 +263,7 @@ predictor = Predictor.from_model_paths(
 backend = predictor.layer.backend  # or .centroid_layer.backend for top-down
 backend.use_fp16 = True
 backend.use_compile = True
+backend.memory_format = "channels_last"  # NVIDIA
 
 labels = predictor.predict("long_video.mp4")
 labels.save("predictions.slp")
