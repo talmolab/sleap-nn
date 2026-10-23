@@ -1,5 +1,6 @@
 """Common utilities for architecture and model building."""
 
+import math
 from typing import List
 
 import torch
@@ -108,13 +109,14 @@ class MaxPool2dWithSamePadding(nn.MaxPool2d):
 
         Returns:
             int: The calculated padding value.
+
+        Note:
+            Plain Python arithmetic (``math.ceil``), not a tensor + ``.item()``:
+            the sizes are Python ints, and ``Tensor.item()`` makes
+            ``torch.compile`` split the graph at every pooling layer (and fail
+            with ``fullgraph=True`` on PyTorch 2.6).
         """
-        return int(
-            max(
-                (torch.ceil(torch.tensor(i / s)).item() - 1) * s + (k - 1) * d + 1 - i,
-                0,
-            )
-        )
+        return int(max((math.ceil(i / s) - 1) * s + (k - 1) * d + 1 - i, 0))
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward pass through the MaxPool2dWithSamePadding module.
