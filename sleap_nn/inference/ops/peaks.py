@@ -116,14 +116,56 @@ def _gather_layout(
     return strides.to(device), offsets.to(device)
 
 
-def _is_one_or_two_pixel_top(
-    padded: torch.Tensor, peak_subs: torch.Tensor, peak_vals: torch.Tensor
-) -> torch.Tensor:
-    """Check which candidate peaks have a top of one pixel or an isolated pair.
+@functools.lru_cache(maxsize=16)
+def _flat_top_tables(
+    device: torch.device,
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Lookup tables for :func:`_flat_tops`, indexed by an 8-bit tie pattern.
 
-    Each candidate is ``>=`` its 8 neighbors and ``>`` the 4 before it. It is
-    kept if no neighbor equals it, or if exactly one does (its partner, which
-    then comes after it) and the partner has no other neighbor ``>=`` it.
+    Bit ``k`` of a pattern is set if neighbor ``k`` (in ``_NEIGHBORS`` order)
+    of a candidate equals it; the flat top is the candidate plus those
+    neighbors. All neighbors are after the candidate in raster order.
+
+    Returns:
+        ``(bits, fits, offsets, outside)``: ``bits`` ``(8,)`` turns tie masks
+        into patterns; ``fits`` ``(256,)``: the top fits in a 2x2 block;
+        ``offsets`` ``(256, 2)``: ``(x, y)`` from the candidate to the mean of
+        the top's pixels; ``outside`` ``(256, 64)``: neighbor ``j`` of neighbor
+        ``k`` (at ``8 * k + j``) is outside the top while ``k`` is in it.
+    """
+    blocks = [{(0, 1), (1, 0), (1, 1)}, {(1, -1), (1, 0)}]  # E, S, SE / SW, S
+    fits, offsets, outside = [], [], []
+    for pattern in range(256):
+        tied = {d for k, d in enumerate(_NEIGHBORS) if pattern >> k & 1}
+        top = tied | {(0, 0)}
+        fits.append(any(tied <= block for block in blocks))
+        offsets.append(
+            [sum(c for _, c in top) / len(top), sum(r for r, _ in top) / len(top)]
+        )
+        outside.append(
+            [
+                (r, c) in tied and (r + dr, c + dc) not in top
+                for r, c in _NEIGHBORS
+                for dr, dc in _NEIGHBORS
+            ]
+        )
+    return (
+        (2 ** torch.arange(8)).to(device),
+        torch.tensor(fits).to(device),
+        torch.tensor(offsets, dtype=torch.float32).to(device),
+        torch.tensor(outside).to(device),
+    )
+
+
+def _flat_tops(
+    padded: torch.Tensor, peak_subs: torch.Tensor, peak_vals: torch.Tensor
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Check which candidate peaks have a flat top that fits in a 2x2 block.
+
+    Each candidate is ``>=`` its 8 neighbors and ``>`` the 4 before it, so its
+    equal neighbors come after it and, with it, form the flat top if the top
+    fits in a 2x2 block. The candidate is kept if they do fit in one, and no
+    pixel of the top has a neighbor ``>=`` it outside the top.
 
     Args:
         padded: ``(samples, channels, height + 4, width + 4)`` confidence maps
@@ -133,17 +175,19 @@ def _is_one_or_two_pixel_top(
         peak_vals: ``(n_peaks,)`` candidate values.
 
     Returns:
-        ``(n_peaks,)`` bool, ``True`` for the candidates to keep.
+        ``(keep, offsets)``: ``keep`` ``(n_peaks,)`` bool; ``offsets``
+        ``(n_peaks, 2)`` ``(x, y)`` from the candidate to the mean of its flat
+        top's pixel coordinates (zero for a one-pixel top).
     """
     _, channels, height, width = padded.shape
     strides, offsets = _gather_layout(padded.device, channels, height, width)
+    bits, fits, top_offsets, outside = _flat_top_tables(padded.device)
     center = (peak_subs * strides).sum(1) + (2 * width + 2)
     neighbors = padded.reshape(-1)[center[:, None, None] + offsets]  # (n, 9, 8)
     ge = neighbors >= peak_vals[:, None, None]
-    # Neighbors >= the peak value, around the candidate and each of its neighbors.
-    n_ge = ge.sum(-1)
-    isolated_partner = (ge[:, 0] & (n_ge[:, 1:] == 1)).any(1)
-    return (n_ge[:, 0] == 0) | ((n_ge[:, 0] == 1) & isolated_partner)
+    pattern = (ge[:, 0] * bits).sum(1)  # the candidate's equal neighbors
+    leaks = (ge[:, 1:].flatten(1) & outside[pattern]).any(1)
+    return fits[pattern] & ~leaks, top_offsets[pattern]
 
 
 def integral_regression(
@@ -269,12 +313,12 @@ def find_local_peaks_rough(
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     """Find local maxima via non-maximum suppression.
 
-    A pixel is a peak if it is above ``threshold`` and either greater than
-    all 8 of its neighbors, or one of exactly two equal neighboring pixels
-    that are greater than every other pixel around them. Such two-pixel tops
-    are common with fp16 confidence maps; the first of the two in raster
-    order is kept. A top of 3 or more equal pixels, or equal pixels next to a
-    higher one, gives no peak. See #781.
+    A pixel is a peak if it is above ``threshold`` and greater than all 8 of
+    its neighbors. A flat top of equal pixels (common with fp16 confidence
+    maps) is one peak if it fits in a 2x2 block (2 pixels, an L of 3, or all
+    4) and is higher than every pixel around it; its point is the mean of the
+    pixels' coordinates, so it can be fractional. A wider flat top, or one
+    next to a higher pixel, gives no peak. See #781.
 
     Args:
         cms: ``(samples, channels, height, width)``.
@@ -288,7 +332,7 @@ def find_local_peaks_rough(
     """
     padded = F.pad(cms, (2, 2, 2, 2), mode="constant", value=float("-inf"))
     before_img, after_img = _neighbor_max_split(padded[..., 1:-1, 1:-1])
-    # >= all 8 neighbors and > the 4 before it: one pixel per tie.
+    # >= all 8 neighbors and > the 4 before it: the first pixel of a flat top.
     argmax_and_thresh_img = (cms > before_img) & (cms >= after_img) & (cms > threshold)
 
     peak_subs = torch.stack(
@@ -296,15 +340,16 @@ def find_local_peaks_rough(
     )
     s, y, x, c = peak_subs.unbind(1)
     peak_vals = cms[s, c, y, x]
+    peak_points = peak_subs[:, [2, 1]].to(torch.float32)
     tied = peak_vals == after_img[s, c, y, x]
-    # Ties are rare in fp32, so the tie check only runs when there is one.
+    # Ties are rare in fp32, so the flat-top check only runs when there is one.
     # Traced or compiled graphs always run it (it keeps every untied peak).
     tracing = torch.jit.is_tracing() or torch.compiler.is_compiling()
     if tracing or bool(tied.any()):
-        keep = _is_one_or_two_pixel_top(padded, peak_subs, peak_vals)
+        keep, offsets = _flat_tops(padded, peak_subs, peak_vals)
         keep = torch.nonzero(keep)[:, 0]
         peak_subs, peak_vals = peak_subs[keep], peak_vals[keep]
-    peak_points = peak_subs[:, [2, 1]].to(torch.float32)
+        peak_points = peak_points[keep] + offsets[keep]
     peak_sample_inds = peak_subs[:, 0].to(torch.int32)
     peak_channel_inds = peak_subs[:, 3].to(torch.int32)
     return peak_points, peak_vals, peak_sample_inds, peak_channel_inds
@@ -332,9 +377,10 @@ def find_local_peaks(
 
     crop_size = integral_patch_size
 
-    bboxes = make_centered_bboxes(
-        rough_peaks, box_height=crop_size, box_width=crop_size
-    )
+    # A flat top's rough peak can be fractional; refine around the pixel it
+    # floors to, since the crops are taken on the pixel grid.
+    anchors = torch.floor(rough_peaks)
+    bboxes = make_centered_bboxes(anchors, box_height=crop_size, box_width=crop_size)
 
     samples = cms.size(0)
     channels = cms.size(1)
@@ -347,5 +393,5 @@ def find_local_peaks(
     dx_hat, dy_hat = integral_regression(cm_crops, xv=gv, yv=gv)
     offsets = torch.cat([dx_hat, dy_hat], dim=1)
 
-    refined_peaks = rough_peaks + offsets
+    refined_peaks = anchors + offsets
     return refined_peaks, peak_vals, peak_sample_inds, peak_channel_inds
