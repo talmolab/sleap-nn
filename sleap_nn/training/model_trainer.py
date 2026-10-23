@@ -1583,6 +1583,9 @@ class ModelTrainer:
                     self.config.model_config.head_configs[self.model_type][key][
                         "edges"
                     ] = edges
+                else:
+                    self._validate_explicit_edges(key, head_config[key]["edges"])
+                self._validate_nonempty_edges(key)
 
             if "classes" in head_config[key].keys():
                 if head_config[key]["classes"] is None:
@@ -1591,7 +1594,10 @@ class ModelTrainer:
                         tracks.extend(
                             [x.name for x in train_label.tracks if x is not None]
                         )
-                    classes = list(set(tracks))
+                    # Sorted, not `list(set(...))`: set order varies between
+                    # processes (string hash randomization), so the class ->
+                    # channel assignment would differ run to run.
+                    classes = sorted(set(tracks))
                     if not len(classes):
                         message = (
                             f"No tracks found. ID models need tracks to be defined."
@@ -1601,6 +1607,7 @@ class ModelTrainer:
                     self.config.model_config.head_configs[self.model_type][key][
                         "classes"
                     ] = classes
+                self._validate_classes(key)
 
             # NOTE: no per-class identity UUID is minted. The simplified sleap-io
             # `Identity` (name + metadata, sleap-io #535) matches by NAME across files
@@ -1611,6 +1618,127 @@ class ModelTrainer:
 
         if self.model_type in BBOX_MODEL_TYPES:
             self._setup_bbox_head_config()
+
+    def _validate_explicit_edges(self, key: str, edges) -> None:
+        """Check an explicitly set PAF `edges` list against the skeleton's edges.
+
+        PAF targets are always built from the skeleton's own edges
+        (`BottomUpDataset` reads `skeletons[0].edge_inds`): one x/y channel pair
+        per edge, in skeleton order and direction. The head's channel count is
+        `2 * len(edges)`. So an explicit list of a different length crashed deep
+        in the loss with a tensor-size mismatch, and one of the same length but
+        with different, reordered or reversed edges trained without any error
+        against mislabeled channels. Same contract as `part_names`: it must match
+        the skeleton exactly.
+        """
+        field = f"model_config.head_configs.{self.model_type}.{key}.edges"
+        skeleton = self.skeletons[0] if self.skeletons else None
+        if skeleton is None:
+            message = (
+                f"{field} is set, but the labels carry no skeleton. PAF targets "
+                "are built from the skeleton's edges, so labels with a skeleton "
+                "are required."
+            )
+            logger.error(message)
+            raise ValueError(message)
+
+        try:
+            given = [tuple(str(node) for node in edge) for edge in edges]
+        except TypeError:
+            given = None
+        if given is None or any(len(edge) != 2 for edge in given):
+            message = (
+                f"{field} must be a list of [source, destination] node-name "
+                f"pairs. Got {edges!r}."
+            )
+            logger.error(message)
+            raise ValueError(message)
+
+        skeleton_edges = [(e.source.name, e.destination.name) for e in skeleton.edges]
+        if given != skeleton_edges:
+            message = (
+                f"{field} must exactly match the skeleton's edges (same order and "
+                f"source -> destination direction) -- subsets, reordered or "
+                f"reversed edges are not supported. Got {given!r}, skeleton has "
+                f"{skeleton_edges!r}. Set edges to null to use the skeleton's "
+                f"edges automatically."
+            )
+            logger.error(message)
+            raise ValueError(message)
+
+    def _validate_nonempty_edges(self, key: str) -> None:
+        """Fail fast when a PAF head would have no edges to predict (#567).
+
+        A single-node skeleton, or one with nodes but no edges, gives a PAF head
+        with zero output channels; training then failed later with a low-level
+        shape error in edge-map generation instead of saying why.
+        """
+        edges = self.config.model_config.head_configs[self.model_type][key]["edges"]
+        if edges is not None and len(edges) == 0:
+            message = (
+                f"model_config.head_configs.{self.model_type}.{key}.edges is empty: "
+                f"the {self.model_type} model groups nodes into instances with "
+                "part affinity fields, which need at least one skeleton edge. Add "
+                "edges to the skeleton, or use a model type that doesn't need them "
+                "(e.g. centroid + centered_instance)."
+            )
+            logger.error(message)
+            raise ValueError(message)
+
+    def _validate_classes(self, key: str) -> None:
+        """Check the resolved `classes` against the track names in the labels.
+
+        The ID datasets map each instance to its class with
+        `classes.index(instance.track.name)`, so a track name missing from
+        `classes` crashed on the first sample load with an unhelpful error (inside
+        a worker traceback when `num_workers > 0`). This covers explicit lists and
+        inferred ones alike: classes are inferred from the training labels only,
+        so a track that appears only in the validation labels is also missing.
+        Duplicates would give one name two channels. Classes no instance uses are
+        allowed (a head can be sized for more identities than are labeled yet),
+        but warned about.
+        """
+        field = f"model_config.head_configs.{self.model_type}.{key}.classes"
+        classes = list(
+            self.config.model_config.head_configs[self.model_type][key]["classes"]
+        )
+
+        duplicates = sorted({c for c in classes if classes.count(c) > 1})
+        if duplicates:
+            message = (
+                f"{field} lists {duplicates!r} more than once; each class needs "
+                f"its own output channel. Got {classes!r}."
+            )
+            logger.error(message)
+            raise ValueError(message)
+
+        used = set()
+        for labels in [*self.train_labels, *self.val_labels]:
+            for lf in labels:
+                for instance in lf.instances:
+                    if instance.track is not None:
+                        used.add(instance.track.name)
+
+        missing = sorted(used - set(classes))
+        if missing:
+            message = (
+                f"{field} has no class for the track name(s) {missing!r}, which "
+                f"instances in the training/validation labels use. Got "
+                f"{classes!r}. Every track name used in the labels needs a class "
+                f"(classes set to null are inferred from the training labels "
+                f"only, so a track used only in the validation labels is "
+                f"missing too)."
+            )
+            logger.error(message)
+            raise ValueError(message)
+
+        unused = sorted(set(classes) - used)
+        if unused and used:
+            logger.warning(
+                f"{field} includes {unused!r}, which no instance in the "
+                f"training/validation labels uses; those output channels will "
+                f"never see a positive target."
+            )
 
     def _setup_ckpt_path(self):
         """Setup checkpoint path."""
