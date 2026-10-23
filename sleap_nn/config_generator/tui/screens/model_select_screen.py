@@ -13,7 +13,7 @@ from textual.widgets import Button, Checkbox, Label, RadioButton, RadioSet, Stat
 from textual.widget import Widget
 
 from sleap_nn.config_generator.tui.state import ConfigState
-from sleap_nn.config_generator.recommender import PipelineType
+from sleap_nn.config_generator.recommender import TOPDOWN_BBOX_DETECTORS, PipelineType
 
 
 class ModelTypeOption(Static):
@@ -310,6 +310,29 @@ class ModelSelectScreen(Widget):
             id="opt-bbox-ssd",
         )
 
+        # Top-down from boxes: a box detector replaces the centroid model and the
+        # instance model's crops are the detected boxes, resized to one size.
+        yield ModelTypeOption(
+            pipeline_type="topdown_bbox_centernet",
+            title="Top-Down from Boxes (CenterNet)",
+            description="Detect boxes first, then find keypoints in each box resized to one crop size.",
+            details="Best for: Multiple animals whose sizes vary (size, distance from camera).",
+            is_recommended=False,
+            is_two_stage=True,
+            classes="model-option",
+            id="opt-topdown-bbox-centernet",
+        )
+        yield ModelTypeOption(
+            pipeline_type="topdown_bbox_ssd",
+            title="Top-Down from Boxes (SSD)",
+            description="Same, with an SSD-style anchor box detector as the first stage.",
+            details="Best for: Box top-down when animal sizes vary a lot within frames.",
+            is_recommended=False,
+            is_two_stage=True,
+            classes="model-option",
+            id="opt-topdown-bbox-ssd",
+        )
+
     def on_mount(self) -> None:
         """Handle mount - preselect recommended option."""
         selected_type = None
@@ -370,7 +393,12 @@ class ModelSelectScreen(Widget):
                 "centered_instance",
                 "multi_class_topdown",
             ]
-            is_bbox = self._state._pipeline in ("bbox_centernet", "bbox_ssd")
+            # The box defaults also apply to the detector stage of a box top-down
+            # pair (its instance model keeps the separate ``_ci_*`` settings).
+            detector = TOPDOWN_BBOX_DETECTORS.get(
+                self._state._pipeline, self._state._pipeline
+            )
+            is_bbox = detector in ("bbox_centernet", "bbox_ssd")
             if is_bbox and self._state._pre_bbox_settings is None:
                 # Remember what the box defaults override, for a later pose pick.
                 self._state._pre_bbox_settings = {
@@ -397,9 +425,7 @@ class ModelSelectScreen(Widget):
                 # Box detectors: half resolution; eval on so checkpoints are picked
                 # on box mAP; no rotation (rotated corners inflate the boxes).
                 self._state._input_scale = 0.5
-                self._state._output_stride = (
-                    4 if pipeline_type == "bbox_centernet" else 8
-                )
+                self._state._output_stride = 4 if detector == "bbox_centernet" else 8
                 self._state._evaluation.enabled = True
                 self._state._augmentation.rotation_enabled = False
             else:
@@ -418,7 +444,7 @@ class ModelSelectScreen(Widget):
             self._state._max_stride = max(
                 base_stride, coverage_stride, self._state._max_stride
             )
-            if self._state._pipeline == "bbox_ssd":
+            if detector == "bbox_ssd":
                 # Anchor levels at strides 8/16/32 read the bottleneck at 32.
                 self._state._max_stride = max(self._state._max_stride, 32)
 
@@ -452,6 +478,16 @@ class ModelSelectScreen(Widget):
                 "[bold cyan]Bottom-Up Pipeline[/bold cyan]\n"
                 "Trains one model that detects all keypoints and uses Part Affinity Fields\n"
                 "to group them into animal instances. You'll get [bold]1 YAML config[/bold] file."
+            )
+        elif pipeline_type in TOPDOWN_BBOX_DETECTORS:
+            style = "CenterNet" if pipeline_type.endswith("centernet") else "SSD"
+            info_widget.update(
+                f"[bold cyan]Top-Down from Boxes Pipeline ({style})[/bold cyan]\n"
+                "This requires training [bold]two models[/bold] sequentially:\n"
+                f"  [yellow]1. Box Detector ({style})[/yellow] - Detects one box per animal in full images\n"
+                "  [yellow]2. Centered Instance Model[/yellow] - Detects keypoints in each box,\n"
+                "     padded, squared and resized to one crop size (crop_mode: bbox)\n"
+                "You'll configure both models and get [bold]2 YAML configs[/bold]."
             )
         elif pipeline_type in ("bbox_centernet", "bbox_ssd"):
             style = "CenterNet" if pipeline_type == "bbox_centernet" else "SSD"

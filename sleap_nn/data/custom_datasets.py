@@ -43,7 +43,15 @@ from sleap_nn.data.instance_centroids import (
     degrade_anchor_if_unresolved,
     generate_centroids,
 )
-from sleap_nn.data.instance_cropping import generate_crops
+from sleap_nn.data.instance_cropping import (
+    BBoxCropSpec,
+    generate_crops,
+    letterbox_crops,
+    points_to_crop,
+    pre_crop_size,
+    scale_windows,
+    window_corners,
+)
 from sleap_nn.data.normalization import (
     convert_to_grayscale,
     convert_to_rgb,
@@ -72,7 +80,10 @@ from sleap_nn.data.bboxes import (
     corners_to_bboxes,
     bbox_head_categories,
     frame_bbox_arrays,
+    frame_user_bboxes,
     get_bbox_target_encoder,
+    instance_crop_bbox,
+    resolve_bbox_source,
 )
 from sleap_nn.data.edge_maps import generate_pafs
 from sleap_nn.data.segmentation_maps import (
@@ -1610,6 +1621,11 @@ class CenteredInstanceDataset(BaseDataset):
         confmap_head_config: DictConfig object with all the keys in the `head_config` section.
             (required keys: `sigma`, `output_stride`, `part_names` and `anchor_part` depending on the model type ).
         labels_list: List of `sio.Labels` objects. Used to store the labels in the cache. (only used if `cache_img` is `None`)
+        bbox_crop: How box-scaled crops are cut (`preprocessing.crop_mode="bbox"`),
+            or `None` for fixed-size crops centered on the instance centroid. With a
+            spec, each instance's box (derived like a detector's ground truth) is
+            resized to `crop_size` x `crop_size`, exactly as the top-down inference
+            layer crops a detected box.
     """
 
     def __init__(
@@ -1633,6 +1649,7 @@ class CenteredInstanceDataset(BaseDataset):
         rank: Optional[int] = None,
         parallel_caching: bool = True,
         cache_workers: int = 0,
+        bbox_crop: Optional[BBoxCropSpec] = None,
     ) -> None:
         """Initialize class attributes."""
         super().__init__(
@@ -1662,13 +1679,20 @@ class CenteredInstanceDataset(BaseDataset):
         self.centroid_method, self.centroid_fallback = degrade_anchor_if_unresolved(
             *centroid_method_from_config(confmap_head_config), anchor_ind
         )
+        self.bbox_crop = bbox_crop
         self.instance_idx_list = self._get_instance_idx_list(labels)
         self.cache_lf = [None, None]
 
     def _get_instance_idx_list(self, labels: List[sio.Labels]) -> List[Tuple[int]]:
         """Return list of tuples with indices of labelled frames and instances."""
         instance_idx_list = []
+        unlinked = 0
         for labels_idx, label in enumerate(labels):
+            box_source = (
+                resolve_bbox_source(label, self.bbox_crop.bbox_source)
+                if self.bbox_crop is not None
+                else None
+            )
             for lf_idx, lf in enumerate(label):
                 # Filter to user instances
                 if self.user_instances_only:
@@ -1690,13 +1714,123 @@ class CenteredInstanceDataset(BaseDataset):
                             ),
                             "frame_idx": lf.frame_idx,
                         }
+                        if box_source is not None:
+                            # Box-scaled crops: the instance's box, in original
+                            # pixels, derived as for a detector's ground truth.
+                            box = instance_crop_bbox(
+                                lf, inst, box_source, self.bbox_crop.bbox_padding
+                            )
+                            if box is None:
+                                continue
+                            sample["bbox"] = box
+                            if box_source == "bboxes" and not any(
+                                getattr(b, "instance", None) is inst
+                                for b in frame_user_bboxes(lf)
+                            ):
+                                unlinked += 1
                         instance_idx_list.append(sample)
                         # This is to ensure that the labels are not passed to the multiprocessing pool (h5py objects can't be pickled)
+        if unlinked:
+            logger.warning(
+                f"Box-scaled crops: {unlinked} of {len(instance_idx_list)} instances "
+                "have no user box linked to them (box.instance), so their training "
+                "boxes come from their keypoints, while a detector trained with the "
+                "same bbox_source learns the drawn boxes. Link the boxes, or set "
+                "bbox_source: instances on both models."
+            )
         return instance_idx_list
 
     def __len__(self) -> int:
         """Return number of instances in the labels object."""
         return len(self.instance_idx_list)
+
+    def _crop_for_augmentation(
+        self,
+        image: torch.Tensor,
+        instance: torch.Tensor,
+        centroid: torch.Tensor,
+        box: Optional[np.ndarray],
+        eff_scale: float,
+    ) -> Dict:
+        """Cut the oversized crop that augmentation runs on.
+
+        Fixed crops: a ``crop_size * sqrt(2)`` window around ``centroid`` at the
+        frame's pixel size. Box-scaled crops: the window
+        :meth:`BBoxCropSpec.windows` gives the instance's ``box``, grown about its
+        center to :func:`pre_crop_size` at the same scale, so that without
+        augmentation the centered ``crop_size`` re-crop (:meth:`_final_crop`) is
+        exactly the crop the top-down inference layer cuts for that box.
+
+        Args:
+            image: Size-matched frame ``(1, C, H, W)``.
+            instance: Size-matched keypoints ``(n_nodes, 2)``.
+            centroid: Size-matched centroid ``(2,)`` (fixed crops only).
+            box: Instance box ``(4,)`` in original pixels (box-scaled crops only).
+            eff_scale: The size matcher's scale.
+        """
+        if self.bbox_crop is None:
+            crop_size = np.array([self.crop_size, self.crop_size]) * np.sqrt(
+                2
+            )  # crop extra for rotation augmentation
+            crop_size = crop_size.astype(np.int32).tolist()
+            return generate_crops(image, instance, centroid, crop_size)
+
+        box = torch.as_tensor(box, dtype=torch.float32).reshape(1, 4) * float(eff_scale)
+        windows, scales, keep_half = self.bbox_crop.windows(box, self.crop_size)
+        m = pre_crop_size(self.crop_size)
+        pre_window = scale_windows(windows, m / self.crop_size)
+        corners = window_corners(pre_window)  # (1, 4, 2)
+        crop = crop_and_resize(image, boxes=corners, size=(m, m))
+        if self.bbox_crop.aspect == "letterbox":
+            crop = letterbox_crops(crop, keep_half)
+        return {
+            "instance_image": crop,
+            "instance_bbox": corners,
+            "instance": points_to_crop(instance[None], pre_window, scales),
+            "centroid": torch.full((1, 2), m / 2 - 0.5),
+            # Frame -> final-crop geometry (size-matched pixels), for mapping
+            # predictions on un-augmented samples back to the frame.
+            "crop_window": windows,
+            "crop_scale": scales,
+            "input_scale": torch.tensor(float(self.scale)),
+        }
+
+    def _final_crop(self, sample: Dict) -> Dict:
+        """Re-crop the (augmented) oversized crop to ``crop_size`` around its center."""
+        if self.bbox_crop is None:
+            sample["instance_bbox"] = torch.unsqueeze(
+                make_centered_bboxes(
+                    sample["centroid"][0], self.crop_size, self.crop_size
+                ),
+                0,
+            )  # (n_samples=1, 4, 2)
+
+            sample["instance_image"] = crop_and_resize(
+                sample["instance_image"],
+                boxes=sample["instance_bbox"],
+                size=(self.crop_size, self.crop_size),
+            )
+            point = sample["instance_bbox"][0][0]
+            center_instance = sample["instance"] - point
+            centered_centroid = sample["centroid"] - point
+
+            sample["instance"] = center_instance  # (n_samples=1, n_nodes, 2)
+            sample["centroid"] = centered_centroid  # (n_samples=1, 2)
+            return sample
+
+        # Box-scaled crops: a window of exactly `crop_size` pixels on whole-pixel
+        # edges (`pre_crop_size` keeps the parity), i.e. a copy, not a resample.
+        origin = sample["centroid"][0] + 0.5 - self.crop_size / 2
+        window = torch.cat([origin, origin + self.crop_size])[None]
+        sample["instance_bbox"] = window_corners(window)  # (n_samples=1, 4, 2)
+        sample["instance_image"] = crop_and_resize(
+            sample["instance_image"],
+            boxes=sample["instance_bbox"],
+            size=(self.crop_size, self.crop_size),
+        )
+        sample["instance"] = sample["instance"] - origin
+        sample["centroid"] = sample["centroid"] - origin
+        return sample
 
     def __getitem__(self, index) -> Dict:
         """Return dict with cropped image and confmaps of instance for given index."""
@@ -1706,6 +1840,7 @@ class CenteredInstanceDataset(BaseDataset):
         inst_idx = sample["inst_idx"]
         video_idx = sample["video_idx"]
         lf_frame_idx = sample["frame_idx"]
+        crop_box = sample.get("bbox")
 
         if self.cache_img is not None:
             instances_list = sample["instances"]
@@ -1770,12 +1905,9 @@ class CenteredInstanceDataset(BaseDataset):
 
         instance, centroid = instances[0], centroids[0]  # (n_samples=1)
 
-        crop_size = np.array([self.crop_size, self.crop_size]) * np.sqrt(
-            2
-        )  # crop extra for rotation augmentation
-        crop_size = crop_size.astype(np.int32).tolist()
-
-        sample = generate_crops(image, instance, centroid, crop_size)
+        sample = self._crop_for_augmentation(
+            image, instance, centroid, crop_box, eff_scale
+        )
 
         sample["frame_idx"] = torch.tensor(lf_frame_idx, dtype=torch.int32)
         sample["video_idx"] = torch.tensor(video_idx, dtype=torch.int32)
@@ -1809,22 +1941,7 @@ class CenteredInstanceDataset(BaseDataset):
                 )
 
         # re-crop to original crop size
-        sample["instance_bbox"] = torch.unsqueeze(
-            make_centered_bboxes(sample["centroid"][0], self.crop_size, self.crop_size),
-            0,
-        )  # (n_samples=1, 4, 2)
-
-        sample["instance_image"] = crop_and_resize(
-            sample["instance_image"],
-            boxes=sample["instance_bbox"],
-            size=(self.crop_size, self.crop_size),
-        )
-        point = sample["instance_bbox"][0][0]
-        center_instance = sample["instance"] - point
-        centered_centroid = sample["centroid"] - point
-
-        sample["instance"] = center_instance  # (n_samples=1, n_nodes, 2)
-        sample["centroid"] = centered_centroid  # (n_samples=1, 2)
+        sample = self._final_crop(sample)
 
         # resize the cropped image
         sample["instance_image"], sample["instance"] = apply_resizer(
@@ -3462,6 +3579,7 @@ class TopDownCenteredInstanceMultiClassDataset(CenteredInstanceDataset):
         rank: Optional[int] = None,
         parallel_caching: bool = True,
         cache_workers: int = 0,
+        bbox_crop: Optional[BBoxCropSpec] = None,
     ) -> None:
         """Initialize class attributes."""
         super().__init__(
@@ -3484,6 +3602,7 @@ class TopDownCenteredInstanceMultiClassDataset(CenteredInstanceDataset):
             rank=rank,
             parallel_caching=parallel_caching,
             cache_workers=cache_workers,
+            bbox_crop=bbox_crop,
         )
         self.class_vectors_head_config = class_vectors_head_config
         self.class_names = self.class_vectors_head_config.classes
@@ -3496,6 +3615,7 @@ class TopDownCenteredInstanceMultiClassDataset(CenteredInstanceDataset):
         inst_idx = sample["inst_idx"]
         video_idx = sample["video_idx"]
         lf_frame_idx = sample["frame_idx"]
+        crop_box = sample.get("bbox")
 
         if self.cache_img is not None:
             instances_list = sample["instances"]
@@ -3577,12 +3697,9 @@ class TopDownCenteredInstanceMultiClassDataset(CenteredInstanceDataset):
 
         instance, centroid = instances[0], centroids[0]  # (n_samples=1)
 
-        crop_size = np.array([self.crop_size, self.crop_size]) * np.sqrt(
-            2
-        )  # crop extra for rotation augmentation
-        crop_size = crop_size.astype(np.int32).tolist()
-
-        sample = generate_crops(image, instance, centroid, crop_size)
+        sample = self._crop_for_augmentation(
+            image, instance, centroid, crop_box, eff_scale
+        )
 
         sample["frame_idx"] = torch.tensor(lf_frame_idx, dtype=torch.int32)
         sample["video_idx"] = torch.tensor(video_idx, dtype=torch.int32)
@@ -3616,22 +3733,7 @@ class TopDownCenteredInstanceMultiClassDataset(CenteredInstanceDataset):
                 )
 
         # re-crop to original crop size
-        sample["instance_bbox"] = torch.unsqueeze(
-            make_centered_bboxes(sample["centroid"][0], self.crop_size, self.crop_size),
-            0,
-        )  # (n_samples=1, 4, 2)
-
-        sample["instance_image"] = crop_and_resize(
-            sample["instance_image"],
-            boxes=sample["instance_bbox"],
-            size=(self.crop_size, self.crop_size),
-        )
-        point = sample["instance_bbox"][0][0]
-        center_instance = sample["instance"] - point
-        centered_centroid = sample["centroid"] - point
-
-        sample["instance"] = center_instance  # (n_samples=1, n_nodes, 2)
-        sample["centroid"] = centered_centroid  # (n_samples=1, 2)
+        sample = self._final_crop(sample)
 
         # resize image
         sample["instance_image"], sample["instance"] = apply_resizer(
@@ -6554,6 +6656,7 @@ def get_train_val_datasets(
         )
 
     elif model_type == "centered_instance":
+        bbox_crop = BBoxCropSpec.from_config(config)
         nodes = config.model_config.head_configs.centered_instance.confmaps.part_names
         anchor_part = (
             config.model_config.head_configs.centered_instance.confmaps.anchor_part
@@ -6592,6 +6695,7 @@ def get_train_val_datasets(
             rank=rank,
             parallel_caching=parallel_caching,
             cache_workers=cache_workers,
+            bbox_crop=bbox_crop,
         )
         val_dataset = CenteredInstanceDataset(
             labels=val_labels,
@@ -6618,9 +6722,11 @@ def get_train_val_datasets(
             rank=rank,
             parallel_caching=parallel_caching,
             cache_workers=cache_workers,
+            bbox_crop=bbox_crop,
         )
 
     elif model_type == "multi_class_topdown":
+        bbox_crop = BBoxCropSpec.from_config(config)
         nodes = config.model_config.head_configs.multi_class_topdown.confmaps.part_names
         anchor_part = (
             config.model_config.head_configs.multi_class_topdown.confmaps.anchor_part
@@ -6660,6 +6766,7 @@ def get_train_val_datasets(
             rank=rank,
             parallel_caching=parallel_caching,
             cache_workers=cache_workers,
+            bbox_crop=bbox_crop,
         )
         val_dataset = TopDownCenteredInstanceMultiClassDataset(
             labels=val_labels,
@@ -6687,6 +6794,7 @@ def get_train_val_datasets(
             rank=rank,
             parallel_caching=parallel_caching,
             cache_workers=cache_workers,
+            bbox_crop=bbox_crop,
         )
 
     elif model_type == "centroid":

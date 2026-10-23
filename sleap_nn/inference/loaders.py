@@ -7,6 +7,7 @@ Nothing user-facing here -- the public API remains
 
 from __future__ import annotations
 
+import copy
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, List, Optional, Tuple, Union
 
@@ -79,6 +80,11 @@ class LoadedAssets:
     # stage (the legacy ``BottomUpInferenceModel`` has no such field, so the
     # value is carried on the assets and read by ``_build_bottomup_layer``).
     max_instances: Optional[int] = None
+
+    # A ``bbox_*`` detector's own assets when it is the first stage of a top-down
+    # pipeline (in place of a centroid model); these assets then hold the
+    # crop-consuming stage 2, built as for its GT-centroid fallback.
+    detector_assets: Optional["LoadedAssets"] = None
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -698,6 +704,7 @@ def _build_bbox(
         inference_model=inference_model,
         preprocess_config=preprocess_config,
         skeletons=skeletons,
+        bottomup_config=config,
         backbone_type=backbone_type,
         max_stride=max_stride,
         max_instances=max_instances,
@@ -1628,16 +1635,75 @@ def load_model_assets(
         )
 
     elif "bbox_centernet" in model_types or "bbox_ssd" in model_types:
-        # Whole-frame bounding-box detectors: single-stage, never composed.
+        # Whole-frame bounding-box detectors. Alone they are single-stage; with a
+        # crop-consuming top-down model they replace the centroid model as stage 1.
         model_type = "bbox_centernet" if "bbox_centernet" in model_types else "bbox_ssd"
+        if "bbox_centernet" in model_types and "bbox_ssd" in model_types:
+            raise ValueError(
+                "Got two bounding-box detectors (bbox_centernet and bbox_ssd); pass "
+                "one."
+            )
         path = model_paths[model_types.index(model_type)]
-        assets = _build_bbox(
+        stage_2 = [t for t in BBOX_STAGE_2_MODEL_TYPES if t in model_types]
+        detector_kwargs = dict(common_kwargs)
+        # `_resolve_preprocess_config` fills its argument in place: give the
+        # detector its own copy of the caller's overrides, so its training values
+        # (input scale, size matcher) do not leak into stage 2's resolution.
+        detector_kwargs["preprocess_config"] = copy.deepcopy(preprocess_config)
+        if isinstance(peak_threshold, (list, tuple)):
+            # A per-stage [stage 1, stage 2] threshold: stage 1 is the detector.
+            detector_kwargs["peak_threshold"] = peak_threshold[0]
+        detector = _build_bbox(
             path,
             model_type=model_type,
             max_instances=max_instances,
             nms_iou=bbox_nms_iou,
-            **common_kwargs,
+            **detector_kwargs,
         )
+        if not stage_2:
+            if "centroid" in model_types:
+                raise ValueError(
+                    "Got a centroid model and a bounding-box detector but no "
+                    "top-down model for them to feed; pass one first stage plus a "
+                    "centered_instance / multi_class_topdown / "
+                    "centered_instance_segmentation model, or the detector alone."
+                )
+            assets = detector
+        else:
+            if "centroid" in model_types:
+                raise ValueError(
+                    "Got both a centroid model and a bounding-box detector: pass one "
+                    "of them as the first stage of the top-down pipeline."
+                )
+            if len(stage_2) > 1:
+                raise ValueError(
+                    f"A bounding-box detector feeds one top-down model; got {stage_2}."
+                )
+            stage_2_path = model_paths[model_types.index(stage_2[0])]
+            builder = {
+                "centered_instance": _build_topdown,
+                "multi_class_topdown": _build_topdown_multiclass,
+            }.get(stage_2[0])
+            if builder is not None:
+                assets = builder(
+                    None,
+                    stage_2_path,
+                    max_instances=max_instances,
+                    anchor_part=anchor_part,
+                    **common_kwargs,
+                )
+            else:
+                assets = _build_topdown_segmentation(
+                    None,
+                    stage_2_path,
+                    max_instances=max_instances,
+                    anchor_part=anchor_part,
+                    fg_threshold=fg_threshold,
+                    mask_output=mask_output,
+                    polygon_epsilon=polygon_epsilon,
+                    **common_kwargs,
+                )
+            assets.detector_assets = detector
 
     elif "embedding" in model_types:
         # Appearance-embedding (re-ID). Checked BEFORE the topdown family block:
@@ -1728,4 +1794,85 @@ def load_model_assets(
             f"Detected types: {model_types}"
         )
 
+    _check_crop_stage(assets, model_types)
     return assets, model_types
+
+
+# Crop-consuming model types a ``bbox_*`` detector can feed as stage 1.
+BBOX_STAGE_2_MODEL_TYPES = (
+    "centered_instance",
+    "multi_class_topdown",
+    "centered_instance_segmentation",
+)
+
+
+def _check_crop_stage(assets: LoadedAssets, model_types: List[str]) -> None:
+    """Check that stage 1 can cut the crops the stage-2 model was trained on.
+
+    A box-scaled stage-2 model (``crop_mode="bbox"``) needs boxes: a detector, or
+    the GT-box fallback when it runs alone -- never a centroid model. With a
+    detector, warn when the two models disagree on what a box is
+    (``bbox_source`` / ``bbox_padding``), or when a fixed-crop stage-2 model was
+    trained on crops centered on something other than the box center.
+    """
+    from sleap_nn.data.instance_cropping import BBOX_CROP_MODEL_TYPES, BBoxCropSpec
+
+    crop_cfg = assets.confmap_config
+    if crop_cfg is None or not any(t in BBOX_STAGE_2_MODEL_TYPES for t in model_types):
+        return
+    spec = BBoxCropSpec.from_config(crop_cfg)
+    crop_type = next((t for t in BBOX_STAGE_2_MODEL_TYPES if t in model_types), None)
+    if spec is not None and crop_type not in BBOX_CROP_MODEL_TYPES:
+        raise ValueError(
+            f"preprocessing.crop_mode='bbox' is supported for "
+            f"{', '.join(BBOX_CROP_MODEL_TYPES)}, not {crop_type!r}."
+        )
+    if spec is not None and "centroid" in model_types:
+        raise ValueError(
+            "This centered-instance model crops each instance's bounding box "
+            "(preprocessing.crop_mode='bbox'), so its first stage must be a "
+            "bbox_centernet / bbox_ssd detector, not a centroid model (or run it "
+            "alone on labeled frames to use ground-truth boxes)."
+        )
+    detector = assets.detector_assets
+    if detector is None:
+        return
+    det_cfg = detector.bottomup_config
+    if det_cfg is None:
+        return
+    for key, default in (("bbox_source", "auto"), ("bbox_padding", 0.0)):
+        det_val = OmegaConf.select(det_cfg, f"data_config.{key}", default=default)
+        crop_val = OmegaConf.select(crop_cfg, f"data_config.{key}", default=default)
+        if key == "bbox_source" and "auto" in (det_val, crop_val):
+            continue  # resolved per labels file; only explicit values compare
+        if spec is not None and det_val != crop_val:
+            logger.warning(
+                f"The detector was trained with data_config.{key}={det_val!r} but "
+                f"the box-scaled centered-instance model with {key}={crop_val!r}: "
+                "their boxes differ, so crops will be scaled differently from "
+                "training."
+            )
+    if spec is None:
+        from sleap_nn.data.instance_centroids import centroid_method_from_config
+
+        head = next(
+            (
+                crop_cfg.model_config.head_configs[t]
+                for t in BBOX_STAGE_2_MODEL_TYPES
+                if t in model_types
+            ),
+            None,
+        )
+        leaf = None
+        if head is not None:
+            leaf = next(
+                (head[k] for k in ("confmaps", "segmentation") if k in head), None
+            )
+        method, _ = centroid_method_from_config(leaf)
+        if method != "bbox_center":
+            logger.warning(
+                f"Crops will be centered on the detected box centers, but the "
+                f"{model_types} crop model was trained on crops centered on its "
+                f"{method!r} centroid. Train it with centroid_method: bbox_center "
+                "(or crop_mode: bbox) to match."
+            )

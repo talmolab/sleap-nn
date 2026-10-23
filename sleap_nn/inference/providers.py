@@ -23,7 +23,7 @@ from __future__ import annotations
 import queue
 import threading
 from copy import deepcopy
-from typing import TYPE_CHECKING, Iterator, Optional, Protocol, Union
+from typing import TYPE_CHECKING, Any, Iterator, Optional, Protocol, Union
 
 import attrs
 import numpy as np
@@ -89,12 +89,16 @@ class Batch:
         instances: Optional ``(B, max_instances, n_nodes, 2)`` GT
             instances, populated by :class:`LabelsProvider` for the
             GT-fallback layer paths.
+        instance_boxes: Optional ``(B, max_instances, 4)`` GT box of each slot of
+            ``instances`` (NaN for padding), populated by :class:`LabelsProvider`
+            when given an ``instance_box_fn`` (the GT-box fallback).
     """
 
     images: np.ndarray | torch.Tensor
     frame_indices: Optional[np.ndarray] = None
     video_indices: Optional[np.ndarray] = None
     instances: Optional[np.ndarray] = None
+    instance_boxes: Optional[np.ndarray] = None
 
 
 class Provider(Protocol):
@@ -381,6 +385,11 @@ class LabelsProvider:
             of the source video's backing (embedded vs. external). Positions
             beyond the list's length are dropped with a logged warning
             rather than silently ignored.
+        instance_box_fn: Optional ``(LabeledFrame, Instance) -> (4,) xyxy | None``
+            giving each GT instance's box; when set, batches carry
+            ``instance_boxes`` aligned with ``instances``. The GT-box fallback of
+            a box-scaled centered-instance model uses it to derive boxes exactly
+            as its training boxes were (linked user boxes / masks, or keypoints).
     """
 
     labels: "Union[str, sio.Labels]"
@@ -393,6 +402,7 @@ class LabelsProvider:
     prefetch: bool = True
     queue_maxsize: int = 4
     frames: Optional[list] = None
+    instance_box_fn: Optional[Any] = None
 
     _sio_labels: "Optional[sio.Labels]" = attrs.field(
         default=None, init=False, repr=False
@@ -554,6 +564,7 @@ class LabelsProvider:
 
             inst_lists = [self._frame_instances(lf) for lf in chunk]
             max_inst = max(len(insts) for insts in inst_lists)
+            instance_boxes = None
             if max_inst == 0:
                 instances = None
             else:
@@ -570,6 +581,15 @@ class LabelsProvider:
                     for j, inst in enumerate(insts):
                         pts = np.asarray(inst.numpy(), dtype=np.float32)
                         instances[i, j, : pts.shape[0]] = pts
+                if self.instance_box_fn is not None:
+                    instance_boxes = np.full(
+                        (len(chunk), max_inst, 4), np.nan, dtype=np.float32
+                    )
+                    for i, (lf, insts) in enumerate(zip(chunk, inst_lists)):
+                        for j, inst in enumerate(insts):
+                            box = self.instance_box_fn(lf, inst)
+                            if box is not None:
+                                instance_boxes[i, j] = box
 
             frame_idxs = np.array([lf.frame_idx for lf in chunk], dtype=np.int64)
             # Attribute each frame to the index of ITS video in the Labels'
@@ -585,6 +605,7 @@ class LabelsProvider:
                 frame_indices=frame_idxs,
                 video_indices=video_idxs,
                 instances=instances,
+                instance_boxes=instance_boxes,
             )
 
         if unreadable:

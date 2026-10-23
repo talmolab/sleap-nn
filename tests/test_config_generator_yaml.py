@@ -509,3 +509,234 @@ def test_tui_bbox_selection_and_restore():
             await pilot.pause()
 
     asyncio.run(run())
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Top-down from boxes: a box detector + a box-scaled centered-instance model
+# ──────────────────────────────────────────────────────────────────────────
+
+TOPDOWN_BBOX_PIPELINES = ["topdown_bbox_centernet", "topdown_bbox_ssd"]
+# The centered-instance config does not depend on the detector style.
+TOPDOWN_BBOX_CI_GOLDEN = GOLDEN_DIR / "topdown_bbox_centered_instance.yaml"
+
+
+def _normalized(cfg) -> dict:
+    """``cfg`` as a plain dict with the labels path replaced by the placeholder."""
+    cfg.data_config.train_labels_path = [PLACEHOLDER_PATH]
+    return yaml.safe_load(OmegaConf.to_yaml(cfg))
+
+
+@pytest.mark.parametrize("pipeline", TOPDOWN_BBOX_PIPELINES)
+def test_topdown_bbox_pair_matches_goldens(pipeline):
+    """Stage 1 is exactly the standalone detector config; stage 2 the box-crop CI.
+
+    To intentionally update the CI golden, write
+    ``build_centered_instance()`` of either pipeline (normalized like
+    ``test_yaml_matches_golden``) to ``topdown_bbox_centered_instance.yaml``.
+    """
+    gen = ConfigGenerator.from_slp(FIXTURE_SLP).auto().pipeline(pipeline)
+    assert gen.is_topdown and gen.is_topdown_bbox and not gen.is_bbox
+    detector = gen.detector_pipeline
+    assert detector == pipeline.replace("topdown_", "")
+    golden = yaml.safe_load((GOLDEN_DIR / f"{detector}.yaml").read_text())
+    assert _normalized(gen.build_detector()) == golden
+    assert _normalized(gen.build()) == golden  # build() is stage 1, as for topdown
+    ci_golden = yaml.safe_load(TOPDOWN_BBOX_CI_GOLDEN.read_text())
+    assert _normalized(gen.build_centered_instance()) == ci_golden
+
+
+@pytest.mark.parametrize("pipeline", TOPDOWN_BBOX_PIPELINES)
+def test_topdown_bbox_instance_config(pipeline):
+    """The CI config cuts box-scaled crops from the detector's training boxes.
+
+    Crops are auto-sized and centered on the box, and the CI keeps the pose
+    augmentation that the detector drops.
+    """
+    from sleap_nn.config.training_job_config import verify_training_cfg
+    from sleap_nn.config.utils import get_model_type_from_cfg
+
+    gen = ConfigGenerator.from_slp(FIXTURE_SLP).auto().pipeline(pipeline)
+    detector = verify_training_cfg(gen.build_detector())
+    ci = verify_training_cfg(gen.build_centered_instance())
+    assert get_model_type_from_cfg(detector) == gen.detector_pipeline
+    assert get_model_type_from_cfg(ci) == "centered_instance"
+
+    pre = ci.data_config.preprocessing
+    assert pre.crop_mode == "bbox" and pre.crop_bbox_aspect == "square"
+    assert pre.crop_bbox_padding == 0.1 and pre.crop_bbox_min_size is None
+    assert pre.crop_size is None and pre.scale == 1.0
+    confmaps = ci.model_config.head_configs.centered_instance.confmaps
+    assert confmaps.centroid_method == "bbox_center" and confmaps.anchor_part is None
+    for key in ("bbox_source", "bbox_padding"):
+        assert ci.data_config[key] == detector.data_config[key]
+
+    # Rotation off / eval on are the detector's alone.
+    assert detector.data_config.augmentation_config.geometric.rotation_p == 0.0
+    assert ci.data_config.augmentation_config.geometric.rotation_p == 1.0
+    assert detector.trainer_config.eval.enabled and not ci.trainer_config.eval.enabled
+
+
+def test_topdown_bbox_instance_crop_sized_by_trainer():
+    """The trainer sizes the generated config's box-scaled crops from the boxes."""
+    pytest.importorskip("torch")
+    from sleap_nn.training.model_trainer import ModelTrainer
+
+    gen = ConfigGenerator.from_slp(FIXTURE_SLP).auto().pipeline("topdown_bbox_ssd")
+    cfg = gen.build_centered_instance()
+    cfg.data_config.val_labels_path = []
+    trainer = ModelTrainer.get_model_trainer_from_config(cfg)
+    pre = trainer.config.data_config.preprocessing
+    assert pre.crop_size > 0 and pre.crop_size % 16 == 0  # rounded to max_stride
+    assert pre.crop_bbox_min_size > 0
+    ModelTrainer(gen.build_detector())  # The detector stage is accepted too.
+
+
+def test_topdown_bbox_save_and_to_yaml(tmp_path):
+    """save() writes the detector + CI pair, named by the detector; to_yaml() both."""
+    gen = (
+        ConfigGenerator.from_slp(FIXTURE_SLP).auto().pipeline("topdown_bbox_centernet")
+    )
+    out = tmp_path / "td.yaml"
+    gen.save(str(out))
+    assert gen.topdown_paths(str(out)) == [
+        ("detector", tmp_path / "td_bbox_centernet.yaml"),
+        ("instance", tmp_path / "td_centered_instance.yaml"),
+    ]
+    assert OmegaConf.load(tmp_path / "td_bbox_centernet.yaml") == gen.build_detector()
+    assert (
+        OmegaConf.load(tmp_path / "td_centered_instance.yaml")
+        == gen.build_centered_instance()
+    )
+    assert not out.exists() and not (tmp_path / "td_centroid.yaml").exists()
+
+    text = gen.to_yaml()
+    assert text.startswith("# === DETECTOR CONFIG ===")
+    assert "# === CENTERED INSTANCE CONFIG ===" in text and "crop_mode: bbox" in text
+
+    # The centroid top-down pair is named as before.
+    paired = ConfigGenerator.from_slp(FIXTURE_SLP).auto().pipeline("centroid")
+    assert [stage for stage, _ in paired.topdown_paths(str(out))] == [
+        "centroid",
+        "instance",
+    ]
+    assert paired.to_yaml().startswith("# === CENTROID CONFIG ===")
+
+
+def test_cli_config_pipeline_topdown_bbox_writes_pair(tmp_path):
+    """`config --auto --pipeline topdown_bbox_ssd` writes the detector + CI pair."""
+    from click.testing import CliRunner
+
+    from sleap_nn.cli import config as config_cmd
+    from sleap_nn.config.utils import get_model_type_from_cfg
+
+    out = tmp_path / "out.yaml"
+    result = CliRunner().invoke(
+        config_cmd,
+        [FIXTURE_SLP, "--auto", "--pipeline", "topdown_bbox_ssd", "-o", str(out)],
+    )
+    assert result.exit_code == 0, result.output
+    detector_path = tmp_path / "out_bbox_ssd.yaml"
+    ci_path = tmp_path / "out_centered_instance.yaml"
+    assert result.output.splitlines() == [
+        f"Saved detector config to: {detector_path}",
+        f"Saved instance config to: {ci_path}",
+    ]
+    assert not out.exists() and not (tmp_path / "out_centroid.yaml").exists()
+    assert get_model_type_from_cfg(OmegaConf.load(detector_path)) == "bbox_ssd"
+    ci = OmegaConf.load(ci_path)
+    assert get_model_type_from_cfg(ci) == "centered_instance"
+    assert ci.data_config.preprocessing.crop_mode == "bbox"
+
+
+def test_cli_config_pipeline_topdown_messages_unchanged(tmp_path):
+    """The centroid top-down pair prints the same two lines as before."""
+    from click.testing import CliRunner
+
+    from sleap_nn.cli import config as config_cmd
+
+    out = tmp_path / "out.yaml"
+    result = CliRunner().invoke(
+        config_cmd, [FIXTURE_SLP, "--auto", "--pipeline", "topdown", "-o", str(out)]
+    )
+    assert result.exit_code == 0, result.output
+    assert result.output.splitlines() == [
+        f"Saved centroid config to: {tmp_path / 'out_centroid.yaml'}",
+        f"Saved instance config to: {tmp_path / 'out_centered_instance.yaml'}",
+    ]
+
+
+def test_tui_topdown_bbox_selection(tmp_path):
+    """The TUI treats a box top-down pick as a two-model pair.
+
+    It builds and saves a detector config and a box-scaled CI config; a pose
+    pick restores the settings the detector defaults replaced.
+    """
+    pytest.importorskip("textual")
+    import asyncio
+
+    from sleap_nn.config.utils import get_model_type_from_cfg
+    from sleap_nn.config_generator.tui.app import ConfigGeneratorApp
+
+    async def run():
+        app = ConfigGeneratorApp(FIXTURE_SLP)
+        async with app.run_test(size=(160, 60)) as pilot:
+            await app._show_step(2)
+            await pilot.pause()
+            screen = app.query_one("#model-screen")
+            state = app._state
+            before = (
+                state._output_stride,
+                state._augmentation.rotation_enabled,
+                state._evaluation.enabled,
+            )
+            for pipeline in TOPDOWN_BBOX_PIPELINES:
+                screen._select_type(pipeline)
+                assert state.is_topdown and state.is_topdown_bbox
+                detector = pipeline.replace("topdown_", "")
+                assert state.first_stage_name == detector
+                det = OmegaConf.create(state.build_centroid_config())
+                ci = OmegaConf.create(state.build_centered_instance_config())
+                assert get_model_type_from_cfg(det) == detector
+                assert det.data_config.augmentation_config.geometric.rotation_p == 0.0
+                assert det.trainer_config.eval.enabled
+                assert get_model_type_from_cfg(ci) == "centered_instance"
+                pre = ci.data_config.preprocessing
+                assert pre.crop_mode == "bbox" and pre.crop_size is None
+                confmaps = ci.model_config.head_configs.centered_instance.confmaps
+                assert confmaps.centroid_method == "bbox_center"
+                assert confmaps.anchor_part is None
+                assert ci.data_config.bbox_source == det.data_config.bbox_source
+                assert ci.data_config.bbox_padding == det.data_config.bbox_padding
+                # The CI keeps its own (pose) augmentation.
+                assert ci.data_config.augmentation_config.geometric.rotation_p == 1.0
+            assert state._max_stride >= 32  # SSD's deepest anchor level
+
+            det_path, ci_path = state.save_dual(str(tmp_path / "labels"))
+            assert det_path == str(tmp_path / "labels_bbox_ssd.yaml")
+            assert ci_path == str(tmp_path / "labels_centered_instance.yaml")
+            assert OmegaConf.load(ci_path).data_config.preprocessing.crop_mode == "bbox"
+
+            screen._select_type("centroid")
+            assert state.first_stage_name == "centroid"
+            assert not state.is_topdown_bbox
+            ci = OmegaConf.create(state.build_centered_instance_config())
+            assert "crop_mode" not in ci.data_config.preprocessing
+            assert (
+                state._augmentation.rotation_enabled,
+                state._evaluation.enabled,
+            ) == (
+                before[1],
+                before[2],
+            )
+
+            # The configure and export steps render the pair.
+            await app._show_step(2)
+            await pilot.pause()
+            app.query_one("#model-screen")._select_type("topdown_bbox_centernet")
+            await app._show_step(3)
+            await pilot.pause()
+            assert app.query_one("#topdown-tabs")
+            await app._show_step(4)
+            await pilot.pause()
+
+    asyncio.run(run())

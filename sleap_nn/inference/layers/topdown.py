@@ -14,6 +14,13 @@ Stage layout:
 * **Stage C** — :class:`CenteredInstanceLayer` predicts keypoints per
   crop. Crop-local peaks are then added to the bbox top-left to land in
   full-image coordinates.
+
+Stage 1 can also be a box detector
+(:class:`~sleap_nn.inference.layers.bbox.BBoxStageLayer`), which reports box
+centers as centroids. Crops are then either the usual fixed-size windows centered
+on the box centers, or -- with ``bbox_crop`` (``preprocessing.crop_mode="bbox"``)
+-- each box resized to the crop by the same rule the centered-instance model was
+trained with (:class:`~sleap_nn.data.instance_cropping.BBoxCropSpec`).
 """
 
 from __future__ import annotations
@@ -23,7 +30,14 @@ from typing import Optional, Tuple
 import attrs
 import torch
 
-from sleap_nn.data.instance_cropping import make_centered_bboxes
+from sleap_nn.data.instance_cropping import (
+    BBoxCropSpec,
+    crop_windows,
+    letterbox_crops,
+    make_centered_bboxes,
+    points_from_crop,
+    window_corners,
+)
 from sleap_nn.inference.layers.base import ImageInput, InferenceLayer
 from sleap_nn.inference.layers.centered_instance import CenteredInstanceLayer
 from sleap_nn.inference.layers.centroid import CentroidLayer
@@ -48,6 +62,14 @@ class TopDownLayer:
         return_crops: When ``True``, store the per-instance crops on
             ``Outputs.crops`` as a ``(B, I, C, cH, cW)`` tensor.
             Disabled by default to save memory.
+        bbox_crop: Box-scaled crops (``preprocessing.crop_mode="bbox"``): resize
+            each stage-1 box to ``crop_size`` by this rule instead of cutting a
+            fixed window around its center. Needs a stage 1 that reports boxes
+            (:class:`~sleap_nn.inference.layers.bbox.BBoxStageLayer`).
+        crop_max_hw: ``(max_height, max_width)`` the frame is size-matched to
+            before cropping -- the crop-consuming model's training target. When
+            ``None``, stage 1's own size matcher is reused (the historical
+            centroid behavior).
 
     Notes:
         Not an :class:`InferenceLayer` subclass — composes two layers
@@ -64,6 +86,8 @@ class TopDownLayer:
         centroid_nms: bool = False,
         centroid_nms_threshold: float = 0.5,
         return_crops: bool = False,
+        bbox_crop: Optional[BBoxCropSpec] = None,
+        crop_max_hw: Optional[Tuple[Optional[int], Optional[int]]] = None,
     ) -> None:
         """Stash the inner layers and crop knobs."""
         self.centroid_layer = centroid_layer
@@ -72,11 +96,19 @@ class TopDownLayer:
         self.centroid_nms = centroid_nms
         self.centroid_nms_threshold = centroid_nms_threshold
         self.return_crops = return_crops
+        self.bbox_crop = bbox_crop
+        self.crop_max_hw = crop_max_hw
+
+    # Defaults for subclasses whose __init__ does not take the box-stage knobs (the
+    # predictor sets them on the instance when stage 1 is a box detector).
+    bbox_crop: Optional[BBoxCropSpec] = None
+    crop_max_hw: Optional[Tuple[Optional[int], Optional[int]]] = None
 
     def predict(
         self,
         image: ImageInput,
         instances: Optional[torch.Tensor] = None,
+        instance_boxes: Optional[torch.Tensor] = None,
     ) -> Outputs:
         """Run stage 1 → stage B → stage 2 → coord lift.
 
@@ -85,6 +117,9 @@ class TopDownLayer:
                 :class:`InferenceLayer._to_4d_float_tensor`.
             instances: Optional GT instances. Required when either inner
                 layer has its corresponding ``use_gt_*`` flag set.
+            instance_boxes: Optional ``(B, max_inst, 4)`` GT boxes aligned with
+                ``instances``, for a GT-box stage 1 (derived from ``instances``
+                when absent).
 
         Returns:
             ``Outputs`` populated with ``pred_keypoints`` (image-space),
@@ -92,11 +127,14 @@ class TopDownLayer:
             ``pred_centroid_values``, and ``instance_bboxes``.
         """
         # Stage 1: centroids.
-        centroid_out = (
-            self.centroid_layer.predict(image, instances=instances)
-            if self.centroid_layer.use_gt_centroids
-            else self.centroid_layer.predict(image)
-        )
+        if not self.centroid_layer.use_gt_centroids:
+            centroid_out = self.centroid_layer.predict(image)
+        elif getattr(self.centroid_layer, "use_gt_boxes", False):
+            centroid_out = self.centroid_layer.predict(
+                image, instances=instances, boxes=instance_boxes
+            )
+        else:
+            centroid_out = self.centroid_layer.predict(image, instances=instances)
         centroids = centroid_out.pred_centroids
         centroid_vals = centroid_out.pred_centroid_values
         if centroids is None:
@@ -145,9 +183,45 @@ class TopDownLayer:
         x_raw = self.centroid_layer._to_4d_tensor(image)
         x_sized, eff_scale = self._sizematch_like_centroid_layer(x_raw)
         sized_centroids = centroids * eff_scale.view(-1, 1, 1).to(centroids.device)
-        return self._run_stage_2(
-            x_sized, sized_centroids, centroid_vals, valid_mask, eff_scale=eff_scale
+        boxes = centroid_out.pred_bboxes
+        stage_2_kwargs = {}
+        if self.bbox_crop is not None:
+            if boxes is None:
+                raise ValueError(
+                    "Box-scaled crops (crop_mode='bbox') need a stage 1 that reports "
+                    "boxes: a bbox_centernet / bbox_ssd detector, or GT boxes."
+                )
+            stage_2_kwargs["boxes"] = boxes * eff_scale.view(-1, 1, 1).to(boxes.device)
+        out = self._run_stage_2(
+            x_sized,
+            sized_centroids,
+            centroid_vals,
+            valid_mask,
+            eff_scale=eff_scale,
+            **stage_2_kwargs,
         )
+        if boxes is not None and not self.centroid_layer.use_gt_centroids:
+            # Keep the detections that seeded the crops (packaged as
+            # PredictedBoundingBox, linked to the instances they produced).
+            device = (
+                out.pred_keypoints.device
+                if out.pred_keypoints is not None
+                else boxes.device
+            )
+            keep = valid_mask.to(boxes.device)
+            out = attrs.evolve(
+                out,
+                pred_bboxes=boxes.masked_fill(~keep[..., None], float("nan")).to(
+                    device
+                ),
+                pred_bbox_scores=centroid_out.pred_bbox_scores.masked_fill(
+                    ~keep, float("nan")
+                ).to(device),
+                pred_bbox_classes=centroid_out.pred_bbox_classes.masked_fill(
+                    ~keep, -1
+                ).to(device),
+            )
+        return out
 
     def _sizematch_like_centroid_layer(
         self, x_raw: torch.Tensor
@@ -161,15 +235,19 @@ class TopDownLayer:
         """
         from sleap_nn.data.resizing import apply_sizematcher
 
-        cfg = self.centroid_layer.preprocess_config
+        if self.crop_max_hw is not None:
+            max_height, max_width = self.crop_max_hw
+        else:
+            cfg = self.centroid_layer.preprocess_config
+            max_height, max_width = cfg.max_height, cfg.max_width
         B = x_raw.shape[0]
-        if cfg.max_height is None and cfg.max_width is None:
+        if max_height is None and max_width is None:
             return x_raw, torch.ones(B, dtype=torch.float32, device=x_raw.device)
 
         sized_list: list = []
         eff_list: list = []
         for b in range(B):
-            r, scale = apply_sizematcher(x_raw[b], cfg.max_height, cfg.max_width)
+            r, scale = apply_sizematcher(x_raw[b], max_height, max_width)
             sized_list.append(r)
             eff_list.append(float(scale))
         x_sized = torch.stack(sized_list, dim=0)
@@ -187,6 +265,7 @@ class TopDownLayer:
         centroid_vals: torch.Tensor,
         valid_mask: torch.Tensor,
         eff_scale: Optional[torch.Tensor] = None,
+        boxes: Optional[torch.Tensor] = None,
     ) -> Outputs:
         """Crop around valid centroids, run model, lift back to image space.
 
@@ -196,6 +275,10 @@ class TopDownLayer:
         to land in original-image space. ``pred_centroids`` on the returned
         ``Outputs`` is in original space too (callers pass the sized
         centroids in for cropping; we store the original-space version).
+
+        With ``self.bbox_crop``, ``boxes`` (``(B, max_inst, 4)``, sized space) are
+        resized to the crop instead (:class:`BBoxCropSpec`), and keypoints are
+        mapped back through the same window.
         """
         B, max_inst, _ = centroids.shape
         crop_h, crop_w = self.crop_size
@@ -236,8 +319,23 @@ class TopDownLayer:
         per_crop_eff_scale = eff_scale[sample_inds]  # (n_valid,)
 
         # Build bboxes (n_valid, 4, 2) and crop the source image.
-        bboxes = make_centered_bboxes(valid_centroids, crop_h, crop_w)
-        crops = crop_bboxes(image_4d, bboxes, sample_inds, crop_size=(crop_h, crop_w))
+        windows = scales = None
+        if self.bbox_crop is not None:
+            valid_boxes = boxes[valid_idx[:, 0], valid_idx[:, 1]].float()
+            windows, scales, keep_half = self.bbox_crop.windows(valid_boxes, crop_h)
+            crops = crop_windows(image_4d, windows, sample_inds, crop_h)
+            if self.bbox_crop.aspect == "letterbox":
+                crops = letterbox_crops(crops, keep_half)
+            if not torch.is_floating_point(image_4d):
+                # Quantize like the (uint8) training crops.
+                crops = crops.round().clamp(0, 255).to(image_4d.dtype)
+            # Crop corners in keypoint coordinates, for `instance_bboxes`.
+            bboxes = window_corners(windows) - 0.5
+        else:
+            bboxes = make_centered_bboxes(valid_centroids, crop_h, crop_w)
+            crops = crop_bboxes(
+                image_4d, bboxes, sample_inds, crop_size=(crop_h, crop_w)
+            )
 
         # Run centered-instance model on the crops.
         stage2_out = self.centered_instance_layer.predict(crops)
@@ -259,8 +357,13 @@ class TopDownLayer:
         # squeeze the ``I=1`` instance dim so ``add_crop_offset`` (which is
         # written for ``(N, n_nodes, 2)``) broadcasts cleanly.
         stage2_kpts_3d = stage2_out.pred_keypoints.squeeze(1)  # (n_valid, n_nodes, 2)
-        crop_topleft = bboxes[:, 0, :]  # (n_valid, 2)
-        stage2_kpts_sized = add_crop_offset(stage2_kpts_3d, crop_topleft)
+        if windows is not None:
+            stage2_kpts_sized = points_from_crop(
+                stage2_kpts_3d, windows.to(device), scales.to(device)
+            )
+        else:
+            crop_topleft = bboxes[:, 0, :]  # (n_valid, 2)
+            stage2_kpts_sized = add_crop_offset(stage2_kpts_3d, crop_topleft)
 
         # Sized-space → image-space.
         stage2_kpts_img = stage2_kpts_sized / per_crop_eff_scale.view(-1, 1, 1)
@@ -461,6 +564,7 @@ class TopDownLayer:
         self,
         image: ImageInput,
         instances: Optional[torch.Tensor] = None,
+        instance_boxes: Optional[torch.Tensor] = None,
     ) -> Outputs:
         """Alias for :meth:`predict`."""
-        return self.predict(image, instances=instances)
+        return self.predict(image, instances=instances, instance_boxes=instance_boxes)

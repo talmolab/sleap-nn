@@ -123,6 +123,29 @@ def _format_head_summary(cfg, model_type: str) -> str:
     return _format_model_type(model_type)
 
 
+# Model types whose crops can be box-scaled (``preprocessing.crop_mode: bbox``).
+_BBOX_CROP_MODEL_TYPES = ("centered_instance", "multi_class_topdown")
+
+
+def _format_bbox_crop(pre) -> str:
+    """Format the box-scaled crop settings of a preprocessing config as one line."""
+    from omegaconf import OmegaConf
+
+    def _value(key, default, unit=""):
+        # A null min size is set from the training boxes when training starts.
+        value = OmegaConf.select(pre, key, default=default)
+        return "auto" if value is None else f"{value:g}{unit}"
+
+    aspect = OmegaConf.select(pre, "crop_bbox_aspect", default="square")
+    # The crop size is on the "Preprocessing" row.
+    parts = [
+        f"aspect={aspect}",
+        f"padding={_value('crop_bbox_padding', 0.1)}",
+        f"min_size={_value('crop_bbox_min_size', None, 'px')}",
+    ]
+    return f"bbox ({', '.join(parts)})"
+
+
 # (metrics key, label) rows of the eval table for a bounding-box detector.
 _BBOX_METRIC_ROWS = (
     ("bbox_mAP", "mAP@[.50:.95] (box IoU)"),
@@ -308,6 +331,11 @@ def print_model_info(path: str) -> None:
 
     # Preprocessing summary
     pre = OmegaConf.select(cfg, "data_config.preprocessing", default=None)
+    bbox_crop = (
+        model_type in _BBOX_CROP_MODEL_TYPES
+        and pre is not None
+        and OmegaConf.select(pre, "crop_mode", default="fixed") == "bbox"
+    )
     if pre is not None:
         scale = OmegaConf.select(pre, "scale", default=1.0)
         max_h = OmegaConf.select(pre, "max_height", default=None)
@@ -319,9 +347,22 @@ def print_model_info(path: str) -> None:
             parts.append(f"{max_h}x{max_w}")
         if crop_size is not None:
             parts.append(f"crop={crop_size}")
+        elif bbox_crop:
+            # Sized from the training boxes when training starts.
+            parts.append("crop=auto")
         else:
             parts.append("no crop")
         data_table.add_row("Preprocessing", ", ".join(parts))
+    if bbox_crop:
+        data_table.add_row("Crop mode", _format_bbox_crop(pre))
+    if bbox_crop or model_type in ("bbox_centernet", "bbox_ssd"):
+        # A detector and its box-scaled instance model must derive training boxes
+        # the same way.
+        source = OmegaConf.select(cfg, "data_config.bbox_source", default="auto")
+        padding = OmegaConf.select(cfg, "data_config.bbox_padding", default=0.0)
+        data_table.add_row(
+            "Training boxes", f"bbox_source={source}, bbox_padding={padding}"
+        )
 
     aug = OmegaConf.select(cfg, "data_config.use_augmentations_train", default=False)
     data_table.add_row("Augmentations", "Enabled" if aug else "Disabled")

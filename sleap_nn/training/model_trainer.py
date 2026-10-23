@@ -34,6 +34,9 @@ from lightning.pytorch.profilers import (
 )
 from sleap_io.io.skeleton import SkeletonYAMLEncoder
 from sleap_nn.data.instance_cropping import (
+    BBOX_CROP_MODEL_TYPES,
+    BBoxCropSpec,
+    bbox_crop_window_sides,
     count_clipped_instances,
     find_instance_crop_size,
     find_max_instance_bbox_size,
@@ -984,6 +987,10 @@ class ModelTrainer:
             # back to `min_crop_size` (a 400x300 px animal got a 128 px crop).
             self._setup_mask_crop_size(max_hw)
             return
+        bbox_crop = BBoxCropSpec.from_config(self.config)
+        if bbox_crop is not None:
+            self._setup_bbox_crop(bbox_crop, max_hw)
+            return
         (
             anchor_ind,
             anchor_part,
@@ -1056,6 +1063,76 @@ class ModelTrainer:
         )
         leaf.detection_mode = mode
         logger.info(f"Embedding training carrier (detection_mode): {mode}")
+
+    def _setup_bbox_crop(self, spec: BBoxCropSpec, max_hw):
+        """Size box-scaled crops (``crop_mode="bbox"``) from the training boxes.
+
+        Every box is resized to the crop, so ``crop_size`` no longer has to hold the
+        largest animal: it sets the resolution an animal is seen at. Left unset, it
+        is the median training window side rounded up to the backbone's max stride
+        (a typical animal keeps its pixel size), and ``crop_bbox_min_size`` is a
+        quarter of that median, bounding how far a tiny or partial box is
+        magnified. Both are written into the config, so inference cuts the same
+        crops.
+
+        Raises:
+            ValueError: For a model type whose crops cannot be box-scaled, or when
+                no training instance has a visible keypoint.
+        """
+        if self.model_type not in BBOX_CROP_MODEL_TYPES:
+            message = (
+                f"preprocessing.crop_mode='bbox' is supported for "
+                f"{', '.join(BBOX_CROP_MODEL_TYPES)}, not {self.model_type!r}."
+            )
+            logger.error(message)
+            raise ValueError(message)
+        preprocessing = self.config.data_config.preprocessing
+        # Freeze `bbox_source: auto` to what it means for the training labels, so a
+        # prediction file that happens to carry user boxes cannot re-resolve it.
+        from sleap_nn.data.bboxes import resolve_bbox_source
+
+        if spec.bbox_source == "auto":
+            resolved = {resolve_bbox_source(lbl, "auto") for lbl in self.train_labels}
+            if len(resolved) == 1:
+                self.config.data_config.bbox_source = resolved.pop()
+                spec = BBoxCropSpec.from_config(self.config)
+        sides = np.concatenate(
+            [
+                bbox_crop_window_sides(
+                    labels,
+                    spec,
+                    max_hw,
+                    user_instances_only=self.config.data_config.user_instances_only,
+                )
+                for labels in self.train_labels
+            ]
+        )
+        if sides.size == 0:
+            message = "crop_mode='bbox': no training instance has a visible keypoint."
+            logger.error(message)
+            raise ValueError(message)
+        p5, median, p95 = np.percentile(sides, [5, 50, 95])
+        if preprocessing.crop_bbox_min_size is None:
+            preprocessing.crop_bbox_min_size = round(float(median) / 4.0, 2)
+        stride = int(
+            self.config.model_config.backbone_config[f"{self.backbone_type}"][
+                "max_stride"
+            ]
+        )
+        if preprocessing.crop_size is None:
+            preprocessing.crop_size = max(
+                stride, int(math.ceil(float(median) / stride) * stride)
+            )
+        crop_size = int(preprocessing.crop_size)
+        min_size = float(preprocessing.crop_bbox_min_size)
+        logger.info(
+            f"Box-scaled crops ({spec.aspect}, padding {spec.padding:g} of the longest "
+            f"side): crop_size {crop_size}px; training windows p5/p50/p95 "
+            f"{p5:.0f}/{median:.0f}/{p95:.0f}px, i.e. scales "
+            f"{crop_size / max(p95, min_size):.2f}-{crop_size / max(p5, min_size):.2f}"
+            f"x; windows floored at {min_size:g}px (at most "
+            f"{crop_size / min_size:.1f}x)."
+        )
 
     def _setup_mask_crop_size(self, max_hw):
         """Size (when unset) and check the crop of a mask-mode embedding model.

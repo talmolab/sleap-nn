@@ -42,7 +42,7 @@ from loguru import logger
 from sleap_nn.inference.filters import FilterConfig, FilterPipeline
 from sleap_nn.config.utils import check_tiling_parity
 from sleap_nn.inference.layers.backends import TorchBackend
-from sleap_nn.inference.layers.bbox import BBoxLayer
+from sleap_nn.inference.layers.bbox import BBoxLayer, BBoxStageLayer
 from sleap_nn.inference.layers.base import InferenceLayer
 from sleap_nn.inference.layers.bottomup import BottomUpLayer
 from sleap_nn.inference.layers.bottomup_multiclass import BottomUpMultiClassLayer
@@ -512,6 +512,89 @@ def _build_bbox_layer(predictor: Any, device: str) -> BBoxLayer:
     )
 
 
+def _build_bbox_stage_layer(detector_assets: Any, device: str) -> BBoxStageLayer:
+    """The detector of a box-seeded top-down pipeline, wrapped as its stage 1."""
+    inf = detector_assets.inference_model
+    return BBoxStageLayer(
+        backend=TorchBackend(model=inf.torch_model, device=device),
+        decoder=inf.decoder,
+        output_stride=inf.output_stride,
+        max_stride=getattr(detector_assets, "max_stride", 1) or 1,
+        preprocess_config=PreprocessConfig(
+            scale=inf.input_scale,
+            max_height=_pp_field(detector_assets, "max_height"),
+            max_width=_pp_field(detector_assets, "max_width"),
+            ensure_rgb=_pp_field(detector_assets, "ensure_rgb"),
+            ensure_grayscale=_pp_field(detector_assets, "ensure_grayscale"),
+        ),
+        postprocess_config=PostprocessConfig(
+            peak_threshold=inf.decoder.score_threshold,
+            max_instances=getattr(detector_assets, "max_instances", None),
+        ),
+    )
+
+
+def _crop_stage_knobs(assets: Any) -> tuple:
+    """``(BBoxCropSpec or None, (max_height, max_width))`` of the crop model."""
+    from omegaconf import OmegaConf
+
+    from sleap_nn.data.instance_cropping import BBoxCropSpec
+
+    cfg = getattr(assets, "confmap_config", None)
+    if cfg is None:
+        return None, None
+    max_hw = (
+        OmegaConf.select(cfg, "data_config.preprocessing.max_height"),
+        OmegaConf.select(cfg, "data_config.preprocessing.max_width"),
+    )
+    return BBoxCropSpec.from_config(cfg), max_hw
+
+
+def _attach_bbox_stage(layer: TopDownLayer, assets: Any, device: str) -> TopDownLayer:
+    """Seed a top-down layer with boxes: put the detector (or GT boxes) in front.
+
+    Stage 2 stays as built; stage 1 becomes a :class:`BBoxStageLayer` -- the
+    loaded detector, or, without one, boxes read from the GT instances (the
+    box-scaled analog of the GT-centroid fallback, padded like the crop model's
+    training boxes). The frame is size-matched to the crop model's own training
+    target before cropping, and a box-scaled crop model (``crop_mode="bbox"``)
+    gets its crop rule.
+    """
+    spec, max_hw = _crop_stage_knobs(assets)
+    detector = getattr(assets, "detector_assets", None)
+    if detector is not None:
+        layer.centroid_layer = _build_bbox_stage_layer(detector, device)
+    else:
+        from omegaconf import OmegaConf
+
+        padding = OmegaConf.select(
+            assets.confmap_config, "data_config.bbox_padding", default=0.0
+        )
+        layer.centroid_layer = BBoxStageLayer(
+            backend=layer.centered_instance_layer.backend,
+            decoder=None,
+            use_gt_boxes=True,
+            gt_bbox_padding=float(padding or 0.0),
+            preprocess_config=PreprocessConfig(
+                scale=1.0,
+                max_height=_pp_field(assets, "max_height"),
+                max_width=_pp_field(assets, "max_width"),
+                ensure_rgb=_pp_field(assets, "ensure_rgb"),
+                ensure_grayscale=_pp_field(assets, "ensure_grayscale"),
+            ),
+            postprocess_config=PostprocessConfig(),
+        )
+    layer.bbox_crop = spec
+    layer.crop_max_hw = max_hw
+    return layer
+
+
+def _maybe_gt_bbox_stage(layer: TopDownLayer, assets: Any, device: str):
+    """Use GT boxes for a box-scaled crop model run alone (no stage-1 model)."""
+    spec, _ = _crop_stage_knobs(assets)
+    return _attach_bbox_stage(layer, assets, device) if spec is not None else layer
+
+
 def _build_centroid_layer(
     centroid_model: Any,
     device: str,
@@ -794,7 +877,17 @@ def _select_layer(assets: Any, model_types: List[str], device: str):
             return _build_tiled_semantic_segmentation_layer(inner, tiling)
         return inner
     if "bbox_centernet" in model_types or "bbox_ssd" in model_types:
-        return _build_bbox_layer(assets, device)
+        if getattr(assets, "detector_assets", None) is None:
+            return _build_bbox_layer(assets, device)
+        # Detector-seeded top-down: build stage 2 exactly as for its GT-centroid
+        # fallback, then put the detector in front of it.
+        stage_2_types = [
+            t
+            for t in model_types
+            if t not in ("bbox_centernet", "bbox_ssd", "centroid")
+        ]
+        layer = _select_layer(assets, stage_2_types, device)
+        return _attach_bbox_stage(layer, assets, device)
     # Appearance-embedding (re-ID). Checked BEFORE the centroid / centered_instance
     # / topdown family so a centroid + embedding pair isn't swallowed by the
     # centroid-only branch.
@@ -829,11 +922,12 @@ def _select_layer(assets: Any, model_types: List[str], device: str):
         )
         centroid_layer = _build_centroid_layer_gt_only(assets, inst_layer.backend)
         crop_h, crop_w = assets.inference_model.centroid_crop.crop_hw
-        return TopDownLayer(
+        layer = TopDownLayer(
             centroid_layer=centroid_layer,
             centered_instance_layer=inst_layer,
             crop_size=(crop_h, crop_w),
         )
+        return _maybe_gt_bbox_stage(layer, assets, device)
     if has_multi_centered:
         # GT-centroid fallback for a solo multi_class_topdown model (no paired
         # centroid model) -- mirrors the has_centered branch above. Without
@@ -854,11 +948,12 @@ def _select_layer(assets: Any, model_types: List[str], device: str):
         )
         centroid_layer = _build_centroid_layer_gt_only(assets, inst_layer.backend)
         crop_h, crop_w = assets.inference_model.centroid_crop.crop_hw
-        return TopDownMultiClassLayer(
+        layer = TopDownMultiClassLayer(
             centroid_layer=centroid_layer,
             centered_instance_layer=inst_layer,
             crop_size=(crop_h, crop_w),
         )
+        return _maybe_gt_bbox_stage(layer, assets, device)
     raise ValueError(
         f"Unsupported model_paths combination: detected types {model_types}. "
         f"Predictor.from_model_paths supports: single_instance, "
@@ -1369,7 +1464,15 @@ class Predictor:
             spec.append(f"fg_threshold={fg_threshold}")
             spec.append(f"mask_output={mask_output}")
         if "bbox_centernet" in model_types or "bbox_ssd" in model_types:
-            spec.append(f"bbox_nms_iou={loaded.inference_model.decoder.iou_threshold}")
+            detector = getattr(loaded, "detector_assets", None) or loaded
+            spec.append(
+                f"bbox_nms_iou={detector.inference_model.decoder.iou_threshold}"
+            )
+            bbox_crop = getattr(layer, "bbox_crop", None)
+            if bbox_crop is not None:
+                spec.append(
+                    f"crop_mode=bbox({bbox_crop.aspect}, padding={bbox_crop.padding:g})"
+                )
         if "semantic_segmentation" in model_types:
             spec.append(f"fg_threshold={fg_threshold}")
             spec.append(f"min_mask_area={min_mask_area}")
@@ -1499,6 +1602,28 @@ class Predictor:
             getattr(c, "use_gt_centroids", False) or getattr(c, "use_gt_peaks", False)
             for c in candidates
         )
+
+    def _gt_box_fn(self, labels: Any) -> Optional[Any]:
+        """Per-instance GT box rule for a GT-box layer, else ``None``.
+
+        A box-scaled centered-instance model run without a detector crops GT
+        boxes; they must be derived as its training boxes were
+        (:func:`~sleap_nn.data.bboxes.instance_crop_bbox` with the model's
+        ``bbox_source`` resolved on these labels, and its ``bbox_padding``).
+        """
+        stage_1 = getattr(self.layer, "centroid_layer", None)
+        spec = getattr(self.layer, "bbox_crop", None)
+        if not getattr(stage_1, "use_gt_boxes", False) or spec is None:
+            return None
+        from sleap_nn.data.bboxes import instance_crop_bbox, resolve_bbox_source
+
+        source = resolve_bbox_source(labels, spec.bbox_source)
+        padding = spec.bbox_padding
+
+        def box_fn(lf, inst):
+            return instance_crop_bbox(lf, inst, source, padding)
+
+        return box_fn
 
     def _preprocess_provenance_params(self) -> dict:
         """The scale/crop_size actually used for this run, for provenance.
@@ -1714,6 +1839,7 @@ class Predictor:
                 provider_kwargs.setdefault(
                     "only_labeled_frames", self._needs_gt_instances()
                 )
+                provider_kwargs.setdefault("instance_box_fn", self._gt_box_fn(labels))
                 provider = LabelsProvider(
                     labels=labels,
                     batch_size=self.batch_size,
@@ -1743,6 +1869,7 @@ class Predictor:
             provider_kwargs.setdefault(
                 "only_labeled_frames", self._needs_gt_instances()
             )
+            provider_kwargs.setdefault("instance_box_fn", self._gt_box_fn(source))
             provider = LabelsProvider(
                 labels=source,
                 batch_size=self.batch_size,
@@ -2285,8 +2412,10 @@ class Predictor:
         try:
             sig = inspect.signature(layer.predict)
             layer_accepts_instances = "instances" in sig.parameters
+            layer_accepts_boxes = "instance_boxes" in sig.parameters
         except (TypeError, ValueError):  # pragma: no cover — non-introspectable
             layer_accepts_instances = False
+            layer_accepts_boxes = False
 
         pipeline = self.filter_pipeline
         total = _safe_num_frames(provider)
@@ -2298,6 +2427,13 @@ class Predictor:
                     batch.instances
                     if isinstance(batch.instances, torch.Tensor)
                     else torch.from_numpy(batch.instances)
+                )
+            boxes = getattr(batch, "instance_boxes", None)
+            if boxes is not None and layer_accepts_boxes:
+                kwargs["instance_boxes"] = (
+                    boxes
+                    if isinstance(boxes, torch.Tensor)
+                    else torch.from_numpy(boxes)
                 )
             outputs = layer.predict(batch.images, **kwargs)
             outputs = pipeline(outputs)
@@ -2597,8 +2733,17 @@ class Predictor:
         return isinstance(self.layer, BBoxLayer)
 
     def _bbox_categories(self) -> Optional[List[str]]:
-        """The detector's ordered class names (``None`` for non-detection layers)."""
-        return self.layer.categories if self._is_bbox_layer() else None
+        """The detector's ordered class names (``None`` without a detector).
+
+        A box-seeded top-down layer packages its stage-1 detections too, so its
+        detector's names apply to them.
+        """
+        if self._is_bbox_layer():
+            return self.layer.categories
+        stage_1 = getattr(self.layer, "centroid_layer", None)
+        if isinstance(stage_1, BBoxStageLayer) and not stage_1.use_gt_boxes:
+            return stage_1.categories
+        return None
 
     def _is_embedding_layer(self) -> bool:
         """``True`` iff ``layer`` is an appearance-embedding (re-ID) layer.

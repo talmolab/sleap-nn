@@ -684,6 +684,48 @@ class Outputs:
             )
         return out
 
+    def _link_bboxes_to_instances(
+        self,
+        batch_index: int,
+        instances: List["sio.PredictedInstance"],
+        bboxes: List["sio.PredictedBoundingBox"],
+    ) -> None:
+        """Link a box-seeded top-down frame's boxes to the instances they produced.
+
+        In a top-down layer seeded by a box detector, box slot ``i`` is the
+        detection whose crop produced instance slot ``i``. :meth:`to_instances` and
+        :meth:`to_bboxes` each skip empty slots, so the two lists are matched back
+        by slot; ``box.instance`` is set in place. A no-op for any other layout.
+        """
+        if (
+            not instances
+            or not bboxes
+            or self.pred_bboxes is None
+            or self.pred_keypoints is None
+            or self.pred_bboxes.shape[1] != self.pred_keypoints.shape[1]
+        ):
+            return
+        kpts = self.pred_keypoints[batch_index].detach().cpu().numpy()
+        boxes = self.pred_bboxes[batch_index].detach().cpu().numpy()
+        scores = (
+            self.pred_bbox_scores[batch_index].detach().cpu().numpy()
+            if self.pred_bbox_scores is not None
+            else np.ones((boxes.shape[0],), dtype=np.float32)
+        )
+        inst_slots = [i for i in range(kpts.shape[0]) if not np.all(np.isnan(kpts[i]))]
+        box_slots = [
+            i
+            for i in range(boxes.shape[0])
+            if np.isfinite(boxes[i]).all() and np.isfinite(scores[i])
+        ]
+        if len(inst_slots) != len(instances) or len(box_slots) != len(bboxes):
+            return
+        by_slot = dict(zip(inst_slots, instances))
+        for slot, box in zip(box_slots, bboxes):
+            inst = by_slot.get(slot)
+            if inst is not None:
+                box.instance = inst
+
     def to_rois(
         self,
         batch_index: int = 0,
@@ -829,6 +871,7 @@ class Outputs:
                     if roi is not None:
                         rois.append(roi)
             bboxes = self.to_bboxes(batch_index=b, categories=bbox_categories)
+            self._link_bboxes_to_instances(b, instances, bboxes)
             if (
                 not keep_empty_frames
                 and not instances
