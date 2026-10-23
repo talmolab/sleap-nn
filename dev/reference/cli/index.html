@@ -1384,6 +1384,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../guides/bbox-topdown/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Top-Down with a Box Detector
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../guides/sam-inference-segmentation/" class="md-nav__link">
         
   
@@ -9531,7 +9559,7 @@ Persistence</a>.</p>
 <td><code>--pipeline</code></td>
 <td></td>
 <td>Model pipeline type</td>
-<td><code>single_instance</code>, <code>bottomup</code>, <code>topdown</code>, <code>multi_class_bottomup</code>, <code>multi_class_topdown</code></td>
+<td><code>single_instance</code>, <code>bottomup</code>, <code>topdown</code>, <code>multi_class_bottomup</code>, <code>multi_class_topdown</code>, <code>centroid</code>, <code>bbox_centernet</code>, <code>bbox_ssd</code>, <code>topdown_bbox_centernet</code>, <code>topdown_bbox_ssd</code></td>
 <td>Auto-detected</td>
 </tr>
 <tr>
@@ -9574,6 +9602,9 @@ Persistence</a>.</p>
 <li><code>&lt;name&gt;_centroid.yaml</code> - Centroid model config</li>
 <li><code>&lt;name&gt;_centered_instance.yaml</code> - Centered instance model config</li>
 </ul>
+<p>The box-detector top-down pipelines (<code>topdown_bbox_centernet</code> / <code>topdown_bbox_ssd</code>)
+write <code>&lt;name&gt;_bbox_centernet.yaml</code> (or <code>&lt;name&gt;_bbox_ssd.yaml</code>) and a
+<code>&lt;name&gt;_centered_instance.yaml</code> with box-scaled crops.</p>
 <p>For other pipelines, a single config file is generated.</p>
 <p>See the <a href="../../guides/config-generator/">Config Generator Guide</a> for detailed usage.</p>
 <hr />

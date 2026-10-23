@@ -14,7 +14,7 @@
         <link rel="prev" href="../semantic-segmentation/">
       
       
-        <link rel="next" href="../sam-inference-segmentation/">
+        <link rel="next" href="../bbox-topdown/">
       
       
         
@@ -1515,6 +1515,34 @@
   
 </nav>
       
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../bbox-topdown/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Top-Down with a Box Detector
+  
+
+    
+  </span>
+  
+  
+
+      </a>
     </li>
   
 
@@ -8153,6 +8181,10 @@ logged to the wandb summary as <code>eval/&lt;split&gt;/bbox_*</code> (plus <cod
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>--data_path<span class="w"> </span>video.mp4<span class="w"> </span>--model_paths<span class="w"> </span>models/my_detector<span class="w"> </span><span class="se">\</span>
 </span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">  </span>--peak_threshold<span class="w"> </span><span class="m">0</span>.3<span class="w"> </span>--max_instances<span class="w"> </span><span class="m">10</span>
 </span></code></pre></div>
+<p>A detector can also be the first stage of a top-down pose model, in place of a
+centroid model: pass it with a centered-instance model directory (<code>--model_paths
+&lt;detector&gt; --model_paths &lt;centered_instance&gt;</code>). See
+<a href="../bbox-topdown/">Top-down pose with a box detector</a>.</p>
 <p><code>sleap-nn predict</code> detects the model type from its directory. For detectors,
 <code>--peak_threshold</code> is the detection score threshold, <code>--max_instances</code> caps
 detections per frame (default 100) and <code>--bbox_nms_iou</code> sets the class-wise IoU-NMS

@@ -1677,6 +1677,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../bbox-topdown/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Top-Down with a Box Detector
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../sam-inference-segmentation/" class="md-nav__link">
         
   
@@ -8315,6 +8343,10 @@
 <li><code>config_centroid.yaml</code></li>
 <li><code>config_centered_instance.yaml</code></li>
 </ul>
+<p>The box-detector top-down pipelines (<code>--pipeline topdown_bbox_centernet</code> /
+<code>topdown_bbox_ssd</code>) write <code>config_bbox_centernet.yaml</code> (or <code>config_bbox_ssd.yaml</code>)
+and a <code>config_centered_instance.yaml</code> with box-scaled crops (<code>crop_mode: bbox</code>); see
+<a href="../bbox-topdown/">Top-down pose with a box detector</a>.</p>
 <hr />
 <h2 id="cli-options">CLI Options<a class="headerlink" href="#cli-options" title="Permanent link">&para;</a></h2>
 <table>
@@ -8342,7 +8374,7 @@
 <tr>
 <td><code>--pipeline</code></td>
 <td></td>
-<td>Pipeline: <code>single_instance</code>, <code>bottomup</code>, <code>topdown</code>, <code>multi_class_bottomup</code>, or <code>multi_class_topdown</code></td>
+<td>Pipeline: <code>single_instance</code>, <code>bottomup</code>, <code>topdown</code>, <code>multi_class_bottomup</code>, <code>multi_class_topdown</code>, <code>centroid</code>, <code>bbox_centernet</code>, <code>bbox_ssd</code>, <code>topdown_bbox_centernet</code> or <code>topdown_bbox_ssd</code></td>
 <td>Auto-detected</td>
 </tr>
 <tr>
@@ -8515,6 +8547,14 @@
 <tr>
 <td><code>multi_class_topdown</code></td>
 <td>Multiple animals with classes, top-down approach</td>
+</tr>
+<tr>
+<td><code>bbox_centernet</code> / <code>bbox_ssd</code></td>
+<td>A bounding-box detector (boxes derived from the poses)</td>
+</tr>
+<tr>
+<td><code>topdown_bbox_centernet</code> / <code>topdown_bbox_ssd</code></td>
+<td>Top-down with a box detector as stage 1 and box-scaled crops</td>
 </tr>
 </tbody>
 </table>
