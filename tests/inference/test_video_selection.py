@@ -10,6 +10,7 @@ frames at all (the SLEAP GUI's "entire video" + "skip user labeled" bug).
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import numpy as np
@@ -277,3 +278,141 @@ def test_cli_video_index_out_of_range(
     result = CliRunner().invoke(cli, args)
     assert result.exit_code == 2
     assert "out of range" in result.output
+
+
+@pytest.fixture
+def undecodable_project(project, tmp_path):
+    """The project, with its video swapped for a file nothing can decode.
+
+    The new video was never readable, so the ``.slp`` stores no shape for it and
+    sleap-io reports it as having 0 frames. (A video that was readable when the
+    project was saved keeps its stored frame count, and ``VideoProvider``'s own
+    check already catches it.)
+    """
+    path = tmp_path / "undecodable.mp4"
+    path.write_bytes(b"this is not a video")
+    project.replace_videos(
+        old_videos=[project.videos[0]], new_videos=[sio.Video.from_filename(str(path))]
+    )
+    # Reload so the video is opened the way the CLI opens it.
+    slp = tmp_path / "undecodable.slp"
+    project.save(str(slp))
+    labels = sio.load_slp(str(slp))
+    assert len(labels.videos[0]) == 0
+    return labels
+
+
+@pytest.mark.parametrize("frames", [None, [0, 1, 2]])
+def test_undecodable_video_raises(undecodable_project, frames):
+    """An undecodable video reports 0 frames: raise, don't select nothing.
+
+    With ``frames``, every index used to be dropped as out of range for a
+    0-frame video, so the run predicted nothing and exited 0.
+    """
+    selection = VideoSelection(undecodable_project, 0, frames=frames)
+    with pytest.raises(ValueError, match="Could not read"):
+        selection.to_provider()
+
+    # An explicitly empty frame list asks for nothing, so there is nothing to check.
+    assert _indices(VideoSelection(undecodable_project, 0, frames=[])) == []
+
+
+@pytest.mark.parametrize(
+    "kw, gt",
+    [({"only_labeled_frames": True}, False), ({}, True)],
+    ids=["only_labeled_frames", "needs_gt_instances"],
+)
+def test_undecodable_video_raises_on_gt_path(undecodable_project, kw, gt):
+    """The LabelsProvider branch (GT instances ride along) checks the video too."""
+    selection = VideoSelection(undecodable_project, 0, frames=[0, 1, 2], **kw)
+    with pytest.raises(ValueError, match="Could not read"):
+        selection.to_provider(needs_gt_instances=gt)
+
+
+def test_frame_indices_raises_on_undecodable_video(undecodable_project):
+    """Asking for the selection directly raises too, not only ``to_provider``."""
+    selection = VideoSelection(undecodable_project, 0, frames=[0, 1, 2])
+    with pytest.raises(ValueError, match="Could not read"):
+        selection.frame_indices()
+
+
+def test_readability_probe_uses_an_in_range_requested_frame(project, monkeypatch):
+    """If frame 0 won't decode, probe the first requested frame that exists.
+
+    The request's first index may be out of range; probing it would call a video
+    whose requested frames all decode unreadable.
+    """
+    from sleap_io.io.video_reading import MediaVideo
+
+    # Known length, as for a project video whose shape the .slp stored.
+    assert len(project.videos[0]) == 166
+    read_frame = MediaVideo._read_frame
+
+    def _read_frame(self, frame_idx):
+        if frame_idx == 0:
+            raise IndexError("Failed to read frame index 0.")
+        return read_frame(self, frame_idx)
+
+    monkeypatch.setattr(MediaVideo, "_read_frame", _read_frame)
+
+    selection = VideoSelection(project, 0, frames=[100000, 7, 5])
+
+    assert _indices(selection) == [5, 7]
+
+
+def test_falls_back_to_pyav_before_counting_frames(project, monkeypatch):
+    """A video OpenCV can't decode is read with PyAV, not treated as empty."""
+    pytest.importorskip("av")
+    from sleap_io.io.video_reading import MediaVideo
+
+    read_frame = MediaVideo._read_frame
+
+    def _read_frame(self, frame_idx):
+        if self.plugin == "opencv":
+            raise IndexError(f"Failed to read frame index {frame_idx}.")
+        return read_frame(self, frame_idx)
+
+    monkeypatch.setattr(MediaVideo, "_read_frame", _read_frame)
+    project.videos[0].set_video_plugin("opencv")
+
+    selection = VideoSelection(project, 0, frames=[0, 1, 2])
+
+    assert _indices(selection) == [0, 1, 2]
+    assert project.videos[0].backend.plugin == "pyav"
+
+
+@pytest.mark.parametrize("stream", [False, True])
+def test_cli_video_index_frames_undecodable_video_fails(
+    undecodable_project, tmp_path, minimal_instance_single_instance_ckpt, stream
+):
+    """The SLEAP GUI's call (``.slp`` + ``--video_index`` + ``--frames``) fails loudly.
+
+    With ``--gui``, the error must also reach the GUI as the structured error line.
+    """
+    slp = tmp_path / "proj.slp"
+    undecodable_project.save(str(slp))
+    out = tmp_path / "out.slp"
+    args = [
+        "predict",
+        "--data_path",
+        str(slp),
+        "--video_index",
+        "0",
+        "--frames",
+        "0-9",
+        "--model_paths",
+        str(minimal_instance_single_instance_ckpt),
+        "--device",
+        "cpu",
+    ]
+    args += ["--stream-to-file", str(out)] if stream else ["-o", str(out)]
+    result = CliRunner().invoke(cli, args + ["--gui"])
+
+    assert result.exit_code != 0
+    assert "Could not read" in str(result.exception)
+    error_lines = [
+        json.loads(line) for line in result.output.splitlines() if line.startswith("{")
+    ]
+    assert any(
+        e.get("error") and "Could not read" in e["message"] for e in error_lines
+    ), result.output
