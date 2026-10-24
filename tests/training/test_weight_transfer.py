@@ -146,9 +146,12 @@ def test_include_exclude(minimal_instance_centered_instance_ckpt):
     report = model.transfer_reports[-1]
     assert not any("head_layers" in k for k in report.loaded)
     keys = list(model.state_dict())
-    assert select_keys(model, keys, ["backbone"], ["decoder"]) == [
-        k for k in keys if "backbone" in k and ".dec." not in k
-    ]
+    # A UNet's decoder lives under `backbone.decoders.*`.
+    picked = select_keys(model, keys, ["backbone"], ["decoder"])
+    assert picked == [k for k in keys if "backbone" in k and ".decoders." not in k]
+    assert any(".decoders." in k for k in keys) and len(picked) < sum(
+        "backbone" in k for k in keys
+    )
 
 
 def test_legacy_pretrained_head_weights_remap(
