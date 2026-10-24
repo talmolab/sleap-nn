@@ -903,6 +903,57 @@ def test_configure_optimizers_respects_documented_scheduler_priority(
     )
 
 
+@pytest.mark.parametrize(
+    "scheduler_kwarg", ["cosine_annealing_warmup", "linear_warmup_linear_decay"]
+)
+def test_per_epoch_warmup_does_not_train_first_epoch_at_lr_zero(scheduler_kwarg):
+    """With the default `warmup_start_lr=0`, epoch 0 trains above LR 0.
+
+    The warmup schedulers are stepped once per epoch, so a ramp starting at
+    `warmup_start_lr` used to spend the whole first epoch at LR 0.
+    """
+    from sleap_nn.config.trainer_config import (
+        CosineAnnealingWarmupConfig,
+        LinearWarmupLinearDecayConfig,
+        LRSchedulerConfig,
+    )
+
+    scheduler_cfg = {
+        "cosine_annealing_warmup": CosineAnnealingWarmupConfig,
+        "linear_warmup_linear_decay": LinearWarmupLinearDecayConfig,
+    }[scheduler_kwarg](max_epochs=10, warmup_epochs=4)
+    model = SingleInstanceLightningModule(
+        model_type="single_instance",
+        backbone_config="unet_medium_rf",
+        backbone_type="unet",
+        head_configs=OmegaConf.create(
+            {
+                "single_instance": {
+                    "confmaps": {
+                        "part_names": ["a", "b"],
+                        "sigma": 1.5,
+                        "output_stride": 2,
+                        "loss_weight": 1.0,
+                    }
+                }
+            }
+        ),
+        lr_scheduler=OmegaConf.structured(
+            LRSchedulerConfig(**{scheduler_kwarg: scheduler_cfg})
+        ),
+    )
+    result = model.configure_optimizers()
+    scheduler = result["lr_scheduler"]["scheduler"]
+    base_lr = scheduler.base_lrs[0]
+    lrs = []
+    for _ in range(5):
+        lrs.append(scheduler.get_last_lr()[0])
+        result["optimizer"].step()
+        scheduler.step()
+    # Warmup epochs 0..3 at 1/5..4/5 of the base LR, then the base LR at epoch 4.
+    assert lrs == pytest.approx([base_lr * k / 5 for k in range(1, 6)])
+
+
 # ── Embedding objective: identity-equality gates (SPEC §4.4) ─────────────────
 
 

@@ -166,3 +166,42 @@ def test_output_shape_and_dtype(shape):
 
     elementwise = compute_centroid_focal_loss(y_preds, y, reduction="none")
     assert elementwise.shape == shape
+
+
+def _ohkm_maps(channel_losses):
+    """(1, C, 1, 1) GT/pred pair whose per-channel squared error is given."""
+    y_gt = torch.zeros(1, len(channel_losses), 1, 1)
+    y_pr = torch.tensor(channel_losses, dtype=torch.float32).sqrt().view(1, -1, 1, 1)
+    return y_gt, y_pr
+
+
+def test_ohkm_ignores_zero_loss_channels_when_ranking():
+    """A channel with exactly zero loss does not make every other channel hard.
+
+    The easiest keypoint is the reference for the hard/easy ratio. A zero
+    minimum (e.g. a node with no labels in the batch) used to make every
+    nonzero channel "hard" (and divide by zero); now the easiest nonzero
+    channel is the reference.
+    """
+    from sleap_nn.training.losses import compute_ohkm_loss
+
+    # Channel losses 0, 1, 1.5, 4: relative to 1, only 4 is >= 2x -> hard. With
+    # min_hard_keypoints=1 the loss averages only that channel.
+    y_gt, y_pr = _ohkm_maps([0.0, 1.0, 1.5, 4.0])
+    loss = compute_ohkm_loss(y_gt, y_pr, min_hard_keypoints=1, loss_scale=1.0)
+    assert torch.isfinite(loss)
+    assert loss.item() == pytest.approx(4.0)
+
+    # Without the zero channel the result is the same.
+    y_gt, y_pr = _ohkm_maps([1.0, 1.5, 4.0])
+    ref = compute_ohkm_loss(y_gt, y_pr, min_hard_keypoints=1, loss_scale=1.0)
+    assert loss.item() == pytest.approx(ref.item())
+
+
+def test_ohkm_all_zero_loss_is_finite():
+    """All-zero channel losses give a zero (not NaN) loss."""
+    from sleap_nn.training.losses import compute_ohkm_loss
+
+    y_gt, y_pr = _ohkm_maps([0.0, 0.0, 0.0])
+    loss = compute_ohkm_loss(y_gt, y_pr)
+    assert loss.item() == 0.0

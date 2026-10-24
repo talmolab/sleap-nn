@@ -36,6 +36,20 @@ def _per_group(
     return values
 
 
+def _warmup_alpha(step: int, warmup: int, skip_start: bool) -> float:
+    """Fraction of the way from the warmup start LR to the base LR at ``step``.
+
+    With ``skip_start`` the ramp leaves out its start point and runs
+    ``1 / (warmup + 1), ..., warmup / (warmup + 1)``, so the first step does not
+    train at ``warmup_start_lr`` itself. That is what the per-epoch schedules
+    need: stepped once per epoch, the default ``warmup_start_lr=0`` otherwise
+    trains the whole first epoch at a learning rate of 0.
+    """
+    if skip_start:
+        return (step + 1) / (warmup + 1)
+    return step / warmup
+
+
 class LinearWarmupCosineAnnealingLR(LRScheduler):
     """Cosine annealing learning rate scheduler with linear warmup.
 
@@ -55,6 +69,11 @@ class LinearWarmupCosineAnnealingLR(LRScheduler):
         eta_min: Minimum learning rate at the end of the schedule, or one per
             param group. Default: 0.0.
         last_epoch: The index of the last epoch. Default: -1.
+        skip_warmup_start: Leave the start point out of the warmup ramp: step
+            ``t < warmup_epochs`` uses ``(t + 1) / (warmup_epochs + 1)`` of the way
+            from ``warmup_start_lr`` to the base learning rate instead of
+            ``t / warmup_epochs``, so the first step does not train at
+            ``warmup_start_lr`` (0 by default). Default: False.
 
     Example:
         >>> optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
@@ -74,6 +93,7 @@ class LinearWarmupCosineAnnealingLR(LRScheduler):
         warmup_start_lr: Union[float, Sequence[float]] = 0.0,
         eta_min: Union[float, Sequence[float]] = 0.0,
         last_epoch: int = -1,
+        skip_warmup_start: bool = False,
     ):
         """Initialize the scheduler.
 
@@ -86,6 +106,8 @@ class LinearWarmupCosineAnnealingLR(LRScheduler):
             eta_min: Minimum learning rate at the end of the schedule, or one per
                 param group. Default: 0.0.
             last_epoch: The index of the last epoch. Default: -1.
+            skip_warmup_start: Leave the start point out of the warmup ramp, so
+                the first step trains above ``warmup_start_lr``. Default: False.
         """
         if warmup_epochs < 0:
             raise ValueError(f"warmup_epochs must be >= 0, got {warmup_epochs}")
@@ -103,6 +125,7 @@ class LinearWarmupCosineAnnealingLR(LRScheduler):
         self.warmup_epochs = warmup_epochs
         self.max_epochs = max_epochs
         self.warmup_start_lr = warmup_start_lr
+        self.skip_warmup_start = skip_warmup_start
         self.eta_min = eta_min
         super().__init__(optimizer, last_epoch)
 
@@ -112,7 +135,9 @@ class LinearWarmupCosineAnnealingLR(LRScheduler):
             # Linear warmup phase
             if self.warmup_epochs == 0:
                 return list(self.base_lrs)
-            alpha = self.last_epoch / self.warmup_epochs
+            alpha = _warmup_alpha(
+                self.last_epoch, self.warmup_epochs, self.skip_warmup_start
+            )
             return [
                 start + alpha * (base_lr - start)
                 for start, base_lr in zip(self._warmup_start_lrs, self.base_lrs)
@@ -150,6 +175,11 @@ class LinearWarmupLinearDecayLR(LRScheduler):
         end_lr: Learning rate at the end of training, or one per param group.
             Default: 0.0.
         last_epoch: The index of the last epoch. Default: -1.
+        skip_warmup_start: Leave the start point out of the warmup ramp: step
+            ``t < warmup_epochs`` uses ``(t + 1) / (warmup_epochs + 1)`` of the way
+            from ``warmup_start_lr`` to the base learning rate instead of
+            ``t / warmup_epochs``, so the first step does not train at
+            ``warmup_start_lr`` (0 by default). Default: False.
 
     Example:
         >>> optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
@@ -169,6 +199,7 @@ class LinearWarmupLinearDecayLR(LRScheduler):
         warmup_start_lr: Union[float, Sequence[float]] = 0.0,
         end_lr: Union[float, Sequence[float]] = 0.0,
         last_epoch: int = -1,
+        skip_warmup_start: bool = False,
     ):
         """Initialize the scheduler.
 
@@ -181,6 +212,8 @@ class LinearWarmupLinearDecayLR(LRScheduler):
             end_lr: Learning rate at the end of training, or one per param group.
                 Default: 0.0.
             last_epoch: The index of the last epoch. Default: -1.
+            skip_warmup_start: Leave the start point out of the warmup ramp, so
+                the first step trains above ``warmup_start_lr``. Default: False.
         """
         if warmup_epochs < 0:
             raise ValueError(f"warmup_epochs must be >= 0, got {warmup_epochs}")
@@ -198,6 +231,7 @@ class LinearWarmupLinearDecayLR(LRScheduler):
         self.warmup_epochs = warmup_epochs
         self.max_epochs = max_epochs
         self.warmup_start_lr = warmup_start_lr
+        self.skip_warmup_start = skip_warmup_start
         self.end_lr = end_lr
         super().__init__(optimizer, last_epoch)
 
@@ -207,7 +241,9 @@ class LinearWarmupLinearDecayLR(LRScheduler):
             # Linear warmup phase
             if self.warmup_epochs == 0:
                 return list(self.base_lrs)
-            alpha = self.last_epoch / self.warmup_epochs
+            alpha = _warmup_alpha(
+                self.last_epoch, self.warmup_epochs, self.skip_warmup_start
+            )
             return [
                 start + alpha * (base_lr - start)
                 for start, base_lr in zip(self._warmup_start_lrs, self.base_lrs)

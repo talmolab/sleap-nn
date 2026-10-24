@@ -687,7 +687,7 @@ Only one scheduler is used. Priority: `cosine_annealing_warmup` >
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `warmup_epochs` | int | `5` | Linear warmup epochs |
-| `warmup_start_lr` | float | `0.0` | Starting LR for warmup |
+| `warmup_start_lr` | float | `0.0` | LR the warmup ramps up from; warmup epoch `e` trains at `(e + 1) / (warmup_epochs + 1)` of the way to the base LR, so epoch 0 is never at this value |
 | `eta_min` | float | `0.0` | Minimum LR at end of cosine decay |
 | `max_epochs` | int | `null` | Total epochs (auto from trainer) |
 | `warmup_steps` | int | `null` | Warmup in optimizer steps; any int switches to per-step updates (`warmup_epochs` ignored) |
@@ -698,7 +698,7 @@ Only one scheduler is used. Priority: `cosine_annealing_warmup` >
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `warmup_epochs` | int | `5` | Linear warmup epochs |
-| `warmup_start_lr` | float | `0.0` | Starting LR for warmup |
+| `warmup_start_lr` | float | `0.0` | LR the warmup ramps up from; warmup epoch `e` trains at `(e + 1) / (warmup_epochs + 1)` of the way to the base LR, so epoch 0 is never at this value |
 | `end_lr` | float | `0.0` | Final LR at end of training |
 | `max_epochs` | int | `null` | Total epochs (auto from trainer) |
 | `warmup_steps` | int | `null` | Warmup in optimizer steps; any int switches to per-step updates (`warmup_epochs` ignored) |

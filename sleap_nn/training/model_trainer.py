@@ -608,13 +608,24 @@ class ModelTrainer:
         # Mask-only labels (e.g. instance segmentation) may carry no skeleton.
         elif self.skeletons:
             skeleton = self.skeletons[0]
-            for index, train_label in enumerate(labels):
-                if not train_label.skeletons:
-                    continue
-                skel_temp = train_label.skeletons[0]
-                skeletons_equal = skeleton.matches(skel_temp)
-                if not skeletons_equal:
-                    message = f"The skeletons in the training labels: {index + 1} do not match the skeleton in the first training label file."
+            for split, label_list in (("training", labels), ("validation", val_labels)):
+                for index, label in enumerate(label_list or []):
+                    if not label.skeletons:
+                        continue
+                    skel_temp = label.skeletons[0]
+                    if skeleton.matches(skel_temp, require_same_order=True):
+                        continue
+                    message = (
+                        f"The skeleton in the {split} labels: {index + 1} does not "
+                        "match the skeleton in the first training label file."
+                    )
+                    if skeleton.matches(skel_temp):
+                        message += (
+                            " The nodes are the same but in a different order "
+                            f"({skel_temp.node_names} vs {skeleton.node_names}); "
+                            "reorder them to match, e.g. with "
+                            "`labels.reorder_nodes(...)` in sleap-io."
+                        )
                     logger.error(message)
                     raise ValueError(message)
 
@@ -2209,24 +2220,20 @@ class ModelTrainer:
                 self.config, "data_config.user_instances_only", default=True
             )
 
-            # Save train and val ground truth labels
-            for idx, (train, val) in enumerate(zip(self.train_labels, self.val_labels)):
-                # Filter to user-labeled frames if needed (for evaluation)
-                if user_instances_only:
-                    train_filtered = self._filter_to_user_labeled(train)
-                    val_filtered = self._filter_to_user_labeled(val)
-                else:
-                    train_filtered = train
-                    val_filtered = val
-
-                train_filtered.save(
-                    Path(ckpt_path) / f"labels_gt.train.{idx}.slp",
-                    restore_original_videos=False,
-                )
-                val_filtered.save(
-                    Path(ckpt_path) / f"labels_gt.val.{idx}.slp",
-                    restore_original_videos=False,
-                )
+            # Save train and val ground truth labels. The two lists can differ in
+            # length (e.g. two train files and one val file), so save each in full.
+            for split, label_list in (
+                ("train", self.train_labels),
+                ("val", self.val_labels),
+            ):
+                for idx, split_labels in enumerate(label_list):
+                    # Filter to user-labeled frames if needed (for evaluation)
+                    if user_instances_only:
+                        split_labels = self._filter_to_user_labeled(split_labels)
+                    split_labels.save(
+                        Path(ckpt_path) / f"labels_gt.{split}.{idx}.slp",
+                        restore_original_videos=False,
+                    )
 
             # Save test ground truth labels if test paths are provided
             test_file_path = OmegaConf.select(

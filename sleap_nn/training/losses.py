@@ -12,11 +12,31 @@ def compute_ohkm_loss(
     min_hard_keypoints: int = 2,
     max_hard_keypoints: Optional[int] = None,
     loss_scale: float = 5.0,
+    eps: float = 1e-8,
 ) -> torch.Tensor:
     """Compute the online hard keypoint mining loss (ranked on batch-summed losses).
 
-    Used with ``online_hard_keypoint_mining.per_sample: false``. See
+    Used with ``online_hard_keypoint_mining.per_sample: false``; see
     :func:`compute_weighted_ohkm_loss` for the per-sample, weight-aware default.
+
+    A keypoint (channel) is hard when its loss is at least ``hard_to_easy_ratio``
+    times the loss of the easiest keypoint. Channels with exactly zero loss (e.g. a
+    node with no labels in the batch) are left out when picking the easiest one:
+    dividing by a zero minimum made every other channel hard, which turned OHKM
+    into plain MSE over all channels.
+
+    Args:
+        y_gt: Ground-truth confidence maps ``(B, C, H, W)``.
+        y_pr: Predicted confidence maps ``(B, C, H, W)``.
+        hard_to_easy_ratio: Minimum hard/easy loss ratio for a hard keypoint.
+        min_hard_keypoints: Minimum number of keypoints kept as hard.
+        max_hard_keypoints: Maximum number of keypoints kept as hard (``None``
+            for no limit).
+        loss_scale: Factor applied to the hard keypoint losses.
+        eps: Added to the easiest loss before taking ratios.
+
+    Returns:
+        The scalar OHKM loss.
     """
     if max_hard_keypoints is None:
         max_hard_keypoints = -1
@@ -29,11 +49,13 @@ def compute_ohkm_loss(
     # Reduce over everything but channels axis.
     l = torch.sum(loss, dim=(0, 2, 3))
 
-    # Compute the loss for the "easy" keypoint.
-    best_loss = torch.min(l)
+    # Compute the loss for the "easy" keypoint, ignoring zero-loss channels.
+    nonzero = l > 0
+    best_loss = torch.where(nonzero, l, torch.full_like(l, float("inf"))).min()
+    best_loss = torch.where(nonzero.any(), best_loss, torch.zeros_like(best_loss))
 
     # Find the number of hard keypoints.
-    is_hard_keypoint = (l / best_loss) >= hard_to_easy_ratio
+    is_hard_keypoint = (l / (best_loss + eps)) >= hard_to_easy_ratio
     n_hard_keypoints = torch.sum(is_hard_keypoint.to(torch.int32))
 
     # Work out the actual final number of keypoints to consider as hard.

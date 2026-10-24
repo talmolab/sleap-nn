@@ -1836,3 +1836,44 @@ def test_empty_dataset_raises_clear_error(minimal_instance):
             labels=[labels],
             apply_aug=False,
         )
+
+
+@pytest.mark.parametrize("num_workers, expected", [(0, None), (4, 2)])
+def test_dataloader_prefetch_factor_is_small_constant(
+    monkeypatch, num_workers, expected
+):
+    """Workers prefetch 2 batches each, not ``batch_size`` batches.
+
+    ``prefetch_factor=batch_size`` queued ``num_workers x batch_size`` batches
+    (e.g. 16 x 128 = 2048 batches of crops + confmaps) in host memory.
+    """
+    captured = {}
+
+    class _Recorder:
+        def __init__(self, dataset, **kwargs):
+            captured[dataset] = kwargs
+
+    monkeypatch.setattr(custom_datasets, "InfiniteDataLoader", _Recorder)
+    config = OmegaConf.create(
+        {
+            "data_config": {"preprocessing": {}},
+            "trainer_config": {
+                "seed": 0,
+                "train_data_loader": {
+                    "batch_size": 128,
+                    "shuffle": True,
+                    "num_workers": num_workers,
+                },
+                "val_data_loader": {
+                    "batch_size": 64,
+                    "shuffle": False,
+                    "num_workers": num_workers,
+                },
+            },
+        }
+    )
+    custom_datasets.get_train_val_dataloaders(
+        "train", "val", config, train_steps_per_epoch=1, val_steps_per_epoch=1
+    )
+    assert captured["train"]["prefetch_factor"] == expected
+    assert captured["val"]["prefetch_factor"] == expected

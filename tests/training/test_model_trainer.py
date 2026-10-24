@@ -667,6 +667,55 @@ def test_no_labeled_frames_train_raises(config, tmp_path, minimal_instance):
         )
 
 
+def _reordered_labels(path):
+    """The labels at ``path`` with the skeleton's node order reversed."""
+    labels = sio.load_slp(path)
+    labels.reorder_nodes(list(reversed(labels.skeleton.node_names)))
+    return labels
+
+
+@pytest.mark.parametrize("split", ["train", "val"])
+def test_skeleton_node_order_mismatch_raises(config, tmp_path, minimal_instance, split):
+    """Files whose skeletons have the same nodes in another order are refused.
+
+    Points are read in each file's own node order, so such a file used to pass
+    the check (`Skeleton.matches` ignores order) and then train every channel on
+    the wrong node. Validation files were not checked at all.
+    """
+    labels = sio.load_slp(minimal_instance)
+    reordered = _reordered_labels(minimal_instance)
+    assert reordered.skeleton.node_names != labels.skeleton.node_names
+    OmegaConf.update(config, "trainer_config.ckpt_dir", f"{tmp_path}")
+    OmegaConf.update(config, "trainer_config.run_name", "test_skeleton_order")
+
+    train_labels = [labels, reordered] if split == "train" else [labels]
+    val_labels = [reordered] if split == "val" else [labels]
+    with pytest.raises(ValueError, match="same but in a different order"):
+        ModelTrainer.get_model_trainer_from_config(
+            config, train_labels=train_labels, val_labels=val_labels
+        )
+
+
+def test_ground_truth_saved_for_every_train_and_val_file(
+    config, tmp_path, minimal_instance
+):
+    """Every train and val file gets its GT file, even with fewer val files."""
+    labels = sio.load_slp(minimal_instance)
+    OmegaConf.update(config, "trainer_config.ckpt_dir", f"{tmp_path}")
+    OmegaConf.update(config, "trainer_config.run_name", "test_gt_files")
+    trainer = ModelTrainer.get_model_trainer_from_config(
+        config, train_labels=[labels, labels], val_labels=[labels]
+    )
+    trainer._setup_model_ckpt_dir()
+    run_path = Path(tmp_path) / "test_gt_files"
+    saved = sorted(p.name for p in run_path.glob("labels_gt.*.slp"))
+    assert saved == [
+        "labels_gt.train.0.slp",
+        "labels_gt.train.1.slp",
+        "labels_gt.val.0.slp",
+    ]
+
+
 def test_no_labeled_frames_val_raises(config, tmp_path, minimal_instance):
     """Training should fail fast with a clear error when the val split is empty."""
     labels = sio.load_slp(minimal_instance)
