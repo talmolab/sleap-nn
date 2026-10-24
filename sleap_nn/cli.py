@@ -1107,8 +1107,6 @@ def track(**kwargs):
     # `--runtime` selects the exported-model runtime for `sleap-nn predict`;
     # `track` only runs trained checkpoints, so it is inert here.
     kwargs.pop("runtime", None)
-    # `--upload_batches` belongs to the new flow's Predictor.
-    kwargs.pop("upload_batches", None)
     # New-flow-only flags, inert here. `track` cannot do centroid-only
     # inference; a lone centroid model is rejected downstream by run_inference
     # with a message pointing to `sleap-nn predict`.

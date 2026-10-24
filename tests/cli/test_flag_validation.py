@@ -339,3 +339,25 @@ def test_upload_batches_flag_reaches_predict():
             )
         assert result.exit_code == 0, result.output
         assert mock_predict.call_args.kwargs["upload_batches"] is expected
+
+
+def test_track_rejects_upload_batches():
+    """`--upload_batches` is a `predict` (new flow) flag; legacy `track` refuses it."""
+    runner = CliRunner()
+    with patch(
+        "sleap_nn.legacy_predict.run_inference", return_value=MagicMock()
+    ) as mock_run:
+        result = runner.invoke(
+            cli,
+            [
+                "track",
+                "--data_path",
+                "/fake/path.mp4",
+                "--model_paths",
+                "/fake/model",
+                "--upload_batches",
+            ],
+        )
+    assert result.exit_code != 0
+    assert "upload_batches" in result.output
+    assert not mock_run.called
