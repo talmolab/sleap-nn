@@ -634,6 +634,91 @@ class BalancedSamplerConfig:
 
 
 @define
+class DistillationConfig:
+    """DWPose-style knowledge distillation (Yang et al. 2023, arXiv 2307.15880).
+
+    **Stage 1** (teacher -> student) adds to the supervised loss
+    ``r(t) * (alpha * L_feat + beta * L_heatmap)``:
+
+    * ``L_feat``: MSE between the teacher's deepest backbone feature (a plain
+      ViT's last tapped token map, else the bottleneck) and the student's, mapped
+      to the teacher's channels by a trainable 1x1 projector. The projector is
+      dropped from saved checkpoints.
+    * ``L_heatmap``: MSE between teacher and student confidence maps over the
+      nodes they share BY NAME (a COCO-17 teacher can teach a larger student
+      skeleton), node-weighted like the supervised loss (see
+      ``mask_unlabeled_nodes``).
+    * ``r(t) = 1 - t / T`` over the run's optimizer steps (``decay: linear``).
+
+    **Stage 2** (head self-distillation): the student's own trained head
+    becomes the teacher; everything except ``trainable`` is frozen (and kept in
+    eval mode when the whole backbone is frozen), ``trainable`` is
+    re-initialized, and the new head learns ``gamma * L_heatmap`` against the
+    old one (no supervised loss by default, as in DWPose).
+
+    The teacher is frozen, in eval mode, outside the state dict, optimizer and
+    checkpoints, and is replicated on every DDP rank without DDP wrapping.
+
+    Attributes:
+        teacher: (str) Teacher model directory (``training_config.yaml`` +
+            ``best.ckpt``) or a ``.ckpt`` next to its ``training_config.yaml``.
+            Required for stage 1. Stage 2: the stage-1 student to load and
+            refine; ``None`` uses the student's own weights as initialized (e.g.
+            by ``model_config.init_from``). *Default*: ``None``.
+        stage: (int) ``1`` (teacher -> student) or ``2`` (head self-distillation).
+            *Default*: ``1``.
+        alpha: (float) Feature loss weight (stage 1; ``0`` skips the feature
+            term and builds no projector). *Default*: ``1.0``.
+        beta: (float) Heatmap loss weight (stage 1). *Default*: ``1.0``.
+        gamma: (float) Heatmap loss weight (stage 2). *Default*: ``1.0``.
+        supervised_weight: (float) Weight of the supervised loss. ``None`` = 1 at
+            stage 1 and 0 at stage 2. *Default*: ``None``.
+        decay: (str) ``"linear"`` (``r(t) = 1 - t / T``, DWPose) or ``"none"``
+            (constant weights). *Default*: ``"linear"``.
+        teacher_input_scale: (float) The teacher sees the student's input crop
+            resampled by this factor (e.g. ``1.5`` for a 384x288 teacher and a
+            256x192 student). Its outputs are resized back to the student's
+            grids. A batch that carries ``teacher_image`` (the same crop rendered
+            at the teacher's resolution) is used instead. *Default*: ``1.0``.
+        mask_unlabeled_nodes: (bool) Weight the heatmap term by the batch's
+            ``node_weights`` (data_config.node_loss_mask), so nodes the sample's
+            source did not label get no teacher signal. ``False`` distills every
+            shared node everywhere (DWPose's unmasked logit loss). No effect
+            without ``node_weights`` in the batch. *Default*: ``True``.
+        trainable: (List[str]) Stage 2: selectors (as in
+            ``model_config.init_from``) of what is re-initialized and trained;
+            everything else is frozen. Use e.g. ``["head", "backbone.vit_dec"]``
+            to retrain a ViTPose decoder too. *Default*: ``None``
+            (``["head"]``).
+        teacher_precision: (str) ``"bf16"`` runs the teacher under bf16 autocast
+            on CUDA; ``"32"`` in the training precision. *Default*: ``"bf16"``.
+    """
+
+    teacher: Optional[str] = None
+    stage: int = field(default=1, validator=validators.in_([1, 2]))
+    alpha: float = field(default=1.0, validator=validators.ge(0))
+    beta: float = field(default=1.0, validator=validators.ge(0))
+    gamma: float = field(default=1.0, validator=validators.ge(0))
+    supervised_weight: Optional[float] = field(
+        default=None, validator=validators.optional(validators.ge(0))
+    )
+    decay: str = field(default="linear", validator=validators.in_(["linear", "none"]))
+    teacher_input_scale: float = field(default=1.0, validator=validators.gt(0))
+    mask_unlabeled_nodes: bool = True
+    trainable: Optional[List[str]] = None
+    teacher_precision: str = field(
+        default="bf16", validator=validators.in_(["bf16", "32"])
+    )
+
+    def __attrs_post_init__(self):
+        """Stage 1 needs a teacher."""
+        if self.stage == 1 and not self.teacher:
+            message = "trainer_config.distillation: stage 1 needs a `teacher`."
+            logger.error(message)
+            raise ValueError(message)
+
+
+@define
 class TrainerConfig:
     """Configuration for trainer.
 
@@ -666,6 +751,10 @@ class TrainerConfig:
         lr_scheduler: create an lr_scheduler configuration
         early_stopping: create an early_stopping configuration
         ema: Weight EMA configuration (``EMAConfig``); off by default.
+        freeze_schedule: Freeze part of the model for the first steps
+            (``FreezeScheduleConfig``); off by default.
+        distillation: Teacher -> student / head self-distillation
+            (``DistillationConfig``); off by default.
         zmq: Zmq config with publish and controller port addresses.
         precision: (str) Lightning training precision: `"32"` (full fp32), `"bf16-mixed"` (bf16 autocast, fp32 weights/optimizer; recommended on Ampere+ GPUs), or `"16-mixed"` (fp16 autocast with a gradient scaler). *Default*: `"32"`.
         float32_matmul_precision: (str) Passed to `torch.set_float32_matmul_precision` for the duration of `fit` on CUDA, and restored afterwards. `"high"` lets fp32 matmuls use TF32 tensor cores (~1.4-1.6x faster ViT training on Ampere+; ~10 mantissa bits for matmul inputs, fp32 accumulation); `"highest"` forces strict fp32 matmuls; `None` leaves the process setting untouched (PyTorch's default is `"highest"`). cuDNN convolutions already use TF32 by default (`torch.backends.cudnn.allow_tf32`) and are not affected. Has no effect under `bf16-mixed`/`16-mixed` autocast regions, only on ops that stay fp32. *Default*: `None`.
@@ -715,6 +804,7 @@ class TrainerConfig:
     early_stopping: EarlyStoppingConfig = field(factory=EarlyStoppingConfig)
     ema: EMAConfig = field(factory=EMAConfig)
     freeze_schedule: Optional[FreezeScheduleConfig] = None
+    distillation: Optional[DistillationConfig] = None
     online_hard_keypoint_mining: Optional[HardKeypointMiningConfig] = field(
         factory=HardKeypointMiningConfig
     )

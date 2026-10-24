@@ -5,7 +5,7 @@ parameters required to construct the actual model. This allows for easy querying
 model configuration without actually instantiating the model itself.
 """
 
-from typing import List
+from typing import Dict, List, Optional, Tuple, Union
 import numpy as np
 import torch
 from omegaconf.dictconfig import DictConfig
@@ -348,8 +348,20 @@ class Model(nn.Module):
             model_type=model_type,
         )
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Forward pass through the model."""
+    def forward(
+        self, x: torch.Tensor, return_backbone_outputs: bool = False
+    ) -> Union[Dict[str, torch.Tensor], Tuple[Dict[str, torch.Tensor], dict]]:
+        """Forward pass through the model.
+
+        Args:
+            x: Input images ``(B, C, H, W)``.
+            return_backbone_outputs: Also return the backbone's output dict (used by
+                distillation to read intermediate features without hooks).
+
+        Returns:
+            ``{head name: output}``, or ``(that, backbone outputs)`` when
+            ``return_backbone_outputs`` is set.
+        """
         if x.shape[-3] != self.backbone_config.in_channels:
             if x.shape[-3] == 1:
                 # convert grayscale to rgb
@@ -359,9 +371,25 @@ class Model(nn.Module):
                 x = F.rgb_to_grayscale(x, num_output_channels=1)
 
         backbone_outputs = self.backbone(x)
+        outputs = self.forward_heads(backbone_outputs)
+        if return_backbone_outputs:
+            return outputs, backbone_outputs
+        return outputs
 
+    def forward_heads(
+        self, backbone_outputs: dict, head_layers: Optional[nn.ModuleList] = None
+    ) -> Dict[str, torch.Tensor]:
+        """Run the heads on the backbone's output dict.
+
+        Args:
+            backbone_outputs: The backbone's output dict.
+            head_layers: Head modules to run in place of ``self.head_layers`` (one
+                per head, same layout), e.g. a frozen copy acting as a teacher.
+        """
+        if head_layers is None:
+            head_layers = self.head_layers
         outputs = {}
-        for head, head_layer in zip(self.heads, self.head_layers):
+        for head, head_layer in zip(self.heads, head_layers):
             if isinstance(head, MultiScaleHead):
                 outputs[head.name] = head_layer(
                     [

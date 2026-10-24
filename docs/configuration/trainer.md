@@ -482,6 +482,23 @@ Frozen parameters stay in the optimizer and train once unfrozen. Under DDP,
 `unfreeze_at_step` with the backbone's `freeze: true`. See
 [Freeze schedule](../guides/init-from.md#freeze-schedule).
 
+### Distillation
+
+Train a student with a frozen teacher (DWPose-style). Off by default:
+
+```yaml
+trainer_config:
+  distillation:
+    teacher: /runs/vit_b_384  # teacher model directory
+    stage: 1                  # 1 teacher -> student, 2 head self-distillation
+    alpha: 1.0                # feature loss weight (0 = off)
+    beta: 1.0                 # heatmap loss weight
+    teacher_input_scale: 1.5  # teacher sees the crop resampled by this factor
+```
+
+The teacher stays frozen and outside the checkpoint; the distillation terms fade
+out linearly over the run. See [Distillation](../guides/distillation.md).
+
 ---
 
 ## Online Hard Keypoint Mining
@@ -605,6 +622,7 @@ trainer_config:
 | `use_wandb` | bool | `false` | Enable WandB logging |
 | `resume_ckpt_path` | str | `null` | Path to checkpoint to resume from |
 | `freeze_schedule` | FreezeScheduleConfig | `null` | Freeze `targets` (selectors, default `[encoder]`) until `unfreeze_at_step` (`null` = whole run) |
+| `distillation` | DistillationConfig | `null` | Teacher → student (`stage: 1`) or head self-distillation (`stage: 2`); see [Distillation](../guides/distillation.md) |
 | `optimizer_name` | str | `Adam` | Optimizer: `Adam` or `AdamW` |
 | `precision` | str | `"32"` | Lightning precision: `"32"`, `"bf16-mixed"`, `"16-mixed"` |
 | `float32_matmul_precision` | str | `null` | `torch.set_float32_matmul_precision` during training on CUDA, restored afterwards (`high` = TF32; `highest` = strict fp32; `null` = leave unchanged) |

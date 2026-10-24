@@ -809,7 +809,14 @@ def test_caseC_backbone_contract(caseC_model):
 
     with torch.no_grad():
         out = bb(torch.rand(1, 3, 160, 224))
-    assert set(out) == {"outputs", "strides", "middle_output", "intermediate_feat"}
+    assert set(out) == {
+        "outputs",
+        "strides",
+        "middle_output",
+        "intermediate_feat",
+        "last_tap",
+    }
+    assert out["last_tap"].shape[1] == 384  # the deepest token map, pre-neck
     assert out["strides"] == [16, 8, 4, 2]
     assert [tuple(o.shape[-2:]) for o in out["outputs"]] == [
         (10, 14),
