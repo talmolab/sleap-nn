@@ -13,7 +13,11 @@ def compute_ohkm_loss(
     max_hard_keypoints: Optional[int] = None,
     loss_scale: float = 5.0,
 ) -> torch.Tensor:
-    """Compute the online hard keypoint mining loss."""
+    """Compute the online hard keypoint mining loss (ranked on batch-summed losses).
+
+    Used with ``online_hard_keypoint_mining.per_sample: false``. See
+    :func:`compute_weighted_ohkm_loss` for the per-sample, weight-aware default.
+    """
     if max_hard_keypoints is None:
         max_hard_keypoints = -1
     # Compute elementwise squared difference.
@@ -59,6 +63,114 @@ def compute_ohkm_loss(
     k_loss = torch.sum(k_loss) / n_elements
 
     return k_loss
+
+
+def per_node_mse(y_pr: torch.Tensor, y_gt: torch.Tensor) -> torch.Tensor:
+    """Per-sample, per-channel MSE ``(B, C)`` of ``(B, C, H, W)`` maps."""
+    return ((y_pr - y_gt) ** 2).mean(dim=(2, 3))
+
+
+def compute_weighted_mse_loss(
+    y_pr: torch.Tensor,
+    y_gt: torch.Tensor,
+    node_weights: Optional[torch.Tensor] = None,
+    sample_weights: Optional[torch.Tensor] = None,
+    eps: float = 1e-8,
+) -> torch.Tensor:
+    """MSE with per-sample, per-node weights, normalized by the node-weight sum.
+
+    ``loss = sum_bc(s_b * w_bc * mse_bc) / sum_bc(w_bc)`` where ``mse_bc`` is the
+    spatial mean squared error of channel ``c`` of sample ``b``. With all weights
+    equal to 1 this is exactly ``nn.MSELoss()(y_pr, y_gt)``; channels with
+    ``w_bc = 0`` contribute neither loss nor gradient. ``sample_weights`` (e.g.
+    the negative-frame weight) scale the numerator only, so they keep the meaning
+    they have with plain MSE (``mean_b(s_b * mse_b)`` when ``w`` is all ones).
+
+    Args:
+        y_pr: Predicted maps ``(B, C, H, W)``.
+        y_gt: Target maps ``(B, C, H, W)``.
+        node_weights: ``(B, C)`` weights (``None``: all ones).
+        sample_weights: ``(B,)`` weights (``None``: all ones).
+        eps: Guards the normalizer of an all-zero-weight batch (loss 0).
+
+    Returns:
+        Scalar loss.
+    """
+    mse = per_node_mse(y_pr, y_gt)
+    if node_weights is None:
+        w = torch.ones_like(mse)
+    else:
+        w = node_weights.to(device=mse.device, dtype=mse.dtype).reshape(mse.shape)
+    num = w * mse
+    if sample_weights is not None:
+        num = num * sample_weights.to(device=mse.device, dtype=mse.dtype)[:, None]
+    return num.sum() / w.sum().clamp(min=eps)
+
+
+def compute_weighted_ohkm_loss(
+    y_gt: torch.Tensor,
+    y_pr: torch.Tensor,
+    node_weights: Optional[torch.Tensor] = None,
+    hard_to_easy_ratio: float = 2.0,
+    min_hard_keypoints: int = 2,
+    max_hard_keypoints: Optional[int] = None,
+    loss_scale: float = 5.0,
+    eps: float = 1e-8,
+) -> torch.Tensor:
+    """Online hard keypoint mining ranked per sample over weighted node losses.
+
+    For each sample ``b`` the weighted per-node losses ``w_bc * mse_bc`` are
+    ranked over the nodes with ``w_bc > 0`` only. A node is hard when its loss
+    is at least ``hard_to_easy_ratio`` times the sample's easiest node loss
+    (``+ eps``); ``k_b = clip(n_hard, min_hard_keypoints, max_hard_keypoints)``,
+    capped at the number of weighted nodes. The result is
+    ``loss_scale * sum(selected losses) / sum_b(k_b)``, i.e. the mean loss of
+    the selected (sample, node) pairs, scaled. For a single sample with all
+    weights 1 this equals :func:`compute_ohkm_loss`.
+
+    Args:
+        y_gt: Target maps ``(B, C, H, W)``.
+        y_pr: Predicted maps ``(B, C, H, W)``.
+        node_weights: ``(B, C)`` weights (``None``: all ones). Unlabeled nodes
+            (weight 0) are never selected.
+        hard_to_easy_ratio: Hard/easy loss ratio threshold.
+        min_hard_keypoints: Minimum hard nodes per sample.
+        max_hard_keypoints: Maximum hard nodes per sample (``None``: all).
+        loss_scale: Scale applied to the hard-node losses.
+        eps: Added to the easiest loss before taking ratios.
+
+    Returns:
+        Scalar loss (0 if no sample has a weighted node).
+    """
+    mse = per_node_mse(y_pr, y_gt)  # (B, C)
+    B, C = mse.shape
+    if node_weights is None:
+        w = torch.ones_like(mse)
+    else:
+        w = node_weights.to(device=mse.device, dtype=mse.dtype).reshape(B, C)
+    valid = w > 0
+    l = w * mse
+    n_valid = valid.sum(dim=1)  # (B,)
+
+    inf = torch.tensor(float("inf"), device=l.device, dtype=l.dtype)
+    best = torch.where(valid, l, inf).min(dim=1, keepdim=True).values  # (B, 1)
+    best = torch.where(torch.isfinite(best), best, torch.zeros_like(best))
+    is_hard = valid & ((l / (best.detach() + eps)) >= hard_to_easy_ratio)
+    n_hard = is_hard.sum(dim=1)
+
+    max_k = (
+        C
+        if max_hard_keypoints is None or max_hard_keypoints < 0
+        else min(max_hard_keypoints, C)
+    )
+    k = n_hard.clamp(min=min_hard_keypoints).clamp(max=max_k)
+    k = torch.minimum(k, n_valid)  # (B,)
+
+    ranked, _ = torch.where(valid, l, -inf).sort(dim=1, descending=True)
+    rank = torch.arange(C, device=l.device)[None]
+    selected = rank < k[:, None]
+    total = torch.where(selected, ranked, torch.zeros_like(ranked)).sum()
+    return loss_scale * total / k.sum().clamp(min=1).to(l.dtype)
 
 
 def compute_bce_dice_loss(

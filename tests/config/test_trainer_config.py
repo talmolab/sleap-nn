@@ -492,3 +492,10 @@ def test_trainer_config_num_workers_auto_survives_omegaconf():
         TrainerConfig(train_data_loader=TrainDataLoaderConfig(num_workers="auto"))
     )
     assert cfg.train_data_loader.num_workers == "auto"
+
+
+def test_hard_keypoint_mining_per_sample_default():
+    from sleap_nn.config.trainer_config import HardKeypointMiningConfig
+
+    assert HardKeypointMiningConfig().per_sample is True
+    assert HardKeypointMiningConfig(per_sample=False).per_sample is False

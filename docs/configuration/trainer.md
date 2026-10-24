@@ -279,7 +279,15 @@ trainer_config:
     min_hard_keypoints: 2
     max_hard_keypoints: null
     loss_scale: 5.0
+    per_sample: true   # rank hard keypoints per sample (false: pre-0.4 batch ranking)
 ```
+
+With `per_sample: true` (the default) each sample's nodes are ranked separately, only
+over nodes with nonzero loss weight (see
+[partially labeled skeletons](../guides/partial-labels.md)), and the OHKM term is the
+mean loss of the selected (sample, node) pairs times `loss_scale`. For batch size > 1
+this differs from the pre-0.4 behavior (`per_sample: false`), which ranks nodes on
+losses summed over the batch.
 
 ---
 
@@ -480,6 +488,7 @@ Only one scheduler should be set at a time.
 | `min_hard_keypoints` | int | `2` | Minimum hard keypoints |
 | `max_hard_keypoints` | int | `null` | Maximum hard keypoints |
 | `loss_scale` | float | `5.0` | Scale factor for hard keypoint losses |
+| `per_sample` | bool | `true` | Rank hard keypoints within each sample over nodes with nonzero loss weight; `false` restores batch-level ranking |
 
 ### EvalConfig
 

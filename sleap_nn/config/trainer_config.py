@@ -328,6 +328,13 @@ class HardKeypointMiningConfig:
         min_hard_keypoints: The minimum number of keypoints that will be considered as "hard", even if they are not below the `hard_to_easy_ratio`. *Default*: `2`.
         max_hard_keypoints: The maximum number of hard keypoints to apply scaling to. This can help when there are few very easy keypoints which may skew the ratio and result in loss scaling being applied to most keypoints, which can reduce the impact of hard mining altogether. *Default*: `None`.
         loss_scale: Factor to scale the hard keypoint losses by. *Default*: `5.0`.
+        per_sample: If True, hard keypoints are ranked within each sample, over the
+            nodes with non-zero loss weight (see `data_config.node_loss_mask`), and the
+            loss is the mean of the selected (sample, node) losses. If False, they are
+            ranked on losses summed over the batch (the behavior before sleap-nn 0.4,
+            which cannot see node weights). Applies to the single-instance,
+            centered-instance and bottom-up confmap heads; results differ from
+            `False` for batch size > 1. *Default*: `True`.
     """
 
     online_mining: bool = False
@@ -335,6 +342,7 @@ class HardKeypointMiningConfig:
     min_hard_keypoints: int = 2
     max_hard_keypoints: Optional[int] = None
     loss_scale: float = 5.0
+    per_sample: bool = True
 
 
 @define
