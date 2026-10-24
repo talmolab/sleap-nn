@@ -1674,6 +1674,7 @@ class TestEpochEndEvaluationCallback:
 
         mock_trainer = MagicMock()
         mock_trainer.sanity_checking = False  # Not during sanity check
+        mock_trainer.current_epoch = 0
         mock_pl_module = MagicMock()
         mock_pl_module._collect_val_predictions = False
 
@@ -2632,6 +2633,7 @@ class TestCentroidEvaluationCallback:
 
         mock_trainer = MagicMock()
         mock_trainer.sanity_checking = False
+        mock_trainer.current_epoch = 0
         mock_pl_module = MagicMock()
         mock_pl_module._collect_val_predictions = False
 

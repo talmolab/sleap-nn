@@ -276,9 +276,16 @@ the decay short.
 trainer_config:
   early_stopping:
     stop_training_on_plateau: null  # null = on, off with a fixed-length LR schedule
-    patience: 10        # Epochs without improvement (embedding, bbox_* with eval on: evaluations)
+    patience: 10        # Epochs without improvement (eval/* metrics: evaluations)
     min_delta: 1e-8     # Minimum improvement
 ```
+
+Early stopping watches the same metric (and mode) as the best checkpoint:
+`model_ckpt.monitor` / `model_ckpt.mode` when set, otherwise the model type's default
+(`val/loss`; the retrieval metric for `embedding`; the box metric for `bbox_*` with
+eval on). An `eval/*` metric is only measured every `eval.frequency` epochs, so
+patience then counts evaluations.
+
 
 Training writes the resolved `true`/`false` into the saved `training_config.yaml`.
 
@@ -453,7 +460,7 @@ trainer_config:
 ```yaml
 trainer_config:
   min_train_steps_per_epoch: 200  # Minimum steps
-  train_steps_per_epoch: null     # Exact steps (null=auto)
+  train_steps_per_epoch: null     # Exact steps (null=auto); summed over all GPUs
   enable_progress_bar: true
   seed: 42                        # Random seed (ensures deterministic train/val splits)
 ```
@@ -567,7 +574,7 @@ trainer_config:
 | `profiler` | str | `null` | PyTorch profiler: `simple`, `advanced`, `pytorch` |
 | `enable_progress_bar` | bool | `true` | Show training progress |
 | `min_train_steps_per_epoch` | int | `200` | Minimum batches per epoch (for `embedding`, P×K batches) |
-| `train_steps_per_epoch` | int | `null` | Exact steps per epoch (null = auto: one pass over the data; for `embedding`, in P×K batches — `min(P, groups in the video)`×K for `sampler.kind: within_video`) |
+| `train_steps_per_epoch` | int | `null` | Exact steps per epoch (null = auto: one pass over the data; for `embedding`, in P×K batches — `min(P, groups in the video)`×K for `sampler.kind: within_video`). With multiple GPUs this counts batches summed over all GPUs: each GPU runs `train_steps_per_epoch / num_gpus` optimizer steps, so an epoch is still one pass over the data (see [Multi-GPU](../guides/multi-gpu.md#steps-per-epoch)) |
 | `visualize_preds_during_training` | bool | `false` | Save prediction visualizations |
 | `keep_viz` | bool | `false` | Keep viz folder after training |
 | `use_wandb` | bool | `false` | Enable WandB logging |
