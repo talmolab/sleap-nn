@@ -344,3 +344,32 @@ def test_instance_node_weights_forward_compat():
 
     w, _ = instance_node_weights(_Old(), np.array([1, 0], np.float32), xy[:2])
     assert np.array_equal(w, [1, 0])
+
+
+def test_labeled_nodes_edge_cases(minimal_instance):
+    labels = _labels(minimal_instance, labeled_nodes=[1, 7, True])
+    # Out-of-range indices and non-node entries (bools are not indices) are ignored.
+    assert np.array_equal(get_labeled_nodes_weights(labels), [0, 1])
+    assert has_partial_labeling_info([None, labels])
+    assert not has_partial_labeling_info([None])
+
+    class _Inst:
+        points = np.zeros(2, dtype=[("xy", "<f8", (2,)), ("labeled", "?")])
+
+    class _LF:
+        instances = [_Inst()]
+
+    class _Labels:
+        provenance = {}
+        labeled_frames = [_LF()]
+
+    # sleap-io >= 0.10 per-point flags count as partial-labeling info.
+    assert has_partial_labeling_info([_Labels()])
+
+
+def test_dataset_without_skeleton_file_mask_defaults_to_ones(minimal_instance):
+    labels = _labels(minimal_instance)
+    ds = _ci_dataset(labels, unlabeled_points="ignore")
+    ds.file_node_weights = [None]  # e.g. a file without a skeleton
+    w, _ = ds._instance_node_weights(0)
+    assert torch.equal(w, torch.ones(1, 2))

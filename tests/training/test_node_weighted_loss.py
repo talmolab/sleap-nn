@@ -366,3 +366,89 @@ def test_group_split_keeps_labeled_nodes(config, minimal_instance, monkeypatch):
     )
     for split in trainer.train_labels + trainer.val_labels:
         assert split.provenance["labeled_nodes"] == ["B"]
+
+
+def _frame_level_config(config, model_type):
+    """Turn the centered-instance `config` fixture into single-instance/bottom-up."""
+    cfg = config.copy()
+    head = cfg.model_config.head_configs.centered_instance
+    del cfg.model_config.head_configs.centered_instance
+    OmegaConf.update(cfg, f"model_config.head_configs.{model_type}", head)
+    heads = cfg.model_config.head_configs[model_type]
+    del heads.confmaps.anchor_part
+    if model_type == "bottomup":
+        heads.confmaps.loss_weight = 1.0
+        heads["pafs"] = {
+            "edges": [("A", "B")],
+            "sigma": 4,
+            "output_stride": 4,
+            "loss_weight": 1.0,
+        }
+    OmegaConf.update(
+        cfg, "trainer_config.online_hard_keypoint_mining.online_mining", True
+    )
+    OmegaConf.update(
+        cfg, "trainer_config.online_hard_keypoint_mining.min_hard_keypoints", 1
+    )
+    OmegaConf.update(cfg, "data_config.negative_loss_weight", 0.5)
+    return cfg
+
+
+@pytest.mark.parametrize("model_type", ["single_instance", "bottomup"])
+def test_frame_level_modules_mask_unlabeled_nodes(config, minimal_instance, model_type):
+    """Single-instance / bottom-up steps: masked confmap loss + per-sample OHKM."""
+    from sleap_nn.data.custom_datasets import BottomUpDataset, SingleInstanceDataset
+
+    labels = _labels(minimal_instance, labeled_nodes=["A"])
+    lf = labels[0]
+    labels.append(sio.LabeledFrame(video=lf.video, frame_idx=0, is_negative=True))
+    head = DictConfig({"sigma": 1.5, "output_stride": 2})
+    geo = DictConfig({"flip_p": 1.0, "affine_p": 0.0, "erase_p": 0.0, "mixup_p": 0.0})
+    common = dict(
+        labels=[labels],
+        confmap_head_config=head,
+        max_stride=8,
+        use_negative_frames=True,
+        apply_aug=True,
+        geometric_aug=geo,
+    )
+    if model_type == "single_instance":
+        lf.instances = lf.instances[:1]
+        ds = SingleInstanceDataset(**common)
+        key = "SingleInstanceConfmapsHead"
+    else:
+        ds = BottomUpDataset(
+            pafs_head_config=DictConfig({"sigma": 4, "output_stride": 4}), **common
+        )
+        key = "MultiInstanceConfmapsHead"
+    samples = [ds[i] for i in range(len(ds))]
+    # No symmetries: the flip leaves the weights in place.
+    weights = {bool(s["is_negative"]): s["node_weights"] for s in samples}
+    assert torch.equal(weights[False], torch.tensor([[1.0, 0.0]]))
+    assert torch.equal(weights[True], torch.ones(1, 2))
+    batch = default_collate(samples)
+
+    model = LightningModel.get_lightning_model_from_config(
+        _frame_level_config(config, model_type)
+    )
+    logged = {}
+    model.log = lambda name, value, **k: logged.__setitem__(name, value)
+    with torch.no_grad():
+        loss = model.training_step(batch, 0)
+        assert torch.isfinite(loss)
+        model.validation_step(batch, 0)
+        assert torch.isfinite(logged["val/loss"])
+    if model_type == "single_instance":
+        assert "val/loss_unmasked" in logged
+
+    # The confmap term matches the weighted MSE (negative frame scaled by 0.5).
+    from sleap_nn.data.normalization import normalize_on_gpu
+
+    X = normalize_on_gpu(batch["image"].squeeze(1))
+    y = batch["confidence_maps"].squeeze(1)
+    with torch.no_grad():
+        preds = model.model(X)[key]
+        sw = torch.where(batch["is_negative"], 0.5, 1.0)
+        expected = compute_weighted_mse_loss(preds, y, batch["node_weights"], sw)
+        got = model._compute_masked_confmap_loss(preds, y, batch, stage="train")
+        assert torch.allclose(got, expected)
