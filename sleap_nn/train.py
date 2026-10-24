@@ -804,6 +804,20 @@ def train(
     zmq_publish_port: Optional[int] = None,
     zmq_controller_port: Optional[int] = None,
     zmq_controller_timeout: int = 10,
+    precision: Union[str, int] = "32",
+    float32_matmul_precision: Optional[str] = None,
+    compile: Union[bool, str] = False,
+    gradient_clip_val: Optional[float] = None,
+    gradient_clip_algorithm: str = "norm",
+    accumulate_grad_batches: int = 1,
+    log_every_n_steps: int = 1,
+    max_steps: Optional[int] = None,
+    val_check_interval: Optional[Union[int, float]] = None,
+    throughput_log_every_n_steps: Optional[int] = 50,
+    confmap_fg_bg_diagnostics: Optional[bool] = None,
+    prefetch_factor: Optional[int] = 2,
+    pin_memory: Optional[bool] = None,
+    drop_last: Optional[bool] = None,
 ):
     """Train a pose-estimation model with SLEAP-NN framework.
 
@@ -1023,6 +1037,38 @@ def train(
         zmq_controller_port: (int) Specifies the port to listen to to stop the training (specific to SLEAP GUI).
         zmq_controller_timeout: (int) Polling timeout in microseconds specified as an integer. This controls how long the poller
             should wait to receive a response and should be set to a small value to minimize the impact on training speed.
+        precision: Lightning training precision: `"32"` (fp32), `"bf16-mixed"` (bf16
+            autocast with fp32 weights; recommended on Ampere+ GPUs) or `"16-mixed"`
+            (fp16 autocast with a gradient scaler). Default: `"32"`.
+        float32_matmul_precision: `torch.set_float32_matmul_precision` value used
+            while training on CUDA (`"high"` = TF32 matmuls, `"highest"` = strict
+            fp32), restored afterwards. `None` leaves the process setting untouched.
+            Default: `None`.
+        compile: `torch.compile` the model in place: `True` (`"default"` mode) or one
+            of `"reduce-overhead"`, `"max-autotune"`, `"max-autotune-no-cudagraphs"`.
+            Default: `False`.
+        gradient_clip_val: Clip gradients at this value; `None` disables clipping.
+            Default: `None`.
+        gradient_clip_algorithm: `"norm"` (global L2 norm) or `"value"`.
+            Default: `"norm"`.
+        accumulate_grad_batches: Batches per optimizer step. Default: 1.
+        log_every_n_steps: Step-level metric logging cadence (each logged step
+            syncs the GPU). Default: 1.
+        max_steps: Optimizer-step budget; training stops at `max_steps` or
+            `max_epochs`, whichever comes first. `None` = no step limit.
+            Default: `None`.
+        val_check_interval: Validate every N training batches (int) or every
+            fraction of an epoch (float). `None` = once per epoch. Default: `None`.
+        throughput_log_every_n_steps: Window (in training batches) of the `perf/*`
+            throughput metrics; `0` or `None` disables them. Default: 50.
+        confmap_fg_bg_diagnostics: Log the confmap foreground/background MSE split.
+            `None` = only for centroid models. Default: `None`.
+        prefetch_factor: Batches each dataloader worker loads ahead (ignored with
+            `num_workers=0`). Default: 2.
+        pin_memory: Use pinned host memory for batches. `None` = `True`.
+            Default: `None`.
+        drop_last: Drop the partial batch at the end of each pass over the training
+            data. `None` = only when `compile` is enabled. Default: `None`.
     """
     data_config = get_data_config(
         train_labels_path=train_labels_path,
@@ -1104,6 +1150,20 @@ def train(
         zmq_publish_port=zmq_publish_port,
         zmq_controller_port=zmq_controller_port,
         zmq_controller_timeout=zmq_controller_timeout,
+        precision=precision,
+        float32_matmul_precision=float32_matmul_precision,
+        compile=compile,
+        gradient_clip_val=gradient_clip_val,
+        gradient_clip_algorithm=gradient_clip_algorithm,
+        accumulate_grad_batches=accumulate_grad_batches,
+        log_every_n_steps=log_every_n_steps,
+        max_steps=max_steps,
+        val_check_interval=val_check_interval,
+        throughput_log_every_n_steps=throughput_log_every_n_steps,
+        confmap_fg_bg_diagnostics=confmap_fg_bg_diagnostics,
+        prefetch_factor=prefetch_factor,
+        pin_memory=pin_memory,
+        drop_last=drop_last,
     )
 
     # create omegaconf object

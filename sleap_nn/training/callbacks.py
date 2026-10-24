@@ -16,6 +16,7 @@ from PIL import Image
 from pathlib import Path
 import wandb
 import csv
+import time
 from sleap_nn import RANK
 
 
@@ -48,6 +49,17 @@ class SleapProgressBar(TQDMProgressBar):
 class CSVLoggerCallback(Callback):
     """Callback for logging metrics to csv.
 
+    One row is written per training epoch that ran validation, holding that
+    epoch's train loss/LR (logged in ``LightningModule.on_train_epoch_end``)
+    and its latest validation and eval metrics.
+
+    Lightning runs the epoch-end validation loop *before*
+    ``on_train_epoch_end``, so a row written at the end of validation would
+    carry the previous epoch's ``train/loss`` and ``train/lr``. The row is
+    therefore marked pending when validation ends and written once the epoch's
+    train metrics have been logged: at the start of the next train epoch, or
+    at the end of training for the last one.
+
     Attributes:
         filepath: Path to save the csv file.
         keys: List of field names to be logged in the csv.
@@ -63,6 +75,8 @@ class CSVLoggerCallback(Callback):
         self.filepath = filepath
         self.keys = keys
         self.initialized = False
+        # Epoch whose row is waiting for its train metrics (see class docstring).
+        self._pending_epoch = None
 
     def _init_file(self):
         """Create the .csv file."""
@@ -93,16 +107,31 @@ class CSVLoggerCallback(Callback):
                 trainer.callback_metrics[key] = torch.tensor(float("nan"))
 
     def on_validation_end(self, trainer, pl_module):
-        """Log metrics to csv at the end of validation.
+        """Mark this epoch's row as pending.
 
-        Runs on ``on_validation_end`` (not ``on_validation_epoch_end``) so
-        that it reads ``trainer.callback_metrics`` *after* every callback's
-        ``on_validation_epoch_end`` hook -- including the eval callbacks --
-        has already run this epoch, regardless of callback registration
-        order.
+        Runs on ``on_validation_end`` (not ``on_validation_epoch_end``) so it
+        comes *after* every callback's ``on_validation_epoch_end`` hook --
+        including the eval callbacks -- regardless of callback registration
+        order. The row itself is written by :meth:`_write_pending_row` once the
+        epoch's train metrics exist.
         """
         if trainer.sanity_checking:
             return
+        self._pending_epoch = trainer.current_epoch
+
+    def on_train_epoch_start(self, trainer, pl_module):
+        """Write the previous epoch's row (its train metrics are logged now)."""
+        self._write_pending_row(trainer)
+
+    def on_train_end(self, trainer, pl_module):
+        """Write the last epoch's row."""
+        self._write_pending_row(trainer)
+
+    def _write_pending_row(self, trainer):
+        """Append the pending epoch's row, if any, to the csv."""
+        if self._pending_epoch is None:
+            return
+        epoch, self._pending_epoch = self._pending_epoch, None
         # Access callback_metrics BEFORE the is_global_zero guard so all
         # ranks participate in the implicit all_reduce that fires when
         # sync_dist=True metrics are first read.  Only rank 0 does I/O.
@@ -113,7 +142,7 @@ class CSVLoggerCallback(Callback):
             log_data = {}
             for key in self.keys:
                 if key == "epoch":
-                    log_data["epoch"] = trainer.current_epoch
+                    log_data["epoch"] = epoch
                 elif key == "learning_rate":
                     # Handle multiple formats:
                     # 1. Direct "learning_rate" key
@@ -2922,3 +2951,197 @@ class EmbeddingEvaluationCallback(Callback):
         pl_module.val_predictions = []
         pl_module.val_ground_truth = []
         trainer.strategy.barrier()
+
+
+def _batch_num_samples(batch) -> int:
+    """Best-effort number of samples in a collated training batch."""
+    if isinstance(batch, dict):
+        for key in ("instance_image", "image"):
+            v = batch.get(key)
+            if hasattr(v, "shape") and len(v.shape) > 0:
+                return int(v.shape[0])
+        for v in batch.values():
+            if hasattr(v, "shape") and len(v.shape) > 0:
+                return int(v.shape[0])
+        if "frame_idx" in batch:
+            return len(batch["frame_idx"])
+    elif isinstance(batch, (list, tuple)) and len(batch):
+        return _batch_num_samples(batch[0])
+    elif hasattr(batch, "shape") and len(batch.shape) > 0:
+        return int(batch.shape[0])
+    return 0
+
+
+class ThroughputMonitor(Callback):
+    """Log training speed and input-pipeline stalls every ``log_every_n_steps``.
+
+    Timing is measured over windows of ``log_every_n_steps`` training batches and
+    is reset at the start of every train epoch and around validation, so the
+    reported rates are *train-only* (unlike the epoch-level ``train/samples_per_sec``
+    which historically included the validation loop).
+
+    Host-side timings use ``time.perf_counter`` and add no device syncs. When the
+    module runs on CUDA, a pair of CUDA events is also recorded around each step
+    and read back once per window (a single sync on the last event), which gives
+    the fraction of the window the GPU was actually idle -- the true cost of a
+    slow dataloader, independent of how far the host runs ahead of the device.
+
+    Logged keys (to every Lightning logger, at ``trainer.global_step``):
+
+    * ``perf/samples_per_sec``: training samples (crops/frames) per second,
+      summed over all ranks (per-rank batch x world size).
+    * ``perf/steps_per_sec``, ``perf/iter_time_ms``: training batches per second
+      and wall time per batch (a batch, not an optimizer step, under
+      ``accumulate_grad_batches``).
+    * ``perf/data_wait_ms``, ``perf/data_wait_frac``: host time between the end
+      of one batch and the start of the next (dataloader fetch + host-to-device
+      copy + loop overhead), per batch and as a fraction of wall time.
+    * ``perf/compute_ms``: host time inside the step (forward/backward/optimizer
+      launch; equals device time only if the step synchronizes).
+    * ``perf/gpu_idle_frac``: fraction of the window the GPU stream was idle
+      between steps (CUDA only). This is the stall metric to watch: when the
+      step has no host sync the host runs ahead of the GPU, so
+      ``data_wait_frac`` can be high while the GPU is still fully busy.
+    * ``perf/max_mem_gb``, ``perf/max_mem_reserved_gb``: peak allocated/reserved
+      CUDA memory on this rank since the start of training.
+    * ``perf/lr/<group>``: learning rate of every optimizer param group (named by
+      the group's ``"name"`` key when present, else its index).
+
+    Args:
+        log_every_n_steps: Window size (in training batches) between logs.
+        log_to_console: Also emit a one-line ``loguru`` summary on rank 0.
+        cuda_events: Measure GPU idle time with CUDA events (CUDA only).
+    """
+
+    def __init__(
+        self,
+        log_every_n_steps: int = 50,
+        log_to_console: bool = True,
+        cuda_events: bool = True,
+    ):
+        """Initialize the monitor."""
+        super().__init__()
+        self.log_every_n_steps = max(1, int(log_every_n_steps))
+        self.log_to_console = log_to_console
+        self.cuda_events = cuda_events
+        # Every window's metrics (rank-local), e.g. for tests and benchmarks.
+        self.history = []
+        self._reset()
+
+    def _reset(self):
+        self._window_start = None
+        self._prev_end = None
+        self._step_start = None
+        self._wait = 0.0
+        self._compute = 0.0
+        self._n = 0
+        self._samples = 0
+        self._events = []
+
+    def _use_events(self, pl_module) -> bool:
+        import torch
+
+        return (
+            self.cuda_events
+            and torch.cuda.is_available()
+            and getattr(pl_module.device, "type", "cpu") == "cuda"
+        )
+
+    def on_train_epoch_start(self, trainer, pl_module):
+        """Start a fresh window each epoch."""
+        self._reset()
+
+    def on_validation_start(self, trainer, pl_module):
+        """Drop the partial window so validation never counts as train time."""
+        self._reset()
+
+    def on_train_batch_start(self, trainer, pl_module, batch, batch_idx):
+        """Record the end of the data wait / start of compute."""
+        now = time.perf_counter()
+        if self._window_start is None:
+            # First batch of a window opened by a reset: its wait is unknown.
+            self._window_start = now
+        elif self._prev_end is not None:
+            self._wait += now - self._prev_end
+        self._step_start = now
+        if self._use_events(pl_module):
+            import torch
+
+            start = torch.cuda.Event(enable_timing=True)
+            start.record()
+            self._events.append([start, None])
+
+    def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx):
+        """Accumulate the step and log once the window is full."""
+        now = time.perf_counter()
+        if self._step_start is None:
+            return
+        self._compute += now - self._step_start
+        self._prev_end = now
+        self._n += 1
+        self._samples += _batch_num_samples(batch)
+        if self._events and self._events[-1][1] is None:
+            import torch
+
+            end = torch.cuda.Event(enable_timing=True)
+            end.record()
+            self._events[-1][1] = end
+        if self._n >= self.log_every_n_steps:
+            self._log_window(trainer, pl_module, now)
+            # Next window starts where this one ended (keeps the wait of its
+            # first batch).
+            self._window_start = now
+            self._wait = self._compute = 0.0
+            self._n = self._samples = 0
+            self._events = []
+
+    def _log_window(self, trainer, pl_module, now):
+        import torch
+
+        wall = max(now - self._window_start, 1e-9)
+        world = int(getattr(trainer, "world_size", 1) or 1)
+        metrics = {
+            "perf/samples_per_sec": self._samples * world / wall,
+            "perf/steps_per_sec": self._n / wall,
+            "perf/iter_time_ms": 1000.0 * wall / self._n,
+            "perf/data_wait_ms": 1000.0 * self._wait / self._n,
+            "perf/data_wait_frac": self._wait / wall,
+            "perf/compute_ms": 1000.0 * self._compute / self._n,
+        }
+        events = [e for e in self._events if e[1] is not None]
+        if len(events) >= 2:
+            events[-1][1].synchronize()
+            busy = sum(s.elapsed_time(e) for s, e in events)
+            span = events[0][0].elapsed_time(events[-1][1])
+            if span > 0:
+                metrics["perf/gpu_idle_frac"] = max(0.0, 1.0 - busy / span)
+        if torch.cuda.is_available() and pl_module.device.type == "cuda":
+            dev = pl_module.device
+            metrics["perf/max_mem_gb"] = torch.cuda.max_memory_allocated(dev) / 1e9
+            metrics["perf/max_mem_reserved_gb"] = (
+                torch.cuda.max_memory_reserved(dev) / 1e9
+            )
+        for opt_idx, opt in enumerate(trainer.optimizers):
+            for g_idx, group in enumerate(opt.param_groups):
+                name = group.get("name", str(g_idx))
+                prefix = "perf/lr" if opt_idx == 0 else f"perf/lr_opt{opt_idx}"
+                metrics[f"{prefix}/{name}"] = float(group["lr"])
+        self.history.append(metrics)
+        if trainer.is_global_zero:
+            for lg in trainer.loggers:
+                lg.log_metrics(metrics, step=trainer.global_step)
+            if self.log_to_console:
+                idle = metrics.get("perf/gpu_idle_frac")
+                logger.info(
+                    f"[throughput] step {trainer.global_step}: "
+                    f"{metrics['perf/samples_per_sec']:.1f} samples/s, "
+                    f"iter {metrics['perf/iter_time_ms']:.1f} ms, "
+                    f"data wait {metrics['perf/data_wait_ms']:.1f} ms "
+                    f"({100 * metrics['perf/data_wait_frac']:.1f}%)"
+                    + (f", GPU idle {100 * idle:.1f}%" if idle is not None else "")
+                    + (
+                        f", max mem {metrics['perf/max_mem_gb']:.1f} GB"
+                        if "perf/max_mem_gb" in metrics
+                        else ""
+                    )
+                )

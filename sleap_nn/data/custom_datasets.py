@@ -7574,12 +7574,18 @@ def get_train_val_dataloaders(
     Returns:
         A tuple (train_dataloader, val_dataloader).
     """
-    pin_memory = (
-        config.trainer_config.train_data_loader.pin_memory
-        if "pin_memory" in config.trainer_config.train_data_loader
-        and config.trainer_config.train_data_loader.pin_memory is not None
-        else True
+    pin_memory = OmegaConf.select(
+        config, "trainer_config.train_data_loader.pin_memory", default=None
     )
+    if pin_memory is None:
+        pin_memory = True
+    # The val loader used to always follow the train setting; it still does
+    # unless `val_data_loader.pin_memory` is set explicitly.
+    val_pin_memory = OmegaConf.select(
+        config, "trainer_config.val_data_loader.pin_memory", default=None
+    )
+    if val_pin_memory is None:
+        val_pin_memory = pin_memory
 
     if train_steps_per_epoch is None:
         train_steps_per_epoch = config.trainer_config.train_steps_per_epoch
@@ -7630,7 +7636,7 @@ def get_train_val_dataloaders(
             shuffle=False,
             batch_size=config.trainer_config.val_data_loader.batch_size,
             num_workers=val_nw,
-            pin_memory=pin_memory,
+            pin_memory=val_pin_memory,
             persistent_workers=val_nw > 0,
         )
         return train_data_loader, val_data_loader
@@ -7667,6 +7673,9 @@ def get_train_val_dataloaders(
     train_data_loader = InfiniteDataLoader(
         dataset=train_dataset,
         sampler=train_sampler,
+        drop_last=_get_train_drop_last(
+            config, train_dataset, trainer_devices, tiling_enabled
+        ),
         len_dataloader=max(1, round(train_steps_per_epoch / trainer_devices)),
         shuffle=(
             config.trainer_config.train_data_loader.shuffle
@@ -7680,11 +7689,7 @@ def get_train_val_dataloaders(
         persistent_workers=(
             True if config.trainer_config.train_data_loader.num_workers > 0 else None
         ),
-        prefetch_factor=(
-            config.trainer_config.train_data_loader.batch_size
-            if config.trainer_config.train_data_loader.num_workers > 0
-            else None
-        ),
+        prefetch_factor=_get_prefetch_factor(config, "train_data_loader"),
     )
 
     if tiling_enabled:
@@ -7718,19 +7723,60 @@ def get_train_val_dataloaders(
         ),
         batch_size=config.trainer_config.val_data_loader.batch_size,
         num_workers=config.trainer_config.val_data_loader.num_workers,
-        pin_memory=pin_memory,
+        pin_memory=val_pin_memory,
         worker_init_fn=worker_init_fn,
         persistent_workers=(
             True if config.trainer_config.val_data_loader.num_workers > 0 else None
         ),
-        prefetch_factor=(
-            config.trainer_config.val_data_loader.batch_size
-            if config.trainer_config.val_data_loader.num_workers > 0
-            else None
-        ),
+        prefetch_factor=_get_prefetch_factor(config, "val_data_loader"),
     )
 
     return train_data_loader, val_data_loader
+
+
+#: Batches each dataloader worker loads ahead when ``prefetch_factor`` is unset.
+DEFAULT_PREFETCH_FACTOR = 2
+
+
+def _get_prefetch_factor(config: DictConfig, loader: str) -> Optional[int]:
+    """Resolve ``trainer_config.<loader>.prefetch_factor`` (``None`` without workers).
+
+    This used to be ``batch_size``, so ``num_workers x batch_size`` batches could be
+    queued (e.g. 16 workers x 128 = 2048 batches of crops + confmaps), which only
+    costs host/shared memory: two batches per worker already hide the latency.
+    """
+    if OmegaConf.select(config, f"trainer_config.{loader}.num_workers", default=0) <= 0:
+        return None
+    value = OmegaConf.select(
+        config, f"trainer_config.{loader}.prefetch_factor", default=None
+    )
+    return int(value) if value is not None else DEFAULT_PREFETCH_FACTOR
+
+
+def _get_train_drop_last(
+    config: DictConfig, train_dataset, trainer_devices: int, tiling_enabled: bool
+) -> bool:
+    """Whether the (infinite) train loader drops the partial batch of each pass.
+
+    ``trainer_config.train_data_loader.drop_last`` (``None`` = auto) defaults to
+    ``True`` only when ``trainer_config.compile`` is on: the repeating sampler
+    otherwise emits one short batch per pass over the data, and every new batch
+    size makes ``torch.compile`` recompile the model (each ~10-40 s). It is never
+    enabled when a rank's share of the data is smaller than one batch, since the
+    repeating sampler would then yield nothing and hang.
+    """
+    if tiling_enabled:
+        return False
+    drop_last = OmegaConf.select(
+        config, "trainer_config.train_data_loader.drop_last", default=None
+    )
+    if drop_last is None:
+        compile_mode = OmegaConf.select(config, "trainer_config.compile", default=False)
+        drop_last = compile_mode not in (None, False)
+    if not drop_last:
+        return False
+    batch_size = config.trainer_config.train_data_loader.batch_size
+    return len(train_dataset) // max(1, trainer_devices) >= batch_size
 
 
 def get_steps_per_epoch(dataset: BaseDataset, batch_size: int):
