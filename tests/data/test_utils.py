@@ -222,3 +222,48 @@ def test_estimate_cache_memory_spawn_charges_full_copy(
     estimate = estimate_cache_memory([labels], [labels], num_workers=3)
 
     assert estimate["worker_overhead_bytes"] == 3 * estimate["raw_cache_bytes"]
+
+
+def test_estimate_cache_memory_counts_unequal_train_val_lists(minimal_instance):
+    """Train and val lists of different lengths are both counted in full.
+
+    The estimate used to ``zip`` them, so two train files and one val file
+    counted one of each, and an empty val list counted nothing at all.
+    """
+    labels = sio.load_slp(minimal_instance)
+    one = estimate_cache_memory([labels], [], num_workers=0)
+    assert one["raw_cache_bytes"] == check_memory(labels) > 0
+    assert one["num_samples"] == len(labels)
+
+    two_one = estimate_cache_memory([labels, labels], [labels], num_workers=0)
+    assert two_one["raw_cache_bytes"] == 3 * check_memory(labels)
+    assert two_one["num_samples"] == 3 * len(labels)
+
+
+def test_resolve_auto_num_workers_memory_bound_without_val_labels(
+    minimal_instance, monkeypatch
+):
+    """`num_workers: auto` sizes the cache from the train labels alone.
+
+    With ``val_labels=None`` the old zip gave a cache estimate of 0, so the
+    memory bound never applied.
+    """
+    from sleap_nn.config import utils as config_utils
+
+    labels = sio.load_slp(minimal_instance)
+    raw = check_memory(labels)
+    # Room for the cache plus exactly one worker's share of it.
+    available = (
+        raw * (1 + worker_memory_overhead_factor()) + len(labels) * 200
+    ) * 1.2 + 1
+
+    class _Mem:
+        def __init__(self, available):
+            self.available = available
+
+    monkeypatch.setattr(psutil, "virtual_memory", lambda: _Mem(available))
+    monkeypatch.setattr(config_utils, "usable_cpu_count", lambda: 64)
+    resolved = config_utils.resolve_auto_num_workers(
+        "torch_dataset_cache_img_memory", train_labels=[labels], val_labels=None
+    )
+    assert resolved == 1

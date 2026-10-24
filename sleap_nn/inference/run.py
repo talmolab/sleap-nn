@@ -428,7 +428,7 @@ def predict(
     centroid_threshold: Optional[float] = None,
     keypoint_threshold: Optional[float] = None,
     max_instances: Optional[int] = None,
-    integral_refinement: Optional[str] = None,
+    integral_refinement: Optional[str] = "keep",
     integral_patch_size: Optional[int] = None,
     return_confmaps: bool = False,
     return_crops: bool = False,
@@ -543,7 +543,9 @@ def predict(
         centroid_threshold: Override centroid-stage threshold (top-down).
         keypoint_threshold: Override centered-instance threshold (top-down).
         max_instances: Cap on instances per frame.
-        integral_refinement: ``"integral"`` or ``"none"``.
+        integral_refinement: ``"integral"``, ``"local"``, or ``"none"`` / ``None``
+            (no refinement). The default, ``"keep"``, keeps the model's
+            refinement (``"integral"``).
         integral_patch_size: Refinement patch size.
         return_confmaps: Keep confidence maps on Outputs.
         return_crops: Keep per-instance crops on Outputs (top-down).

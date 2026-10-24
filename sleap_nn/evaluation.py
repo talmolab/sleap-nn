@@ -1068,6 +1068,34 @@ def compute_dists(
     return dists_dict
 
 
+def _unmatched_prediction_scores(
+    labels_gt: sio.Labels,
+    labels_pr: sio.Labels,
+    positive_pairs: List[Tuple[Any, Any, float]],
+) -> np.ndarray:
+    """Scores of predicted instances on GT-labeled frames that matched no GT.
+
+    Covers the predictions :func:`match_instances` drops silently (after the frame's
+    GT runs out, or with OKS 0 to every GT) and every prediction on a GT labeled
+    frame with no user instances (which :func:`find_frame_pairs` skips entirely).
+    Predictions on frames absent from the GT are not scored.
+    """
+    matched = {id(pp[1].instance) for pp in positive_pairs}
+    match_result = labels_gt.match(labels_pr)
+    scores = []
+    for video_pr, video_gt in match_result.video_map.items():
+        if video_gt is None:
+            continue
+        gt_frames = {lf.frame_idx for lf in labels_gt.find(video_gt)}
+        for lf_pr in labels_pr.find(video_pr):
+            if lf_pr.frame_idx not in gt_frames:
+                continue
+            for inst in lf_pr.instances:
+                if isinstance(inst, sio.PredictedInstance) and id(inst) not in matched:
+                    scores.append(float(inst.score))
+    return np.asarray(scores, dtype="float64")
+
+
 class Evaluator:
     """Compute the standard evaluation metrics with the predicted and the ground-truth Labels.
 
@@ -1118,8 +1146,17 @@ class Evaluator:
         centroid_method: Optional[str] = None,
         centroid_fallback: Optional[str] = None,
         exclude_predicted_instance_masks: bool = False,
+        count_unmatched_as_fp: bool = False,
     ):
         """Initialize the Evaluator class with ground-truth and predicted labels.
+
+        ``count_unmatched_as_fp`` (``match_method="oks"`` only) makes
+        :meth:`voc_metrics` count every predicted instance that was not matched to a
+        GT instance -- extra detections left after the frame's GT ran out, ones with
+        OKS 0 to every GT, and ones on GT frames that have no user instances -- as a
+        false positive. Off by default for back-compat; without it ``oks_voc.*``
+        precision only sees matched pairs and over-states AP whenever a model
+        produces duplicates or spurious detections.
 
         ``exclude_predicted_instance_masks`` (``match_method="mask"`` only) drops
         masks linked to a ``PredictedInstance`` from the ground-truth labels, so a
@@ -1140,6 +1177,10 @@ class Evaluator:
         self.centroid_method = centroid_method
         self.centroid_fallback = centroid_fallback
         self.exclude_predicted_instance_masks = exclude_predicted_instance_masks
+        self.count_unmatched_as_fp = count_unmatched_as_fp
+        # Scores of predicted instances never matched to GT (oks mode, only with
+        # count_unmatched_as_fp).
+        self.unmatched_pred_scores = np.array([])
         # Populated only in centroid / mask mode.
         self.false_positives = []
         # Matched-pair IoUs, populated only in mask mode.
@@ -1186,6 +1227,12 @@ class Evaluator:
         )
 
         self.dists_dict = compute_dists(self.positive_pairs)
+        if self.count_unmatched_as_fp:
+            self.unmatched_pred_scores = _unmatched_prediction_scores(
+                self.ground_truth_instances,
+                self.predicted_instances,
+                self.positive_pairs,
+            )
 
     def _process_frames_centroid(self):
         """Match predicted vs GT centroids by pixel distance (per frame).
@@ -1458,6 +1505,14 @@ class Evaluator:
         detection_scores = np.array(
             [pp[1].instance.score for pp in self.positive_pairs]
         )
+        if self.count_unmatched_as_fp and self.unmatched_pred_scores.size:
+            # An unmatched prediction is a false positive at every threshold.
+            detection_scores = np.concatenate(
+                [detection_scores, self.unmatched_pred_scores]
+            )
+            match_scores = np.concatenate(
+                [match_scores, np.full(self.unmatched_pred_scores.size, -np.inf)]
+            )
 
         inds = np.argsort(-detection_scores, kind="mergesort")
         detection_scores = detection_scores[inds]
@@ -2696,6 +2751,7 @@ def run_evaluation(
     centroid_fallback: Optional[str] = None,
     bbox_source: str = "auto",
     bbox_padding: float = 0.0,
+    count_unmatched_as_fp: bool = False,
 ):
     """Evaluate SLEAP-NN model predictions against ground truth labels.
 
@@ -2743,6 +2799,9 @@ def run_evaluation(
             ``data_config.bbox_source``).
         bbox_padding: ``"bbox"`` mode only: pixels of padding on GT boxes derived
             from poses/masks (pass the model's ``data_config.bbox_padding``).
+        count_unmatched_as_fp: Count unmatched predictions as false positives in
+            the native ``oks_voc`` metrics (see :class:`Evaluator`). Off by
+            default, which keeps the numbers v0.3.5 reported.
 
     Returns:
         The metrics dict, or ``None`` if the predicted labels have zero
@@ -2856,6 +2915,7 @@ def run_evaluation(
     evaluator = Evaluator(
         ground_truth_instances=ground_truth_instances,
         predicted_instances=predicted_instances,
+        count_unmatched_as_fp=count_unmatched_as_fp,
         oks_stddev=oks_stddev,
         oks_scale=oks_scale,
         match_threshold=match_threshold,

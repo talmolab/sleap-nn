@@ -288,10 +288,13 @@ def estimate_cache_memory(
     num_train_samples = 0
     num_val_samples = 0
 
-    for train, val in zip(train_labels, val_labels):
+    # Train and val lists can differ in length (e.g. two train files and one val
+    # file), so sum each on its own rather than zipping them together.
+    for train in train_labels:
         train_cache_bytes += check_memory(train)
-        val_cache_bytes += check_memory(val)
         num_train_samples += len(train)
+    for val in val_labels or []:
+        val_cache_bytes += check_memory(val)
         num_val_samples += len(val)
 
     raw_cache_bytes = train_cache_bytes + val_cache_bytes

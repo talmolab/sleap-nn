@@ -12,6 +12,8 @@ Functions provided:
   per (sample, channel) for centroid / single-instance confmaps.
 - :func:`find_local_peaks_rough` / :func:`find_local_peaks` — multi-peak
   finding for bottom-up confmaps.
+- :func:`quarter_offset_refinement` — sub-pixel refinement of global peaks
+  (``refinement="local"``).
 
 PR 1 is a pure relocation — every function below preserves the exact
 signature and behavior of its old home in ``sleap_nn/inference/peak_finding.py``.
@@ -268,19 +270,25 @@ def find_global_peaks(
     Args:
         cms: ``(samples, channels, height, width)`` confidence maps.
         threshold: Peaks below this are NaN-padded.
-        refinement: ``None`` returns grid-aligned peaks; ``"integral"`` runs
-            sub-pixel integral refinement on a small patch around each peak.
+        refinement: ``None`` (or ``"none"``) returns grid-aligned peaks;
+            ``"integral"`` runs sub-pixel integral refinement on a small patch
+            around each peak; ``"local"`` moves each peak a quarter pixel towards
+            its higher neighbor along each axis (:func:`quarter_offset_refinement`).
         integral_patch_size: Side length of the refinement patch.
 
     Returns:
         ``(peak_points, peak_vals)`` as in :func:`find_global_peaks_rough`.
+
+    Raises:
+        ValueError: If ``refinement`` is not one of the names above.
     """
+    refinement = _check_refinement(refinement)
     rough_peaks, peak_vals = find_global_peaks_rough(cms, threshold=threshold)
 
     if refinement is None or torch.isnan(rough_peaks).all():
         return rough_peaks, peak_vals
-    if refinement != "integral":
-        return rough_peaks, peak_vals
+    if refinement == "local":
+        return quarter_offset_refinement(cms, rough_peaks), peak_vals
 
     crop_size = integral_patch_size
 
@@ -306,6 +314,112 @@ def find_global_peaks(
     refined_peaks[valid_idx] += offsets
 
     return refined_peaks.reshape(samples, channels, 2), peak_vals
+
+
+#: Peak refinement names the peak finders accept (``None`` also disables it).
+REFINEMENT_METHODS = ("integral", "local", "none")
+
+
+def _check_refinement(refinement: Optional[str]) -> Optional[str]:
+    """Normalize a refinement name: ``None`` / ``"none"`` -> ``None``.
+
+    Raises:
+        ValueError: On a name that is not in :data:`REFINEMENT_METHODS`. Unknown
+            names used to fall through silently as no refinement.
+    """
+    if refinement is None or str(refinement).lower() == "none":
+        return None
+    if refinement not in REFINEMENT_METHODS:
+        raise ValueError(
+            f"Unknown peak refinement {refinement!r}; expected one of None, "
+            "'none', 'integral' or 'local'."
+        )
+    return refinement
+
+
+def _gather_neighborhood(
+    cms: torch.Tensor, rough_peaks: torch.Tensor, radius: int = 1
+) -> torch.Tensor:
+    """Gather the ``(2r+1) x (2r+1)`` neighborhood of each global peak.
+
+    Out-of-bounds pixels repeat the nearest border pixel (replicate padding).
+
+    Args:
+        cms: ``(samples, channels, height, width)``.
+        rough_peaks: ``(samples, channels, 2)`` integer-valued ``(x, y)`` grid
+            peaks. NaN rows give the patch at ``(0, 0)``; callers keep them NaN.
+        radius: Neighborhood radius ``r``.
+
+    Returns:
+        ``(samples, channels, 2r+1, 2r+1)`` patches, rows along ``y``.
+    """
+    samples, channels, height, width = cms.shape
+    peaks = torch.nan_to_num(rough_peaks, nan=0.0).to(torch.long)
+    offs = torch.arange(-radius, radius + 1, device=cms.device)
+    xs = (peaks[..., 0, None] + offs).clamp(0, width - 1)  # (S, C, k)
+    ys = (peaks[..., 1, None] + offs).clamp(0, height - 1)  # (S, C, k)
+    idx = ys[..., :, None] * width + xs[..., None, :]  # (S, C, k, k)
+    k = 2 * radius + 1
+    flat = cms.reshape(samples, channels, height * width)
+    patches = torch.gather(flat, 2, idx.reshape(samples, channels, k * k))
+    return patches.reshape(samples, channels, k, k)
+
+
+def quarter_offset_refinement(
+    cms: torch.Tensor, rough_peaks: torch.Tensor
+) -> torch.Tensor:
+    """Refine global peaks with the quarter-offset rule (``refinement="local"``).
+
+    Each coordinate moves 0.25 confmap pixels towards its higher neighbor
+    (``x += 0.25 * sign(cm[y, x+1] - cm[y, x-1])``, same for ``y``), as in
+    SLEAP's ``"local"`` refinement and the Hourglass/SimpleBaseline decoders.
+
+    Args:
+        cms: ``(samples, channels, height, width)`` confidence maps.
+        rough_peaks: ``(samples, channels, 2)`` grid peaks from
+            :func:`find_global_peaks_rough` (NaN for missing).
+
+    Returns:
+        ``(samples, channels, 2)`` refined ``(x, y)`` peaks (NaN preserved).
+    """
+    p = _gather_neighborhood(cms, rough_peaks, radius=1).to(torch.float32)
+    dx = torch.sign(p[..., 1, 2] - p[..., 1, 0])
+    dy = torch.sign(p[..., 2, 1] - p[..., 0, 1])
+    return rough_peaks + 0.25 * torch.stack([dx, dy], dim=-1)
+
+
+def _quarter_offset_local_peaks(
+    cms: torch.Tensor,
+    peaks: torch.Tensor,
+    sample_inds: torch.Tensor,
+    channel_inds: torch.Tensor,
+) -> torch.Tensor:
+    """Quarter-offset refinement (:func:`quarter_offset_refinement`) of local peaks.
+
+    A flat-top peak's coordinate can already be fractional (the mean of the tied
+    pixels, see :func:`find_local_peaks_rough`); that axis is kept as is.
+
+    Args:
+        cms: ``(samples, channels, height, width)`` confidence maps.
+        peaks: ``(n_peaks, 2)`` ``(x, y)`` peaks.
+        sample_inds: ``(n_peaks,)`` sample index of each peak.
+        channel_inds: ``(n_peaks,)`` channel index of each peak.
+
+    Returns:
+        ``(n_peaks, 2)`` refined ``(x, y)`` peaks.
+    """
+    height, width = cms.shape[-2:]
+    s, c = sample_inds.long(), channel_inds.long()
+    x, y = peaks[:, 0].long(), peaks[:, 1].long()
+
+    def _at(xx, yy):
+        return cms[s, c, yy.clamp(0, height - 1), xx.clamp(0, width - 1)].float()
+
+    dx = torch.sign(_at(x + 1, y) - _at(x - 1, y))
+    dy = torch.sign(_at(x, y + 1) - _at(x, y - 1))
+    offsets = 0.25 * torch.stack([dx, dy], dim=-1)
+    on_grid = peaks == torch.floor(peaks)
+    return peaks + torch.where(on_grid, offsets, torch.zeros_like(offsets))
 
 
 def find_local_peaks_rough(
@@ -364,16 +478,22 @@ def find_local_peaks(
     """Find local peaks with optional refinement.
 
     Same return shape as :func:`find_local_peaks_rough`. ``refinement``
-    accepts ``None`` (no refinement) or ``"integral"``.
+    accepts ``None`` / ``"none"`` (no refinement), ``"integral"`` or
+    ``"local"`` (quarter-pixel offset towards the higher neighbor, see
+    :func:`quarter_offset_refinement`); other names raise ``ValueError``.
     """
+    refinement = _check_refinement(refinement)
     rough_peaks, peak_vals, peak_sample_inds, peak_channel_inds = (
         find_local_peaks_rough(cms, threshold=threshold)
     )
 
     if rough_peaks.size(0) == 0 or refinement is None:
         return rough_peaks, peak_vals, peak_sample_inds, peak_channel_inds
-    if refinement != "integral":
-        return rough_peaks, peak_vals, peak_sample_inds, peak_channel_inds
+    if refinement == "local":
+        refined_peaks = _quarter_offset_local_peaks(
+            cms, rough_peaks, peak_sample_inds, peak_channel_inds
+        )
+        return refined_peaks, peak_vals, peak_sample_inds, peak_channel_inds
 
     crop_size = integral_patch_size
 

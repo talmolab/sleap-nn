@@ -903,7 +903,7 @@ def train(
     "--integral_refinement",
     type=str,
     default="integral",
-    help="If `None`, returns the grid-aligned peaks with no refinement. If `'integral'`, peaks will be refined with integral regression. Default: 'integral'.",
+    help="Sub-pixel peak refinement: 'integral' (integral regression), 'local' (quarter-pixel offset towards the higher neighbor) or 'none' (grid-aligned peaks). Default: 'integral'.",
 )
 @click.option(
     "--tracking_window_size",
@@ -4286,6 +4286,16 @@ def infer(**kwargs):
     help=(
         "Reduce method used when the --anchor_part node is not visible. "
         "Default: center_of_mass."
+    ),
+)
+@click.option(
+    "--count_unmatched_as_fp/--no-count_unmatched_as_fp",
+    default=False,
+    help=(
+        "Count unmatched predictions as false positives in the oks_voc metrics. "
+        "Default off, which keeps the numbers earlier versions reported (those "
+        "ignore unmatched predictions, so AP is overstated for models that "
+        "produce duplicate or spurious detections)."
     ),
 )
 def eval(**kwargs):

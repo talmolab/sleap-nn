@@ -63,7 +63,8 @@ class PostprocessConfig:
     Attributes:
         peak_threshold: Minimum confmap activation to consider a peak.
         refinement: ``"integral"`` runs sub-pixel integral regression around
-            each rough peak. ``"none"`` returns grid-aligned peaks.
+            each rough peak. ``"local"`` moves each peak a quarter pixel towards
+            its higher neighbor. ``"none"`` returns grid-aligned peaks.
         integral_patch_size: Side length of the refinement patch.
         max_instances: Cap on instances per frame (centroid layer only).
         return_confmaps: Keep ``(B, N, H, W)`` confmaps on the ``Outputs``
@@ -77,7 +78,7 @@ class PostprocessConfig:
     """
 
     peak_threshold: float = 0.2
-    refinement: Literal["integral", "none"] = "integral"
+    refinement: Literal["integral", "local", "none"] = "integral"
     integral_patch_size: int = 5
     max_instances: Optional[int] = None
 
@@ -95,4 +96,6 @@ class PostprocessConfig:
         ``"none"``) to disable refinement. This property centralises that
         coercion.
         """
-        return self.refinement if self.refinement != "none" else None
+        if self.refinement is None or str(self.refinement).lower() == "none":
+            return None
+        return self.refinement
