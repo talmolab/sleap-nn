@@ -489,6 +489,8 @@ Only one scheduler should be set at a time.
 | `frequency` | int | `1` | Evaluate every N epochs |
 | `oks_stddev` | float | `0.025` | OKS standard deviation (pose models only) |
 | `oks_scale` | float | `null` | OKS scale override (pose models only) |
+| `oks_sigmas` | str / float / list | `null` | Per-node OKS sigmas for post-training eval (`coco`, `crowdpose`, `ochuman`, `provenance`, `auto`, or one per node); overrides `oks_stddev` there |
+| `coco_metrics` | bool | `false` | Add COCOeval-faithful `coco.*` metrics to post-training eval; top-down models then predict with `peak_threshold` 0 and mmpose rescoring. See [COCO-Style Evaluation](../guides/coco-evaluation.md) |
 | `match_threshold` | float | `50.0` | Max distance (px) for centroid matching (centroid models only) |
 
 !!! info "Model-Type-Dependent Evaluation"

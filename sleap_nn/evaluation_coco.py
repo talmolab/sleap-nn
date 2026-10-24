@@ -141,7 +141,7 @@ def resolve_node_sigmas(
     """
     names = list(skeleton.node_names)
     n = len(names)
-    if sigmas == "auto":
+    if isinstance(sigmas, str) and sigmas == "auto":
         sigmas = None
     if sigmas is not None and not isinstance(sigmas, (str, Mapping)):
         if np.isscalar(sigmas):

@@ -1178,7 +1178,8 @@ class Evaluator:
         self.centroid_fallback = centroid_fallback
         self.exclude_predicted_instance_masks = exclude_predicted_instance_masks
         self.count_unmatched_as_fp = count_unmatched_as_fp
-        # Scores of predicted instances never matched to GT (oks mode).
+        # Scores of predicted instances never matched to GT (oks mode, only with
+        # count_unmatched_as_fp).
         self.unmatched_pred_scores = np.array([])
         # Populated only in centroid / mask mode.
         self.false_positives = []
@@ -1226,11 +1227,12 @@ class Evaluator:
         )
 
         self.dists_dict = compute_dists(self.positive_pairs)
-        self.unmatched_pred_scores = _unmatched_prediction_scores(
-            self.ground_truth_instances,
-            self.predicted_instances,
-            self.positive_pairs,
-        )
+        if self.count_unmatched_as_fp:
+            self.unmatched_pred_scores = _unmatched_prediction_scores(
+                self.ground_truth_instances,
+                self.predicted_instances,
+                self.positive_pairs,
+            )
 
     def _process_frames_centroid(self):
         """Match predicted vs GT centroids by pixel distance (per frame).
@@ -2934,7 +2936,7 @@ def run_evaluation(
 
         oks_stddev = resolve_node_sigmas(
             gt_skeleton,
-            None if oks_sigmas == "auto" else oks_sigmas,
+            oks_sigmas,
             provenance=ground_truth_instances.provenance,
             default=oks_stddev,
         )

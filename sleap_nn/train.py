@@ -56,6 +56,26 @@ def _oks_run_evaluation_overrides(config: DictConfig) -> Dict[str, Any]:
     return overrides
 
 
+def _post_training_predict_kwargs(config: DictConfig, model_type: str) -> dict:
+    """Prediction settings for the post-training eval of a keypoint model.
+
+    ``peak_threshold`` 0.2 by default. With ``trainer_config.eval.coco_metrics``,
+    top-down models predict under the COCO protocol instead: every keypoint is
+    kept (``peak_threshold`` 0, as COCOeval scores a missing keypoint as a miss)
+    and instances are rescored as mmpose does (stage-1 score x mean keypoint score
+    above 0.2), so ``coco.*`` is comparable with published numbers.
+    """
+    from sleap_nn.inference.filters import FilterConfig
+
+    coco = OmegaConf.select(config, "trainer_config.eval.coco_metrics", default=False)
+    if coco and model_type in ("centered_instance", "multi_class_topdown"):
+        return {
+            "peak_threshold": 0.0,
+            "filter_config": FilterConfig(rescore_keypoint_threshold=0.2),
+        }
+    return {"peak_threshold": 0.2}
+
+
 def _run_centroid_split_eval(
     config: DictConfig,
     d_name: str,
@@ -648,9 +668,9 @@ def run_training(
                 pred_labels = predict_new(
                     path,
                     model_paths=[run_path],
-                    peak_threshold=0.2,
                     device=str(trainer.trainer.strategy.root_device),
                     output_path=pred_path,
+                    **_post_training_predict_kwargs(config, model_type),
                 )
 
                 if not len(pred_labels) or not any(
@@ -672,6 +692,8 @@ def run_training(
 
                 logger.info(f"---------Evaluation on `{d_name}` dataset---------")
                 logger.info(f"OKS mAP: {metrics['voc_metrics']['oks_voc.mAP']}")
+                if "coco_metrics" in metrics:
+                    logger.info(f"COCO AP: {metrics['coco_metrics']['coco.AP']}")
                 logger.info(f"Average distance: {metrics['distance_metrics']['avg']}")
                 logger.info(f"p90 dist: {metrics['distance_metrics']['p90']}")
                 logger.info(f"p50 dist: {metrics['distance_metrics']['p50']}")
@@ -714,6 +736,11 @@ def run_training(
                                 "visibility_metrics"
                             ]["recall"],
                         }
+                        for key in ("AP", "AP50", "AP75", "AR"):
+                            if "coco_metrics" in metrics:
+                                summary_metrics[f"eval/{d_name}/coco_{key}"] = metrics[
+                                    "coco_metrics"
+                                ][f"coco.{key}"]
                         for key, value in summary_metrics.items():
                             wandb.run.summary[key] = value
 

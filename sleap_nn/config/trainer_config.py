@@ -292,8 +292,14 @@ class EvalConfig:
             ``"provenance"`` / ``"auto"`` (the GT file's ``node_sigmas``), or a list
             with one value per node. *Default*: `None`.
         coco_metrics: (bool) Also report COCOeval-faithful keypoint AP/AR
-            (``coco.AP``, ``coco.AP50``, ...) in post-training evaluation.
-            *Default*: `False`.
+            (``coco.AP``, ``coco.AP50``, ...; see ``sleap_nn.evaluation_coco``) in
+            post-training evaluation. For top-down models
+            (``centered_instance``, ``multi_class_topdown``) it also switches the
+            post-training predictions to the COCO protocol: no keypoint is
+            dropped (``peak_threshold`` 0) and instances are rescored as mmpose
+            does (stage-1 score x mean keypoint score above 0.2). Without it,
+            low-confidence keypoints are dropped at 0.2, which costs several AP
+            on COCO. *Default*: `False`.
         match_threshold: (float) Match threshold for post-training evaluation.
             For centroid models it is the maximum centroid distance in PIXELS
             (default `50.0`). For ``bottomup_segmentation`` it is reinterpreted
