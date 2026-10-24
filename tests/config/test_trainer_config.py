@@ -240,7 +240,8 @@ def test_early_stopping_config():
     """
     # Check default values
     conf = OmegaConf.structured(EarlyStoppingConfig)
-    assert conf.stop_training_on_plateau is True
+    # `None` is resolved at training time against the LR schedule.
+    assert conf.stop_training_on_plateau is None
     assert conf.min_delta == 1e-8
     assert conf.patience == 10
 
@@ -277,7 +278,7 @@ def test_trainer_config(caplog):
     assert conf_structured.optimizer.lr == 1e-4
     assert conf_structured.lr_scheduler is not None
     assert conf_structured.lr_scheduler.reduce_lr_on_plateau is not None
-    assert conf_structured.early_stopping.stop_training_on_plateau is True
+    assert conf_structured.early_stopping.stop_training_on_plateau is None
     assert conf_structured.use_wandb is False
     assert conf_structured.ckpt_dir == "."
     assert conf_structured.run_name is None
@@ -494,6 +495,161 @@ def test_trainer_config_num_workers_auto_survives_omegaconf():
     assert cfg.train_data_loader.num_workers == "auto"
 
 
+def test_recipe_knob_defaults_are_off():
+    """weight_decay / per-step schedules / multi-step / EMA default to legacy behavior."""
+    from sleap_nn.config.trainer_config import (
+        CosineAnnealingWarmupConfig,
+        EMAConfig,
+        LRSchedulerConfig,
+        MultiStepLRConfig,
+        OptimizerConfig,
+        TrainerConfig,
+    )
+
+    assert OptimizerConfig().weight_decay is None
+    assert CosineAnnealingWarmupConfig().warmup_steps is None
+    assert LRSchedulerConfig().multi_step_lr is None
+    cfg = TrainerConfig()
+    assert cfg.ema == EMAConfig() and cfg.ema.enabled is False
+    msl = MultiStepLRConfig(milestones=[170, 200])
+    assert (msl.gamma, msl.milestone_unit, msl.warmup_steps) == (0.1, "epoch", 0)
+    assert msl.warmup_start_factor == 0.001
+    # Round-trips through OmegaConf like every saved training_config.yaml.
+    oc = OmegaConf.structured(
+        TrainerConfig(
+            optimizer=OptimizerConfig(weight_decay=0.1),
+            lr_scheduler=LRSchedulerConfig(multi_step_lr=msl),
+            ema=EMAConfig(enabled=True),
+        )
+    )
+    assert oc.optimizer.weight_decay == 0.1
+    assert list(oc.lr_scheduler.multi_step_lr.milestones) == [170, 200]
+    assert oc.ema.enabled is True
+
+
+@pytest.mark.parametrize(
+    "factory, kwargs",
+    [
+        ("OptimizerConfig", {"weight_decay": -0.1}),
+        ("MultiStepLRConfig", {"milestone_unit": "iters"}),
+        ("MultiStepLRConfig", {"warmup_start_factor": 0.0}),
+        ("CosineAnnealingWarmupConfig", {"warmup_steps": -1}),
+        ("EMAConfig", {"decay": 1.0}),
+        ("EMAConfig", {"warmup_steps": -5}),
+        ("OptimizerConfig", {"encoder_lr_scale": 0.0}),
+        ("OptimizerConfig", {"layer_decay": 1.5}),
+        ("MultiStepLRConfig", {"milestones": [200, 170]}),
+        ("MultiStepLRConfig", {"milestones": [170, 170]}),
+        ("MultiStepLRConfig", {"milestones": [-1, 5]}),
+        ("MultiStepLRConfig", {"milestones": [1.5]}),
+    ],
+)
+def test_recipe_knob_validation(factory, kwargs):
+    import sleap_nn.config.trainer_config as tc
+
+    with pytest.raises((ValueError, TypeError)):
+        getattr(tc, factory)(**kwargs)
+
+
+@pytest.mark.parametrize(
+    "lr_scheduler, expected",
+    [
+        (None, None),
+        ({"reduce_lr_on_plateau": {}}, None),
+        ({"step_lr": {}, "reduce_lr_on_plateau": {}}, None),
+        ({"multi_step_lr": {"milestones": [1]}}, "multi_step_lr"),
+        (
+            {"linear_warmup_linear_decay": {}, "multi_step_lr": {"milestones": [1]}},
+            "linear_warmup_linear_decay",
+        ),
+        (
+            {"cosine_annealing_warmup": {}, "linear_warmup_linear_decay": {}},
+            "cosine_annealing_warmup",
+        ),
+    ],
+)
+def test_fixed_length_lr_schedule(lr_scheduler, expected):
+    """Same priority as `configure_optimizers`, on dicts, DictConfigs and attrs."""
+    from sleap_nn.config.trainer_config import (
+        LRSchedulerConfig,
+        fixed_length_lr_schedule,
+    )
+
+    assert fixed_length_lr_schedule(lr_scheduler) == expected
+    if lr_scheduler is not None:
+        assert fixed_length_lr_schedule(OmegaConf.create(lr_scheduler)) == expected
+    assert fixed_length_lr_schedule(LRSchedulerConfig()) is None
+
+
+def test_get_trainer_config_plumbs_recipe_keys():
+    from sleap_nn.config.get_config import get_trainer_config
+
+    tc = get_trainer_config(
+        optimizer="AdamW",
+        weight_decay=0.1,
+        encoder_lr_scale=0.5,
+        layer_decay=0.75,
+        ema=True,
+        ema_decay=0.999,
+        ema_warmup_steps=100,
+        early_stopping=None,
+        lr_scheduler={"multi_step_lr": {"milestones": [170, 200], "warmup_steps": 500}},
+    )
+    assert (
+        tc.optimizer.weight_decay,
+        tc.optimizer.encoder_lr_scale,
+        tc.optimizer.layer_decay,
+    ) == (0.1, 0.5, 0.75)
+    assert (tc.ema.enabled, tc.ema.decay, tc.ema.warmup_steps) == (True, 0.999, 100)
+    assert tc.lr_scheduler.multi_step_lr.milestones == [170, 200]
+    assert tc.lr_scheduler.multi_step_lr.warmup_steps == 500
+    assert tc.early_stopping.stop_training_on_plateau is None
+
+    defaults = get_trainer_config()
+    assert defaults.optimizer.weight_decay is None
+    assert defaults.ema.enabled is False
+    assert defaults.early_stopping.stop_training_on_plateau is False
+
+
+@pytest.mark.parametrize(
+    "name", ["cosine_annealing_warmup", "linear_warmup_linear_decay"]
+)
+def test_get_trainer_config_accepts_fixed_schedule_names(name):
+    from sleap_nn.config.get_config import get_trainer_config
+
+    tc = get_trainer_config(lr_scheduler=name)
+    assert getattr(tc.lr_scheduler, name) is not None
+    # A dict form used to be dropped silently, leaving the plateau default.
+    tc = get_trainer_config(lr_scheduler={name: {"warmup_epochs": 2}})
+    assert getattr(tc.lr_scheduler, name).warmup_epochs == 2
+
+
+def test_get_trainer_config_multi_step_lr_needs_milestones():
+    from sleap_nn.config.get_config import get_trainer_config
+
+    with pytest.raises(ValueError, match="milestones"):
+        get_trainer_config(lr_scheduler="multi_step_lr")
+
+
+def test_train_api_and_get_trainer_config_take_the_same_recipe_keys():
+    import inspect
+
+    from sleap_nn.config.get_config import get_trainer_config
+    from sleap_nn.train import train
+
+    keys = [
+        "weight_decay",
+        "encoder_lr_scale",
+        "layer_decay",
+        "ema",
+        "ema_decay",
+        "ema_warmup_steps",
+        "early_stopping",
+    ]
+    train_params = inspect.signature(train).parameters
+    config_params = inspect.signature(get_trainer_config).parameters
+    for key in keys:
+        assert train_params[key].default == config_params[key].default, key
 def test_hard_keypoint_mining_per_sample_default():
     from sleap_nn.config.trainer_config import HardKeypointMiningConfig
 

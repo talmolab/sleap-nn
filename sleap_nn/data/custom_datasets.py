@@ -6,6 +6,7 @@ from sleap_nn.data.skia_augmentation import (
     crop_window_bounds,
 )
 
+import functools
 import math
 import os
 import threading
@@ -7737,6 +7738,34 @@ def get_train_val_datasets(
     return train_dataset, val_dataset
 
 
+def rank_worker_init_fn(worker_id: int, rank: int = 0) -> None:
+    """Seed a DDP rank's train dataloader worker from its own seed and the rank.
+
+    PyTorch seeds worker ``w`` from ``base_seed + w``, where ``base_seed`` is drawn
+    from the main process's torch RNG. ``trainer_config.seed`` seeds that RNG the
+    same way on every rank, so without this every rank's workers drew the SAME
+    augmentation stream (each rank's batch ``k`` got the same rotations, flips and
+    noise as every other rank's batch ``k``). This re-seeds ``random``, ``numpy`` and
+    ``torch`` from ``SeedSequence((worker seed, rank))``, so streams stay
+    reproducible but are independent across ranks and workers. The warp dataset
+    keys its own per-worker generator on ``(base_seed, rank, torch.initial_seed())``
+    for the same reason.
+
+    Args:
+        worker_id: The dataloader worker id (as passed by PyTorch; unused, already
+            part of the worker's torch seed).
+        rank: Global rank of the process that owns the dataloader.
+    """
+    import random
+
+    state = np.random.SeedSequence([torch.initial_seed(), int(rank)]).generate_state(
+        4, dtype=np.uint32
+    )
+    random.seed(int(state[0]))
+    np.random.seed(state[1:3])
+    torch.manual_seed((int(state[2]) << 32) | int(state[3]))
+
+
 def get_train_val_dataloaders(
     train_dataset: BaseDataset,
     val_dataset: BaseDataset,
@@ -7761,12 +7790,18 @@ def get_train_val_dataloaders(
     Returns:
         A tuple (train_dataloader, val_dataloader).
     """
-    pin_memory = (
-        config.trainer_config.train_data_loader.pin_memory
-        if "pin_memory" in config.trainer_config.train_data_loader
-        and config.trainer_config.train_data_loader.pin_memory is not None
-        else True
+    pin_memory = OmegaConf.select(
+        config, "trainer_config.train_data_loader.pin_memory", default=None
     )
+    if pin_memory is None:
+        pin_memory = True
+    # The val loader used to always follow the train setting; it still does
+    # unless `val_data_loader.pin_memory` is set explicitly.
+    val_pin_memory = OmegaConf.select(
+        config, "trainer_config.val_data_loader.pin_memory", default=None
+    )
+    if val_pin_memory is None:
+        val_pin_memory = pin_memory
 
     if train_steps_per_epoch is None:
         train_steps_per_epoch = config.trainer_config.train_steps_per_epoch
@@ -7810,6 +7845,7 @@ def get_train_val_dataloaders(
             batch_sampler=batch_sampler,
             num_workers=train_nw,
             pin_memory=pin_memory,
+            worker_init_fn=_train_worker_init_fn(config, rank, trainer_devices),
             persistent_workers=train_nw > 0,
         )
         val_data_loader = DataLoader(
@@ -7817,7 +7853,7 @@ def get_train_val_dataloaders(
             shuffle=False,
             batch_size=config.trainer_config.val_data_loader.batch_size,
             num_workers=val_nw,
-            pin_memory=pin_memory,
+            pin_memory=val_pin_memory,
             persistent_workers=val_nw > 0,
         )
         return train_data_loader, val_data_loader
@@ -7829,6 +7865,13 @@ def get_train_val_dataloaders(
     # shards whole frame blocks so a frame's tiles stay together and DDP-disjoint),
     # and a per-worker RNG init de-correlates the halo augmentation streams.
     worker_init_fn = tiling_worker_init_fn if tiling_enabled else None
+    # Tiling seeds every augmentation from the sample's own identity (frame, tile,
+    # epoch) and shards frames across ranks, so its streams already differ per rank.
+    train_worker_init_fn = (
+        worker_init_fn
+        if tiling_enabled
+        else _train_worker_init_fn(config, rank, trainer_devices)
+    )
 
     if tiling_enabled:
         train_sampler = FrameGroupedTileSampler(
@@ -7854,6 +7897,9 @@ def get_train_val_dataloaders(
     train_data_loader = InfiniteDataLoader(
         dataset=train_dataset,
         sampler=train_sampler,
+        drop_last=_get_train_drop_last(
+            config, train_dataset, trainer_devices, tiling_enabled
+        ),
         len_dataloader=max(1, round(train_steps_per_epoch / trainer_devices)),
         shuffle=(
             config.trainer_config.train_data_loader.shuffle
@@ -7863,15 +7909,11 @@ def get_train_val_dataloaders(
         batch_size=config.trainer_config.train_data_loader.batch_size,
         num_workers=config.trainer_config.train_data_loader.num_workers,
         pin_memory=pin_memory,
-        worker_init_fn=worker_init_fn,
+        worker_init_fn=train_worker_init_fn,
         persistent_workers=(
             True if config.trainer_config.train_data_loader.num_workers > 0 else None
         ),
-        prefetch_factor=(
-            config.trainer_config.train_data_loader.batch_size
-            if config.trainer_config.train_data_loader.num_workers > 0
-            else None
-        ),
+        prefetch_factor=_get_prefetch_factor(config, "train_data_loader"),
     )
 
     if tiling_enabled:
@@ -7898,26 +7940,85 @@ def get_train_val_dataloaders(
         dataset=val_dataset,
         shuffle=False if val_sampler is None else None,
         sampler=val_sampler,
+        # One exact pass over this rank's shard per epoch. The loader's iterator
+        # persists across epochs, so any other length (e.g. the old
+        # `round(val_steps / devices)`, short whenever the shards end in a partial
+        # batch) skipped val samples and shifted every later epoch's val window.
         len_dataloader=(
             max(1, round(val_steps_per_epoch / trainer_devices))
-            if trainer_devices > 1
+            if trainer_devices > 1 and tiling_enabled
             else None
         ),
         batch_size=config.trainer_config.val_data_loader.batch_size,
         num_workers=config.trainer_config.val_data_loader.num_workers,
-        pin_memory=pin_memory,
+        pin_memory=val_pin_memory,
         worker_init_fn=worker_init_fn,
         persistent_workers=(
             True if config.trainer_config.val_data_loader.num_workers > 0 else None
         ),
-        prefetch_factor=(
-            config.trainer_config.val_data_loader.batch_size
-            if config.trainer_config.val_data_loader.num_workers > 0
-            else None
-        ),
+        prefetch_factor=_get_prefetch_factor(config, "val_data_loader"),
     )
 
     return train_data_loader, val_data_loader
+
+
+#: Batches each dataloader worker loads ahead when ``prefetch_factor`` is unset.
+DEFAULT_PREFETCH_FACTOR = 2
+
+
+def _get_prefetch_factor(config: DictConfig, loader: str) -> Optional[int]:
+    """Resolve ``trainer_config.<loader>.prefetch_factor`` (``None`` without workers).
+
+    This used to be ``batch_size``, so ``num_workers x batch_size`` batches could be
+    queued (e.g. 16 workers x 128 = 2048 batches of crops + confmaps), which only
+    costs host/shared memory: two batches per worker already hide the latency.
+    """
+    if OmegaConf.select(config, f"trainer_config.{loader}.num_workers", default=0) <= 0:
+        return None
+    value = OmegaConf.select(
+        config, f"trainer_config.{loader}.prefetch_factor", default=None
+    )
+    return int(value) if value is not None else DEFAULT_PREFETCH_FACTOR
+
+
+def _get_train_drop_last(
+    config: DictConfig, train_dataset, trainer_devices: int, tiling_enabled: bool
+) -> bool:
+    """Whether the (infinite) train loader drops the partial batch of each pass.
+
+    ``trainer_config.train_data_loader.drop_last`` (``None`` = auto) defaults to
+    ``True`` only when ``trainer_config.compile`` is on: the repeating sampler
+    otherwise emits one short batch per pass over the data, and every new batch
+    size makes ``torch.compile`` recompile the model (each ~10-40 s). It is never
+    enabled when a rank's share of the data is smaller than one batch, since the
+    repeating sampler would then yield nothing and hang.
+    """
+    if tiling_enabled:
+        return False
+    drop_last = OmegaConf.select(
+        config, "trainer_config.train_data_loader.drop_last", default=None
+    )
+    if drop_last is None:
+        compile_mode = OmegaConf.select(config, "trainer_config.compile", default=False)
+        drop_last = compile_mode not in (None, False)
+    if not drop_last:
+        return False
+    batch_size = config.trainer_config.train_data_loader.batch_size
+    return len(train_dataset) // max(1, trainer_devices) >= batch_size
+
+
+def _train_worker_init_fn(config: DictConfig, rank: Optional[int], devices: int):
+    """The train loader's ``worker_init_fn``: rank-seeded under DDP, else None."""
+    if devices <= 1:
+        return None
+    if config.trainer_config.train_data_loader.num_workers == 0 and (rank or 0) == 0:
+        logger.warning(
+            "train_data_loader.num_workers=0 with multiple devices: augmentation runs "
+            "in each rank's main process, whose RNG Lightning seeds identically on "
+            "every rank, so all ranks draw the same augmentation stream. Use "
+            "num_workers > 0 for per-rank augmentation streams."
+        )
+    return functools.partial(rank_worker_init_fn, rank=rank if rank is not None else 0)
 
 
 def get_steps_per_epoch(dataset: BaseDataset, batch_size: int):
