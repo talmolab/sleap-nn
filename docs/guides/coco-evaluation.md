@@ -129,6 +129,18 @@ Details:
 - OKS-NMS uses the mean of two instances' areas, taken from the crop window (as
   mmpose's padded box), else the box, else the keypoint extent.
 
+Reference: a ViTPose-S-style model (DINOv3 ViT-S, 256×192 box-scaled crops, trained
+on COCO train2017) on COCO val2017, integral refinement, no flip-test:
+
+| Boxes | Settings | AP | AP50 | AP75 | AR |
+|-------|----------|----|------|------|----|
+| GT | `--boxes gt --peak_threshold 0` | 74.6 | 93.4 | 82.4 | 77.7 |
+| GT | `--boxes gt --peak_threshold 0.2 --no-rescore` (the pre-COCO defaults) | 65.0 | 88.4 | 72.7 | 77.3 |
+| SimpleBaseline (56 AP) | `--boxes dets.json --peak_threshold 0 --oks_nms 0.9` | 71.9 | 89.3 | 80.3 | 78.1 |
+
+The native `coco.*` and `backend="pycocotools"` agree to every digit on these
+predictions.
+
 From Python, `sleap_nn.inference.run.predict(..., boxes=..., box_score_threshold=...)`
 and `Predictor.from_model_paths(..., boxes="gt" | "given")`; the rescoring and
 OKS-NMS live on `FilterConfig` (`rescore_keypoint_threshold`, `oks_nms_threshold`,
