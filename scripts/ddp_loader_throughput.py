@@ -5,8 +5,9 @@ rank of ``sleap-nn train`` would (its ``DistributedSampler`` shard, its rank-see
 workers, ``--workers`` workers each), pulls ``--warmup`` batches, then times
 ``--batches`` batches with every rank in lockstep. The timed window is bracketed by
 barriers, so the aggregate is what ``--ranks`` GPUs could at most be fed when the
-loader is the bottleneck. CPU use is the CPU time of the whole process tree (ranks
-and their workers) over that window.
+loader is the bottleneck. CPU use is each rank's CPU time (its main process and
+workers) over its timed window; ``--batches`` should be large next to each worker's
+prefetch queue, which drains at the start of the window.
 
 Not a test: run it on the training machine, e.g.
 
@@ -28,13 +29,32 @@ import psutil
 import torch.multiprocessing as mp
 
 
-def _rank_main(rank, args, num_workers, start, ready, stop, results):
+def _tree_cpu_seconds(proc: psutil.Process) -> float:
+    """User + system CPU seconds of `proc` and its descendants (its workers)."""
+    total = 0.0
+    for p in [proc, *proc.children(recursive=True)]:
+        try:
+            t = p.cpu_times()
+            total += t.user + t.system
+        except psutil.NoSuchProcess:
+            pass
+    return total
+
+
+def _rank_main(rank, args, num_workers, barriers, results):
     """One rank: build its loader, warm up, then time `args.batches` batches."""
+    import multiprocessing
+
+    # This rank was started with `spawn`, which its dataloader would inherit; start
+    # the workers the way a training rank does (the platform default).
+    multiprocessing.set_start_method(None, force=True)
+
     from omegaconf import OmegaConf
 
     from sleap_nn.data.custom_datasets import get_train_val_dataloaders
     from sleap_nn.training.model_trainer import ModelTrainer
 
+    built, start, stop = barriers
     config = OmegaConf.load(args.config)
     for item in args.set:
         key, value = item.split("=", 1)
@@ -66,66 +86,57 @@ def _rank_main(rank, args, num_workers, start, ready, stop, results):
                 return int(batch[key].shape[0])
         return int(next(iter(batch.values())).shape[0])
 
+    # Warm up together, so no rank's workers bank batches while waiting for the
+    # slowest rank's setup (a loader drained faster than it fills stays empty).
+    built.wait()
     for _ in range(args.warmup):
         next(batches)
     start.wait()
-    t0 = time.perf_counter()
+    me = psutil.Process()
+    cpu0, t0 = _tree_cpu_seconds(me), time.perf_counter()
     crops = sum(n_crops(next(batches)) for _ in range(args.batches))
     elapsed = time.perf_counter() - t0
+    cpu = _tree_cpu_seconds(me) - cpu0
     stop.wait()
-    results.put({"rank": rank, "crops": crops, "seconds": elapsed})
-    ready.wait()  # keep the workers alive until the parent has read the CPU times
-
-
-def _tree_cpu_seconds(proc: psutil.Process) -> float:
-    """User + system CPU seconds of `proc`'s descendants (ranks and workers)."""
-    total = 0.0
-    for p in proc.children(recursive=True):
-        try:
-            t = p.cpu_times()
-            total += t.user + t.system
-        except psutil.NoSuchProcess:
-            pass
-    return total
+    results.put({"rank": rank, "crops": crops, "seconds": elapsed, "cpu": cpu})
 
 
 def run(args, num_workers: int) -> dict:
     """Time one configuration; returns the aggregate record."""
     ctx = mp.get_context("spawn")
-    start, stop = ctx.Barrier(args.ranks + 1), ctx.Barrier(args.ranks + 1)
-    ready = ctx.Barrier(args.ranks + 1)
+    barriers = tuple(ctx.Barrier(args.ranks + 1) for _ in range(3))
     results = ctx.Queue()
     procs = [
         ctx.Process(
-            target=_rank_main,
-            args=(rank, args, num_workers, start, ready, stop, results),
+            target=_rank_main, args=(rank, args, num_workers, barriers, results)
         )
         for rank in range(args.ranks)
     ]
     for p in procs:
         p.start()
-    me = psutil.Process()
+    built, start, stop = barriers
+    built.wait()
     start.wait()
-    cpu0, t0 = _tree_cpu_seconds(me), time.perf_counter()
     psutil.cpu_percent()  # start the machine-wide counter
     stop.wait()
-    wall = time.perf_counter() - t0
-    cpu = _tree_cpu_seconds(me) - cpu0
     machine_pct = psutil.cpu_percent()
-    ready.wait()
     per_rank = sorted((results.get() for _ in procs), key=lambda r: r["rank"])
     for p in procs:
         p.join()
-    crops = sum(r["crops"] for r in per_rank)
+    rates = [r["crops"] / r["seconds"] for r in per_rank]
     return {
         "ranks": args.ranks,
         "workers_per_rank": num_workers,
         "batches_per_rank": args.batches,
-        "crops": crops,
-        "wall_s": round(wall, 3),
-        "crops_per_s": round(crops / wall, 1),
-        "per_rank_crops_per_s": [round(r["crops"] / r["seconds"], 1) for r in per_rank],
-        "cpu_cores_used": round(cpu / wall, 2),
+        "crops": sum(r["crops"] for r in per_rank),
+        "crops_per_s": round(sum(rates), 1),
+        "per_rank_crops_per_s": [round(x, 1) for x in rates],
+        # Each rank's main process + its workers, over that rank's timed window.
+        "cpu_cores_used": round(sum(r["cpu"] / r["seconds"] for r in per_rank), 2),
+        "cpu_s_per_1k_crops": round(
+            1000 * sum(r["cpu"] for r in per_rank) / sum(r["crops"] for r in per_rank),
+            2,
+        ),
         "machine_cpu_pct": machine_pct,
         "cpu_count": os.cpu_count(),
     }
@@ -157,7 +168,8 @@ def main():
             f"{rec['ranks']} ranks x {rec['workers_per_rank']} workers: "
             f"{rec['crops_per_s']:.0f} crops/s aggregate "
             f"(per rank {rec['per_rank_crops_per_s']}), "
-            f"{rec['cpu_cores_used']:.1f} cores of {rec['cpu_count']} "
+            f"{rec['cpu_cores_used']:.1f} cores of {rec['cpu_count']}, "
+            f"{rec['cpu_s_per_1k_crops']:.2f} CPU-s per 1k crops "
             f"(machine {rec['machine_cpu_pct']:.0f}%)",
             flush=True,
         )
