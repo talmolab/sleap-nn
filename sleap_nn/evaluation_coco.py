@@ -122,8 +122,8 @@ def resolve_node_sigmas(
     Resolution order (first hit wins per node):
 
     1. ``sigmas``: a float (all nodes), a list (one per node), a ``{node: sigma}``
-       dict, a preset name (``"coco"``, ``"crowdpose"``, ``"ochuman"``), or
-       ``"provenance"`` (only step 2).
+       dict, a preset name (``"coco"``, ``"crowdpose"``, ``"ochuman"``),
+       ``"provenance"`` (only step 2), or ``"auto"`` / ``None`` (steps 2-4).
     2. ``provenance["node_sigmas"]`` of the GT labels (``{native_name: sigma}``),
        remapped through ``provenance["union_map"]`` (``{native: union}``) when the
        labels use a union skeleton.
@@ -141,6 +141,8 @@ def resolve_node_sigmas(
     """
     names = list(skeleton.node_names)
     n = len(names)
+    if sigmas == "auto":
+        sigmas = None
     if sigmas is not None and not isinstance(sigmas, (str, Mapping)):
         if np.isscalar(sigmas):
             return np.full(n, float(sigmas))
@@ -856,3 +858,58 @@ def attach_coco_detections(
         )
         n += 1
     return dict(n_boxes=n, n_frames=len(touched), n_unmatched=unmatched)
+
+
+def transfer_predicted_boxes(
+    labels: sio.Labels,
+    box_labels: sio.Labels,
+    score_threshold: float = 0.0,
+    replace: bool = True,
+) -> Dict[str, int]:
+    """Copy ``box_labels``' ``PredictedBoundingBox``es onto ``labels``, in place.
+
+    Videos are matched with ``Labels.match`` and frames by index; a frame of
+    ``box_labels`` with boxes but no counterpart in ``labels`` is added to it, so
+    a box-seeded top-down run predicts it too. Copied boxes are unlinked from any
+    instance of ``box_labels``.
+
+    Args:
+        labels: Labels to receive the boxes.
+        box_labels: Labels whose frames carry ``PredictedBoundingBox``es (e.g. a
+            ``bbox_*`` detector's predictions).
+        score_threshold: Drop boxes scoring below this.
+        replace: Remove existing predicted boxes on the receiving frames first.
+
+    Returns:
+        Counts: ``n_boxes`` copied, ``n_frames`` touched, ``n_new_frames`` added
+        and ``n_unmatched`` boxes whose video has no match in ``labels``.
+    """
+    video_map = labels.match(box_labels).video_map
+    touched, n, new, unmatched = set(), 0, 0, 0
+    for lf_box in box_labels.labeled_frames:
+        boxes = [
+            b
+            for b in lf_box.bboxes
+            if b.is_predicted and (b.score is None or b.score >= score_threshold)
+        ]
+        if not boxes:
+            continue
+        video = video_map.get(lf_box.video)
+        if video is None:
+            unmatched += len(boxes)
+            continue
+        found = labels.find(video, frame_idx=lf_box.frame_idx)
+        if found:
+            lf = found[0]
+        else:
+            lf = sio.LabeledFrame(video=video, frame_idx=lf_box.frame_idx)
+            labels.append(lf)
+            new += 1
+        if replace and id(lf) not in touched:
+            lf.bboxes = [b for b in lf.bboxes if not b.is_predicted]
+        touched.add(id(lf))
+        lf.bboxes.extend(attrs.evolve(b, instance=None) for b in boxes)
+        n += len(boxes)
+    return dict(
+        n_boxes=n, n_frames=len(touched), n_new_frames=new, n_unmatched=unmatched
+    )

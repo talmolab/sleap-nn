@@ -21,21 +21,32 @@ hand to a worker pool (PR 9 / #517).
 
 Filter order — fixed, documented, runs cheap → expensive:
 
+0. ``rescore_keypoint_threshold`` — COCO/mmpose instance rescoring (not a
+   filter: it rewrites ``instance_scores`` from the raw peak values, so it runs
+   before anything thresholds them)
 1. ``min_peak_value`` — NaN-out individual keypoints below threshold
 2. Node-count filters (``min_visible_nodes``, ``min_visible_node_fraction``)
 3. Score filters (``min_instance_score``, ``min_mean_node_score``)
-4. Overlap NMS (``overlapping`` + ``overlapping_method``) — the
-   most expensive; runs on the smallest candidate set
+4. COCO OKS-NMS (``oks_nms_threshold``), then overlap NMS (``overlapping`` +
+   ``overlapping_method``) — the most expensive; run on the smallest
+   candidate set
 """
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal, Optional, Tuple, Union
 
 import attrs
 import torch
 
 from sleap_nn.inference.outputs import Outputs
+
+
+def _sigma_spec(value: Any) -> Union[None, str, float, Tuple[float, ...]]:
+    """Hashable ``oks_sigmas``: sequences become float tuples."""
+    if value is None or isinstance(value, (str, float, int)):
+        return float(value) if isinstance(value, int) else value
+    return tuple(float(x) for x in value)
 
 
 @attrs.frozen
@@ -67,6 +78,21 @@ class FilterConfig:
             higher-scored kept centroid. ``0.0`` disables. Use this (not
             ``overlapping``) for centroid-only output, since bbox-IoU / OKS are
             degenerate for single points.
+        rescore_keypoint_threshold: COCO-protocol instance rescoring (mmpose's
+            top-down rule): each instance's score becomes its stage-1 score (box
+            score / centroid value) times the mean of its keypoint scores above
+            this threshold (``0`` when none is). ``None`` disables; mmpose uses
+            ``0.2``. Peak values a layer's ``peak_threshold`` dropped read as 0,
+            so keep ``peak_threshold`` at or below this.
+        oks_nms_threshold: COCO OKS-NMS (mmpose ``oks_nms``): per frame, drop an
+            instance whose OKS with a higher-scoring kept instance exceeds this.
+            OKS uses ``oks_sigmas`` and the mean of the two instances' areas (the
+            crop window of a top-down instance, else its stage-1 box, else its
+            keypoint box). ``0`` disables; mmpose uses ``0.9``.
+        oks_sigmas: Per-node sigmas for ``oks_nms_threshold``: one per node, or a
+            spec (preset name, single float, ``None`` = by node name) that the
+            :class:`~sleap_nn.inference.predictor.Predictor` resolves against its
+            skeleton (:func:`~sleap_nn.evaluation_coco.resolve_node_sigmas`).
     """
 
     min_peak_value: float = 0.0
@@ -78,6 +104,11 @@ class FilterConfig:
     overlapping_threshold: float = 0.8
     overlapping_method: Literal["iou", "oks"] = "iou"
     min_centroid_distance: float = 0.0
+    rescore_keypoint_threshold: Optional[float] = None
+    oks_nms_threshold: float = 0.0
+    oks_sigmas: Union[None, str, float, Tuple[float, ...]] = attrs.field(
+        default=None, converter=_sigma_spec
+    )
 
 
 @attrs.define
@@ -100,6 +131,8 @@ class FilterPipeline:
     def apply(self, outputs: Outputs) -> Outputs:
         """Run all configured filters in canonical cheap → expensive order."""
         cfg = self.config
+        if cfg.rescore_keypoint_threshold is not None:
+            outputs = self._rescore(outputs, cfg.rescore_keypoint_threshold)
         if cfg.min_peak_value > 0.0:
             outputs = self._filter_min_peak_value(outputs, cfg.min_peak_value)
         if cfg.min_visible_nodes > 0 or cfg.min_visible_node_fraction > 0.0:
@@ -113,6 +146,10 @@ class FilterPipeline:
                 outputs,
                 min_instance_score=cfg.min_instance_score,
                 min_mean_node_score=cfg.min_mean_node_score,
+            )
+        if cfg.oks_nms_threshold > 0.0:
+            outputs = self._filter_oks_nms(
+                outputs, cfg.oks_nms_threshold, cfg.oks_sigmas
             )
         if cfg.overlapping:
             method = cfg.overlapping_method
@@ -162,6 +199,108 @@ class FilterPipeline:
     # ──────────────────────────────────────────────────────────────────
     # Filter implementations — operate purely on Outputs tensor fields
     # ──────────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _rescore(outputs: Outputs, threshold: float) -> Outputs:
+        """``score = stage-1 score * mean(peak values > threshold)`` (mmpose)."""
+        if outputs.pred_keypoints is None or outputs.pred_peak_values is None:
+            return outputs
+        vals = outputs.pred_peak_values.float()
+        above = vals > threshold  # NaN compares False
+        n_above = above.sum(dim=-1)
+        kpt_score = torch.where(above, vals, torch.zeros_like(vals)).sum(dim=-1)
+        kpt_score = kpt_score / n_above.clamp(min=1)
+        if outputs.instance_scores is not None:
+            base = outputs.instance_scores.float()
+        elif outputs.pred_centroid_values is not None:
+            base = outputs.pred_centroid_values.float()
+        else:
+            base = torch.ones_like(kpt_score)
+        base = base.to(kpt_score.device)
+        # Empty slots keep their NaN score.
+        empty = torch.isnan(outputs.pred_keypoints).all(dim=-1).all(dim=-1)
+        scores = (base * kpt_score).masked_fill(empty.to(base.device), float("nan"))
+        return attrs.evolve(outputs, instance_scores=scores)
+
+    @staticmethod
+    def _instance_areas(outputs: Outputs) -> torch.Tensor:
+        """``(B, I)`` object area for OKS-NMS: crop window, stage-1 box, keypoints."""
+
+        def extent_area(points: torch.Tensor) -> torch.Tensor:
+            # (B, I, P, 2) with NaN for missing points -> (B, I) box area.
+            finite = torch.isfinite(points).all(dim=-1, keepdim=True)
+            big = torch.finfo(points.dtype).max
+            lo = torch.where(finite, points, torch.full_like(points, big)).amin(-2)
+            hi = torch.where(finite, points, torch.full_like(points, -big)).amax(-2)
+            area = (hi - lo).clamp(min=0).prod(dim=-1)
+            return torch.where(finite.any(dim=-2).squeeze(-1), area, 0.0)
+
+        kpts = outputs.pred_keypoints.float()
+        area = extent_area(kpts)
+        if (
+            outputs.pred_bboxes is not None
+            and outputs.pred_bboxes.shape[:2] == kpts.shape[:2]
+        ):
+            boxes = outputs.pred_bboxes.float().to(kpts.device)
+            box_area = extent_area(boxes.reshape(*boxes.shape[:2], 2, 2))
+            area = torch.where(box_area > 0, box_area, area)
+        if (
+            outputs.instance_bboxes is not None
+            and outputs.instance_bboxes.shape[:2] == kpts.shape[:2]
+        ):
+            win_area = extent_area(outputs.instance_bboxes.float().to(kpts.device))
+            area = torch.where(win_area > 0, win_area, area)
+        return area
+
+    @staticmethod
+    def _filter_oks_nms(
+        outputs: Outputs,
+        threshold: float,
+        sigmas: Union[None, str, float, Tuple[float, ...]],
+    ) -> Outputs:
+        """Greedy per-frame OKS-NMS, as mmpose's ``oks_nms`` (``vis_thr=None``).
+
+        OKS between instances ``i`` and ``j`` is the mean over nodes located in
+        both of ``exp(-d^2 / (2 * (area_i + area_j) / 2 * (2 sigma)^2))``.
+        """
+        if outputs.pred_keypoints is None or outputs.instance_scores is None:
+            return outputs
+        kpts = outputs.pred_keypoints.float()
+        B, I, N, _ = kpts.shape
+        if not isinstance(sigmas, tuple):
+            raise ValueError(
+                "oks_nms_threshold needs one oks_sigma per node (a Predictor "
+                f"resolves {sigmas!r} from its skeleton)."
+            )
+        sig = torch.as_tensor(sigmas, dtype=torch.float32, device=kpts.device)
+        if sig.shape != (N,):
+            raise ValueError(f"Expected {N} oks_sigmas (one per node), got {len(sig)}.")
+        var = (2 * sig) ** 2
+        areas = FilterPipeline._instance_areas(outputs)
+        scores = outputs.instance_scores.float().to(kpts.device)
+        keep_mask = torch.ones(B, I, dtype=torch.bool, device=kpts.device)
+        for b in range(B):
+            valid = ~torch.isnan(kpts[b]).all(dim=-1).all(dim=-1)
+            valid &= ~torch.isnan(scores[b])
+            idx = valid.nonzero(as_tuple=False).flatten()
+            if idx.numel() <= 1:
+                continue
+            idx = idx[scores[b, idx].argsort(descending=True, stable=True)]
+            p, a = kpts[b, idx], areas[b, idx]  # (k, N, 2), (k,)
+            d2 = ((p[:, None] - p[None]) ** 2).sum(dim=-1)  # (k, k, N)
+            s = (a[:, None] + a[None]) / 2 + torch.finfo(torch.float64).eps
+            e = d2 / var / s[..., None] / 2
+            located = torch.isfinite(e)
+            ks = torch.where(located, torch.exp(-e.nan_to_num(0.0)), 0.0)
+            oks = ks.sum(dim=-1) / located.sum(dim=-1).clamp(min=1)  # (k, k)
+            suppressed = torch.zeros(len(idx), dtype=torch.bool, device=kpts.device)
+            for i in range(len(idx)):
+                if suppressed[i]:
+                    continue
+                later = torch.arange(len(idx), device=kpts.device) > i
+                suppressed |= later & (oks[i] > threshold)
+            keep_mask[b, idx[suppressed]] = False
+        return FilterPipeline._nan_out_where(~keep_mask, outputs)
 
     @staticmethod
     def _filter_min_peak_value(outputs: Outputs, threshold: float) -> Outputs:
