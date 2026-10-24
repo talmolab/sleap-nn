@@ -2,6 +2,8 @@
 
 import importlib.util
 import os
+import subprocess
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -382,3 +384,193 @@ def test_real_coco17_to_union46():
         if name in coco:
             assert torch.equal(w[ti], src[HEAD_W][coco.index(name)])
     assert model_head_channels(model)[0]["channel_names"] == union
+
+
+# ---------------------------------------------------- freeze schedule details
+
+_WORKER = Path(__file__).parent / "ddp_freeze_schedule_worker.py"
+
+
+def _worker_module():
+    spec = importlib.util.spec_from_file_location("_ddp_freeze_worker", _WORKER)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+@pytest.mark.parametrize(
+    "strategy", ["ddp", "ddp_find_unused_parameters_false"], ids=["auto", "refused"]
+)
+def test_freeze_schedule_under_ddp(tmp_path, strategy):
+    """2-process gloo run: DDP needs find_unused_parameters for a late freeze.
+
+    The schedule freezes after DDP has wrapped the model. With plain ``ddp`` the
+    callback turns ``find_unused_parameters`` on (without it the second step
+    raises "parameters that were not used in producing the loss"); an explicit
+    ``find_unused_parameters=False`` is refused with a clear error.
+    """
+    env = {**os.environ, "CUDA_VISIBLE_DEVICES": "", "PL_DISABLE_FORK": "1"}
+    proc = subprocess.run(
+        [sys.executable, str(_WORKER), str(tmp_path), strategy],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
+    if strategy == "ddp_find_unused_parameters_false":
+        assert proc.returncode != 0
+        assert "freeze_schedule freezes parameters after DDP" in (
+            proc.stderr + proc.stdout
+        )
+        return
+    assert proc.returncode == 0, proc.stderr[-3000:]
+    result = torch.load(tmp_path / "result.pt", weights_only=False)
+    assert result["find_unused"] is True
+    snaps = result["snapshots"]
+    # Frozen for steps 0-1 (the snapshot at step 2 is taken before its update),
+    # trained from step 2 on, and identical on both ranks.
+    assert torch.equal(snaps[0], snaps[1]) and torch.equal(snaps[0], snaps[2])
+    assert not torch.equal(snaps[2], snaps[3])
+    final = result["final_per_rank"]
+    assert torch.equal(final[0], final[1])
+
+
+def test_freeze_schedule_errors():
+    mod = _worker_module()
+    module = mod._Module()
+    opt = module.configure_optimizers()
+    trainer = SimpleNamespace(optimizers=[opt], global_step=0)
+    with pytest.raises(ValueError, match="match no parameter"):
+        EncoderFreezeSchedule(targets=["nothing.*"]).on_fit_start(trainer, module)
+    module.model.backbone.freeze_encoder()  # what `freeze: true` does
+    with pytest.raises(ValueError, match="freeze: false"):
+        EncoderFreezeSchedule(unfreeze_at_step=2).on_fit_start(trainer, module)
+    # Static freezing on top of `freeze: true` is merely redundant.
+    EncoderFreezeSchedule().on_fit_start(trainer, module)
+    # Resumed past the unfreeze point: nothing to do.
+    module = mod._Module()
+    cb = EncoderFreezeSchedule(unfreeze_at_step=2)
+    cb.on_fit_start(SimpleNamespace(optimizers=[opt], global_step=5), module)
+    assert not cb.frozen
+    assert all(p.requires_grad for p in module.parameters())
+
+
+def test_unfreeze_encoder_restores_only_what_it_froze():
+    mod = _worker_module()
+    bb = mod._Backbone()
+    bb.enc[1].weight.requires_grad_(False)  # excluded on purpose
+    bb.freeze_encoder()
+    assert not any(p.requires_grad for p in bb.enc.parameters())
+    bb.train()
+    assert not bb.enc.training
+    bb.unfreeze_encoder()
+    assert bb.enc.training and not bb.freeze
+    assert bb.enc[0].weight.requires_grad and bb.enc[1].bias.requires_grad
+    assert not bb.enc[1].weight.requires_grad
+
+
+# --------------------------------------------------- transfer edge cases
+
+
+def test_unknown_source_names_copy_by_position_with_warning(
+    tmp_path, minimal_instance_centered_instance_ckpt
+):
+    """A raw state dict without node names is copied by position, with a warning."""
+    ckpt = minimal_instance_centered_instance_ckpt
+    torch.save(_source_sd(ckpt), tmp_path / "raw.pt")  # no names, no yaml
+    target = _build(_ci_config(ckpt, part_names=["B", "A"]))
+    report = init_from_checkpoint(target, str(tmp_path / "raw.pt"))
+    assert report.warnings and "by position" in report.warnings[0]
+    assert "WARNING" in report.summary()
+    assert torch.equal(target.state_dict()[HEAD_W], _source_sd(ckpt)[HEAD_W])
+
+
+def test_only_head_output_layer_is_remapped():
+    """Hidden layers of a deeper head are shape-matched, never permuted."""
+    from torch import nn
+
+    from sleap_nn.training.weight_transfer import _head_output_keys
+
+    class _Deep(nn.Module):
+        def __init__(self, names):
+            super().__init__()
+            self.backbone = nn.Conv2d(1, 2, 1)
+            self.head_layers = nn.ModuleList(
+                [nn.Sequential(nn.Conv2d(2, 2, 1), nn.ReLU(), nn.Conv2d(2, 2, 1))]
+            )
+            self.heads = [SimpleNamespace(name="H", part_names=names, channels=2)]
+
+    src, tgt = _Deep(["a", "b"]), _Deep(["b", "a"])
+    assert _head_output_keys(tgt) == {"head_layers.0.2.weight", "head_layers.0.2.bias"}
+    report = transfer_state_dict(
+        tgt,
+        src.state_dict(),
+        source_heads=[{"name": "H", "channel_names": ["a", "b"]}],
+    )
+    s, t = src.state_dict(), tgt.state_dict()
+    assert torch.equal(t["head_layers.0.0.weight"], s["head_layers.0.0.weight"])
+    assert torch.equal(t["head_layers.0.2.weight"][0], s["head_layers.0.2.weight"][1])
+    assert set(report.remapped) == {"head_layers.0.2.weight", "head_layers.0.2.bias"}
+
+
+def test_resume_skips_init_from(minimal_instance_centered_instance_ckpt):
+    ckpt = minimal_instance_centered_instance_ckpt
+    cfg = _ci_config(ckpt)
+    cfg.trainer_config.resume_ckpt_path = str(Path(ckpt) / "best.ckpt")
+    model = _build(cfg, path="/does/not/exist.ckpt", reinit=["head"])
+    assert model.transfer_reports == []
+
+
+def test_config_schema():
+    from sleap_nn.config.model_config import InitFromConfig
+    from sleap_nn.config.trainer_config import FreezeScheduleConfig, TrainerConfig
+
+    cfg = OmegaConf.structured(TrainerConfig())
+    assert cfg.freeze_schedule is None
+    cfg = OmegaConf.merge(
+        cfg, {"freeze_schedule": {"targets": ["blocks[:6]"], "unfreeze_at_step": 10}}
+    )
+    assert OmegaConf.to_object(cfg).freeze_schedule.unfreeze_at_step == 10
+    with pytest.raises(ValueError):
+        FreezeScheduleConfig(unfreeze_at_step=-1)
+    init = OmegaConf.structured(
+        InitFromConfig(path="x.ckpt", node_map={"neck": "nose"}, reinit=["head"])
+    )
+    assert init.node_map == {"neck": "nose"} and init.strict is False
+
+
+def test_train_with_init_from_and_freeze_schedule(
+    config, tmp_path, minimal_instance_centered_instance_ckpt
+):
+    """End to end: init_from + reinit + freeze schedule through ModelTrainer."""
+    from sleap_nn.training.model_trainer import ModelTrainer
+
+    ckpt = minimal_instance_centered_instance_ckpt
+    cfg = config.copy()
+    OmegaConf.update(cfg, "trainer_config.save_ckpt", True)
+    OmegaConf.update(cfg, "trainer_config.ckpt_dir", str(tmp_path))
+    OmegaConf.update(cfg, "trainer_config.run_name", "init_from")
+    OmegaConf.update(cfg, "trainer_config.max_epochs", 1)
+    OmegaConf.update(cfg, "trainer_config.trainer_accelerator", "cpu")
+    OmegaConf.update(
+        cfg,
+        "model_config.init_from",
+        {"path": str(ckpt), "reinit": ["head"]},
+        force_add=True,
+    )
+    OmegaConf.update(
+        cfg,
+        "trainer_config.freeze_schedule",
+        {"targets": ["encoder"], "unfreeze_at_step": 1},
+        force_add=True,
+    )
+    trainer = ModelTrainer.get_model_trainer_from_config(cfg)
+    trainer.train()
+    report = trainer.lightning_model.transfer_reports[-1]
+    assert report.loaded and not report.skipped
+    run = tmp_path / "init_from"
+    saved = torch.load(run / "best.ckpt", map_location="cpu", weights_only=False)
+    assert saved[CHECKPOINT_HEADS_KEY][0]["channel_names"] == ["A", "B"]
+    saved_cfg = OmegaConf.load(run / "training_config.yaml")
+    assert saved_cfg.model_config.init_from.path == str(ckpt)
+    assert saved_cfg.trainer_config.freeze_schedule.unfreeze_at_step == 1
