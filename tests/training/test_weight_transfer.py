@@ -22,6 +22,7 @@ from sleap_nn.training.weight_transfer import (
     reinit,
     resolve_selector,
     select_keys,
+    select_params,
     set_requires_grad,
     transfer_state_dict,
     vit_blocks,
@@ -145,9 +146,12 @@ def test_include_exclude(minimal_instance_centered_instance_ckpt):
     report = model.transfer_reports[-1]
     assert not any("head_layers" in k for k in report.loaded)
     keys = list(model.state_dict())
-    assert select_keys(model, keys, ["backbone"], ["decoder"]) == [
-        k for k in keys if "backbone" in k and ".dec." not in k
-    ]
+    # A UNet's decoder lives under `backbone.decoders.*`.
+    picked = select_keys(model, keys, ["backbone"], ["decoder"])
+    assert picked == [k for k in keys if "backbone" in k and ".decoders." not in k]
+    assert any(".decoders." in k for k in keys) and len(picked) < sum(
+        "backbone" in k for k in keys
+    )
 
 
 def test_legacy_pretrained_head_weights_remap(
@@ -280,6 +284,24 @@ def _vit_lightning(model_name, part_names=("a", "b"), **bb):
 def dinov2_model():
     torch.manual_seed(0)
     return _vit_lightning(VIT)
+
+
+def test_decoder_selector_covers_unet_decoders(minimal_instance_centered_instance_ckpt):
+    """`decoder` picks a UNet's `backbone.decoders.*` (it used to match nothing)."""
+    model = _build(_ci_config(minimal_instance_centered_instance_ckpt))
+    names = select_params(model, ["decoder"])
+    assert names
+    assert all(".backbone.decoders." in n for n in names)
+    assert not any(".backbone.encoders." in n for n in names)
+
+
+@requires_transformers
+def test_decoder_selector_covers_vitpose_head():
+    """`decoder` picks the ViTPose direct head (`backbone.vit_dec.*`)."""
+    m = _vit_lightning(VIT, vit_decoder="classic")
+    names = select_params(m, ["decoder"])
+    assert names
+    assert all(".backbone.vit_dec." in n for n in names)
 
 
 @requires_transformers

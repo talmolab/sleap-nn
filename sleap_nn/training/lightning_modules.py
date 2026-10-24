@@ -108,6 +108,25 @@ MODEL_WEIGHTS = {
 }
 
 
+def _outputs_to_fp32(outputs):
+    """Upcast floating tensors in an inference output to float32.
+
+    Under ``bf16-mixed``/``16-mixed`` the inference layers return half-precision
+    peaks and confidence maps, and ``.numpy()`` cannot convert bfloat16. Integer
+    and uint8 tensors (e.g. images) are returned unchanged. Dicts, lists and
+    tuples are converted recursively.
+    """
+    if torch.is_tensor(outputs):
+        if outputs.is_floating_point() and outputs.dtype != torch.float32:
+            return outputs.float()
+        return outputs
+    if isinstance(outputs, dict):
+        return {k: _outputs_to_fp32(v) for k, v in outputs.items()}
+    if isinstance(outputs, (list, tuple)):
+        return type(outputs)(_outputs_to_fp32(v) for v in outputs)
+    return outputs
+
+
 def _bbox_crop_points_to_frame(points, batch: dict, i: int) -> np.ndarray:
     """Map box-scaled-crop keypoints of sample ``i`` to original-frame pixels.
 
@@ -1667,7 +1686,7 @@ class SingleInstanceLightningModule(LightningModel):
             if isinstance(v, torch.Tensor):
                 ex[k] = v.to(device=self.device)
         ex["image"] = ex["image"].unsqueeze(dim=0)
-        output = self.single_instance_inf_layer(ex)[0]
+        output = _outputs_to_fp32(self.single_instance_inf_layer(ex))[0]
 
         peaks = output["pred_instance_peaks"].cpu().numpy()
         peak_values = output["pred_peak_values"].cpu().numpy()
@@ -1782,7 +1801,9 @@ class SingleInstanceLightningModule(LightningModel):
                 inference_batch = {k: v for k, v in batch.items()}
                 if inference_batch["image"].ndim == 5:
                     inference_batch["image"] = inference_batch["image"].squeeze(1)
-                inference_output = self.single_instance_inf_layer(inference_batch)
+                inference_output = _outputs_to_fp32(
+                    self.single_instance_inf_layer(inference_batch)
+                )
                 if isinstance(inference_output, list):
                     inference_output = inference_output[0]
 
@@ -1929,7 +1950,7 @@ class TopDownCenteredInstanceLightningModule(LightningModel):
             if isinstance(v, torch.Tensor):
                 ex[k] = v.to(device=self.device)
         ex["instance_image"] = ex["instance_image"].unsqueeze(dim=0)
-        output = self.instance_peaks_inf_layer(ex)
+        output = _outputs_to_fp32(self.instance_peaks_inf_layer(ex))
 
         peaks = output["pred_instance_peaks"].cpu().numpy()
         peak_values = output["pred_peak_values"].cpu().numpy()
@@ -2047,7 +2068,9 @@ class TopDownCenteredInstanceLightningModule(LightningModel):
             bbox_prep_saved = batch["instance_bbox"].clone()
 
             with torch.no_grad():
-                inference_output = self.instance_peaks_inf_layer(batch)
+                inference_output = _outputs_to_fp32(
+                    self.instance_peaks_inf_layer(batch)
+                )
 
             batch_size = len(batch["frame_idx"])
             for i in range(batch_size):
@@ -2245,7 +2268,7 @@ class CentroidLightningModule(LightningModel):
                 ex[k] = v.to(device=self.device)
         ex["image"] = ex["image"].unsqueeze(dim=0)
         gt_centroids = ex["centroids"].cpu().numpy()
-        output = self.centroid_inf_layer(ex)
+        output = _outputs_to_fp32(self.centroid_inf_layer(ex))
 
         peaks = output["centroids"][0].cpu().numpy()
         centroid_vals = output["centroid_vals"][0].cpu().numpy()
@@ -2386,7 +2409,7 @@ class CentroidLightningModule(LightningModel):
             batch["gt_centroids"] = batch["centroids"].clone()
 
             with torch.no_grad():
-                inference_output = self.centroid_inf_layer(batch)
+                inference_output = _outputs_to_fp32(self.centroid_inf_layer(batch))
 
             batch_size = len(batch["frame_idx"])
             for i in range(batch_size):
@@ -2551,7 +2574,7 @@ class BottomUpLightningModule(LightningModel):
             if isinstance(v, torch.Tensor):
                 ex[k] = v.to(device=self.device)
         ex["image"] = ex["image"].unsqueeze(dim=0)
-        output = self.bottomup_inf_layer(ex)[0]
+        output = _outputs_to_fp32(self.bottomup_inf_layer(ex))[0]
 
         peaks = output["pred_instance_peaks"][0].cpu().numpy()
         peak_values = output["pred_peak_values"][0].cpu().numpy()
@@ -2747,7 +2770,7 @@ class BottomUpLightningModule(LightningModel):
             with torch.no_grad():
                 # Note: Do NOT squeeze the image here - the forward() method expects
                 # (batch, n_samples, C, H, W) and handles the n_samples squeeze internally
-                inference_output = self.bottomup_inf_layer(batch)
+                inference_output = _outputs_to_fp32(self.bottomup_inf_layer(batch))
                 if isinstance(inference_output, list):
                     inference_output = inference_output[0]
 
@@ -2900,7 +2923,7 @@ class BottomUpMultiClassLightningModule(LightningModel):
             if isinstance(v, torch.Tensor):
                 ex[k] = v.to(device=self.device)
         ex["image"] = ex["image"].unsqueeze(dim=0)
-        output = self.bottomup_inf_layer(ex)[0]
+        output = _outputs_to_fp32(self.bottomup_inf_layer(ex))[0]
 
         peaks = output["pred_instance_peaks"][0].cpu().numpy()
         peak_values = output["pred_peak_values"][0].cpu().numpy()
@@ -3209,7 +3232,7 @@ class BottomUpMultiClassLightningModule(LightningModel):
             with torch.no_grad():
                 # Note: Do NOT squeeze the image here - the forward() method expects
                 # (batch, n_samples, C, H, W) and handles the n_samples squeeze internally
-                inference_output = self.bottomup_inf_layer(batch)
+                inference_output = _outputs_to_fp32(self.bottomup_inf_layer(batch))
                 if isinstance(inference_output, list):
                     inference_output = inference_output[0]
 
@@ -3356,7 +3379,7 @@ class TopDownCenteredInstanceMultiClassLightningModule(LightningModel):
             if isinstance(v, torch.Tensor):
                 ex[k] = v.to(device=self.device)
         ex["instance_image"] = ex["instance_image"].unsqueeze(dim=0)
-        output = self.instance_peaks_inf_layer(ex)
+        output = _outputs_to_fp32(self.instance_peaks_inf_layer(ex))
 
         peaks = output["pred_instance_peaks"].cpu().numpy()
         peak_values = output["pred_peak_values"].cpu().numpy()
@@ -3546,7 +3569,9 @@ class TopDownCenteredInstanceMultiClassLightningModule(LightningModel):
             bbox_prep_saved = batch["instance_bbox"].clone()
 
             with torch.no_grad():
-                inference_output = self.instance_peaks_inf_layer(batch)
+                inference_output = _outputs_to_fp32(
+                    self.instance_peaks_inf_layer(batch)
+                )
 
             batch_size = len(batch["frame_idx"])
             for i in range(batch_size):
