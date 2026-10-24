@@ -12,7 +12,7 @@ Not a test: run it on the training machine, e.g.
 
     uv run python scripts/ddp_loader_throughput.py config.yaml --ranks 4 --workers 8
     uv run python scripts/ddp_loader_throughput.py config.yaml --workers 4 8 16
-        --set trainer_config.train_data_loader.batch_size=64
+    uv run python scripts/ddp_loader_throughput.py config.yaml --set KEY=VALUE
 
 Each ``--workers`` value is a separate run; one line per run is printed, plus a JSON
 record per run with ``--json``.
