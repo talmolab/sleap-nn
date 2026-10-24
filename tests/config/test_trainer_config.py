@@ -650,6 +650,8 @@ def test_train_api_and_get_trainer_config_take_the_same_recipe_keys():
     config_params = inspect.signature(get_trainer_config).parameters
     for key in keys:
         assert train_params[key].default == config_params[key].default, key
+
+
 def test_hard_keypoint_mining_per_sample_default():
     from sleap_nn.config.trainer_config import HardKeypointMiningConfig
 

@@ -2067,6 +2067,8 @@ def test_drop_path_is_inactive_in_eval_and_active_in_train():
     with torch.no_grad():
         d = model(x)
     assert any(not torch.allclose(c[k], d[k]) for k in c)
+
+
 # ─────────────────────────────────────────────────────────────────────────
 # Case C with a ViTPose-style direct decoder (`vit_decoder: classic|simple`):
 # last token map -> (pretrained final norm) -> deconvs / bilinear -> head.
