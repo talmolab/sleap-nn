@@ -11,6 +11,7 @@ import sleap_io as sio
 import sleap_nn
 import time
 import math
+import warnings
 import lightning as L
 import wandb
 import yaml
@@ -117,6 +118,67 @@ from sleap_nn.legacy_models import get_keras_first_layer_channels
 _SPARSE_LABEL_THRESHOLD = 20
 
 MEMORY_BUFFER = 0.2  # Default memory buffer for caching
+
+# DDP's reducer compares gradient and bucket-view strides exactly, while autograd's
+# layout contract ignores size-1 dims. A 1x1 conv fed channels_last activations (any
+# ViT token map, `tokens.transpose(1, 2).reshape(...)`) gets a weight gradient with
+# strides like (C, 1, C, C) next to its (C, 1, 1, 1) bucket view: the same bytes, so
+# nothing is slow, but it warns on every rank. Only that case is silenced: a 1x1
+# weight whose two leading strides match.
+_DDP_SIZE_ONE_STRIDE_WARNING = (
+    r"(?s)Grad strides do not match bucket view strides\..*"
+    r"grad\.sizes\(\) = \[(\d+), (\d+), 1, 1\], "
+    r"strides\(\) = \[(\d+), (\d+), \d+, \d+\]\s*"
+    r"bucket_view\.sizes\(\) = \[\1, \2, 1, 1\], "
+    r"strides\(\) = \[\3, \4, \d+, \d+\]"
+)
+
+
+def _ignore_size_one_ddp_stride_warning() -> None:
+    """Silence DDP's grad-stride warning for 1x1 conv weights (same memory layout)."""
+    warnings.filterwarnings(
+        "ignore", message=_DDP_SIZE_ONE_STRIDE_WARNING, category=UserWarning
+    )
+
+
+def _init_process_group_before_fit(trainer: L.Trainer) -> bool:
+    """Start the process group before ``fit()`` when every rank runs the setup.
+
+    Lightning starts the process group inside ``fit()``, so collectives during the
+    trainer setup (``strategy.barrier()``, the dataset cache-fill syncs) are no-ops
+    until then. Under Lightning's own launcher (``trainer_devices > 1`` from one
+    process) that is safe: ``fit()`` spawns the other ranks, which re-run the setup
+    only after rank 0 has finished it (disk cache included), and those ranks must not
+    start a pre-fit collective because rank 0 is already inside ``fit()``. Under an
+    external launcher (torchrun, SLURM ``srun``, ...) every rank runs the setup at the
+    same time, so the group is started here; ``fit()`` then finds it running.
+
+    Args:
+        trainer: The ``lightning.Trainer`` about to be set up.
+
+    Returns:
+        Whether the process group was started.
+    """
+    from lightning.fabric.plugins.environments import LightningEnvironment
+
+    strategy = trainer.strategy
+    env = getattr(strategy, "cluster_environment", None)
+    if (
+        trainer.world_size <= 1
+        or env is None
+        or not env.creates_processes_externally
+        or isinstance(env, LightningEnvironment)
+        or not hasattr(strategy, "setup_distributed")
+        or (torch.distributed.is_available() and torch.distributed.is_initialized())
+    ):
+        return False
+    strategy.setup_environment()
+    logger.info(
+        f"Started the process group before fit (rank {trainer.global_rank} of "
+        f"{trainer.world_size}, {type(env).__name__})."
+    )
+    return True
+
 
 # Model types that crop around an instance centroid, and so need a crop size.
 CROPPING_MODEL_TYPES = (
@@ -2264,6 +2326,17 @@ class ModelTrainer:
             ckpt_monitor, ckpt_mode = "val/loss", "min"
             ckpt_every_n_epochs = 1
 
+        # Config-driven monitor/mode (main #690/#692) wins when the user set it away
+        # from the "val/loss" schema default (e.g. a seg quality metric). Left at the
+        # default, fall back to the model-type-aware default computed above
+        # (embedding -> retrieval metric, else val/loss) since contrastive objectives
+        # are not well-selected by val/loss. ModelCheckpoint and EarlyStopping both
+        # use the result, so "best" and "stop" agree.
+        user_monitor = self.config.trainer_config.model_ckpt.monitor != "val/loss"
+        if user_monitor:
+            ckpt_monitor = self.config.trainer_config.model_ckpt.monitor
+            ckpt_mode = self.config.trainer_config.model_ckpt.mode
+
         if self.config.trainer_config.save_ckpt:
             ckpt_dirpath = (
                 Path(self.config.trainer_config.ckpt_dir)
@@ -2277,29 +2350,12 @@ class ModelTrainer:
                 save_last=False,
                 dirpath=ckpt_dirpath,
                 filename="best",
-                # Config-driven monitor/mode (main #690/#692) wins when the user set
-                # it away from the "val/loss" schema default (e.g. a seg quality
-                # metric). Left at the default, fall back to the model-type-aware
-                # default computed above (embedding -> retrieval metric, else val/loss)
-                # since contrastive objectives are not well-selected by val/loss.
-                monitor=(
-                    self.config.trainer_config.model_ckpt.monitor
-                    if self.config.trainer_config.model_ckpt.monitor != "val/loss"
-                    else ckpt_monitor
-                ),
-                mode=(
-                    self.config.trainer_config.model_ckpt.mode
-                    if self.config.trainer_config.model_ckpt.monitor != "val/loss"
-                    else ckpt_mode
-                ),
+                monitor=ckpt_monitor,
+                mode=ckpt_mode,
                 # Only meaningful (and only non-1) when the monitored metric is the
                 # eval-gated embedding one; an explicitly configured monitor keeps
                 # the every-epoch default.
-                every_n_epochs=(
-                    1
-                    if self.config.trainer_config.model_ckpt.monitor != "val/loss"
-                    else ckpt_every_n_epochs
-                ),
+                every_n_epochs=1 if user_monitor else ckpt_every_n_epochs,
             )
             callbacks.append(checkpoint_callback)
             if self.config.trainer_config.model_ckpt.save_last:
@@ -2570,20 +2626,23 @@ class ModelTrainer:
                 min_delta=self.config.trainer_config.early_stopping.min_delta,
                 patience=self.config.trainer_config.early_stopping.patience,
             )
-            if self.model_type == "embedding" or ckpt_monitor.startswith(
-                "eval/val/bbox_"
-            ):
+            if self.model_type == "embedding" or ckpt_monitor.startswith("eval/"):
                 # The verification metrics (auc/eer) can be NaN on a degenerate val
                 # set/shard; don't let that abort the run — pose/seg models keep the
-                # strict defaults. Box metrics likewise exist on eval epochs only.
+                # strict defaults on `val/*`. Every `eval/*` metric exists on eval
+                # epochs only (NaN in between, from the CSV logger's reset).
                 es_kwargs["strict"] = False
                 es_kwargs["check_finite"] = False
-                # The retrieval metric is measured every `eval.frequency` epochs and
-                # only carried forward in between; check (and count patience) on
-                # eval epochs only, the same cadence the checkpointer selects on.
+                # The eval metric is measured every `eval.frequency` epochs; check
+                # (and count patience) on eval epochs only.
                 callbacks.append(
                     EvalCadenceEarlyStopping(
-                        eval_frequency=ckpt_every_n_epochs, **es_kwargs
+                        eval_frequency=int(
+                            OmegaConf.select(
+                                self.config, "trainer_config.eval.frequency", default=1
+                            )
+                        ),
+                        **es_kwargs,
                     )
                 )
             else:
@@ -2897,6 +2956,10 @@ class ModelTrainer:
             use_distributed_sampler=use_distributed_sampler,
         )
 
+        # The process group normally starts inside `fit()`, so the barriers below
+        # (and the dataset's own cache-fill syncs) would be no-ops. Start it now when
+        # the launcher runs every rank through this setup at once (torchrun / SLURM).
+        _init_process_group_before_fit(self.trainer)
         self.trainer.strategy.barrier()
 
         # setup datasets
@@ -2950,6 +3013,16 @@ class ModelTrainer:
             train_steps_per_epoch = min_train_steps_per_epoch
         self.config.trainer_config.train_steps_per_epoch = train_steps_per_epoch
         logger.info(f"Final train_steps_per_epoch={train_steps_per_epoch}")
+        if self.trainer.num_devices > 1:
+            # `train_steps_per_epoch` counts batches summed over ALL devices (an epoch
+            # stays one pass over the data); each device runs its share as optimizer
+            # steps (same rounding as `get_train_val_dataloaders`).
+            logger.info(
+                f"{train_steps_per_epoch} batches/epoch over "
+                f"{self.trainer.num_devices} devices = "
+                f"{max(1, round(train_steps_per_epoch / self.trainer.num_devices))} "
+                "optimizer steps/epoch per device"
+            )
 
         # VAL: always full-coverage (every grid tile visited once), NOT decoupled.
         val_steps_per_epoch = get_steps_per_epoch(
@@ -3060,6 +3133,7 @@ class ModelTrainer:
                 f"Finished trainer set up. [{time.time() - start_setup_time:.1f}s]"
             )
             logger.info(f"Starting training loop...")
+            _ignore_size_one_ddp_stride_warning()
             start_train_time = time.time()
             self.trainer.fit(
                 self.lightning_model,
