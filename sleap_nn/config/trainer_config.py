@@ -161,10 +161,41 @@ class OptimizerConfig:
     Attributes:
         lr: (float) Learning rate of type float. *Default*: `1e-4`.
         amsgrad: (bool) Enable AMSGrad with the optimizer. *Default*: `False`.
+        weight_decay: (float) Weight decay applied to the weight matrices/kernels
+            only. When set, the optimizer's parameters are split into a decayed
+            group (>= 2-D weights) and a no-decay group (biases, norm weights, any
+            other 1-D parameter, and position embeddings / CLS / register / mask
+            tokens, including a timm model's ``no_weight_decay()`` names); each
+            encoder learning-rate group (``encoder_lr_scale`` / ``layer_decay``)
+            is split the same way and keeps its learning rate. ``None`` keeps the
+            torch default for the optimizer applied to EVERY parameter (``0`` for
+            Adam, ``0.01`` for AdamW). *Default*: `None`.
+        encoder_lr_scale: (float) Learning-rate multiplier for a ``pretrained``
+            backbone's encoder; the neck, decoder and heads train at ``lr``. Has no
+            effect on other backbones. ``None`` = ``1.0``. Replaces
+            ``model_config.backbone_config.pretrained.encoder_lr_scale``, which is
+            still read (with a deprecation warning) when this is unset.
+            *Default*: `None`.
+        layer_decay: (float) Layer-wise learning-rate decay for a plain-ViT
+            ``pretrained`` encoder: block ``i`` of ``L`` trains at
+            ``encoder_lr_scale * layer_decay**(L + 1 - i)`` times ``lr``
+            (embeddings decay the most). ``None`` disables it. Replaces
+            ``model_config.backbone_config.pretrained.layer_decay``, which is still
+            read (with a deprecation warning) when this is unset. *Default*: `None`.
     """
 
     lr: float = field(default=1e-4, validator=validators.gt(0))
     amsgrad: bool = False
+    weight_decay: Optional[float] = field(
+        default=None, validator=validators.optional(validators.ge(0))
+    )
+    encoder_lr_scale: Optional[float] = field(
+        default=None, validator=validators.optional(validators.gt(0))
+    )
+    layer_decay: Optional[float] = field(
+        default=None,
+        validator=validators.optional([validators.gt(0), validators.le(1)]),
+    )
 
 
 @define
@@ -231,12 +262,30 @@ class CosineAnnealingWarmupConfig:
             trainer's max_epochs if not specified. *Default*: `None`.
         warmup_start_lr: (float) Learning rate at start of warmup. *Default*: `0.0`.
         eta_min: (float) Minimum learning rate at end of cosine decay. *Default*: `0.0`.
+        warmup_steps: (int) Warmup length in optimizer steps (iterations). Setting
+            it (``0`` included) switches the schedule to per-step updates: the
+            learning rate changes every optimizer step instead of every epoch,
+            ``warmup_epochs`` is ignored, and the cosine runs over ``max_steps``.
+            ``None`` keeps the per-epoch schedule, whose warmup holds the LR at
+            ``warmup_start_lr`` (``0`` by default) for the whole first epoch.
+            *Default*: `None`.
+        max_steps: (int) Total schedule length in optimizer steps when
+            ``warmup_steps`` is set. ``None`` uses this schedule's ``max_epochs``
+            times the optimizer steps per epoch when that is set, else the run's
+            total optimizer steps (``trainer_config.max_epochs``, capped by
+            ``trainer_config.max_steps``). *Default*: `None`.
     """
 
     warmup_epochs: int = field(default=5, validator=validators.ge(0))
     max_epochs: Optional[int] = None
     warmup_start_lr: float = field(default=0.0, validator=validators.ge(0))
     eta_min: float = field(default=0.0, validator=validators.ge(0))
+    warmup_steps: Optional[int] = field(
+        default=None, validator=validators.optional(validators.ge(0))
+    )
+    max_steps: Optional[int] = field(
+        default=None, validator=validators.optional(validators.gt(0))
+    )
 
 
 @define
@@ -252,27 +301,103 @@ class LinearWarmupLinearDecayConfig:
             trainer's max_epochs if not specified. *Default*: `None`.
         warmup_start_lr: (float) Learning rate at start of warmup. *Default*: `0.0`.
         end_lr: (float) Learning rate at end of training. *Default*: `0.0`.
+        warmup_steps: (int) Warmup length in optimizer steps; setting it switches
+            the schedule to per-step updates (see
+            ``CosineAnnealingWarmupConfig.warmup_steps``). *Default*: `None`.
+        max_steps: (int) Total schedule length in optimizer steps when
+            ``warmup_steps`` is set. ``None`` uses this schedule's ``max_epochs``
+            times the optimizer steps per epoch when that is set, else the run's
+            total optimizer steps (``trainer_config.max_epochs``, capped by
+            ``trainer_config.max_steps``). *Default*: `None`.
     """
 
     warmup_epochs: int = field(default=5, validator=validators.ge(0))
     max_epochs: Optional[int] = None
     warmup_start_lr: float = field(default=0.0, validator=validators.ge(0))
     end_lr: float = field(default=0.0, validator=validators.ge(0))
+    warmup_steps: Optional[int] = field(
+        default=None, validator=validators.optional(validators.ge(0))
+    )
+    max_steps: Optional[int] = field(
+        default=None, validator=validators.optional(validators.gt(0))
+    )
+
+
+@define
+class MultiStepLRConfig:
+    """Configuration for the step-decay schedule with an optional linear warmup.
+
+    The ViTPose / mmpose recipe: a linear warmup over ``warmup_steps`` optimizer
+    steps from ``warmup_start_factor`` x the learning rate, then the learning rate
+    is multiplied by ``gamma`` at every milestone. The schedule is always updated
+    per optimizer step; epoch milestones are converted with the number of
+    optimizer steps per epoch, so a milestone of ``170`` takes effect on the first
+    step of epoch ``170`` (0-indexed), as in mmcv's ``step`` policy. Each param
+    group keeps its own (encoder_lr_scale / layer_decay) learning rate ratio.
+
+    Attributes:
+        milestones: (List[int]) Increasing epochs (or steps, per
+            ``milestone_unit``) at which the learning rate is multiplied by
+            ``gamma``. Required. *Default*: `None`.
+        gamma: (float) Multiplicative factor at each milestone. *Default*: `0.1`.
+        milestone_unit: (str) ``"epoch"`` or ``"step"``. *Default*: `"epoch"`.
+        warmup_steps: (int) Linear warmup length in optimizer steps. ``0``
+            disables warmup. *Default*: `0`.
+        warmup_start_factor: (float) Fraction of the learning rate the warmup
+            starts from (mmcv's ``warmup_ratio``). *Default*: `0.001`.
+    """
+
+    milestones: Optional[List[int]] = field(
+        default=None,
+        validator=lambda inst, attr, val: MultiStepLRConfig.validate_milestones(val),
+    )
+    gamma: float = field(default=0.1, validator=validators.gt(0))
+    milestone_unit: str = field(
+        default="epoch", validator=validators.in_(["epoch", "step"])
+    )
+    warmup_steps: int = field(default=0, validator=validators.ge(0))
+    warmup_start_factor: float = field(
+        default=0.001, validator=[validators.gt(0), validators.le(1)]
+    )
+
+    @staticmethod
+    def validate_milestones(value):
+        """Validate that milestones are strictly increasing non-negative ints."""
+        if value is None:
+            return
+        value = list(value)
+        if all(isinstance(m, int) and not isinstance(m, bool) for m in value) and (
+            all(m >= 0 for m in value) and all(b > a for a, b in zip(value, value[1:]))
+        ):
+            return
+        message = (
+            "multi_step_lr.milestones must be strictly increasing non-negative "
+            f"integers, got {value!r}."
+        )
+        logger.error(message)
+        raise ValueError(message)
 
 
 @define
 class LRSchedulerConfig:
     """Configuration for lr_scheduler.
 
-    Only one scheduler should be configured at a time. If multiple are set,
-    priority order is: cosine_annealing_warmup > linear_warmup_linear_decay >
-    step_lr > reduce_lr_on_plateau.
+    Only one scheduler is used. If multiple are set, priority order is:
+    cosine_annealing_warmup > linear_warmup_linear_decay > multi_step_lr >
+    step_lr > reduce_lr_on_plateau. ``reduce_lr_on_plateau`` is populated by
+    default, so setting any other scheduler replaces it (they never stack).
+    Choosing a fixed-length schedule (``cosine_annealing_warmup``,
+    ``linear_warmup_linear_decay`` or ``multi_step_lr``) also turns early stopping
+    off unless ``early_stopping.stop_training_on_plateau`` is set explicitly, and
+    training saves the config with ``reduce_lr_on_plateau: null``.
 
     Attributes:
         step_lr: Configuration for StepLR scheduler.
         reduce_lr_on_plateau: Configuration for ReduceLROnPlateau scheduler.
         cosine_annealing_warmup: Configuration for Cosine Annealing with Linear Warmup scheduler.
         linear_warmup_linear_decay: Configuration for Linear Warmup + Linear Decay scheduler.
+        multi_step_lr: Configuration for the step-decay (milestones) schedule
+            with a per-step linear warmup.
     """
 
     step_lr: Optional[StepLRConfig] = None
@@ -281,6 +406,40 @@ class LRSchedulerConfig:
     )
     cosine_annealing_warmup: Optional[CosineAnnealingWarmupConfig] = None
     linear_warmup_linear_decay: Optional[LinearWarmupLinearDecayConfig] = None
+    multi_step_lr: Optional[MultiStepLRConfig] = None
+
+
+#: ``lr_scheduler`` branches planned around a fixed training length, in priority
+#: order (all of them outrank ``step_lr`` and ``reduce_lr_on_plateau``).
+FIXED_LENGTH_LR_SCHEDULES = (
+    "cosine_annealing_warmup",
+    "linear_warmup_linear_decay",
+    "multi_step_lr",
+)
+
+
+def fixed_length_lr_schedule(lr_scheduler: Any) -> Optional[str]:
+    """Name of the fixed-length LR schedule that training will run, if any.
+
+    Args:
+        lr_scheduler: The ``trainer_config.lr_scheduler`` section (``DictConfig``,
+            dict or `LRSchedulerConfig`), or ``None``.
+
+    Returns:
+        The highest-priority entry of `FIXED_LENGTH_LR_SCHEDULES` that is set, or
+        ``None`` when the run uses ``step_lr``, ``reduce_lr_on_plateau`` or no
+        scheduler.
+    """
+    if lr_scheduler is None:
+        return None
+    for name in FIXED_LENGTH_LR_SCHEDULES:
+        if hasattr(lr_scheduler, "get"):
+            value = lr_scheduler.get(name, None)
+        else:
+            value = getattr(lr_scheduler, name, None)
+        if value is not None:
+            return name
+    return None
 
 
 @define
@@ -288,14 +447,41 @@ class EarlyStoppingConfig:
     """Configuration for early_stopping.
 
     Attributes:
-        stop_training_on_plateau: (bool) True if early stopping should be enabled. *Default*: `True`.
+        stop_training_on_plateau: (bool) True if early stopping should be enabled. `None` = on, except with a fixed-length LR schedule (`lr_scheduler.cosine_annealing_warmup`, `linear_warmup_linear_decay` or `multi_step_lr`), whose decay would be cut short by it; there it is off. Training writes the resolved value into the saved `training_config.yaml`. *Default*: `None`.
         min_delta: (float) Minimum change in the monitored quantity to qualify as an improvement, i.e. an absolute change of less than or equal to min_delta, will count as no improvement. *Default*: `1e-8`.
         patience: (int) Number of checks with no improvement after which training will be stopped. Under the default configuration, one check happens after every training epoch. For the ``embedding`` model type, which selects on a retrieval metric measured every ``eval.frequency`` epochs, one check happens per evaluation, so patience counts evaluations. *Default*: `10`.
     """
 
     min_delta: float = field(default=1e-8, validator=validators.ge(0))
     patience: int = field(default=10, validator=validators.ge(0))
-    stop_training_on_plateau: bool = True
+    stop_training_on_plateau: Optional[bool] = None
+
+
+@define
+class EMAConfig:
+    """Configuration for an exponential moving average (EMA) of the model weights.
+
+    When enabled, a float32 copy of the trainable weights (and floating-point
+    buffers) is updated after every optimizer step as
+    ``ema = d * ema + (1 - d) * weights`` with ``d = decay * (1 - exp(-step /
+    warmup_steps))`` (mmdet/RTMPose ``ExpMomentumEMA``; ``warmup_steps=0`` uses
+    ``decay`` from the first step). The EMA weights are swapped in for
+    validation (so ``val/loss``, epoch-end evaluation and checkpoint selection
+    see them) and are what checkpoints store as ``state_dict``, so inference and
+    export load them with no changes. The raw (online) weights ride along in the
+    checkpoint under ``"ema"`` for resuming.
+
+    Attributes:
+        enabled: (bool) Track and use an EMA of the weights. *Default*: `False`.
+        decay: (float) EMA decay after warmup (``1 - momentum``). *Default*:
+            `0.9998`.
+        warmup_steps: (int) Time constant (in optimizer steps) of the decay
+            warmup; ``0`` disables it. *Default*: `2000`.
+    """
+
+    enabled: bool = False
+    decay: float = field(default=0.9998, validator=[validators.ge(0), validators.lt(1)])
+    warmup_steps: int = field(default=2000, validator=validators.ge(0))
 
 
 @define
@@ -408,6 +594,7 @@ class TrainerConfig:
         optimizer: create an optimizer configuration
         lr_scheduler: create an lr_scheduler configuration
         early_stopping: create an early_stopping configuration
+        ema: Weight EMA configuration (``EMAConfig``); off by default.
         zmq: Zmq config with publish and controller port addresses.
         precision: (str) Lightning training precision: `"32"` (full fp32), `"bf16-mixed"` (bf16 autocast, fp32 weights/optimizer; recommended on Ampere+ GPUs), or `"16-mixed"` (fp16 autocast with a gradient scaler). *Default*: `"32"`.
         float32_matmul_precision: (str) Passed to `torch.set_float32_matmul_precision` for the duration of `fit` on CUDA, and restored afterwards. `"high"` lets fp32 matmuls use TF32 tensor cores (~1.4-1.6x faster ViT training on Ampere+; ~10 mantissa bits for matmul inputs, fp32 accumulation); `"highest"` forces strict fp32 matmuls; `None` leaves the process setting untouched (PyTorch's default is `"highest"`). cuDNN convolutions already use TF32 by default (`torch.backends.cudnn.allow_tf32`) and are not affected. Has no effect under `bf16-mixed`/`16-mixed` autocast regions, only on ops that stay fp32. *Default*: `None`.
@@ -454,6 +641,7 @@ class TrainerConfig:
     optimizer: OptimizerConfig = field(factory=OptimizerConfig)
     lr_scheduler: Optional[LRSchedulerConfig] = field(factory=LRSchedulerConfig)
     early_stopping: EarlyStoppingConfig = field(factory=EarlyStoppingConfig)
+    ema: EMAConfig = field(factory=EMAConfig)
     online_hard_keypoint_mining: Optional[HardKeypointMiningConfig] = field(
         factory=HardKeypointMiningConfig
     )

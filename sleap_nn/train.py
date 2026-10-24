@@ -793,7 +793,7 @@ def train(
     learning_rate: float = 1e-3,
     amsgrad: bool = False,
     lr_scheduler: Optional[Union[str, Dict[str, Any]]] = None,
-    early_stopping: bool = False,
+    early_stopping: Optional[bool] = False,
     early_stopping_min_delta: float = 0.0,
     early_stopping_patience: int = 1,
     online_mining: bool = False,
@@ -818,6 +818,12 @@ def train(
     prefetch_factor: Optional[int] = 2,
     pin_memory: Optional[bool] = None,
     drop_last: Optional[bool] = None,
+    weight_decay: Optional[float] = None,
+    encoder_lr_scale: Optional[float] = None,
+    layer_decay: Optional[float] = None,
+    ema: bool = False,
+    ema_decay: float = 0.9998,
+    ema_warmup_steps: int = 2000,
 ):
     """Train a pose-estimation model with SLEAP-NN framework.
 
@@ -1000,8 +1006,10 @@ def train(
         optimizer: Optimizer to be used. One of ["Adam", "AdamW"]. Default: "Adam".
         learning_rate: Learning rate of type float. Default: 1e-3.
         amsgrad: Enable AMSGrad with the optimizer. Default: False.
-        lr_scheduler: One of ["step_lr", "reduce_lr_on_plateau"] (the default values in
-            `sleap_nn.config.trainer_config` are used). To use custom values, pass a
+        lr_scheduler: One of ["step_lr", "reduce_lr_on_plateau",
+            "cosine_annealing_warmup", "linear_warmup_linear_decay"] (the default
+            values in `sleap_nn.config.trainer_config` are used). To use custom
+            values (required for "multi_step_lr", which needs `milestones`), pass a
             dictionary with the structure in `sleap_nn.config.trainer_config.LRSchedulerConfig`.
             For eg, {
                         "step_lr":
@@ -1009,7 +1017,9 @@ def train(
                                 (params in `sleap_nn.config.trainer_config.StepLRConfig`)
                             }
                     }
-        early_stopping: True if early stopping should be enabled. Default: False.
+        early_stopping: True if early stopping should be enabled. `None` = on, except
+            with a fixed-length schedule (cosine_annealing_warmup,
+            linear_warmup_linear_decay, multi_step_lr). Default: False.
         early_stopping_min_delta: Minimum change in the monitored quantity to qualify as
             an improvement, i.e. an absolute change of less than or equal to min_delta,
             will count as no improvement. Default: 0.0.
@@ -1069,6 +1079,19 @@ def train(
             Default: `None`.
         drop_last: Drop the partial batch at the end of each pass over the training
             data. `None` = only when `compile` is enabled. Default: `None`.
+        weight_decay: Weight decay for weight matrices / kernels only (biases, norms,
+            other 1-D params, position embeddings and special tokens get none).
+            `None` keeps the optimizer's torch default on every parameter.
+            Default: `None`.
+        encoder_lr_scale: Learning-rate multiplier for a `pretrained` backbone's
+            encoder. `None` = 1.0. Default: `None`.
+        layer_decay: Layer-wise learning-rate decay for a plain-ViT `pretrained`
+            encoder. `None` disables it. Default: `None`.
+        ema: Keep an exponential moving average of the weights, used for
+            validation and saved in the checkpoints. Default: False.
+        ema_decay: EMA decay after warmup. Default: 0.9998.
+        ema_warmup_steps: Time constant (optimizer steps) of the EMA decay warmup;
+            0 disables it. Default: 2000.
     """
     data_config = get_data_config(
         train_labels_path=train_labels_path,
@@ -1164,6 +1187,12 @@ def train(
         prefetch_factor=prefetch_factor,
         pin_memory=pin_memory,
         drop_last=drop_last,
+        weight_decay=weight_decay,
+        encoder_lr_scale=encoder_lr_scale,
+        layer_decay=layer_decay,
+        ema=ema,
+        ema_decay=ema_decay,
+        ema_warmup_steps=ema_warmup_steps,
     )
 
     # create omegaconf object

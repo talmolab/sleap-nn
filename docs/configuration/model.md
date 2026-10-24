@@ -119,8 +119,8 @@ backbone_config:
     vit_neck: dpt          # dpt | sfp
     neck_channels: null    # null = [h/8, h/4, h/2, h] for hidden size h
     gradient_checkpointing: false  # any encoder
-    encoder_lr_scale: 1.0          # any encoder
-    layer_decay: null              # layer-wise LR decay for ViT blocks
+    drop_path_rate: null           # stochastic depth, ramped 0 -> rate over blocks
+    # encoder_lr_scale / layer_decay moved to trainer_config.optimizer
     detail_stem: false     # conv stream adding stride-2/4/8 skips to the ViT pyramid
     detail_channels: null  # null = [32, 64, 128]
 ```
@@ -512,8 +512,9 @@ External HuggingFace / timm backbone (`backbone_config.pretrained`). See the
 | `vit_neck` | str | `dpt` | Plain ViT: `dpt` (one tapped layer per pyramid level) or `sfp` (ViTDet Simple Feature Pyramid from the last tap) |
 | `neck_channels` | list[int] | `null` | Plain ViT: channels of the 4 neck levels, finest first. `null` = `[h/8, h/4, h/2, h]` for hidden size `h` |
 | `gradient_checkpointing` | bool | `false` | Enable gradient checkpointing in the encoder during training (less memory, slower) |
-| `encoder_lr_scale` | float | `1.0` | LR multiplier for the pretrained encoder relative to the neck/decoder/heads |
-| `layer_decay` | float | `null` | Plain ViT: layer-wise LR decay; block `i` of `L` trains at `encoder_lr_scale · layer_decay^(L+1−i)` × base LR (LR-schedule floors scale with it) |
+| `encoder_lr_scale` | float | `1.0` | **Deprecated**: use [`trainer_config.optimizer.encoder_lr_scale`](trainer.md#optimizer). Still read, with a warning, when that is unset |
+| `layer_decay` | float | `null` | **Deprecated**: use [`trainer_config.optimizer.layer_decay`](trainer.md#optimizer). Still read, with a warning, when that is unset |
+| `drop_path_rate` | float | `null` | Stochastic depth of the encoder, ramped linearly from `0` (first block) to this value (last block). HF DINOv2 / DINOv3-ViT apply the rate uniformly; sleap-nn converts them to the ramp. Ignored, with a warning, for families without stochastic depth (CLIP, SigLIP, ViT, MAE). `null` keeps the checkpoint's setting |
 | `detail_stem` | bool | `false` | Plain ViT: add a light conv stream whose stride-2/4/8 features join the pyramid as decoder skips |
 | `detail_channels` | list[int] | `null` | Detail-stem channels at strides 2, 4, 8 (exactly three). `null` = `[32, 64, 128]` |
 

@@ -73,9 +73,11 @@ from sleap_nn.config.trainer_config import (
     ReduceLROnPlateauConfig,
     StepLRConfig,
 )
+from sleap_nn.training.optim import resolve_encoder_lr_options, split_weight_decay
 from sleap_nn.training.schedulers import (
     LinearWarmupCosineAnnealingLR,
     LinearWarmupLinearDecayLR,
+    LinearWarmupMultiStepLR,
 )
 from sleap_nn.config.get_config import get_backbone_config
 from sleap_nn.config.model_config import resolve_embedding_objective
@@ -156,7 +158,25 @@ class LightningModel(L.LightningModule):
         optimizer: Optimizer name. One of ["Adam", "AdamW"].
         learning_rate: Learning rate for the optimizer. Default: 1e-3.
         amsgrad: Enable AMSGrad with the optimizer. Default: False.
+
+    Attributes:
+        weight_decay: Weight decay for the weight matrices only (see
+            `sleap_nn.training.optim.split_weight_decay`), or ``None`` for the
+            optimizer's torch default on every parameter. Set after construction
+            from ``trainer_config.optimizer.weight_decay`` by
+            `get_lightning_model_from_config` (the subclasses' constructors do not
+            take it).
+        encoder_lr_scale: Learning-rate multiplier for a ``pretrained`` encoder,
+            or ``None`` to keep the backbone's own. Set like ``weight_decay``, from
+            `sleap_nn.training.optim.resolve_encoder_lr_options`.
+        layer_decay: Layer-wise learning-rate decay for a plain-ViT ``pretrained``
+            encoder, or ``None`` to keep the backbone's own. Set like
+            ``encoder_lr_scale``.
     """
+
+    weight_decay: Optional[float] = None
+    encoder_lr_scale: Optional[float] = None
+    layer_decay: Optional[float] = None
 
     def __init__(
         self,
@@ -409,11 +429,44 @@ class LightningModel(L.LightningModule):
             config, "trainer_config.confmap_fg_bg_diagnostics", default=None
         )
 
+        # Optimizer-only knobs: read in `configure_optimizers`, so they are set here
+        # rather than threaded through every subclass constructor.
+        lightning_model.weight_decay = OmegaConf.select(
+            config, "trainer_config.optimizer.weight_decay", default=None
+        )
+        (
+            lightning_model.encoder_lr_scale,
+            lightning_model.layer_decay,
+        ) = resolve_encoder_lr_options(config)
+
         return lightning_model
 
     def forward(self, img):
         """Forward pass of the model."""
         pass
+
+    def on_load_checkpoint(self, checkpoint: Dict[str, Any]) -> None:
+        """Resume a weight-EMA checkpoint without EMA from its online weights.
+
+        A checkpoint saved with ``trainer_config.ema`` holds the EMA weights as
+        its ``state_dict`` and the online (trained) weights under ``"ema"``. When
+        training resumes from it with no `WeightEMA` callback, continue from the
+        online weights rather than the average. Loading for inference (no
+        trainer) keeps the EMA weights.
+        """
+        from sleap_nn.training.callbacks import WeightEMA
+
+        state = checkpoint.get(WeightEMA.CHECKPOINT_KEY)
+        trainer = getattr(self, "_trainer", None)
+        if not state or trainer is None:
+            return
+        if any(isinstance(cb, WeightEMA) for cb in trainer.callbacks):
+            return
+        checkpoint["state_dict"].update(state["online_state_dict"])
+        logger.warning(
+            "Resuming a weight-EMA checkpoint with trainer_config.ema off: training "
+            "continues from its online weights and the average is dropped."
+        )
 
     def on_train_epoch_start(self):
         """Configure the train timer at the beginning of each epoch."""
@@ -868,18 +921,89 @@ class LightningModel(L.LightningModule):
 
         A ``pretrained`` backbone can train its encoder at a scaled (and, for a
         plain ViT, layer-wise decayed) learning rate; everything else -- neck,
-        decoder, heads -- trains at ``self.lr``. Without those options this is the
-        flat list of trainable parameters (a single optimizer group, as before).
+        decoder, heads -- trains at ``self.lr`` in the group named ``"base"``.
+        Without those options this is the flat list of trainable parameters (a
+        single optimizer group, as before).
         """
         trainable = [p for p in self.parameters() if p.requires_grad]
         backbone = getattr(self.model, "backbone", None)
         groups_fn = getattr(backbone, "encoder_param_groups", None)
-        encoder_groups = groups_fn(self.lr) if groups_fn is not None else None
+        if groups_fn is None:
+            if (self.encoder_lr_scale not in (None, 1.0)) or self.layer_decay:
+                logger.warning(
+                    "trainer_config.optimizer.encoder_lr_scale / layer_decay apply "
+                    "to `pretrained` backbones only; ignored for this backbone."
+                )
+            return trainable
+        encoder_groups = groups_fn(
+            self.lr,
+            encoder_lr_scale=self.encoder_lr_scale,
+            layer_decay=self.layer_decay,
+        )
         if not encoder_groups:
             return trainable
         in_encoder = {id(p) for g in encoder_groups for p in g["params"]}
         rest = [p for p in trainable if id(p) not in in_encoder]
-        return [{"params": rest, "lr": self.lr}] + encoder_groups
+        return [{"params": rest, "lr": self.lr, "name": "base"}] + encoder_groups
+
+    def _build_optimizer(self) -> torch.optim.Optimizer:
+        """The optimizer over the trainable parameters (see `_trainable_param_groups`).
+
+        With ``weight_decay`` set, every LR group is split into a decayed half
+        (weight matrices / kernels) and a no-decay half (biases, norms, 1-D params,
+        position embeddings and special tokens), each keeping the group's LR.
+        Without it, the optimizer is built exactly as before (torch's default
+        decay for the optimizer, on every parameter).
+        """
+        optimizers = {"Adam": torch.optim.Adam, "AdamW": torch.optim.AdamW}
+        if self.optimizer not in optimizers:
+            raise ValueError(
+                f"Unknown optimizer {self.optimizer!r}; expected one of "
+                f"{list(optimizers)}."
+            )
+        # Only optimize params that require gradients so a frozen pretrained
+        # backbone (freeze=True) is excluded; a no-op for fully-trainable models.
+        params = self._trainable_param_groups()
+        kwargs: Dict[str, Any] = dict(lr=self.lr, amsgrad=self.amsgrad)
+        if self.weight_decay is not None:
+            params = split_weight_decay(params, self, self.weight_decay)
+            kwargs["weight_decay"] = float(self.weight_decay)
+        return optimizers[self.optimizer](params, **kwargs)
+
+    def _optimizer_steps_per_epoch(self) -> int:
+        """Optimizer steps per epoch on this rank (for per-step LR schedules).
+
+        The training batches Lightning runs per epoch on this rank (the train
+        loader's length, after ``limit_train_batches``) over
+        ``accumulate_grad_batches``, as Lightning counts them. Independent of
+        ``max_epochs`` / ``max_steps``.
+        """
+        trainer = self.trainer
+        if trainer.train_dataloader is None:
+            # `configure_optimizers` runs before the fit loop loads the data.
+            trainer.fit_loop.setup_data()
+        batches = trainer.num_training_batches
+        if not batches or math.isinf(batches):
+            raise ValueError(
+                "A per-step LR schedule needs a finite number of training batches "
+                "per epoch."
+            )
+        return max(1, math.ceil(batches / trainer.accumulate_grad_batches))
+
+    def _total_optimizer_steps(self) -> int:
+        """Optimizer steps in the whole run (``max_epochs``, capped by ``max_steps``)."""
+        trainer = self.trainer
+        max_steps = trainer.max_steps if trainer.max_steps not in (None, -1) else None
+        if trainer.max_epochs is None or trainer.max_epochs < 0:
+            if max_steps is None:
+                raise ValueError(
+                    "A per-step LR schedule needs a finite run length; set "
+                    "trainer_config.max_epochs, trainer_config.max_steps, or the "
+                    "schedule's own max_steps."
+                )
+            return int(max_steps)
+        total = trainer.max_epochs * self._optimizer_steps_per_epoch()
+        return int(min(total, max_steps) if max_steps is not None else total)
 
     def configure_optimizers(self, optimizer=None):
         """Configure optimiser and learning rate scheduler.
@@ -892,18 +1016,7 @@ class LightningModel(L.LightningModule):
                 to an optimizer that is not returned from ``configure_optimizers``).
         """
         if optimizer is None:
-            if self.optimizer == "Adam":
-                optim = torch.optim.Adam
-            elif self.optimizer == "AdamW":
-                optim = torch.optim.AdamW
-
-            # Only optimize params that require gradients so a frozen pretrained
-            # backbone (freeze=True) is excluded; a no-op for fully-trainable models.
-            optimizer = optim(
-                self._trainable_param_groups(),
-                lr=self.lr,
-                amsgrad=self.amsgrad,
-            )
+            optimizer = self._build_optimizer()
 
         lr_scheduler_cfg = LRSchedulerConfig()
         if self.lr_scheduler is None:
@@ -1003,36 +1116,75 @@ class LightningModel(L.LightningModule):
                 return OmegaConf.create(sub) if isinstance(sub, Mapping) else sub
             return getattr(lr_scheduler_cfg, name, None)
 
-        if _sched("cosine_annealing_warmup") is not None:
-            cfg = _sched("cosine_annealing_warmup")
-            # Use trainer's max_epochs if not specified in config
+        def _opt(cfg, key, default=None):
+            """Optional sub-config field (absent in configs saved before it existed)."""
+            if OmegaConf.is_config(cfg):
+                return OmegaConf.select(cfg, key, default=default)
+            return getattr(cfg, key, default)
+
+        def _warmup_schedule_lengths(cfg):
+            """(warmup, total, interval) of a warmup + decay schedule.
+
+            Per-epoch (the original behavior) unless ``warmup_steps`` is set, in
+            which case both lengths are in optimizer steps and Lightning steps the
+            scheduler after every optimizer step.
+            """
             max_epochs = (
                 cfg.max_epochs
                 if cfg.max_epochs is not None
                 else self.trainer.max_epochs
             )
+            warmup_steps = _opt(cfg, "warmup_steps")
+            if warmup_steps is None:
+                return cfg.warmup_epochs, max_epochs, "epoch"
+            max_steps = _opt(cfg, "max_steps")
+            if max_steps is None:
+                if cfg.max_epochs is not None:
+                    max_steps = cfg.max_epochs * self._optimizer_steps_per_epoch()
+                else:
+                    max_steps = self._total_optimizer_steps()
+            return int(warmup_steps), int(max_steps), "step"
+
+        interval = "epoch"
+        if _sched("cosine_annealing_warmup") is not None:
+            cfg = _sched("cosine_annealing_warmup")
+            warmup, total, interval = _warmup_schedule_lengths(cfg)
             scheduler = LinearWarmupCosineAnnealingLR(
                 optimizer=optimizer,
-                warmup_epochs=cfg.warmup_epochs,
-                max_epochs=max_epochs,
+                warmup_epochs=warmup,
+                max_epochs=total,
                 warmup_start_lr=_per_group_lr(cfg.warmup_start_lr),
                 eta_min=_per_group_lr(cfg.eta_min),
             )
         elif _sched("linear_warmup_linear_decay") is not None:
             cfg = _sched("linear_warmup_linear_decay")
-            # Use trainer's max_epochs if not specified in config
-            max_epochs = (
-                cfg.max_epochs
-                if cfg.max_epochs is not None
-                else self.trainer.max_epochs
-            )
+            warmup, total, interval = _warmup_schedule_lengths(cfg)
             scheduler = LinearWarmupLinearDecayLR(
                 optimizer=optimizer,
-                warmup_epochs=cfg.warmup_epochs,
-                max_epochs=max_epochs,
+                warmup_epochs=warmup,
+                max_epochs=total,
                 warmup_start_lr=_per_group_lr(cfg.warmup_start_lr),
                 end_lr=_per_group_lr(cfg.end_lr),
             )
+        elif _sched("multi_step_lr") is not None:
+            cfg = _sched("multi_step_lr")
+            milestones = [int(m) for m in (_opt(cfg, "milestones") or [])]
+            if not milestones:
+                raise ValueError(
+                    "lr_scheduler.multi_step_lr.milestones is empty; give the epochs "
+                    "(or steps, with milestone_unit: step) to decay the LR at."
+                )
+            if _opt(cfg, "milestone_unit", "epoch") == "epoch":
+                steps_per_epoch = self._optimizer_steps_per_epoch()
+                milestones = [m * steps_per_epoch for m in milestones]
+            scheduler = LinearWarmupMultiStepLR(
+                optimizer=optimizer,
+                milestones=milestones,
+                gamma=_opt(cfg, "gamma", 0.1),
+                warmup_steps=_opt(cfg, "warmup_steps", 0),
+                warmup_start_factor=_opt(cfg, "warmup_start_factor", 0.001),
+            )
+            interval = "step"
         elif _sched("step_lr") is not None:
             scheduler = torch.optim.lr_scheduler.StepLR(
                 optimizer=optimizer,
@@ -1055,9 +1207,21 @@ class LightningModel(L.LightningModule):
                 "optimizer": optimizer,
             }
 
+        if not isinstance(scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau) and (
+            _sched("reduce_lr_on_plateau") is not None
+        ):
+            # `reduce_lr_on_plateau` is populated by default; it is replaced, not
+            # stacked, by any explicit schedule. Say so, since the config shows both.
+            logger.info(
+                f"LR schedule: {type(scheduler).__name__} (stepped per {interval}); "
+                "the default reduce_lr_on_plateau is not used."
+            )
+
         lr_scheduler = {
             "scheduler": scheduler,
             "monitor": "val/loss",
+            "interval": interval,
+            "frequency": 1,
         }
         trainer = getattr(self, "_trainer", None)
         if trainer is not None and trainer.check_val_every_n_epoch is None:
@@ -3854,10 +4018,7 @@ class EmbeddingLightningModule(LightningModel):
         optimizer that is returned (val/loss monitor; checkpoint SELECTION still moves
         to the retrieval metric via ModelCheckpoint in the trainer).
         """
-        optim = torch.optim.AdamW if self.optimizer == "AdamW" else torch.optim.Adam
-        optimizer = optim(
-            self._trainable_param_groups(), lr=self.lr, amsgrad=self.amsgrad
-        )
+        optimizer = self._build_optimizer()
         return LightningModel.configure_optimizers(self, optimizer=optimizer)
 
 

@@ -156,11 +156,38 @@ trainer_config:
   optimizer:
     lr: 0.0001
     amsgrad: false
+    weight_decay: null      # e.g. 0.1 with AdamW (ViTPose); null = torch default
+    encoder_lr_scale: null  # `pretrained` backbones: encoder LR multiplier (null = 1.0)
+    layer_decay: null       # plain-ViT `pretrained` encoders: layer-wise LR decay
 ```
+
+**Weight decay.** With `weight_decay: null` the optimizer keeps PyTorch's default
+on every parameter: `0` for `Adam`, but `0.01` for `AdamW`, including biases and
+normalization weights. Setting `weight_decay` applies it to weight matrices and
+conv kernels only. Biases, normalization weights, any other 1-D parameter,
+position embeddings and CLS / register / mask tokens (plus any names a timm
+model lists in `no_weight_decay()`) train without decay, as in the ViTPose, MAE
+and timm recipes. Each optimizer param group is split into a `<group>/decay` and a
+`<group>/no_decay` half that keep the group's learning rate, so this composes with
+`layer_decay`.
+
+**Encoder learning rates.** `encoder_lr_scale` and `layer_decay` set the learning
+rate of a [`pretrained`](model.md) backbone's encoder relative to `lr` (the neck,
+decoder and heads always train at `lr`). Block `i` of `L` trains at
+`encoder_lr_scale · layer_decay^(L+1−i)` × `lr`. They used to live on
+`model_config.backbone_config.pretrained`; those keys still work, with a
+deprecation warning, and training writes them here in the saved
+`training_config.yaml`. Setting both places to different values is an error.
+
+Param groups are named (`base` for the neck/decoder/heads, `encoder` or
+`encoder/depth<k>` for the encoder, with `/decay` / `/no_decay` suffixes under
+`weight_decay`), and `ThroughputMonitor` logs each as `perf/lr/<name>`.
 
 ### Learning Rate Schedulers
 
-Choose **one** scheduler:
+Choose **one** scheduler. If several are set, the priority order is
+`cosine_annealing_warmup` > `linear_warmup_linear_decay` > `multi_step_lr` >
+`step_lr` > `reduce_lr_on_plateau`; they never stack.
 
 === "Reduce on Plateau"
     ```yaml
@@ -197,6 +224,50 @@ Choose **one** scheduler:
         end_lr: 1e-6
     ```
 
+=== "Multi-step (ViTPose)"
+    ```yaml
+    lr_scheduler:
+      multi_step_lr:
+        milestones: [170, 200]   # epochs (or steps with milestone_unit: step)
+        gamma: 0.1
+        milestone_unit: epoch
+        warmup_steps: 500        # linear warmup, in optimizer steps
+        warmup_start_factor: 0.001
+    ```
+
+**Per-step schedules.** `cosine_annealing_warmup` and `linear_warmup_linear_decay`
+update the learning rate once per epoch by default, and the warmup counts whole
+epochs: with the default `warmup_start_lr: 0.0`, the first epoch trains at LR 0.
+Setting `warmup_steps` (any int, `0` included) switches either schedule to
+per-iteration updates: the warmup lasts `warmup_steps` optimizer steps and the
+decay runs to `max_steps`. When `max_steps` is unset it is the schedule's own
+`max_epochs` × optimizer steps per epoch, or else the run's total optimizer steps
+(`trainer_config.max_epochs`, capped by `trainer_config.max_steps`).
+
+```yaml
+lr_scheduler:
+  cosine_annealing_warmup:
+    warmup_steps: 1000   # per-iteration schedule
+    max_steps: null      # = the whole run
+    warmup_start_lr: 0.0
+    eta_min: 1e-6
+```
+
+`multi_step_lr` always updates per optimizer step. Epoch milestones are converted
+with the number of optimizer steps per epoch, so milestone `170` takes effect on
+the first step of epoch 170 (0-indexed), as in mmcv's `step` policy. Every
+schedule scales its absolute values (`warmup_start_lr`, `eta_min`, `end_lr`,
+`min_lr`) by each param group's LR ratio, so `encoder_lr_scale` / `layer_decay`
+ratios hold for the whole run.
+
+**Fixed-length schedules and early stopping.** `cosine_annealing_warmup`,
+`linear_warmup_linear_decay` and `multi_step_lr` are planned around the run
+length. Choosing one turns early stopping off unless
+`early_stopping.stop_training_on_plateau` is set explicitly, and the saved config
+shows `reduce_lr_on_plateau: null` (it never ran alongside another schedule). An
+explicit `stop_training_on_plateau: true` is kept, with a warning that it can cut
+the decay short.
+
 ---
 
 ## Early Stopping
@@ -204,10 +275,42 @@ Choose **one** scheduler:
 ```yaml
 trainer_config:
   early_stopping:
-    stop_training_on_plateau: true
+    stop_training_on_plateau: null  # null = on, off with a fixed-length LR schedule
     patience: 10        # Epochs without improvement (embedding, bbox_* with eval on: evaluations)
     min_delta: 1e-8     # Minimum improvement
 ```
+
+Training writes the resolved `true`/`false` into the saved `training_config.yaml`.
+
+---
+
+## Weight EMA
+
+```yaml
+trainer_config:
+  ema:
+    enabled: false
+    decay: 0.9998
+    warmup_steps: 2000
+```
+
+Keeps an exponential moving average of the weights, updated after every optimizer
+step as `ema = d · ema + (1 − d) · weights` with `d = decay · (1 − exp(−n /
+warmup_steps))` after `n` updates (RTMPose's `ExpMomentumEMA`; `warmup_steps: 0`
+uses `decay` from the first step). The average is kept in float32 under any
+`precision`, and covers the trainable parameters and floating-point buffers
+(BatchNorm running statistics).
+
+* Validation runs on the EMA weights, so `val/loss`, epoch-end evaluation,
+  checkpoint selection, early stopping and the plateau scheduler all see them.
+* Checkpoints store the EMA weights as `state_dict`, so inference, export and
+  `pretrained_backbone_weights` use them with no changes. The online weights are
+  saved under `checkpoint["ema"]`, and resuming restores both. Resuming an EMA
+  checkpoint with `ema.enabled: false` continues from the online weights.
+* At the end of training the EMA weights are left in the model.
+
+Each DDP rank keeps its own identical copy, so no communication is needed.
+Sharded strategies (FSDP, DeepSpeed) are not supported.
 
 ---
 
@@ -481,6 +584,7 @@ trainer_config:
 | `val_check_interval` | int/float | `null` | Validate every N training batches (int, across epochs) or epoch fraction (float) |
 | `throughput_log_every_n_steps` | int | `50` | `perf/*` throughput window (0 disables) |
 | `confmap_fg_bg_diagnostics` | bool | `null` | Log confmap fg/bg MSE split (`null` = centroid only) |
+| `ema` | EMAConfig | off | Weight EMA; see [EMAConfig](#emaconfig) |
 
 ### DataLoaderConfig
 
@@ -499,10 +603,14 @@ trainer_config:
 |--------|------|---------|-------------|
 | `lr` | float | `1e-4` | Learning rate |
 | `amsgrad` | bool | `false` | Enable AMSGrad variant |
+| `weight_decay` | float | `null` | Decay for weight matrices / kernels only; biases, norms, 1-D params, position embeddings and special tokens get none (`null` = torch default on every parameter: `0` for Adam, `0.01` for AdamW) |
+| `encoder_lr_scale` | float | `null` | `pretrained` encoder LR multiplier (`null` = `1.0`; replaces the deprecated backbone key) |
+| `layer_decay` | float | `null` | Plain-ViT `pretrained` encoder: block `i` of `L` trains at `encoder_lr_scale · layer_decay^(L+1−i)` × `lr` (replaces the deprecated backbone key) |
 
 ### LRSchedulerConfig
 
-Only one scheduler should be set at a time.
+Only one scheduler is used. Priority: `cosine_annealing_warmup` >
+`linear_warmup_linear_decay` > `multi_step_lr` > `step_lr` > `reduce_lr_on_plateau`.
 
 #### ReduceLROnPlateauConfig
 
@@ -530,6 +638,8 @@ Only one scheduler should be set at a time.
 | `warmup_start_lr` | float | `0.0` | Starting LR for warmup |
 | `eta_min` | float | `0.0` | Minimum LR at end of cosine decay |
 | `max_epochs` | int | `null` | Total epochs (auto from trainer) |
+| `warmup_steps` | int | `null` | Warmup in optimizer steps; any int switches to per-step updates (`warmup_epochs` ignored) |
+| `max_steps` | int | `null` | Per-step schedule length (`null` = `max_epochs` × steps/epoch, else the whole run) |
 
 #### LinearWarmupLinearDecayConfig
 
@@ -539,14 +649,34 @@ Only one scheduler should be set at a time.
 | `warmup_start_lr` | float | `0.0` | Starting LR for warmup |
 | `end_lr` | float | `0.0` | Final LR at end of training |
 | `max_epochs` | int | `null` | Total epochs (auto from trainer) |
+| `warmup_steps` | int | `null` | Warmup in optimizer steps; any int switches to per-step updates (`warmup_epochs` ignored) |
+| `max_steps` | int | `null` | Per-step schedule length (`null` = `max_epochs` × steps/epoch, else the whole run) |
+
+#### MultiStepLRConfig
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `milestones` | list[int] | `null` (required) | Strictly increasing epochs (or steps) at which the LR is multiplied by `gamma` |
+| `gamma` | float | `0.1` | Multiplicative decay at each milestone |
+| `milestone_unit` | str | `epoch` | `epoch` or `step` |
+| `warmup_steps` | int | `0` | Linear warmup in optimizer steps (`0` = none) |
+| `warmup_start_factor` | float | `0.001` | Fraction of the LR the warmup starts from |
 
 ### EarlyStoppingConfig
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `stop_training_on_plateau` | bool | `true` | Enable early stopping |
+| `stop_training_on_plateau` | bool | `null` | Enable early stopping (`null` = on, except with a fixed-length LR schedule: `cosine_annealing_warmup`, `linear_warmup_linear_decay`, `multi_step_lr`) |
 | `patience` | int | `10` | Epochs without improvement. For `embedding`, and for `bbox_*` models with `eval.enabled` (which select on `eval/val/bbox_mAP`), evaluations without improvement (one check every `eval.frequency` epochs) |
 | `min_delta` | float | `1e-8` | Minimum improvement |
+
+### EMAConfig
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `enabled` | bool | `false` | Track an EMA of the weights; validate and checkpoint with it |
+| `decay` | float | `0.9998` | Decay after warmup, in `[0, 1)` |
+| `warmup_steps` | int | `2000` | Time constant (optimizer steps) of the decay warmup; `0` disables it |
 
 ### ModelCkptConfig
 

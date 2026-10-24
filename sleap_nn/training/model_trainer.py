@@ -94,6 +94,8 @@ from sleap_nn.config_generator.architecture_estimates import (
 )
 from sleap_nn.training.utils import get_gpu_memory
 from sleap_nn.config.training_job_config import verify_training_cfg
+from sleap_nn.config.trainer_config import fixed_length_lr_schedule
+from sleap_nn.training.optim import migrate_encoder_lr_options
 from sleap_nn.training.callbacks import (
     ProgressReporterZMQ,
     TrainingControllerZMQ,
@@ -109,6 +111,7 @@ from sleap_nn.training.callbacks import (
     LastEpochCheckpoint,
     UnifiedVizCallback,
     ThroughputMonitor,
+    WeightEMA,
 )
 from sleap_nn import RANK
 from sleap_nn.legacy_models import get_keras_first_layer_channels
@@ -1896,9 +1899,52 @@ class ModelTrainer:
             )
             self.config.trainer_config.trainer_accelerator = "auto"
 
+    def _setup_schedule_defaults(self):
+        """Resolve the early-stopping and plateau defaults against the LR schedule.
+
+        A fixed-length schedule (`FIXED_LENGTH_LR_SCHEDULES`) is planned around
+        the run length, so early stopping left unset (``None``) resolves to off
+        and the default ``reduce_lr_on_plateau`` (never combined with another
+        schedule) is nulled. Otherwise unset early stopping resolves to on, as
+        before. An explicit ``true`` with a fixed schedule is kept, with a warning.
+        The resolved values are written into the config, so the saved
+        ``training_config.yaml`` shows what ran.
+        """
+        trainer_config = self.config.trainer_config
+        fixed = fixed_length_lr_schedule(trainer_config.lr_scheduler)
+        es = trainer_config.early_stopping
+        if es.stop_training_on_plateau is None:
+            es.stop_training_on_plateau = fixed is None
+            if fixed is not None:
+                logger.info(
+                    f"lr_scheduler.{fixed} runs a fixed-length schedule, so early "
+                    "stopping is off (set early_stopping.stop_training_on_plateau: "
+                    "true to keep it)."
+                )
+        elif es.stop_training_on_plateau and fixed is not None:
+            # Explicit: keep it, but a plateau stop can cut the decay short.
+            logger.warning(
+                f"lr_scheduler.{fixed} runs a fixed-length schedule but "
+                "early_stopping.stop_training_on_plateau is true (patience="
+                f"{es.patience}); training may stop before the schedule ends."
+            )
+        if (
+            fixed is not None
+            and OmegaConf.select(
+                trainer_config, "lr_scheduler.reduce_lr_on_plateau", default=None
+            )
+            is not None
+        ):
+            trainer_config.lr_scheduler.reduce_lr_on_plateau = None
+
     def setup_config(self):
         """Compute config parameters."""
         logger.info("Setting up config...")
+
+        # Early stopping / plateau defaults follow the LR schedule; the encoder
+        # LR knobs move from the backbone config to `trainer_config.optimizer`.
+        self._setup_schedule_defaults()
+        self.config = migrate_encoder_lr_options(self.config)
 
         # Normalize empty strings to None for optional wandb fields
         if self.config.trainer_config.wandb.prv_runid == "":
@@ -2562,6 +2608,21 @@ class ModelTrainer:
             )
             callbacks.append(csv_logger)
 
+        ema_cfg = OmegaConf.select(self.config, "trainer_config.ema", default=None)
+        if ema_cfg is not None and ema_cfg.enabled:
+            # Swaps the EMA weights in for validation, so every metric the
+            # checkpointer / early stopping / LR plateau select on is the EMA
+            # model's, and writes them as the checkpoints' `state_dict`.
+            callbacks.append(
+                WeightEMA(decay=ema_cfg.decay, warmup_steps=ema_cfg.warmup_steps)
+            )
+            logger.info(
+                f"Weight EMA on (decay={ema_cfg.decay}, warmup_steps="
+                f"{ema_cfg.warmup_steps}); validation and checkpoints use EMA weights."
+            )
+
+        if self.config.trainer_config.early_stopping.stop_training_on_plateau is None:
+            self._setup_schedule_defaults()
         if self.config.trainer_config.early_stopping.stop_training_on_plateau:
             # early stopping callback
             es_kwargs = dict(
