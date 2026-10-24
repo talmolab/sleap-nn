@@ -99,6 +99,7 @@ from sleap_nn.training.utils import get_gpu_memory
 from sleap_nn.config.training_job_config import verify_training_cfg
 from sleap_nn.config.trainer_config import fixed_length_lr_schedule
 from sleap_nn.training.optim import migrate_encoder_lr_options
+from sleap_nn.training.distillation import attach_distillation
 from sleap_nn.training.callbacks import (
     ProgressReporterZMQ,
     TrainingControllerZMQ,
@@ -3067,6 +3068,33 @@ class ModelTrainer:
         logger.info(f"torch.set_float32_matmul_precision('{value}') (was '{prev}').")
         return prev
 
+    def _setup_distillation(self):
+        """Attach ``trainer_config.distillation`` to the lightning model, if set.
+
+        Every rank runs this, so under DDP each loads its own frozen teacher (it
+        is not a submodule, so DDP neither wraps nor syncs it).
+        """
+        cfg = OmegaConf.select(self.config, "trainer_config.distillation", default=None)
+        if cfg is None:
+            return
+        stage = int(cfg.get("stage", 1))
+        if stage == 2:
+            if OmegaConf.select(
+                self.config, "trainer_config.freeze_schedule", default=None
+            ):
+                raise ValueError(
+                    "trainer_config.distillation stage 2 freezes everything outside "
+                    "`trainable` itself; remove trainer_config.freeze_schedule."
+                )
+            if not cfg.get("teacher") and OmegaConf.select(
+                self.config, "trainer_config.resume_ckpt_path", default=None
+            ):
+                raise ValueError(
+                    "Resuming distillation stage 2 needs `distillation.teacher` (the "
+                    "stage-1 model): the resumed weights are not the teacher."
+                )
+        attach_distillation(self.lightning_model, cfg)
+
     def _maybe_compile_model(self):
         """`torch.compile` the network in place if `trainer_config.compile` is set.
 
@@ -3278,6 +3306,9 @@ class ModelTrainer:
         total_params = sum(p.numel() for p in self.lightning_model.parameters())
         logger.info(f"Total model parameters: {total_params:,}")
         self.config.model_config.total_params = total_params
+        # After the param count (the projector is training-only), before compile
+        # (the teacher stays eager) and before the optimizer is built.
+        self._setup_distillation()
         self._maybe_compile_model()
 
         # setup dataloaders

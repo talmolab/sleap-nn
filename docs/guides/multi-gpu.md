@@ -35,6 +35,12 @@ trainer_config:
     automatically (frozen parameters get no gradient), and
     `ddp_find_unused_parameters_false` is refused.
 
+!!! note "Distillation under DDP"
+    With `trainer_config.distillation`, every rank loads its own frozen copy of
+    the teacher; DDP neither wraps nor syncs it, and each rank runs it on its own
+    batch. Budget its GPU memory on every rank. See
+    [Distillation](distillation.md).
+
 ---
 
 ## Specific GPUs

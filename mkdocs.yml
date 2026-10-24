@@ -139,6 +139,7 @@ nav:
       - Multi-GPU: guides/multi-gpu.md
       - Resume & Fine-Tune: guides/resume-finetune.md
       - Init from Another Model: guides/init-from.md
+      - Distillation: guides/distillation.md
       - Supervised ID: guides/supervised-id.md
       - Tiling (High-Res): guides/tiling.md
     - Inference:
