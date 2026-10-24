@@ -2175,3 +2175,39 @@ def test_direct_decoder_layer_decay_groups():
     assert not any(id(p) in lr_of for p in bb.vit_dec.parameters())
     trainable = {id(p) for p in bb.enc.parameters() if p.requires_grad}
     assert set(lr_of) == trainable
+
+
+def test_final_norm_falls_back_to_a_fresh_layernorm(loguru_caplog, monkeypatch):
+    """No recognizable final norm: warn and use a fresh tap LayerNorm."""
+    import sleap_nn.architectures.pretrained as pretrained_mod
+
+    monkeypatch.setattr(pretrained_mod, "_FINAL_NORM_NAMES", ())
+    bb = _vit_backbone(VIT, output_stride=4, vit_decoder="classic")
+    assert bb._final_norm_name is None
+    assert isinstance(bb.tap_norms[0], torch.nn.LayerNorm)
+    assert "no final norm found" in loguru_caplog.text
+
+
+def test_final_norm_needs_a_last_layer_tap(loguru_caplog):
+    """`vit_final_norm` on a tap that is not the last layer: warn, fresh norm."""
+    bb = _vit_backbone(
+        VIT, output_stride=4, vit_neck="sfp", layers=[6], vit_final_norm=True
+    )
+    assert bb._final_norm_name == "layernorm"
+    assert isinstance(bb.tap_norms[0], torch.nn.LayerNorm)
+    assert "applies only to a tap of the last layer" in loguru_caplog.text
+
+
+@pytest.mark.parametrize(
+    "kw, match",
+    [
+        ({"kind": "fpn"}, "Unknown ViT decoder"),
+        ({"kind": "simple", "upsample": 3}, "power of two"),
+        ({"kind": "classic", "upsample": 0}, "power of two"),
+    ],
+)
+def test_vitpose_decoder_rejects_bad_arguments(kw, match):
+    from sleap_nn.architectures.vit_neck import ViTPoseDecoder
+
+    with pytest.raises(ValueError, match=match):
+        ViTPoseDecoder(8, **kw)
