@@ -11,6 +11,17 @@ from typing import Optional, List, Any
 from loguru import logger
 import re
 
+#: Lightning ``Trainer(precision=...)`` values accepted by ``trainer_config.precision``.
+TRAINER_PRECISIONS = {"32", "32-true", "bf16-mixed", "16-mixed"}
+
+#: ``torch.compile`` modes accepted by ``trainer_config.compile`` (``True`` = ``"default"``).
+COMPILE_MODES = (
+    "default",
+    "reduce-overhead",
+    "max-autotune",
+    "max-autotune-no-cudagraphs",
+)
+
 
 @define
 class DataLoaderConfig:
@@ -20,6 +31,8 @@ class DataLoaderConfig:
         batch_size: (int) Number of samples per batch or batch size for training/validation data. This is the per-GPU batch size; with multi-GPU (DDP) training the effective (global) batch size is `batch_size × num_GPUs`. *Default*: `4`.
         shuffle: (bool) True to have the data reshuffled at every epoch. *Default*: `False`.
         num_workers: (int or "auto") Number of subprocesses to use for data loading. 0 means that the data will be loaded in the main process. Set to `"auto"` to size the pool from the CPUs usable by this process (capped, and leaving one core for the main process); `"auto"` resolves to `0` for the `torch_dataset` (streaming) pipeline, whose video backends cannot be pickled to worker processes. The resolved integer is written back into the saved `training_config.yaml`. *Default*: `0`.
+        prefetch_factor: (int) Number of batches each worker loads ahead (ignored when `num_workers` is 0), so at most `prefetch_factor x num_workers` batches are buffered per loader. `None` = `2` (the PyTorch default). Before 0.4 this was tied to `batch_size`, which buffered `batch_size x num_workers` batches and could exhaust host/shared memory with large batches. *Default*: `2`.
+        pin_memory: (bool) Use pinned (page-locked) host memory for batches. `None` = `True` for the train loader; the val loader falls back to the train loader's setting. *Default*: `None`.
     """
 
     batch_size: int = 4
@@ -28,6 +41,11 @@ class DataLoaderConfig:
         default=0,
         validator=lambda inst, attr, val: DataLoaderConfig.validate_num_workers(val),
     )
+    prefetch_factor: Optional[int] = field(
+        default=2,
+        validator=validators.optional(validators.ge(1)),
+    )
+    pin_memory: Optional[bool] = None
 
     @staticmethod
     def validate_num_workers(value):
@@ -51,9 +69,11 @@ class TrainDataLoaderConfig(DataLoaderConfig):
         batch_size: (int) Number of samples per batch or batch size for training/validation data. This is the per-GPU batch size; with multi-GPU (DDP) training the effective (global) batch size is `batch_size × num_GPUs`. *Default*: `4`.
         shuffle: (bool) True to have the data reshuffled at every epoch. *Default*: `True`.
         num_workers: (int or "auto") Number of subprocesses to use for data loading. 0 means that the data will be loaded in the main process. Set to `"auto"` to size the pool from the CPUs usable by this process. *Default*: `0`.
+        drop_last: (bool) Drop the partial batch at the end of each pass over the training data. `None` = `True` only when `trainer_config.compile` is enabled (a new batch size triggers a recompile), else `False`. Never applied when the data is smaller than one batch. *Default*: `None`.
     """
 
     shuffle: bool = True
+    drop_last: Optional[bool] = None
 
 
 @define
@@ -389,6 +409,17 @@ class TrainerConfig:
         lr_scheduler: create an lr_scheduler configuration
         early_stopping: create an early_stopping configuration
         zmq: Zmq config with publish and controller port addresses.
+        precision: (str) Lightning training precision: `"32"` (full fp32), `"bf16-mixed"` (bf16 autocast, fp32 weights/optimizer; recommended on Ampere+ GPUs), or `"16-mixed"` (fp16 autocast with a gradient scaler). *Default*: `"32"`.
+        float32_matmul_precision: (str) Passed to `torch.set_float32_matmul_precision` for the duration of `fit` on CUDA, and restored afterwards. `"high"` lets fp32 matmuls use TF32 tensor cores (~1.4-1.6x faster ViT training on Ampere+; ~10 mantissa bits for matmul inputs, fp32 accumulation); `"highest"` forces strict fp32 matmuls; `None` leaves the process setting untouched (PyTorch's default is `"highest"`). cuDNN convolutions already use TF32 by default (`torch.backends.cudnn.allow_tf32`) and are not affected. Has no effect under `bf16-mixed`/`16-mixed` autocast regions, only on ops that stay fp32. *Default*: `None`.
+        compile: (bool or str) `torch.compile` the model (backbone + heads) for training and validation; `true` = `"default"` mode, or one of `"reduce-overhead"`, `"max-autotune"`, `"max-autotune-no-cudagraphs"`. Compiles in place, so checkpoint keys are unchanged. The first steps are slow while compiling. *Default*: `False`.
+        gradient_clip_val: (float) Clip gradients at this value (see `gradient_clip_algorithm`). `None` disables clipping. *Default*: `None`.
+        gradient_clip_algorithm: (str) `"norm"` (global L2 norm) or `"value"`. *Default*: `"norm"`.
+        accumulate_grad_batches: (int) Accumulate gradients over this many batches per optimizer step (effective batch = `batch_size x num_devices x accumulate_grad_batches`). *Default*: `1`.
+        log_every_n_steps: (int) How often step-level metrics (e.g. `loss`) are sent to the loggers (wandb). Each logged step forces a host-device sync, so large-batch runs should use ~50. *Default*: `1`.
+        max_steps: (int) Total optimizer-step budget. Training stops at `max_steps` or `max_epochs`, whichever comes first (set `max_epochs: -1` to train by steps only; epoch-based LR schedulers then need their own `max_epochs`). `None` = no step limit. *Default*: `None`.
+        val_check_interval: (int or float) Run validation every N training batches (int, counted across epoch boundaries, so it may exceed `train_steps_per_epoch`) or every fraction of an epoch (float in `(0, 1]`). With an int, validation no longer runs at every epoch end, and early-stopping `patience` counts validation runs. `None` = once per epoch. *Default*: `None`.
+        throughput_log_every_n_steps: (int) Window (in training batches) for the `ThroughputMonitor` callback, which logs train-only samples/s, iteration time, data-wait time and fraction, GPU idle fraction, peak GPU memory and the LR of every param group under `perf/*`. `0`/`None` disables it. *Default*: `50`.
+        confmap_fg_bg_diagnostics: (bool) Log the confmap foreground/background MSE split (`{train,val}/confmap_loss_{fg,bg}`, `confmap_fg_frac`). `None` = only for `centroid` models. *Default*: `None`.
     """
 
     train_data_loader: TrainDataLoaderConfig = field(factory=TrainDataLoaderConfig)
@@ -428,6 +459,77 @@ class TrainerConfig:
     )
     zmq: Optional[ZMQConfig] = field(factory=ZMQConfig)  # Required for SLEAP GUI
     eval: EvalConfig = field(factory=EvalConfig)  # Epoch-end evaluation config
+    precision: Any = field(
+        default="32",
+        validator=lambda inst, attr, val: TrainerConfig.validate_precision(val),
+    )
+    float32_matmul_precision: Optional[str] = field(
+        default=None,
+        validator=validators.optional(validators.in_(["highest", "high", "medium"])),
+    )
+    compile: Any = field(
+        default=False,
+        validator=lambda inst, attr, val: TrainerConfig.validate_compile(val),
+    )
+    gradient_clip_val: Optional[float] = field(
+        default=None, validator=validators.optional(validators.gt(0))
+    )
+    gradient_clip_algorithm: str = field(
+        default="norm", validator=validators.in_(["norm", "value"])
+    )
+    accumulate_grad_batches: int = field(default=1, validator=validators.ge(1))
+    log_every_n_steps: int = field(default=1, validator=validators.ge(1))
+    max_steps: Optional[int] = field(
+        default=None, validator=validators.optional(validators.ge(1))
+    )
+    val_check_interval: Optional[Any] = field(
+        default=None,
+        validator=lambda inst, attr, val: TrainerConfig.validate_val_check_interval(
+            val
+        ),
+    )
+    throughput_log_every_n_steps: Optional[int] = field(
+        default=50, validator=validators.optional(validators.ge(0))
+    )
+    confmap_fg_bg_diagnostics: Optional[bool] = None
+
+    @staticmethod
+    def validate_precision(value):
+        """Validate the Lightning training precision."""
+        if str(value) in TRAINER_PRECISIONS:
+            return True
+        message = (
+            f"precision must be one of {sorted(TRAINER_PRECISIONS)}, got {value!r}."
+        )
+        logger.error(message)
+        raise ValueError(message)
+
+    @staticmethod
+    def validate_val_check_interval(value):
+        """Validate `val_check_interval` (int >= 1 batches, or a float in (0, 1])."""
+        if value is None:
+            return True
+        if isinstance(value, int) and not isinstance(value, bool) and value >= 1:
+            return True
+        if isinstance(value, float) and 0.0 < value <= 1.0:
+            return True
+        message = (
+            "val_check_interval must be an int >= 1 (training batches) or a float "
+            f"in (0, 1] (fraction of an epoch), got {value!r}."
+        )
+        logger.error(message)
+        raise ValueError(message)
+
+    @staticmethod
+    def validate_compile(value):
+        """Validate the `compile` option (bool or a `torch.compile` mode)."""
+        if isinstance(value, bool) or value is None or value in COMPILE_MODES:
+            return True
+        message = (
+            f"compile must be a bool or one of {list(COMPILE_MODES)}, got {value!r}."
+        )
+        logger.error(message)
+        raise ValueError(message)
 
     @staticmethod
     def validate_optimizer_name(value):

@@ -40,7 +40,10 @@ trainer_config:
 !!! warning "Workers without caching"
     Only use `num_workers > 0` with data caching enabled. The `torch_dataset`
     (streaming) pipeline reads frames through the video backend inside the
-    dataset, and those backends cannot be pickled to worker processes.
+    dataset, and those backends cannot be pickled to worker processes. The
+    exception is labels whose videos are all image sequences (one file per
+    frame, e.g. COCO converted to `.slp`): there is no open handle to pickle, and
+    streaming with workers is both the fastest and the leanest pipeline.
 
 ### Automatic worker count
 
@@ -57,7 +60,10 @@ trainer_config:
 `auto` resolves once, at the start of training, taking the smaller of a **CPU
 bound** and a **memory bound**.
 
-**CPU bound** — `min(4, usable_cpus - 1)`, leaving one core for the main process.
+**CPU bound** — `min(16, usable_cpus // local_processes - 1)`: the usable cores are
+split across the training processes on the node (one per GPU under DDP), leaving
+one core per process for the training loop. E.g. 128 cores and 4 GPUs give 16
+workers per GPU; 8 cores and 1 GPU give 7.
 "Usable" CPUs come from the process's CPU affinity mask where the platform
 provides one (Linux cgroups/cpusets, SLURM, `docker --cpuset-cpus`), so a job
 confined to part of a node sizes itself to its allocation rather than to the
@@ -104,8 +110,9 @@ allow 4): in-memory cache is 6.00 GB and each worker adds ~100% of it on darwin.
 
 Two cases skip the memory bound:
 
-- **`torch_dataset` (streaming) → always `0`**, per the warning above, so `auto`
-  is safe to leave set regardless of pipeline.
+- **`torch_dataset` (streaming) → `0`**, per the warning above, so `auto`
+  is safe to leave set regardless of pipeline. When every train and val video is
+  an image sequence, the CPU bound applies instead.
 - **`torch_dataset_cache_img_disk`** keeps no large in-process cache, so it is
   CPU-bound only.
 
@@ -213,6 +220,89 @@ trainer_config:
   trainer_device_indices: null  # Specific GPUs [0, 2]
   trainer_strategy: auto        # auto, ddp, fsdp
 ```
+
+---
+
+## Speed
+
+```yaml
+trainer_config:
+  precision: bf16-mixed            # "32" (default), "bf16-mixed", "16-mixed"
+  float32_matmul_precision: high   # TF32 for fp32 matmuls (default null = leave unchanged)
+  compile: false                   # true / "default" / "max-autotune" ... (torch.compile)
+  gradient_clip_val: null          # e.g. 1.0 (global-norm clipping)
+  gradient_clip_algorithm: norm    # "norm" or "value"
+  accumulate_grad_batches: 1
+  log_every_n_steps: 50            # step-metric logging cadence (default 1; each log syncs the GPU)
+  max_steps: null                  # optimizer-step budget (stops at max_steps or max_epochs)
+  val_check_interval: null         # validate every N batches (int) / epoch fraction (float)
+  throughput_log_every_n_steps: 50 # perf/* metrics window; 0 disables
+  confmap_fg_bg_diagnostics: null  # confmap fg/bg MSE split (null = centroid models only)
+  train_data_loader:
+    prefetch_factor: 2             # batches buffered per worker
+    pin_memory: null               # null = true
+    drop_last: null                # null = only under compile
+```
+
+The training-side defaults are unchanged, so existing configs train as before.
+Two logging defaults are new: `perf/*` throughput metrics every 50 batches, and
+the confmap fg/bg diagnostics now on for centroid models only (they were logged
+for single-instance and centered-instance models too). For ViT backbones on Ampere or newer GPUs, `precision: bf16-mixed`,
+`float32_matmul_precision: high`, `compile: true` and `log_every_n_steps: 50`
+together gave about a 5x single-GPU speedup in our benchmarks (ViT-S top-down,
+batch 128: ~370 to ~1,830 crops/s).
+
+**Precision.** `bf16-mixed` keeps fp32 weights and optimizer state and runs
+matmuls/convs in bfloat16 under autocast; the confmap MSE is computed in fp32.
+`16-mixed` (fp16 with a gradient scaler) is for GPUs without bf16 support:
+confmap gradients (~1e-8) are below fp16's range, so it only trains because of
+the scaler.
+
+**TF32.** `float32_matmul_precision: high` calls
+`torch.set_float32_matmul_precision("high")` for the duration of training on
+CUDA and restores the previous value afterwards, so inference and export are
+unaffected. It speeds up fp32 matmuls (all of them under `precision: "32"`, the
+ops autocast leaves in fp32 otherwise). cuDNN convolutions already use TF32 by
+default in PyTorch.
+
+**Compile.** `compile` runs `torch.compile` on the network in place
+(`nn.Module.compile`), so checkpoint keys do not change and checkpoints load into
+uncompiled models. The first steps are slow while compiling, and every new input
+shape recompiles, so the training loader drops each pass's partial batch under
+compile (`train_data_loader.drop_last: null`), unless a rank's share of the data
+is smaller than one batch. Validation and in-training evaluation also run the
+compiled network and recompile once per new shape.
+
+**Cadence.** `log_every_n_steps` controls how often step metrics such as `loss`
+reach the loggers; epoch metrics are unaffected. `max_steps` stops training at an
+optimizer-step budget (set `max_epochs: -1` to train by steps only; epoch-based LR
+schedulers such as `cosine_annealing_warmup` still count epochs). An int
+`val_check_interval` validates every N training batches counted across epochs, so
+validation no longer runs at every epoch end; early-stopping `patience` and
+`ReduceLROnPlateau` then count validation runs.
+
+**Dataloader.** `prefetch_factor` is the number of batches each worker keeps
+ready (at most `prefetch_factor x num_workers` per loader). Before 0.4 it was
+tied to `batch_size`, which with 16 workers and batch 128 buffered 2,048 batches
+and used 126-231 GB of host RAM.
+
+**Throughput metrics.** The `ThroughputMonitor` callback logs, every
+`throughput_log_every_n_steps` training batches and excluding validation:
+`perf/samples_per_sec`, `perf/steps_per_sec`, `perf/iter_time_ms`,
+`perf/data_wait_ms` / `perf/data_wait_frac` (host time spent waiting for the next
+batch), `perf/compute_ms`, `perf/gpu_idle_frac` (GPU idle time between steps,
+from CUDA events), `perf/max_mem_gb` / `perf/max_mem_reserved_gb` and
+`perf/lr/<group>` for every optimizer param group (`train/lr` is group 0 only). A
+summary line is also printed to the console. It costs one GPU sync per window. A
+high `gpu_idle_frac` means the dataloader is the bottleneck: raise `num_workers`
+or enable caching. (`data_wait_frac` is host-side: once per-step syncs are gone,
+e.g. with `log_every_n_steps: 50`, the host runs ahead of the GPU and spends most
+of its time waiting for data even when the GPU is saturated.)
+
+The epoch-level `train/time`, `train/steps_per_sec`, `train/samples_per_sec` and
+`train/frames_per_sec` exclude validation time. The epoch-averaged `train/loss`
+and per-node `train/confmaps/<node>` are summed on the GPU and read back once per
+epoch instead of every step.
 
 ---
 
@@ -380,6 +470,17 @@ trainer_config:
 | `use_wandb` | bool | `false` | Enable WandB logging |
 | `resume_ckpt_path` | str | `null` | Path to checkpoint to resume from |
 | `optimizer_name` | str | `Adam` | Optimizer: `Adam` or `AdamW` |
+| `precision` | str | `"32"` | Lightning precision: `"32"`, `"bf16-mixed"`, `"16-mixed"` |
+| `float32_matmul_precision` | str | `null` | `torch.set_float32_matmul_precision` during training on CUDA, restored afterwards (`high` = TF32; `highest` = strict fp32; `null` = leave unchanged) |
+| `compile` | bool/str | `false` | `torch.compile` the model in place (`true` or a mode such as `max-autotune`) |
+| `gradient_clip_val` | float | `null` | Gradient clipping threshold |
+| `gradient_clip_algorithm` | str | `norm` | `norm` or `value` |
+| `accumulate_grad_batches` | int | `1` | Batches per optimizer step |
+| `log_every_n_steps` | int | `1` | Step-metric logging cadence |
+| `max_steps` | int | `null` | Optimizer-step budget |
+| `val_check_interval` | int/float | `null` | Validate every N training batches (int, across epochs) or epoch fraction (float) |
+| `throughput_log_every_n_steps` | int | `50` | `perf/*` throughput window (0 disables) |
+| `confmap_fg_bg_diagnostics` | bool | `null` | Log confmap fg/bg MSE split (`null` = centroid only) |
 
 ### DataLoaderConfig
 
@@ -388,6 +489,9 @@ trainer_config:
 | `batch_size` | int | `4` | Samples per batch (per-GPU; global batch = `batch_size × num_GPUs` with multi-GPU) |
 | `shuffle` | bool | `true` (train) / `false` (val) | Shuffle data each epoch |
 | `num_workers` | int or `"auto"` | `0` | Parallel data loading workers (use with caching only). `"auto"` sizes from usable CPU count; see [Automatic worker count](#automatic-worker-count) |
+| `prefetch_factor` | int | `2` | Batches loaded ahead per worker (ignored with `num_workers: 0`) |
+| `pin_memory` | bool | `null` | Pinned host memory for batches (`null` = `true`; the val loader falls back to the train loader's setting) |
+| `drop_last` | bool | `null` | Train loader only: drop each pass's partial batch (`null` = only with `compile`, to avoid recompiles) |
 
 ### OptimizerConfig
 

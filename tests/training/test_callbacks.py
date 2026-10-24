@@ -920,6 +920,9 @@ class TestCSVLoggerCallbackFileOps:
 
             with patch("sleap_nn.training.callbacks.RANK", 0):
                 callback.on_validation_end(mock_trainer, mock_pl_module)
+                # The row waits for the epoch's train metrics.
+                assert not filepath.exists()
+                callback.on_train_end(mock_trainer, mock_pl_module)
 
             assert filepath.exists()
 
@@ -950,6 +953,7 @@ class TestCSVLoggerCallbackFileOps:
 
             with patch("sleap_nn.training.callbacks.RANK", 0):
                 callback.on_validation_end(mock_trainer, mock_pl_module)
+                callback.on_train_epoch_start(mock_trainer, mock_pl_module)
 
             assert filepath.exists()
 
@@ -974,7 +978,63 @@ class TestCSVLoggerCallbackFileOps:
             mock_pl_module = MagicMock()
 
             callback.on_validation_end(mock_trainer, mock_pl_module)
+            callback.on_train_end(mock_trainer, mock_pl_module)
 
+            assert not filepath.exists()
+
+    def test_row_holds_its_own_epochs_train_metrics(self):
+        """Row N carries epoch N's train loss/LR, not epoch N-1's (off-by-one).
+
+        Lightning runs the epoch-end validation before
+        ``LightningModule.on_train_epoch_end`` logs ``train/loss``/``train/lr``,
+        so the row is written once those exist.
+        """
+        import csv
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            filepath = Path(tmpdir) / "metrics.csv"
+            callback = CSVLoggerCallback(
+                filepath=filepath,
+                keys=["epoch", "train/loss", "val/loss", "learning_rate"],
+            )
+            trainer = MagicMock()
+            trainer.sanity_checking = False
+            trainer.is_global_zero = True
+            trainer.callback_metrics = {}
+            module = MagicMock()
+
+            with patch("sleap_nn.training.callbacks.RANK", 0):
+                for epoch in range(3):
+                    trainer.current_epoch = epoch
+                    callback.on_train_epoch_start(trainer, module)
+                    # Validation (end of the epoch) runs first...
+                    trainer.callback_metrics["val/loss"] = torch.tensor(10.0 + epoch)
+                    callback.on_validation_end(trainer, module)
+                    # ...then the module's on_train_epoch_end logs train metrics.
+                    trainer.callback_metrics["train/loss"] = torch.tensor(1.0 + epoch)
+                    trainer.callback_metrics["train/lr"] = torch.tensor(0.1**epoch)
+                callback.on_train_end(trainer, module)
+
+            with open(filepath) as f:
+                rows = list(csv.DictReader(f))
+            assert [int(r["epoch"]) for r in rows] == [0, 1, 2]
+            for epoch, row in enumerate(rows):
+                assert float(row["train/loss"]) == pytest.approx(1.0 + epoch)
+                assert float(row["val/loss"]) == pytest.approx(10.0 + epoch)
+                assert float(row["learning_rate"]) == pytest.approx(0.1**epoch)
+
+    def test_no_row_without_validation(self):
+        """Epochs that ran no validation write no row (as before)."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            filepath = Path(tmpdir) / "metrics.csv"
+            callback = CSVLoggerCallback(filepath=filepath)
+            trainer = MagicMock()
+            trainer.sanity_checking = True
+            trainer.is_global_zero = True
+            with patch("sleap_nn.training.callbacks.RANK", 0):
+                callback.on_validation_end(trainer, MagicMock())  # sanity check
+                callback.on_train_epoch_start(trainer, MagicMock())
+                callback.on_train_end(trainer, MagicMock())
             assert not filepath.exists()
 
     def test_on_validation_epoch_start_resets_eval_keys_to_nan(self):

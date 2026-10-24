@@ -837,7 +837,20 @@ class TestConfmapFgBgLoss:
 
         model = object.__new__(LightningModel)
         model.log = MagicMock()
+        model.model_type = "centroid"  # the diagnostic defaults to centroid only
         return model
+
+    def test_gated_to_centroid_by_default(self):
+        """Non-centroid models skip the diagnostic unless explicitly enabled."""
+        model = self._make_model()
+        model.model_type = "centered_instance"
+        y = torch.zeros(1, 1, 4, 4)
+        model._log_confmap_fg_bg_loss(torch.zeros_like(y), y, stage="train")
+        assert model.log.call_count == 0
+
+        model.confmap_fg_bg_diagnostics = True
+        model._log_confmap_fg_bg_loss(torch.zeros_like(y), y, stage="train")
+        assert model.log.call_count == 3
 
     @staticmethod
     def _logged(model):

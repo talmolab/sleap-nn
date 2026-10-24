@@ -503,12 +503,13 @@ def test_model_trainer_centered_instance(caplog, config, tmp_path: str):
     )
     # Verify training log has data
     assert len(df) > 0, "Training log CSV is empty"
-    # Check learning rate if any non-NaN values exist
-    lr_values = df["learning_rate"].dropna()
-    if len(lr_values) > 0:
-        assert (
-            abs(lr_values.iloc[0] - config.trainer_config.optimizer.lr) <= 1e-4
-        ), f"Learning rate mismatch: {lr_values.iloc[0]} vs {config.trainer_config.optimizer.lr}"
+    # Every row carries its own epoch's LR and train loss (no off-by-one blank
+    # first row).
+    assert not df["learning_rate"].isnull().any()
+    assert not df["train/loss"].isnull().any()
+    assert (
+        abs(df["learning_rate"].iloc[0] - config.trainer_config.optimizer.lr) <= 1e-4
+    ), f"Learning rate mismatch: {df['learning_rate'].iloc[0]} vs {config.trainer_config.optimizer.lr}"
     assert not df["val/loss"].isnull().all()
     assert not df["train/loss"].isnull().all()
     # check if part loss is logged

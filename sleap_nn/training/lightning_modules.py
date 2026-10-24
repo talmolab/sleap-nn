@@ -228,9 +228,18 @@ class LightningModel(L.LightningModule):
         self.val_loss = {}
         self.learning_rate = {}
 
-        # For epoch-averaged loss tracking
+        # For epoch-averaged loss tracking. Sums stay on the device (a tensor once
+        # the first step has run) so no step forces a host sync; they are read
+        # back once per epoch in `on_train_epoch_end`.
         self._epoch_loss_sum = 0.0
         self._epoch_loss_count = 0
+        self._epoch_node_loss_sum = None
+        self._epoch_node_loss_count = 0
+        # Validation run inside the train epoch (excluded from train throughput).
+        self._epoch_val_time = 0.0
+        # Confmap fg/bg MSE diagnostic: None = centroid models only (set from
+        # `trainer_config.confmap_fg_bg_diagnostics` by the config factory).
+        self.confmap_fg_bg_diagnostics = None
 
         # For throughput logging (samples/frames per second).
         self._epoch_sample_count = 0
@@ -396,6 +405,10 @@ class LightningModel(L.LightningModule):
             # Make `data_config.preprocessing.burn_in` live (mask-on vs centroid-crop).
             set_embedding_burn_in_from_config(lightning_model, config)
 
+        lightning_model.confmap_fg_bg_diagnostics = OmegaConf.select(
+            config, "trainer_config.confmap_fg_bg_diagnostics", default=None
+        )
+
         return lightning_model
 
     def forward(self, img):
@@ -408,13 +421,35 @@ class LightningModel(L.LightningModule):
         # Reset epoch loss tracking
         self._epoch_loss_sum = 0.0
         self._epoch_loss_count = 0
+        self._epoch_node_loss_sum = None
+        self._epoch_node_loss_count = 0
+        self._epoch_val_time = 0.0
         # Reset per-device sample count for throughput.
         self._epoch_sample_count = 0
 
     def _accumulate_loss(self, loss: torch.Tensor):
-        """Accumulate loss for epoch-averaged logging. Call this in training_step."""
-        self._epoch_loss_sum += loss.detach().item()
+        """Accumulate loss for epoch-averaged logging. Call this in training_step.
+
+        The running sum stays on the loss's device (no ``.item()`` per step, which
+        would block the host on the GPU every iteration).
+        """
+        if isinstance(loss, torch.Tensor):
+            loss = loss.detach().float()
+        self._epoch_loss_sum = self._epoch_loss_sum + loss
         self._epoch_loss_count += 1
+
+    def _accumulate_node_loss(self, channel_wise_loss: torch.Tensor):
+        """Accumulate per-node confmap MSE (logged per node once per epoch).
+
+        Replaces one ``self.log`` call per node per step (17 for COCO) with a single
+        on-device add; ``on_train_epoch_end`` logs ``train/confmaps/<node>``.
+        """
+        loss = channel_wise_loss.detach().float()
+        if self._epoch_node_loss_sum is None:
+            self._epoch_node_loss_sum = loss
+        else:
+            self._epoch_node_loss_sum = self._epoch_node_loss_sum + loss
+        self._epoch_node_loss_count += 1
 
     def on_train_batch_end(self, outputs, batch, batch_idx):
         """Count per-device samples this epoch (for throughput logging)."""
@@ -448,7 +483,9 @@ class LightningModel(L.LightningModule):
 
     def on_train_epoch_end(self):
         """Configure the train timer at the end of every epoch."""
-        train_time = time.time() - self.train_start_time
+        # Lightning runs the epoch's validation loop BEFORE this hook, so exclude
+        # it: `train/time` and the throughput metrics are training-only.
+        train_time = time.time() - self.train_start_time - self._epoch_val_time
         self.log(
             "train/time",
             train_time,
@@ -468,6 +505,8 @@ class LightningModel(L.LightningModule):
         # Log epoch-averaged training loss
         if self._epoch_loss_count > 0:
             avg_loss = self._epoch_loss_sum / self._epoch_loss_count
+            if isinstance(avg_loss, torch.Tensor):
+                avg_loss = avg_loss.item()
             self.log(
                 "train/loss",
                 avg_loss,
@@ -476,6 +515,19 @@ class LightningModel(L.LightningModule):
                 on_epoch=True,
                 sync_dist=True,
             )
+        # Per-node confmap losses accumulated by `_accumulate_node_loss`.
+        node_names = getattr(self, "node_names", None)
+        if self._epoch_node_loss_sum is not None and node_names is not None:
+            node_avg = self._epoch_node_loss_sum / self._epoch_node_loss_count
+            for node_idx, name in enumerate(node_names):
+                self.log(
+                    f"train/confmaps/{name}",
+                    node_avg[node_idx],
+                    prog_bar=False,
+                    on_step=False,
+                    on_epoch=True,
+                    sync_dist=True,
+                )
         # Log current learning rate (useful for monitoring LR schedulers)
         if self.trainer.optimizers:
             lr = self.trainer.optimizers[0].param_groups[0]["lr"]
@@ -523,6 +575,8 @@ class LightningModel(L.LightningModule):
     def on_validation_epoch_end(self):
         """Configure the val timer at the end of every epoch."""
         val_time = time.time() - self.val_start_time
+        if not self.trainer.sanity_checking:
+            self._epoch_val_time += val_time
         self.log(
             "val/time",
             val_time,
@@ -771,14 +825,22 @@ class LightningModel(L.LightningModule):
             threshold: Foreground/background split on the target value.
                 *Default*: ``0.5``.
         """
+        enabled = getattr(self, "confmap_fg_bg_diagnostics", None)
+        if enabled is None:
+            enabled = getattr(self, "model_type", None) == "centroid"
+        if not enabled:
+            return
+        # Masked sums instead of boolean indexing / `.any()`, which each force a
+        # host-device sync every step. Empty sets give 0, as before.
         with torch.no_grad():
-            se = (y_pred - y).pow(2)
-            fg = y > threshold
-            bg = y < threshold
-            zero = torch.zeros((), device=y_pred.device)
-            fg_loss = se[fg].mean() if fg.any() else zero
-            bg_loss = se[bg].mean() if bg.any() else zero
-            fg_frac = fg.float().mean()
+            se = (y_pred.float() - y.float()).pow(2)
+            fg = (y > threshold).float()
+            bg = (y < threshold).float()
+            fg_n = fg.sum()
+            bg_n = bg.sum()
+            fg_loss = (se * fg).sum() / fg_n.clamp_min(1.0)
+            bg_loss = (se * bg).sum() / bg_n.clamp_min(1.0)
+            fg_frac = fg_n / fg.numel()
         for key, val in (
             (f"{stage}/confmap_loss_fg", fg_loss),
             (f"{stage}/confmap_loss_bg", bg_loss),
@@ -993,12 +1055,19 @@ class LightningModel(L.LightningModule):
                 "optimizer": optimizer,
             }
 
+        lr_scheduler = {
+            "scheduler": scheduler,
+            "monitor": "val/loss",
+        }
+        trainer = getattr(self, "_trainer", None)
+        if trainer is not None and trainer.check_val_every_n_epoch is None:
+            # An int `val_check_interval` validates every N batches, not every
+            # epoch, so epoch ends before the first validation have no `val/loss`
+            # yet; skip the plateau update there instead of raising.
+            lr_scheduler["strict"] = False
         return {
             "optimizer": optimizer,
-            "lr_scheduler": {
-                "scheduler": scheduler,
-                "monitor": "val/loss",
-            },
+            "lr_scheduler": lr_scheduler,
         }
 
 
@@ -1185,15 +1254,7 @@ class SingleInstanceLightningModule(LightningModel):
             batch_size, _, h, w = y.shape
             mse = (y - y_preds) ** 2
             channel_wise_loss = torch.sum(mse, dim=(0, 2, 3)) / (batch_size * h * w)
-            for node_idx, name in enumerate(self.node_names):
-                self.log(
-                    f"train/confmaps/{name}",
-                    channel_wise_loss[node_idx],
-                    prog_bar=False,
-                    on_step=False,
-                    on_epoch=True,
-                    sync_dist=True,
-                )
+            self._accumulate_node_loss(channel_wise_loss)
         # Log step-level loss (every batch, uses global_step x-axis)
         self.log(
             "loss",
@@ -1456,15 +1517,7 @@ class TopDownCenteredInstanceLightningModule(LightningModel):
             batch_size, _, h, w = y.shape
             mse = (y - y_preds) ** 2
             channel_wise_loss = torch.sum(mse, dim=(0, 2, 3)) / (batch_size * h * w)
-            for node_idx, name in enumerate(self.node_names):
-                self.log(
-                    f"train/confmaps/{name}",
-                    channel_wise_loss[node_idx],
-                    prog_bar=False,
-                    on_step=False,
-                    on_epoch=True,
-                    sync_dist=True,
-                )
+            self._accumulate_node_loss(channel_wise_loss)
 
         # Log step-level loss (every batch, uses global_step x-axis)
         self.log(
@@ -2917,15 +2970,7 @@ class TopDownCenteredInstanceMultiClassLightningModule(LightningModel):
             batch_size, _, h, w = y_confmap.shape
             mse = (y_confmap - confmaps) ** 2
             channel_wise_loss = torch.sum(mse, dim=(0, 2, 3)) / (batch_size * h * w)
-            for node_idx, name in enumerate(self.node_names):
-                self.log(
-                    f"train/confmaps/{name}",
-                    channel_wise_loss[node_idx],
-                    prog_bar=False,
-                    on_step=False,
-                    on_epoch=True,
-                    sync_dist=True,
-                )
+            self._accumulate_node_loss(channel_wise_loss)
 
         # Log step-level loss (every batch, uses global_step x-axis)
         self.log(

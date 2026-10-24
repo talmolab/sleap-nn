@@ -108,6 +108,7 @@ from sleap_nn.training.callbacks import (
     EvalCadenceEarlyStopping,
     LastEpochCheckpoint,
     UnifiedVizCallback,
+    ThroughputMonitor,
 )
 from sleap_nn import RANK
 from sleap_nn.legacy_models import get_keras_first_layer_channels
@@ -2774,6 +2775,13 @@ class ModelTrainer:
         if tiling is not None and tiling.enabled:
             callbacks.append(TilingEpochCallback())
 
+        # Train-only speed / dataloader-stall / memory / LR logging (`perf/*`).
+        throughput_every = OmegaConf.select(
+            self.config, "trainer_config.throughput_log_every_n_steps", default=50
+        )
+        if throughput_every:
+            callbacks.append(ThroughputMonitor(log_every_n_steps=throughput_every))
+
         return loggers, callbacks
 
     def _delete_cache_imgs(self):
@@ -2795,6 +2803,81 @@ class ModelTrainer:
                 (val_cache_img_path).as_posix(),
                 ignore_errors=True,
             )
+
+    def _get_trainer_speed_kwargs(self) -> dict:
+        """`lightning.Trainer` kwargs for precision, clipping, accumulation, cadence.
+
+        Every key is read with a default so configs that predate these options
+        (and raw configs that skipped schema merging) keep today's behaviour.
+        """
+        tc = self.config.trainer_config
+
+        def sel(key, default):
+            return OmegaConf.select(tc, key, default=default)
+
+        precision = str(sel("precision", "32"))
+        kwargs = dict(
+            precision=precision,
+            log_every_n_steps=int(sel("log_every_n_steps", 1)),
+            accumulate_grad_batches=int(sel("accumulate_grad_batches", 1)),
+        )
+        clip = sel("gradient_clip_val", None)
+        if clip is not None:
+            kwargs["gradient_clip_val"] = float(clip)
+            kwargs["gradient_clip_algorithm"] = sel("gradient_clip_algorithm", "norm")
+        max_steps = sel("max_steps", None)
+        if max_steps is not None:
+            kwargs["max_steps"] = int(max_steps)
+        val_check_interval = sel("val_check_interval", None)
+        if val_check_interval is not None:
+            kwargs["val_check_interval"] = val_check_interval
+            if isinstance(val_check_interval, int):
+                # An int counts training batches across epoch boundaries (our
+                # "epochs" are just `train_steps_per_epoch` batches of an infinite
+                # loader), so it may exceed the epoch length. Lightning only
+                # allows that with `check_val_every_n_epoch=None`.
+                kwargs["check_val_every_n_epoch"] = None
+        logger.info(
+            "Trainer speed settings: "
+            + ", ".join(f"{k}={v}" for k, v in kwargs.items())
+        )
+        return kwargs
+
+    def _set_float32_matmul_precision(self) -> Optional[str]:
+        """Apply `trainer_config.float32_matmul_precision` on CUDA.
+
+        Returns:
+            The previous process-wide setting (to restore after training), or
+            `None` if nothing was changed.
+        """
+        value = OmegaConf.select(
+            self.config, "trainer_config.float32_matmul_precision", default=None
+        )
+        if value is None or not torch.cuda.is_available():
+            return None
+        if (
+            self.trainer is not None
+            and self.trainer.strategy.root_device.type != "cuda"
+        ):
+            return None
+        prev = torch.get_float32_matmul_precision()
+        torch.set_float32_matmul_precision(value)
+        logger.info(f"torch.set_float32_matmul_precision('{value}') (was '{prev}').")
+        return prev
+
+    def _maybe_compile_model(self):
+        """`torch.compile` the network in place if `trainer_config.compile` is set.
+
+        `nn.Module.compile` keeps the parameter names (no `_orig_mod.` prefix), so
+        checkpoints stay loadable by uncompiled models. Only the network forward is
+        compiled; losses and logging stay eager.
+        """
+        mode = OmegaConf.select(self.config, "trainer_config.compile", default=False)
+        if mode is None or mode is False:
+            return
+        mode = "default" if mode is True else str(mode)
+        logger.info(f"Compiling the model with torch.compile(mode='{mode}')...")
+        self.lightning_model.model.compile(mode=mode)
 
     def train(self):
         """Train the lightning model."""
@@ -2893,8 +2976,8 @@ class ModelTrainer:
             enable_progress_bar=self.config.trainer_config.enable_progress_bar,
             strategy=strategy,
             profiler=profiler,
-            log_every_n_steps=1,
             use_distributed_sampler=use_distributed_sampler,
+            **self._get_trainer_speed_kwargs(),
         )
 
         self.trainer.strategy.barrier()
@@ -2971,6 +3054,7 @@ class ModelTrainer:
         total_params = sum(p.numel() for p in self.lightning_model.parameters())
         logger.info(f"Total model parameters: {total_params:,}")
         self.config.model_config.total_params = total_params
+        self._maybe_compile_model()
 
         # setup dataloaders
         # need to set up dataloaders after Trainer is initialized (for ddp). DistributedSampler depends on the rank
@@ -3055,6 +3139,9 @@ class ModelTrainer:
         # Flag to track if training was interrupted (not completed normally)
         training_interrupted = False
 
+        # TF32 matmuls/convs for the duration of training (restored afterwards).
+        prev_matmul_precision = self._set_float32_matmul_precision()
+
         try:
             logger.info(
                 f"Finished trainer set up. [{time.time() - start_setup_time:.1f}s]"
@@ -3073,6 +3160,8 @@ class ModelTrainer:
             training_interrupted = True
 
         finally:
+            if prev_matmul_precision is not None:
+                torch.set_float32_matmul_precision(prev_matmul_precision)
             logger.info(
                 f"Finished training loop. [{(time.time() - start_train_time) / 60:.1f} min]"
             )
