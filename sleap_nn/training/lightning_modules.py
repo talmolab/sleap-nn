@@ -86,6 +86,12 @@ from sleap_nn.config.model_config import resolve_embedding_objective
 from sleap_nn.legacy_models import (
     load_legacy_model_weights,
 )
+from sleap_nn.training.weight_transfer import (
+    CHECKPOINT_HEADS_KEY,
+    init_from_checkpoint,
+    model_head_channels,
+    reinit as reinit_selected,
+)
 
 MODEL_WEIGHTS = {
     "Swin_T_Weights": Swin_T_Weights,
@@ -160,6 +166,9 @@ class LightningModel(L.LightningModule):
         optimizer: Optimizer name. One of ["Adam", "AdamW"].
         learning_rate: Learning rate for the optimizer. Default: 1e-3.
         amsgrad: Enable AMSGrad with the optimizer. Default: False.
+        init_from: Optional `InitFromConfig` (or dict): shape-tolerant,
+            skeleton-aware initialization from another checkpoint plus optional
+            re-initialization, applied after every other weight source.
 
     Attributes:
         weight_decay: Weight decay for the weight matrices only (see
@@ -204,10 +213,13 @@ class LightningModel(L.LightningModule):
         learning_rate: Optional[float] = 1e-3,
         amsgrad: Optional[bool] = False,
         negative_loss_weight: Optional[float] = 1.0,
+        init_from: Optional[Union[DictConfig, Dict[str, Any]]] = None,
     ):
         """Initialise the configs and the model."""
         super().__init__()
         self.negative_loss_weight = negative_loss_weight
+        self.init_from = init_from
+        self.transfer_reports = []
         self.model_type = model_type
         self.backbone_type = backbone_type
         if not isinstance(backbone_config, DictConfig):
@@ -307,17 +319,15 @@ class LightningModel(L.LightningModule):
                 f"Loading backbone weights from `{self.pretrained_backbone_weights}` ..."
             )
             if self.pretrained_backbone_weights.endswith(".ckpt"):
-                ckpt = torch.load(
-                    self.pretrained_backbone_weights,
-                    map_location="cpu",
-                    weights_only=False,
+                # Shape-tolerant: matching tensors load, the rest are reported.
+                self.transfer_reports.append(
+                    init_from_checkpoint(
+                        self,
+                        self.pretrained_backbone_weights,
+                        include=["backbone"],
+                        strict=self._init_from_option("strict", False),
+                    )
                 )
-                ckpt["state_dict"] = {
-                    k: ckpt["state_dict"][k]
-                    for k in ckpt["state_dict"].keys()
-                    if ".backbone" in k
-                }
-                self.load_state_dict(ckpt["state_dict"], strict=False)
 
             elif self.pretrained_backbone_weights.endswith(".h5"):
                 # load from sleap model weights
@@ -338,17 +348,16 @@ class LightningModel(L.LightningModule):
                 f"Loading head weights from `{self.pretrained_head_weights}` ..."
             )
             if self.pretrained_head_weights.endswith(".ckpt"):
-                ckpt = torch.load(
-                    self.pretrained_head_weights,
-                    map_location="cpu",
-                    weights_only=False,
+                # Per-node channels are copied by node name (source skeleton from
+                # the checkpoint / its training_config.yaml).
+                self.transfer_reports.append(
+                    init_from_checkpoint(
+                        self,
+                        self.pretrained_head_weights,
+                        include=["head"],
+                        strict=self._init_from_option("strict", False),
+                    )
                 )
-                ckpt["state_dict"] = {
-                    k: ckpt["state_dict"][k]
-                    for k in ckpt["state_dict"].keys()
-                    if ".head_layers" in k
-                }
-                self.load_state_dict(ckpt["state_dict"], strict=False)
 
             elif self.pretrained_head_weights.endswith(".h5"):
                 # load from sleap model weights
@@ -362,6 +371,56 @@ class LightningModel(L.LightningModule):
                 message = f"Unsupported file extension for pretrained head weights. Please provide a .ckpt or .h5 file."
                 logger.error(message)
                 raise ValueError(message)
+
+        if self.init_from is not None:
+            self._apply_init_from()
+
+    def _init_from_option(self, key: str, default: Any = None) -> Any:
+        """One ``model_config.init_from`` option (``default`` when unset)."""
+        cfg = self.init_from
+        if cfg is None:
+            return default
+        val = (
+            OmegaConf.select(cfg, key, default=default)
+            if OmegaConf.is_config(cfg)
+            else cfg.get(key, default)
+        )
+        if OmegaConf.is_config(val):
+            val = OmegaConf.to_container(val)
+        return default if val is None else val
+
+    def _apply_init_from(self) -> None:
+        """Apply ``model_config.init_from``: transfer, then re-initialize."""
+        get = self._init_from_option
+
+        if get("path") is not None:
+            self.transfer_reports.append(
+                init_from_checkpoint(
+                    self,
+                    get("path"),
+                    include=get("include"),
+                    exclude=get("exclude"),
+                    remap_nodes=get("remap_nodes", True),
+                    node_map=get("node_map"),
+                    source_part_names=get("source_part_names"),
+                    interpolate_pos_embed=get("interpolate_pos_embed", True),
+                    strict=get("strict", False),
+                )
+            )
+        if get("reinit"):
+            reinit_selected(
+                self,
+                list(get("reinit")),
+                layer_scale=float(get("reinit_layer_scale", 1e-5)),
+            )
+
+    def on_save_checkpoint(self, checkpoint: Dict[str, Any]) -> None:
+        """Record each head's output-channel names (node names) in the checkpoint.
+
+        Lets `init_from` / `pretrained_head_weights` remap channels by node name
+        without the ``training_config.yaml`` next to the checkpoint.
+        """
+        checkpoint[CHECKPOINT_HEADS_KEY] = model_head_channels(self)
 
     @classmethod
     def get_lightning_model_from_config(cls, config: DictConfig):
@@ -407,6 +466,14 @@ class LightningModel(L.LightningModule):
                 centroid_confmaps_config, "focal_loss_pos_threshold", 0.5
             )
 
+        init_from = OmegaConf.select(config, "model_config.init_from", default=None)
+        if init_from is not None and OmegaConf.select(
+            config, "trainer_config.resume_ckpt_path", default=None
+        ):
+            # The resumed checkpoint overwrites every weight anyway.
+            logger.info("Resuming: skipping model_config.init_from.")
+            init_from = None
+
         lightning_model = lightning_models[model_type](
             model_type=model_type,
             backbone_type=backbone_type,
@@ -425,6 +492,7 @@ class LightningModel(L.LightningModule):
             learning_rate=config.trainer_config.optimizer.lr,
             amsgrad=config.trainer_config.optimizer.amsgrad,
             negative_loss_weight=negative_loss_weight,
+            init_from=init_from,
             **extra_kwargs,
         )
 
@@ -1429,6 +1497,7 @@ class SingleInstanceLightningModule(LightningModel):
         learning_rate: Optional[float] = 1e-3,
         amsgrad: Optional[bool] = False,
         negative_loss_weight: Optional[float] = 1.0,
+        init_from: Optional[Union[DictConfig, Dict[str, Any]]] = None,
     ):
         """Initialise the configs and the model."""
         super().__init__(
@@ -1449,6 +1518,7 @@ class SingleInstanceLightningModule(LightningModel):
             learning_rate=learning_rate,
             amsgrad=amsgrad,
             negative_loss_weight=negative_loss_weight,
+            init_from=init_from,
         )
 
         self.single_instance_inf_layer = SingleInstanceInferenceModel(
@@ -1691,6 +1761,7 @@ class TopDownCenteredInstanceLightningModule(LightningModel):
         learning_rate: Optional[float] = 1e-3,
         amsgrad: Optional[bool] = False,
         negative_loss_weight: Optional[float] = 1.0,
+        init_from: Optional[Union[DictConfig, Dict[str, Any]]] = None,
     ):
         """Initialise the configs and the model."""
         super().__init__(
@@ -1711,6 +1782,7 @@ class TopDownCenteredInstanceLightningModule(LightningModel):
             learning_rate=learning_rate,
             amsgrad=amsgrad,
             negative_loss_weight=negative_loss_weight,
+            init_from=init_from,
         )
 
         # Epoch-end eval decodes like `sleap-nn predict` does by default: DARK,
@@ -1969,6 +2041,7 @@ class CentroidLightningModule(LightningModel):
         learning_rate: Optional[float] = 1e-3,
         amsgrad: Optional[bool] = False,
         negative_loss_weight: Optional[float] = 1.0,
+        init_from: Optional[Union[DictConfig, Dict[str, Any]]] = None,
         centroid_focal_loss_alpha: Optional[float] = 0.0,
         centroid_focal_loss_beta: Optional[float] = 4.0,
         centroid_focal_loss_pos_threshold: Optional[float] = 0.5,
@@ -1992,6 +2065,7 @@ class CentroidLightningModule(LightningModel):
             learning_rate=learning_rate,
             amsgrad=amsgrad,
             negative_loss_weight=negative_loss_weight,
+            init_from=init_from,
         )
         # Centroid-only knobs, not threaded through the base `LightningModel`
         # since no other model type implements this loss -- see
@@ -2290,6 +2364,7 @@ class BottomUpLightningModule(LightningModel):
         learning_rate: Optional[float] = 1e-3,
         amsgrad: Optional[bool] = False,
         negative_loss_weight: Optional[float] = 1.0,
+        init_from: Optional[Union[DictConfig, Dict[str, Any]]] = None,
     ):
         """Initialise the configs and the model."""
         super().__init__(
@@ -2310,6 +2385,7 @@ class BottomUpLightningModule(LightningModel):
             learning_rate=learning_rate,
             amsgrad=amsgrad,
             negative_loss_weight=negative_loss_weight,
+            init_from=init_from,
         )
 
         paf_scorer = PAFScorer(
@@ -2654,6 +2730,7 @@ class BottomUpMultiClassLightningModule(LightningModel):
         learning_rate: Optional[float] = 1e-3,
         amsgrad: Optional[bool] = False,
         negative_loss_weight: Optional[float] = 1.0,
+        init_from: Optional[Union[DictConfig, Dict[str, Any]]] = None,
     ):
         """Initialise the configs and the model."""
         super().__init__(
@@ -2674,6 +2751,7 @@ class BottomUpMultiClassLightningModule(LightningModel):
             learning_rate=learning_rate,
             amsgrad=amsgrad,
             negative_loss_weight=negative_loss_weight,
+            init_from=init_from,
         )
         self.bottomup_inf_layer = BottomUpMultiClassInferenceModel(
             torch_model=self.forward,
@@ -3114,6 +3192,7 @@ class TopDownCenteredInstanceMultiClassLightningModule(LightningModel):
         learning_rate: Optional[float] = 1e-3,
         amsgrad: Optional[bool] = False,
         negative_loss_weight: Optional[float] = 1.0,
+        init_from: Optional[Union[DictConfig, Dict[str, Any]]] = None,
     ):
         """Initialise the configs and the model."""
         super().__init__(
@@ -3134,6 +3213,7 @@ class TopDownCenteredInstanceMultiClassLightningModule(LightningModel):
             learning_rate=learning_rate,
             amsgrad=amsgrad,
             negative_loss_weight=negative_loss_weight,
+            init_from=init_from,
         )
         self.instance_peaks_inf_layer = TopDownMultiClassFindInstancePeaks(
             torch_model=self.forward,
@@ -3805,6 +3885,7 @@ class EmbeddingLightningModule(LightningModel):
         learning_rate: Optional[float] = 1e-3,
         amsgrad: Optional[bool] = False,
         negative_loss_weight: Optional[float] = 1.0,
+        init_from: Optional[Union[DictConfig, Dict[str, Any]]] = None,
     ):
         """Initialise the configs, model, objective + projection head."""
         super().__init__(
@@ -3825,6 +3906,7 @@ class EmbeddingLightningModule(LightningModel):
             learning_rate=learning_rate,
             amsgrad=amsgrad,
             negative_loss_weight=negative_loss_weight,
+            init_from=init_from,
         )
         leaf = self.head_configs.embedding.embedding
         self.embedding_dim = leaf.embedding_dim
@@ -4143,6 +4225,7 @@ class BottomUpSegmentationLightningModule(LightningModel):
         learning_rate: Optional[float] = 1e-3,
         amsgrad: Optional[bool] = False,
         negative_loss_weight: Optional[float] = 1.0,
+        init_from: Optional[Union[DictConfig, Dict[str, Any]]] = None,
     ):
         """Initialise the configs and the model."""
         super().__init__(
@@ -4163,6 +4246,7 @@ class BottomUpSegmentationLightningModule(LightningModel):
             learning_rate=learning_rate,
             amsgrad=amsgrad,
             negative_loss_weight=negative_loss_weight,
+            init_from=init_from,
         )
 
         seg_cfg = self.head_configs[self.model_type]
@@ -4496,6 +4580,7 @@ class TopDownCenteredInstanceSegmentationLightningModule(LightningModel):
         learning_rate: Optional[float] = 1e-3,
         amsgrad: Optional[bool] = False,
         negative_loss_weight: Optional[float] = 1.0,
+        init_from: Optional[Union[DictConfig, Dict[str, Any]]] = None,
     ):
         """Initialise the configs and the model."""
         super().__init__(
@@ -4516,6 +4601,7 @@ class TopDownCenteredInstanceSegmentationLightningModule(LightningModel):
             learning_rate=learning_rate,
             amsgrad=amsgrad,
             negative_loss_weight=negative_loss_weight,
+            init_from=init_from,
         )
         self.seg_output_stride = self.head_configs[
             self.model_type
@@ -4681,6 +4767,7 @@ class SemanticSegmentationLightningModule(LightningModel):
         learning_rate: Optional[float] = 1e-3,
         amsgrad: Optional[bool] = False,
         negative_loss_weight: Optional[float] = 1.0,
+        init_from: Optional[Union[DictConfig, Dict[str, Any]]] = None,
     ):
         """Initialise the configs and the model."""
         super().__init__(
@@ -4701,6 +4788,7 @@ class SemanticSegmentationLightningModule(LightningModel):
             learning_rate=learning_rate,
             amsgrad=amsgrad,
             negative_loss_weight=negative_loss_weight,
+            init_from=init_from,
         )
         seg = self.head_configs[self.model_type].segmentation
         self.seg_output_stride = seg.output_stride

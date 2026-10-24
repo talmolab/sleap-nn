@@ -21,6 +21,10 @@ Works with:
 
 - Legacy SLEAP `.h5` files (UNet only)
 
+To grow or reorder the skeleton, re-initialize parts of the model, or load into a
+model that differs in places, use `model_config.init_from`; see
+[Initializing from Another Model](init-from.md).
+
 ---
 
 ## Resume Training

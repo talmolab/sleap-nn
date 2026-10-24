@@ -30,6 +30,13 @@ trainer_config:
 
 ---
 
+!!! note "Freeze schedules under DDP"
+    With `trainer_config.freeze_schedule`, `find_unused_parameters` is turned on
+    automatically (frozen parameters get no gradient), and
+    `ddp_find_unused_parameters_false` is refused.
+
+---
+
 ## Specific GPUs
 
 Use specific GPU indices:

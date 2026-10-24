@@ -6,7 +6,7 @@ the parameters required to initialize the model config.
 
 from attrs import asdict, define, field, validators
 from sleap_nn.config.utils import oneof
-from typing import Optional, List
+from typing import Dict, Optional, List
 from loguru import logger
 
 
@@ -1969,6 +1969,59 @@ class BackboneConfig:
 
 
 @define
+class InitFromConfig:
+    """Initialize a model from another sleap-nn checkpoint, tolerating differences.
+
+    Unlike ``trainer_config.resume_ckpt_path`` (a full resume that needs an
+    identical architecture), this copies what fits: tensors with matching keys
+    and shapes, per-node head channels by node name (a COCO-17 checkpoint seeds a
+    46-node union head: shared nodes copied, new nodes fresh), and learned
+    positional embeddings resized to the target grid. Everything else keeps its
+    init and is listed in the logged report. Applied after ``init_weights``, the
+    backbone's pretrained weights and ``pretrained_backbone_weights`` /
+    ``pretrained_head_weights``.
+
+    Attributes:
+        path: (str) A ``.ckpt``, raw state-dict file or model directory
+            (``best.ckpt``). ``None``: no loading (``reinit`` still applies).
+        include: (List[str]) Selectors of target weights to load: ``all``,
+            ``backbone``, ``encoder``, ``embeddings``, ``neck``, ``decoder``,
+            ``head``, ``blocks[a:b]`` or globs on state-dict keys.
+            *Default*: ``None`` (everything).
+        exclude: (List[str]) Selectors to leave at their init. *Default*: ``None``.
+        remap_nodes: (bool) Copy per-node head channels by node name, using the
+            source skeleton saved in the checkpoint (or its
+            ``training_config.yaml``). *Default*: ``True``.
+        node_map: (Dict[str, str]) ``{target node: source node}`` overrides, e.g.
+            to seed a new node from a related source node. *Default*: ``None``.
+        source_part_names: (List[str]) Source node names, for checkpoints that do
+            not record them. *Default*: ``None``.
+        interpolate_pos_embed: (bool) Resize learned positional embeddings on a
+            different grid instead of skipping them. *Default*: ``True``.
+        reinit: (List[str]) Selectors re-initialized AFTER loading, e.g.
+            ``["head"]`` or ``["blocks[-2:]", "neck", "decoder", "head"]``.
+            *Default*: ``None``.
+        reinit_layer_scale: (float) LayerScale value for re-initialized ViT blocks
+            (small = block starts near identity). *Default*: ``1e-5``.
+        strict: (bool) Raise if any selected source tensor had to be skipped
+            for a shape mismatch, here and in the ``.ckpt`` forms of
+            ``pretrained_backbone_weights`` / ``pretrained_head_weights`` (which
+            otherwise warn and skip). *Default*: ``False``.
+    """
+
+    path: Optional[str] = None
+    include: Optional[List[str]] = None
+    exclude: Optional[List[str]] = None
+    remap_nodes: bool = True
+    node_map: Optional[Dict[str, str]] = None
+    source_part_names: Optional[List[str]] = None
+    interpolate_pos_embed: bool = True
+    reinit: Optional[List[str]] = None
+    reinit_layer_scale: float = 1e-5
+    strict: bool = False
+
+
+@define
 class ModelConfig:
     """Configurations related to model architecture.
 
@@ -1986,11 +2039,14 @@ class ModelConfig:
             to train and others should be None
         total_params: (int) Total number of parameters in the model. This is automatically
             computed when the training starts.
+        init_from: (InitFromConfig) Shape-tolerant, skeleton-aware initialization
+            from another checkpoint, plus optional re-initialization.
     """
 
     init_weights: str = "default"
     pretrained_backbone_weights: Optional[str] = None
     pretrained_head_weights: Optional[str] = None
+    init_from: Optional[InitFromConfig] = None
     backbone_config: BackboneConfig = field(factory=BackboneConfig)
     head_configs: HeadConfig = field(factory=HeadConfig)
     total_params: Optional[int] = None

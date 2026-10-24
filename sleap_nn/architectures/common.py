@@ -37,9 +37,31 @@ class FreezableEncoderMixin:
     def freeze_encoder(self) -> None:
         """Freeze the encoder: no gradient to its weights, eval mode from now on."""
         self.freeze = True
+        # Remember what was trainable, so `unfreeze_encoder` does not revive
+        # parameters that were excluded on purpose (e.g. ViT blocks after the last
+        # tapped layer, which would break DDP).
+        self._frozen_params = getattr(self, "_frozen_params", []) + [
+            p
+            for module in self.encoder_modules()
+            for p in module.parameters()
+            if p.requires_grad
+        ]
         for module in self.encoder_modules():
             module.eval()
             module.requires_grad_(False)
+
+    def unfreeze_encoder(self) -> None:
+        """Undo ``freeze_encoder``: gradients flow again, encoder follows ``train()``.
+
+        The caller is responsible for the optimizer: parameters frozen before the
+        optimizer was built are not in it (see ``EncoderFreezeSchedule``).
+        """
+        self.freeze = False
+        for p in getattr(self, "_frozen_params", []):
+            p.requires_grad_(True)
+        self._frozen_params = []
+        for module in self.encoder_modules():
+            module.train(self.training)
 
     def train(self, mode: bool = True):
         """Set train/eval mode, keeping a FROZEN encoder in eval.

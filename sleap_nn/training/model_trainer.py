@@ -108,6 +108,7 @@ from sleap_nn.training.callbacks import (
     SegmentationEvaluationCallback,
     BBoxEvaluationCallback,
     TilingEpochCallback,
+    EncoderFreezeSchedule,
     EmbeddingEvaluationCallback,
     EvalCadenceEarlyStopping,
     LastEpochCheckpoint,
@@ -2909,6 +2910,20 @@ class ModelTrainer:
         )
         if throughput_every:
             callbacks.append(ThroughputMonitor(log_every_n_steps=throughput_every))
+        freeze_cfg = OmegaConf.select(
+            self.config, "trainer_config.freeze_schedule", default=None
+        )
+        if freeze_cfg is not None:
+            callbacks.append(
+                EncoderFreezeSchedule(
+                    targets=(
+                        list(freeze_cfg.targets)
+                        if freeze_cfg.get("targets") is not None
+                        else None
+                    ),
+                    unfreeze_at_step=freeze_cfg.get("unfreeze_at_step", None),
+                )
+            )
 
         return loggers, callbacks
 

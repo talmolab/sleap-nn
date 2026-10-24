@@ -3445,3 +3445,152 @@ class ThroughputMonitor(Callback):
                         else ""
                     )
                 )
+
+
+class EncoderFreezeSchedule(Callback):
+    """Freeze part of the model for the first ``unfreeze_at_step`` steps.
+
+    The usual "warm up the new head on a frozen pretrained encoder, then fine-tune
+    everything" recipe. Freezing happens in ``on_fit_start`` -- AFTER
+    ``configure_optimizers`` -- so the frozen parameters are already in their
+    optimizer groups (with their ``encoder_lr_scale`` / ``layer_decay`` LRs) and
+    simply receive no gradient (Adam/AdamW skip parameters whose ``grad`` is
+    ``None``, weight decay included) until they are unfrozen. Do NOT combine with
+    the backbone's ``freeze: true``, which keeps the encoder out of the optimizer.
+
+    Under DDP the model is wrapped before ``on_fit_start``, so DDP has registered
+    the frozen parameters and would wait forever for their gradients. ``setup``
+    therefore turns on ``find_unused_parameters`` for a ``DDPStrategy`` (and
+    refuses an explicit ``find_unused_parameters=False`` / ``static_graph``, or
+    any other multi-process strategy).
+
+    Args:
+        targets: Selectors of what to freeze (see
+            `sleap_nn.training.weight_transfer.resolve_selector`): ``"encoder"``
+            (default), ``"embeddings"``, ``"blocks[:6]"``, ``"backbone"``, globs.
+            ``"encoder"`` also keeps the encoder in eval mode while frozen
+            (BatchNorm statistics, stochastic depth), as ``freeze: true`` does.
+        unfreeze_at_step: Global step at which to unfreeze. ``None`` keeps the
+            targets frozen for the whole run (static partial freezing).
+    """
+
+    def __init__(
+        self,
+        targets: Optional[list] = None,
+        unfreeze_at_step: Optional[int] = None,
+    ):
+        """Initialize the schedule."""
+        super().__init__()
+        self.targets = list(targets or ["encoder"])
+        self.unfreeze_at_step = unfreeze_at_step
+        self.frozen: list = []
+        self._uses_mixin = False
+
+    def _backbone(self, pl_module):
+        return getattr(getattr(pl_module, "model", None), "backbone", None)
+
+    def setup(self, trainer, pl_module, stage):
+        """Make DDP tolerate parameters that get no gradient while frozen.
+
+        Runs before the strategy wraps the model, so the flag reaches
+        ``DistributedDataParallel``.
+        """
+        if stage != "fit":
+            return
+        from lightning.pytorch.strategies import DDPStrategy, ParallelStrategy
+
+        strategy = trainer.strategy
+        if isinstance(strategy, DDPStrategy):
+            ddp_kwargs = strategy._ddp_kwargs
+            if ddp_kwargs.get("find_unused_parameters") is False or ddp_kwargs.get(
+                "static_graph"
+            ):
+                message = (
+                    "trainer_config.freeze_schedule freezes parameters after DDP has "
+                    "wrapped the model, which needs find_unused_parameters=True and "
+                    "no static_graph. Use trainer_strategy 'ddp' or "
+                    "'ddp_find_unused_parameters_true'."
+                )
+                logger.error(message)
+                raise ValueError(message)
+            if not ddp_kwargs.get("find_unused_parameters"):
+                ddp_kwargs["find_unused_parameters"] = True
+                logger.info(
+                    "EncoderFreezeSchedule: enabled DDP find_unused_parameters "
+                    "(frozen parameters get no gradient)."
+                )
+        elif isinstance(strategy, ParallelStrategy) and strategy.world_size > 1:
+            message = (
+                "trainer_config.freeze_schedule supports single-device and DDP "
+                f"training only, not {type(strategy).__name__}."
+            )
+            logger.error(message)
+            raise ValueError(message)
+
+    def on_fit_start(self, trainer, pl_module):
+        """Freeze the targets (after the optimizer has been built)."""
+        from sleap_nn.training.weight_transfer import (
+            select_params,
+            set_requires_grad,
+        )
+
+        if self.unfreeze_at_step is not None and trainer.global_step >= (
+            self.unfreeze_at_step
+        ):
+            return  # resumed past the unfreeze point
+        if not select_params(pl_module, self.targets):
+            message = f"freeze_schedule targets {self.targets} match no parameter."
+            logger.error(message)
+            raise ValueError(message)
+        backbone = self._backbone(pl_module)
+        if "encoder" in self.targets and hasattr(backbone, "freeze_encoder"):
+            if getattr(backbone, "freeze", False) and self.unfreeze_at_step is not None:
+                message = (
+                    "freeze_schedule.unfreeze_at_step is set but the backbone is "
+                    "frozen by its config (freeze: true), which keeps the encoder out "
+                    "of the optimizer so it would never train. Set freeze: false."
+                )
+                logger.error(message)
+                raise ValueError(message)
+            self._uses_mixin = True
+        self.frozen = set_requires_grad(pl_module, self.targets, False)
+        if self._uses_mixin:
+            # Eval mode for the frozen encoder (BatchNorm statistics, drop path).
+            backbone.freeze_encoder()
+        in_optim = {
+            id(p)
+            for opt in trainer.optimizers
+            for g in opt.param_groups
+            for p in g["params"]
+        }
+        params = dict(pl_module.named_parameters())
+        outside = [n for n in self.frozen if id(params[n]) not in in_optim]
+        if outside and self.unfreeze_at_step is not None:
+            logger.warning(
+                f"EncoderFreezeSchedule: {len(outside)} frozen parameters are not "
+                "in the optimizer and will not train after unfreezing."
+            )
+        logger.info(
+            f"EncoderFreezeSchedule: froze {len(self.frozen)} parameter tensors "
+            f"({self.targets}) until step {self.unfreeze_at_step}."
+        )
+
+    def on_train_batch_start(self, trainer, pl_module, batch, batch_idx):
+        """Unfreeze once ``global_step`` reaches ``unfreeze_at_step``."""
+        if (
+            not self.frozen
+            or self.unfreeze_at_step is None
+            or trainer.global_step < self.unfreeze_at_step
+        ):
+            return
+        if self._uses_mixin:
+            self._backbone(pl_module).unfreeze_encoder()
+        # Only what this callback froze (not parameters excluded on purpose).
+        params = dict(pl_module.named_parameters())
+        for name in self.frozen:
+            params[name].requires_grad_(True)
+        logger.info(
+            f"EncoderFreezeSchedule: unfroze {len(self.frozen)} parameter tensors "
+            f"at step {trainer.global_step}."
+        )
+        self.frozen = []

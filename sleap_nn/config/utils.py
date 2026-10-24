@@ -190,6 +190,8 @@ def _has_pretrained_backbone_weights(config: OmegaConf, backbone_type: str) -> b
     """Whether training starts the backbone from pretrained (not random) weights."""
     if OmegaConf.select(config, "model_config.pretrained_backbone_weights") is not None:
         return True
+    if OmegaConf.select(config, "model_config.init_from.path", default=None):
+        return True
     backbone_cfg = config.model_config.backbone_config[backbone_type]
     if backbone_type == "pretrained":
         return bool(OmegaConf.select(backbone_cfg, "weights", default=True))
