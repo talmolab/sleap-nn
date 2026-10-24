@@ -363,7 +363,8 @@ class Outputs:
             ``pred_centroids is not None``): packages each predicted
             centroid into a ``PredictedInstance`` with the centroid
             coordinate at ``anchor_ind`` (or node 0 if unset) and NaN at
-            every other node. Per-instance score = centroid value.
+            every other node, marked unlabeled. Per-instance score = centroid
+            value.
         """
         import sleap_io as sio
 
@@ -485,6 +486,9 @@ class Outputs:
     ) -> list["sio.PredictedInstance"]:
         """Centroid-only packaging: NaN-pad skeleton, centroid at ``anchor_ind``.
 
+        The model has no output for the other nodes, so they are written as
+        unlabeled (``labeled=False``, sleap-io >= 0.10), not as hidden.
+
         See :meth:`to_instances` for semantics.
         """
         import sleap_io as sio
@@ -503,6 +507,10 @@ class Outputs:
                 f"{n_nodes} nodes."
             )
 
+        # A partial-skeleton output: only the anchor node is predicted.
+        labeled = np.zeros((n_nodes,), dtype=bool)
+        labeled[anchor_ind] = True
+
         instances: List[sio.PredictedInstance] = []
         for i in range(centroids.shape[0]):
             if np.isnan(centroids[i]).any():
@@ -518,6 +526,7 @@ class Outputs:
                     point_scores=point_scores,
                     score=inst_score,
                     skeleton=skeleton,
+                    labeled=labeled,
                 )
             )
         return instances

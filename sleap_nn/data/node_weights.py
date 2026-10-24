@@ -10,22 +10,32 @@ Confmap datasets (single-instance, centered-instance, bottom-up) emit a
 
 1. the per-file mask from ``Labels.provenance["labeled_nodes"]`` (a list of node
    names or indices the file annotates; all ones when the key is absent). This is
-   the stopgap until sleap-io exposes per-point flags.
-2. per-point ``labeled`` flags on the instance (sleap-io >= 0.10 / SLP 3.0), read
-   automatically when the point array has a ``labeled`` field: ``labeled | visible``.
+   the pre-SLP-3.0 stopgap; files written by sleap-io >= 0.10 should mark such
+   nodes unlabeled per point instead.
+2. per-point flags (sleap-io >= 0.10 / SLP format 3.0): ``labeled | visible``, so
+   only nodes the source said nothing about (``labeled=False``, e.g. COCO ``v=0``
+   or a node another dataset of a merged skeleton annotates) get weight 0. Hidden
+   points without coordinates stay labeled and keep weight 1 (trained as absent),
+   which is how every pre-3.0 file reads, so old projects train as before.
 3. with ``unlabeled_points="ignore"``, whether the point has a location in the
    model input (finite and inside the image/crop after augmentation). Under the
    default ``"absent"`` such points keep weight 1 and are trained as absent
    (all-zero confmap), as before.
 
+Frame-level confmaps (single-instance, bottom-up) have one channel per node for
+the whole frame, so a node's frame weight is the maximum over the frame's
+instances: 0 only when every instance is unlabeled there (mixed frames train the
+unlabeled instances' points as absent). A bottom-up PAF edge's weight is the
+product of its endpoints' weights (``sleap_nn.data.edge_maps.generate_edge_weights``).
+
 Negative frames keep weight 1 on every node. Flip augmentation swaps the weights
 with the symmetric node channels on the same random draw.
 
 ``supervise_occluded`` decides what happens to *labeled but occluded* points that
-carry estimated coordinates (``labeled & ~visible`` with finite xy): ``True`` (the
-default) trains them as Gaussians at the estimated location, ``False`` gives them
-zero weight. This is a no-op until sleap-io exposes the ``labeled`` flag: today an
-invisible point is NaN in ``Instance.numpy()``.
+carry estimated coordinates (``labeled & ~visible`` with finite xy, COCO ``v=1``):
+``True`` (the default) trains them as Gaussians at the estimated location
+(``sleap_nn.data.providers.instance_points``), ``False`` gives them zero weight.
+Crops and centroids use them either way (``providers.located_points``).
 
 The losses that consume the weights live in :mod:`sleap_nn.training.losses`
 (:func:`~sleap_nn.training.losses.compute_weighted_mse_loss`,
@@ -91,22 +101,58 @@ def get_labeled_nodes_weights(
     return weights
 
 
-def has_partial_labeling_info(labels_list: Sequence[Optional[sio.Labels]]) -> bool:
-    """Whether any file carries per-node labeling info.
+def point_weights(instance: sio.Instance) -> np.ndarray:
+    """``(n_nodes,)`` float32 per-point weights of an instance, ``labeled | visible``.
 
-    True if some file has ``provenance["labeled_nodes"]`` or its points expose a
-    per-point ``labeled`` flag (sleap-io >= 0.10).
+    All ones for point arrays without a ``labeled`` field.
+    """
+    pts = instance.points
+    names = getattr(getattr(pts, "dtype", None), "names", None) or ()
+    if "labeled" not in names:
+        return np.ones(len(pts), dtype=np.float32)
+    return (np.asarray(pts["labeled"]) | np.asarray(pts["visible"])).astype(np.float32)
+
+
+def _has_zero_weight_points(labels: sio.Labels, supervise_occluded: bool) -> bool:
+    """Whether any instance has a point that gets weight 0 from its flags.
+
+    That is an unlabeled point (``~(labeled | visible)``) or, with
+    ``supervise_occluded=False``, an occluded point with estimated coordinates.
+    """
+    for lf in labels.labeled_frames:
+        for inst in lf.instances:
+            pts = inst.points
+            names = getattr(getattr(pts, "dtype", None), "names", None) or ()
+            if "labeled" not in names:
+                return False  # sleap-io < 0.10: no per-point flags at all.
+            labeled = np.asarray(pts["labeled"])
+            visible = np.asarray(pts["visible"])
+            if not (labeled | visible).all():
+                return True
+            if not supervise_occluded:
+                xy = np.asarray(pts["xy"])
+                if (labeled & ~visible & np.isfinite(xy).all(axis=-1)).any():
+                    return True
+    return False
+
+
+def has_partial_labeling_info(
+    labels_list: Sequence[Optional[sio.Labels]], supervise_occluded: bool = True
+) -> bool:
+    """Whether any file carries per-node labeling info that changes a weight.
+
+    True if some file has ``provenance["labeled_nodes"]`` or some point gets
+    weight 0 from its flags: an unlabeled point (sleap-io >= 0.10), or an occluded
+    estimate under ``supervise_occluded=False``. Every point of a pre-SLP-3.0 file
+    reads as labeled, so such files return False and train exactly as before.
     """
     for labels in labels_list:
         if labels is None:
             continue
         if LABELED_NODES_KEY in (labels.provenance or {}):
             return True
-        for lf in labels.labeled_frames[:1]:
-            for inst in lf.instances[:1]:
-                names = getattr(getattr(inst, "points", None), "dtype", None)
-                if names is not None and "labeled" in (names.names or ()):
-                    return True
+        if _has_zero_weight_points(labels, supervise_occluded):
+            return True
     return False
 
 
@@ -114,6 +160,7 @@ def node_weights_active(
     labels_list: Sequence[Optional[sio.Labels]],
     node_loss_mask: bool = True,
     unlabeled_points: str = "absent",
+    supervise_occluded: bool = True,
 ) -> bool:
     """Whether a dataset over ``labels_list`` should emit ``node_weights``.
 
@@ -125,6 +172,7 @@ def node_weights_active(
         labels_list: The dataset's labels files.
         node_loss_mask: Master switch (``data_config.node_loss_mask``).
         unlabeled_points: ``data_config.unlabeled_points``.
+        supervise_occluded: ``data_config.supervise_occluded``.
 
     Raises:
         ValueError: If ``unlabeled_points`` is not one of
@@ -137,7 +185,9 @@ def node_weights_active(
         )
     if not node_loss_mask:
         return False
-    return unlabeled_points == "ignore" or has_partial_labeling_info(labels_list)
+    return unlabeled_points == "ignore" or has_partial_labeling_info(
+        labels_list, supervise_occluded=supervise_occluded
+    )
 
 
 def carry_labeled_nodes(source: sio.Labels, *splits: sio.Labels) -> None:
@@ -174,7 +224,8 @@ def instance_node_weights(
         file_weights: ``(n_nodes,)`` per-file mask from
             :func:`get_labeled_nodes_weights`.
         points: ``(n_nodes, 2)`` coordinates used for the targets (from
-            ``instance.numpy()``; invisible points are NaN).
+            ``providers.instance_points``, or ``instance.numpy()``, where
+            invisible points are NaN).
         supervise_occluded: See the module docstring.
 
     Returns:
@@ -183,7 +234,7 @@ def instance_node_weights(
         restored when ``supervise_occluded`` is ``True``.
     """
     weights = np.asarray(file_weights, dtype=np.float32).copy()
-    pts_arr = getattr(instance, "points", None)
+    pts_arr = instance.points
     names = getattr(getattr(pts_arr, "dtype", None), "names", None) or ()
     if "labeled" not in names:
         # sleap-io < 0.10: no per-point labeled flag; only the file mask applies.
@@ -201,6 +252,36 @@ def instance_node_weights(
         else:
             weights[occluded] = 0.0
     return weights, points
+
+
+def frame_node_weights(
+    file_weights: np.ndarray,
+    instances: Sequence[sio.Instance],
+    supervise_occluded: bool = True,
+) -> np.ndarray:
+    """``(n_nodes,)`` weights of a frame-level confmap sample (one channel per node).
+
+    The per-instance weights (:func:`instance_node_weights`) reduced by a
+    maximum over the frame's instances: a node gets weight 0 only when every
+    instance is unlabeled there. A frame without instances keeps the file mask
+    (negative frames are reset to ones by the datasets).
+
+    Args:
+        file_weights: ``(n_nodes,)`` per-file mask.
+        instances: The frame's instances that made it into the sample (from
+            ``process_lf(..., return_instances=True)``).
+        supervise_occluded: See the module docstring.
+    """
+    file_weights = np.asarray(file_weights, dtype=np.float32)
+    if len(instances) == 0:
+        return file_weights.copy()
+    per_inst = [
+        instance_node_weights(
+            inst, file_weights, inst.numpy(), supervise_occluded=supervise_occluded
+        )[0]
+        for inst in instances
+    ]
+    return np.max(np.stack(per_inst, axis=0), axis=0)
 
 
 def finite_point_weights(points: Union[np.ndarray, torch.Tensor]) -> torch.Tensor:

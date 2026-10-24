@@ -117,9 +117,11 @@ def _iter_frame_instances(
         else:
             instances = lf.instances
         for inst in instances:
-            if inst.is_empty:  # every point NaN
+            if inst.is_empty:  # no labeled point with coordinates
                 continue
-            yield lf, inst.numpy()
+            # Crop sizes come from labeled points with coordinates (occluded
+            # estimates included), so an occluded target is not cropped away.
+            yield lf, inst.numpy(invisible_as_nan=False)
 
 
 def find_max_instance_bbox_size(

@@ -547,6 +547,20 @@ def _video_key(video: Optional[sio.Video]) -> str:
     return str(video_path)
 
 
+def gt_points(instance: sio.Instance) -> np.ndarray:
+    """Return the ground-truth keypoints that are scored, ``(n_nodes, 2)``.
+
+    These are the instance's labeled points that have coordinates: visible points
+    and occluded estimates (labeled, not visible, with coordinates; sleap-io >=
+    0.10), as COCO's OKS scores ``v=1`` keypoints as well as ``v=2``. Unlabeled
+    nodes and hidden nodes without a location are NaN and not scored. These are
+    the points training supervises (``data_config.supervise_occluded``) and
+    centers crops on. Equal to ``instance.numpy()`` for files without occluded
+    estimates.
+    """
+    return instance.numpy(invisible_as_nan=False)
+
+
 def get_instances(labeled_frame: sio.LabeledFrame) -> List[MatchInstance]:
     """Get a list of instances of type MatchInstance from the Labeled Frame.
 
@@ -938,7 +952,7 @@ def match_instances(
         points_pr = np.expand_dims(instance_pr.instance.numpy(), axis=0)
         points_gt = np.stack(
             [
-                available_instances_gt[idx].instance.numpy()
+                gt_points(available_instances_gt[idx].instance)
                 for idx in available_instances_gt_idxs
             ],
             axis=0,
@@ -1049,7 +1063,7 @@ def compute_dists(
     frame_idxs = []
     video_paths = []
     for instance_gt, instance_pr, _ in positive_pairs:
-        points_gt = instance_gt.instance.numpy()
+        points_gt = gt_points(instance_gt.instance)
         points_pr = instance_pr.instance.numpy()
 
         dists.append(np.linalg.norm(points_pr - points_gt, axis=-1))
@@ -1278,7 +1292,7 @@ class Evaluator:
             gt_centroids = np.array(
                 [
                     compute_gt_centroids(
-                        m.instance.numpy(),
+                        gt_points(m.instance),
                         None if gt_from_centroid_annotations else self.anchor_ind,
                         method=(
                             None
@@ -2096,7 +2110,7 @@ class Evaluator:
         vis_tn = 0
 
         for instance_gt, instance_pr, _ in self.positive_pairs:
-            missing_nodes_gt = np.isnan(instance_gt.instance.numpy()).any(axis=-1)
+            missing_nodes_gt = np.isnan(gt_points(instance_gt.instance)).any(axis=-1)
             missing_nodes_pr = np.isnan(instance_pr.instance.numpy()).any(axis=-1)
 
             vis_tn += ((missing_nodes_gt) & (missing_nodes_pr)).sum()
@@ -3818,7 +3832,7 @@ def _pose_similarity(gt: List[Any], pr: List[Any], stddev: float = 0.025) -> np.
     """
     if not gt or not pr:
         return np.zeros((len(gt), len(pr)))
-    pts_gt = np.stack([np.asarray(inst.numpy(), dtype=float)[:, :2] for inst in gt])
+    pts_gt = np.stack([np.asarray(gt_points(inst), dtype=float)[:, :2] for inst in gt])
     degenerate = compute_instance_area(pts_gt) < _DEGENERATE_AREA_EPS
     sim = np.zeros((len(gt), len(pr)))
     for j, inst in enumerate(pr):

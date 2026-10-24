@@ -26,9 +26,9 @@ data_config:
 | `user_instances_only` | Only use user-labeled instances | `true` |
 | `use_negative_frames` | Include user-confirmed negative frames (see [guide](../guides/negative-frames.md)) | `false` |
 | `negative_loss_weight` | Loss weight multiplier for negative samples | `1.0` |
-| `node_loss_mask` | Per-node loss weights: nodes a file does not label (`provenance["labeled_nodes"]`) get zero loss (see [guide](../guides/partial-labels.md)) | `true` |
+| `node_loss_mask` | Per-node loss weights: unlabeled points (sleap-io 0.10 `labeled=False`, e.g. COCO `v=0`) and nodes a file does not label (`provenance["labeled_nodes"]`) get zero loss (see [guide](../guides/partial-labels.md)) | `true` |
 | `unlabeled_points` | Points with no location (NaN, or outside the image/crop after augmentation): `absent` trains them as absent, `ignore` gives them zero loss | `absent` |
-| `supervise_occluded` | Train labeled-but-occluded points at their estimated coordinates (no-op until sleap-io exposes per-point `labeled` flags) | `true` |
+| `supervise_occluded` | Train occluded points that have estimated coordinates (labeled, not visible; COCO `v=1`) at those coordinates; `false` gives them zero loss | `true` |
 
 ---
 

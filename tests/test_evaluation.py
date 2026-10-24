@@ -1773,3 +1773,37 @@ class TestEmbeddingRetrievalMetrics:
         # (optimistic) AUC for non-trivially-separable embeddings.
         assert without_diag["auc"] <= with_diag["auc"]
         assert without_diag["auc"] != with_diag["auc"]
+
+
+def test_oks_scores_labeled_points_with_coordinates():
+    """OKS and distances score occluded estimates (COCO v=1), not unlabeled nodes."""
+    from sleap_nn.evaluation import (
+        MatchInstance,
+        compute_dists,
+        compute_oks,
+        gt_points,
+    )
+
+    skel = sio.Skeleton(["a", "b", "c", "d"])
+    xy = np.array([[10.0, 10.0], [50.0, 10.0], [50.0, 50.0], [10.0, 50.0]])
+    gt = sio.Instance.from_numpy(xy, skeleton=skel)
+    gt.set_hidden(["b"], keep_location=True)  # occluded estimate: scored
+    gt.set_unlabeled(["c"])  # unlabeled: not scored
+    gt.set_hidden(["d"])  # hidden without a location: not scored
+    np.testing.assert_array_equal(np.isnan(gt_points(gt)).any(axis=1), [0, 0, 1, 1])
+
+    pr_xy = xy.copy()
+    pr_xy[2:] += 30.0  # wrong only where the GT is not scored
+    pr = sio.PredictedInstance.from_numpy(pr_xy, skeleton=skel)
+    assert compute_oks(gt_points(gt), pr.numpy()).item() == pytest.approx(1.0)
+
+    pr_xy[1] += 30.0  # wrong at the occluded estimate
+    pr = sio.PredictedInstance.from_numpy(pr_xy, skeleton=skel)
+    # One of the two scored nodes is far off (it would be 1.0 if b were ignored).
+    assert compute_oks(gt_points(gt), pr.numpy()).item() == pytest.approx(0.5)
+
+    dists = compute_dists(
+        [(MatchInstance(gt, 0, "v"), MatchInstance(pr, 0, "v"), 0.0)]
+    )["dists"]
+    np.testing.assert_allclose(dists[0, :2], [0.0, 30.0 * np.sqrt(2)])
+    assert np.isnan(dists[0, 2:]).all()

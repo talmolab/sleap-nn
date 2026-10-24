@@ -59,6 +59,8 @@ from sleap_nn.data.normalization import (
 )
 from sleap_nn.data.providers import (
     filter_oob_points,
+    instance_points,
+    located_points,
     get_max_instances,
     get_max_height_width,
     process_lf,
@@ -78,6 +80,7 @@ from sleap_nn.data.confidence_maps import generate_confmaps, generate_multiconfm
 from sleap_nn.data.node_weights import (
     finite_point_weights,
     get_labeled_nodes_weights,
+    frame_node_weights,
     instance_node_weights,
     node_weights_active,
 )
@@ -92,7 +95,7 @@ from sleap_nn.data.bboxes import (
     instance_crop_bbox,
     resolve_bbox_source,
 )
-from sleap_nn.data.edge_maps import generate_pafs
+from sleap_nn.data.edge_maps import generate_edge_weights, generate_pafs
 from sleap_nn.data.segmentation_maps import (
     _compute_mask_centroids,
     generate_foreground_mask,
@@ -454,9 +457,9 @@ class BaseDataset(Dataset):
             default it to True). Default: False.
         unlabeled_points: `"absent"` trains points with no location as absent (weight
             1); `"ignore"` gives them weight 0. Default: `"absent"`.
-        supervise_occluded: Train labeled-but-occluded points at their estimated
-            coordinates (no-op until sleap-io exposes per-point `labeled` flags).
-            Default: True.
+        supervise_occluded: Train labeled-but-occluded points (sleap-io >= 0.10
+            occluded estimates) at their estimated coordinates; `False` gives them
+            weight 0. Default: True.
         labels_list: List of `sio.Labels` objects. Used to store the labels in the cache. (only used if `cache_img` is `None`)
     """
 
@@ -508,7 +511,10 @@ class BaseDataset(Dataset):
         self.unlabeled_points = unlabeled_points
         self.supervise_occluded = supervise_occluded
         self.emit_node_weights = node_weights_active(
-            labels, node_loss_mask=node_loss_mask, unlabeled_points=unlabeled_points
+            labels,
+            node_loss_mask=node_loss_mask,
+            unlabeled_points=unlabeled_points,
+            supervise_occluded=supervise_occluded,
         )
         # One (n_nodes,) mask per labels file from provenance["labeled_nodes"].
         self.file_node_weights = (
@@ -750,6 +756,25 @@ class BaseDataset(Dataset):
                 instance, w, points, supervise_occluded=self.supervise_occluded
             )
         return torch.from_numpy(np.asarray(w, dtype=np.float32))[None], points
+
+    def _frame_node_weights(
+        self, labels_idx: int, instances: List[sio.Instance]
+    ) -> Optional[torch.Tensor]:
+        """Per-node loss weights ``(1, n_nodes)`` of a frame-level sample.
+
+        For confmaps with one channel per node for the whole frame (single-instance,
+        bottom-up): the file mask times, per node, the maximum over ``instances``
+        (the ones `process_lf` kept) of their ``labeled | visible`` flags, so a
+        node gets weight 0 only when every instance is unlabeled there. ``None``
+        when the dataset emits no weights.
+        """
+        if not self.emit_node_weights:
+            return None
+        w = self.file_node_weights[labels_idx]
+        if w is None:
+            w = np.ones(self.num_nodes, dtype=np.float32)
+        w = frame_node_weights(w, instances, supervise_occluded=self.supervise_occluded)
+        return torch.from_numpy(np.asarray(w, dtype=np.float32))[None]
 
     def _finalize_node_weights(
         self,
@@ -1445,6 +1470,7 @@ class BottomUpDataset(BaseDataset):
 
         if sample.get("is_negative", False):
             sample = self._load_negative_sample(sample)
+            kept = []
         else:
             if self.cache_img is not None:
                 instances = sample["instances"]
@@ -1464,19 +1490,21 @@ class BottomUpDataset(BaseDataset):
             if img.ndim == 2:
                 img = np.expand_dims(img, axis=2)
 
-            # get dict
-            sample = process_lf(
+            # get dict, plus the instances it kept for the node weights below
+            sample, kept = process_lf(
                 instances_list=instances,
                 img=img,
                 frame_idx=frame_idx,
                 video_idx=video_idx,
                 max_instances=self.max_instances,
                 user_instances_only=self.user_instances_only,
+                supervise_occluded=self.supervise_occluded,
+                return_instances=True,
             )
 
-        # Per-node loss weights. Frame-level confmaps hold every instance, so only
-        # the per-file mask applies (per-point flags would need pixel masks).
-        node_weights, _ = self._instance_node_weights(labels_idx)
+        # Per-node loss weights: 0 only where every instance in the frame is
+        # unlabeled (or the file does not label the node).
+        node_weights = self._frame_node_weights(labels_idx, kept)
         if node_weights is not None:
             sample["node_weights"] = node_weights
 
@@ -1514,6 +1542,11 @@ class BottomUpDataset(BaseDataset):
 
         sample["confidence_maps"] = confidence_maps
         sample["part_affinity_fields"] = pafs
+        if sample.get("node_weights") is not None:
+            # A PAF edge is supervised only where both of its endpoints are.
+            sample["edge_weights"] = generate_edge_weights(
+                sample["node_weights"], self.edge_inds
+            )  # (1, n_edges)
         sample["labels_idx"] = labels_idx
         if self.use_negative_frames:
             sample["is_negative"] = self.lf_idx_list[index].get("is_negative", False)
@@ -1647,24 +1680,27 @@ class BottomUpMultiClassDataset(BaseDataset):
             if img.ndim == 2:
                 img = np.expand_dims(img, axis=2)
 
-            # get dict
-            sample = process_lf(
+            # get dict, plus the instances that survived filtering so the track
+            # lookup below stays aligned with the sample's instance rows.
+            sample, kept = process_lf(
                 instances_list=instances,
                 img=img,
                 frame_idx=frame_idx,
                 video_idx=video_idx,
                 max_instances=self.max_instances,
                 user_instances_only=self.user_instances_only,
+                supervise_occluded=self.supervise_occluded,
+                return_instances=True,
             )
 
             track_ids = torch.Tensor(
                 [
                     (
-                        self.class_names.index(instances[idx].track.name)
-                        if instances[idx].track is not None
+                        self.class_names.index(inst.track.name)
+                        if inst.track is not None
                         else -1
                     )
-                    for idx in range(sample["num_instances"])
+                    for inst in kept
                 ]
             ).to(torch.int32)
 
@@ -1999,7 +2035,7 @@ class CenteredInstanceDataset(BaseDataset):
         node_weights = None
         for i, inst in enumerate(instances_list):
             # no need to filter empty instances; handled while creating instance_idx_list
-            pts = inst.numpy()
+            pts = instance_points(inst, self.supervise_occluded)
             if i == inst_idx:
                 node_weights, pts = self._instance_node_weights(labels_idx, inst, pts)
             instances.append(pts)
@@ -2032,9 +2068,14 @@ class CenteredInstanceDataset(BaseDataset):
         )
         instances = instances * eff_scale
 
+        # The crop is centered on the instance's labeled points that have
+        # coordinates, whether or not occluded estimates are supervised.
+        located = torch.from_numpy(
+            located_points(instances_list[inst_idx]).astype("float32")
+        )[None]
         # get the centroids based on the anchor idx
         centroids = generate_centroids(
-            instances,
+            located * eff_scale,
             anchor_ind=self.anchor_ind,
             method=self.centroid_method,
             fallback=self.centroid_fallback,
@@ -2151,7 +2192,7 @@ def _match_mask_to_instance(
         if getattr(m, "instance", None) is inst:
             return m
     # Fallback: max bbox-IoU between the keypoint bbox and each mask's bbox.
-    pts = inst.numpy()
+    pts = located_points(inst)
     vis = pts[~np.isnan(pts).any(axis=1)]
     if len(vis) == 0:
         return None
@@ -2172,7 +2213,7 @@ def _match_mask_to_instance(
 
 def _kp_bbox(inst: sio.Instance) -> Optional[Tuple[float, float, float, float]]:
     """Keypoint bounding box ``(x0, y0, x1, y1)`` of an instance, or None."""
-    pts = inst.numpy()
+    pts = located_points(inst)
     vis = pts[~np.isnan(pts).any(axis=1)]
     if len(vis) == 0:
         return None
@@ -2389,7 +2430,8 @@ class CenteredInstanceSegmentationDataset(CenteredInstanceDataset):
             img = np.expand_dims(img, axis=2)
 
         image = np.transpose(img, (2, 0, 1))  # HWC -> CHW
-        instances = np.stack([inst.numpy() for inst in instances_list], axis=0)
+        # The crop is centered on labeled points that have coordinates.
+        instances = np.stack([located_points(inst) for inst in instances_list], axis=0)
         image = np.expand_dims(image, axis=0)  # (1, C, H, W)
         instances = np.expand_dims(instances, axis=0)  # (1, num, nodes, 2)
         instances = torch.from_numpy(instances.astype("float32"))
@@ -3244,7 +3286,7 @@ class EmbeddingDataset(BaseDataset):
                     if reason is not None:
                         skipped[reason] = skipped.get(reason, 0) + 1
                         continue
-                    pts = torch.from_numpy(inst.numpy()).to(
+                    pts = torch.from_numpy(located_points(inst)).to(
                         torch.float32
                     )  # (n_nodes,2)
                     centroid = generate_centroids(
@@ -3781,12 +3823,11 @@ class TopDownCenteredInstanceMultiClassDataset(CenteredInstanceDataset):
 
         image = np.transpose(img, (2, 0, 1))  # HWC -> CHW
 
-        instances = []
-        for inst in instances_list:
-            instances.append(
-                inst.numpy()
-            )  # no need to filter empty instance (handled while creating instance_idx)
-        instances = np.stack(instances, axis=0)
+        # No need to filter empty instances (handled while creating instance_idx).
+        instances = np.stack(
+            [instance_points(inst, self.supervise_occluded) for inst in instances_list],
+            axis=0,
+        )
 
         # Add singleton time dimension for single frames.
         image = np.expand_dims(image, axis=0)  # (n_samples=1, C, H, W)
@@ -3831,9 +3872,14 @@ class TopDownCenteredInstanceMultiClassDataset(CenteredInstanceDataset):
             n_classes=torch.tensor(len(self.class_names), dtype=torch.int32),
         )
 
+        # The crop is centered on the instance's labeled points that have
+        # coordinates, whether or not occluded estimates are supervised.
+        located = torch.from_numpy(
+            located_points(instances_list[inst_idx]).astype("float32")
+        )[None]
         # get the centroids based on the anchor idx
         centroids = generate_centroids(
-            instances,
+            located * eff_scale,
             anchor_ind=self.anchor_ind,
             method=self.centroid_method,
             fallback=self.centroid_fallback,
@@ -4186,6 +4232,8 @@ class CentroidDataset(BaseDataset):
                 video_idx=video_idx,
                 max_instances=self.max_instances,
                 user_instances_only=self.user_instances_only,
+                # Centroids come from every labeled point with coordinates.
+                supervise_occluded=True,
             )
             # `process_lf` returns None when the frame has no (user) instances.
             # For the centroid model that is a valid pure-centroid frame (kept by
@@ -4388,6 +4436,7 @@ class SingleInstanceDataset(BaseDataset):
 
         if sample.get("is_negative", False):
             sample = self._load_negative_sample(sample)
+            kept = []
         else:
             if self.cache_img is not None:
                 instances = sample["instances"]
@@ -4406,19 +4455,20 @@ class SingleInstanceDataset(BaseDataset):
             if img.ndim == 2:
                 img = np.expand_dims(img, axis=2)
 
-            # get dict
-            sample = process_lf(
+            # get dict, plus the instances it kept for the node weights below
+            sample, kept = process_lf(
                 instances_list=instances,
                 img=img,
                 frame_idx=lf_frame_idx,
                 video_idx=video_idx,
                 max_instances=self.max_instances,
                 user_instances_only=self.user_instances_only,
+                supervise_occluded=self.supervise_occluded,
+                return_instances=True,
             )
 
-        # Per-node loss weights (per-file mask; per-point `labeled` flags of the
-        # instance are not read on this frame-level path yet).
-        node_weights, _ = self._instance_node_weights(labels_idx)
+        # Per-node loss weights from the file mask and the instance's flags.
+        node_weights = self._frame_node_weights(labels_idx, kept)
         if node_weights is not None:
             sample["node_weights"] = node_weights
 
@@ -4608,6 +4658,7 @@ class SingleInstanceTiledDataset(BaseDataset):
                     video_idx=d["video_idx"],
                     max_instances=self.max_instances,
                     user_instances_only=self.user_instances_only,
+                    supervise_occluded=self.supervise_occluded,
                 )
             frame = self._to_sized_frame(frame)
             if not d["is_negative"]:
@@ -7660,15 +7711,11 @@ def get_train_val_datasets(
         if tiling is not None and tiling.enabled:
             # Tiled single-instance training. Train draws foreground-aware tiles;
             # val always uses a deterministic full-coverage grid (no aug).
-            if node_weights_active(
-                train_labels,
-                node_loss_mask=node_weight_kwargs["node_loss_mask"],
-                unlabeled_points=node_weight_kwargs["unlabeled_points"],
-            ):
+            if node_weights_active(train_labels, **node_weight_kwargs):
                 logger.warning(
                     "Tiled single-instance training does not apply per-node loss "
-                    "weights yet: `provenance['labeled_nodes']` and "
-                    "`data_config.unlabeled_points` are ignored, so unlabeled "
+                    "weights yet: unlabeled points, `provenance['labeled_nodes']` "
+                    "and `data_config.unlabeled_points` are ignored, so unlabeled "
                     "nodes are trained as absent."
                 )
             base_seed = config.trainer_config.seed or 0
@@ -7795,6 +7842,12 @@ def get_train_val_datasets(
                 cache_workers=cache_workers,
                 use_negative_frames=use_negative_frames,
             )
+
+    # Every pose dataset reads `supervise_occluded` for its targets, including
+    # the ones that take no per-node weight kwargs (multi-class, tiled).
+    for dataset in (train_dataset, val_dataset):
+        if dataset is not None:
+            dataset.supervise_occluded = node_weight_kwargs["supervise_occluded"]
 
     if cache_imgs == "disk" and use_existing_imgs:
         _validate_existing_disk_cache_complete(
