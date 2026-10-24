@@ -378,3 +378,89 @@ def test_torch_backend_cuda_does_not_block_default_use_compile_false():
     # Forward still works.
     out = backend(torch.zeros(1, 1, 8, 8))
     assert out["output"].shape == (1, 4, 8, 8)
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# 6. Predictor.upload_batches: numpy batches copied to the GPU first
+# ─────────────────────────────────────────────────────────────────────────
+
+ASSETS = Path(__file__).resolve().parents[1] / "assets"
+TOPDOWN_CKPTS = [
+    ASSETS / "model_ckpts" / "minimal_instance_centroid",
+    ASSETS / "model_ckpts" / "minimal_instance_centered_instance",
+]
+VIDEO = ASSETS / "datasets" / "small_robot.mp4"
+
+
+def test_predictor_uploads_uint8_batches_to_cuda():
+    """With a CUDA device the layer gets the provider's uint8 batch on the GPU."""
+    from sleap_nn.inference.outputs import Outputs
+    from sleap_nn.inference.predictor import Predictor
+    from sleap_nn.inference.providers import NumpyProvider
+
+    seen = []
+
+    class _Recording:
+        def predict(self, image, **kwargs):
+            seen.append(image)
+            b = image.shape[0]
+            return Outputs(
+                pred_keypoints=torch.zeros(b, 1, 4, 2),
+                pred_peak_values=torch.ones(b, 1, 4),
+            )
+
+    rng = np.random.default_rng(0)
+    images = rng.integers(0, 255, size=(4, 8, 8, 1)).astype(np.uint8)
+    Predictor(
+        layer=_Recording(), batch_size=2, device="cuda", upload_batches=True
+    ).predict(NumpyProvider(images=images, batch_size=2), make_labels=False)
+
+    assert len(seen) == 2
+    for i, image in enumerate(seen):
+        assert isinstance(image, torch.Tensor)
+        assert image.device.type == "cuda"
+        assert image.dtype == torch.uint8
+        np.testing.assert_array_equal(image.cpu().numpy(), images[2 * i : 2 * i + 2])
+
+
+@pytest.mark.skipif(
+    not (VIDEO.exists() and all(p.exists() for p in TOPDOWN_CKPTS)),
+    reason="top-down checkpoints or small_robot.mp4 not present",
+)
+def test_topdown_uploaded_batch_preprocesses_like_numpy_batch():
+    """The GPU resize of an uploaded batch matches the CPU one to 1 grey level.
+
+    Only where the sizematcher / input-scale resize runs changes (GPU instead
+    of CPU); its ``uint8`` output can round the other way, by 1, in some
+    pixels. Compared on the preprocessed frames rather than on keypoints: the
+    minimal fixture models are not trained on ``small_robot.mp4``, and their
+    flat confidence maps let 0.01-sized differences move a peak by pixels.
+    """
+    import sleap_io as sio
+
+    from sleap_nn.inference.predictor import Predictor
+    from sleap_nn.inference.providers import VideoProvider
+
+    video = sio.load_video(str(VIDEO))
+    frames = np.stack([video[i] for i in range(4)])
+    predictor = Predictor.from_model_paths(
+        [str(p) for p in TOPDOWN_CKPTS],
+        device="cuda",
+        batch_size=4,
+        upload_batches=True,
+    )
+    assert predictor.upload_batches
+    centroid_layer = predictor.layer.centroid_layer
+    x_host, info_host = centroid_layer.preprocess(frames)
+    x_gpu, info_gpu = centroid_layer.preprocess(torch.from_numpy(frames).cuda())
+    assert x_gpu.device.type == "cuda"
+    assert x_gpu.shape == x_host.shape and x_gpu.dtype == x_host.dtype
+    diff = (x_gpu.float().cpu() - x_host.float().cpu()).abs()
+    assert diff.max().item() <= 1.0
+    torch.testing.assert_close(info_gpu.eff_scale.cpu(), info_host.eff_scale.cpu())
+
+    # And the whole top-down run works on an uploaded batch.
+    provider = VideoProvider(video=video, batch_size=4, frames=list(range(8)))
+    outputs = list(predictor.predict_streaming(provider))
+    assert sum(o.pred_keypoints.shape[0] for o in outputs) == 8
+    assert all(o.pred_keypoints.shape[-1] == 2 for o in outputs)

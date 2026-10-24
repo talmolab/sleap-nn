@@ -534,3 +534,87 @@ def test_fuse_layers_does_not_misfuse_on_reordered_forward():
     # Tight (not 0): the buggy mis-fuse produced ~1.7 abs diff, while
     # cross-platform BLAS (macOS Accelerate) differs from eager by ~ULP.
     torch.testing.assert_close(out["output"], ref, atol=1e-5, rtol=1e-4)
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# 7. memory_format (channels-last)
+# ─────────────────────────────────────────────────────────────────────────
+
+
+def _weight_is_channels_last(backend: TorchBackend) -> bool:
+    w = backend.model.conv.weight
+    return w.is_contiguous(memory_format=torch.channels_last) and not (
+        w.is_contiguous()
+    )
+
+
+def test_memory_format_default_leaves_model_channels_first():
+    """The default ``"contiguous"`` keeps the weights as they were."""
+    backend = TorchBackend(model=_TinyConvModel(in_ch=3), device="cpu")
+    assert backend.memory_format == "contiguous"
+    assert backend.model.conv.weight.is_contiguous()
+
+
+def test_memory_format_channels_last_converts_weights_same_output():
+    """``"channels_last"`` converts the conv weights; the output is unchanged."""
+    torch.manual_seed(0)
+    model = _TinyConvModel(in_ch=3)
+    x = torch.randn(2, 3, 16, 16)
+    ref = model(x).detach().clone()
+
+    backend = TorchBackend(model=model, device="cpu", memory_format="channels_last")
+    assert _weight_is_channels_last(backend)
+    torch.testing.assert_close(backend(x)["output"], ref, atol=1e-5, rtol=1e-4)
+
+
+def test_memory_format_set_after_construction_applies_on_next_forward():
+    """Setting ``memory_format`` on a built backend converts at the next call."""
+    torch.manual_seed(0)
+    model = _TinyConvModel(in_ch=3)
+    x = torch.randn(2, 3, 16, 16)
+    ref = model(x).detach().clone()
+
+    backend = TorchBackend(model=model, device="cpu")
+    backend.memory_format = "channels_last"
+    out = backend(x)["output"]
+    assert _weight_is_channels_last(backend)
+    torch.testing.assert_close(out, ref, atol=1e-5, rtol=1e-4)
+
+    backend.memory_format = "contiguous"
+    backend(x)
+    assert backend.model.conv.weight.is_contiguous()
+
+
+def test_memory_format_rejects_unknown_value():
+    """Only ``"contiguous"`` and ``"channels_last"`` are accepted."""
+    with pytest.raises(ValueError):
+        TorchBackend(model=_TinyConvModel(), device="cpu", memory_format="nhwc")
+    backend = TorchBackend(model=_TinyConvModel(), device="cpu")
+    with pytest.raises(ValueError):
+        backend.memory_format = "nhwc"
+
+
+def test_memory_format_change_rebuilds_compiled_model(monkeypatch):
+    """Changing the layout of a compiled backend compiles the converted model again.
+
+    ``torch.compile`` is stood in for: this checks the wiring, not inductor.
+    """
+    compiled = []
+
+    def fake_compile(model, **kwargs):
+        compiled.append((model, kwargs))
+        return model
+
+    monkeypatch.setattr(torch, "compile", fake_compile)
+    backend = TorchBackend(
+        model=_TinyConvModel(in_ch=3), device="cpu", use_compile=True
+    )
+    assert len(compiled) == 1
+
+    backend.memory_format = "channels_last"
+    backend(torch.randn(1, 3, 8, 8))
+    assert len(compiled) == 2
+    model, kwargs = compiled[1]
+    assert model is backend.model
+    assert kwargs == {"mode": backend.compile_mode, "dynamic": False}
+    assert _weight_is_channels_last(backend)
