@@ -558,13 +558,30 @@ class TopDownLayer:
     def _infer_n_nodes(self) -> int:
         """Best-effort guess of the skeleton node count from the inner model.
 
-        Falls back to 1 so any "no detections" early-return still has a
-        valid 4D shape.
+        Reads the output channels of the confmap head (the model's first
+        ``head_layers`` entry): scanning the whole model would hit the backbone
+        first (a ViT's patch embedding has ``embed_dim`` channels). Falls back to
+        1 so any "no detections" early-return still has a valid 4D shape.
         """
         try:
-            for m in self.centered_instance_layer.backend.model.modules():
-                if hasattr(m, "out_channels") and m.out_channels > 1:
-                    return int(m.out_channels)
+            model = self.centered_instance_layer.backend.model
+            head = next(
+                (
+                    m.head_layers[0]
+                    for m in model.modules()
+                    if hasattr(m, "head_layers")
+                ),
+                model,
+            )
+            channels = [
+                int(m.out_channels)
+                for m in head.modules()
+                if hasattr(m, "out_channels") and m.out_channels > 1
+            ]
+            if channels:
+                # The head's output conv is its last; the whole-model fallback
+                # keeps the historical first match.
+                return channels[-1] if head is not model else channels[0]
         except Exception:
             pass
         return 1

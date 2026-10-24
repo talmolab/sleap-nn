@@ -614,14 +614,6 @@ def _seed_from_boxes(
     """
     if boxes not in ("gt", "given"):
         raise ValueError(f"boxes must be 'gt' or 'given'; got {boxes!r}.")
-    stage_1 = [
-        t for t in model_types if t in ("centroid", "bbox_centernet", "bbox_ssd")
-    ]
-    if stage_1:
-        raise ValueError(
-            f"Seeding from {boxes!r} boxes replaces the top-down stage 1; pass only "
-            f"the crop model, not the {'/'.join(stage_1)} model too."
-        )
     from sleap_nn.inference.layers.embedding import TopDownEmbeddingLayer
 
     if not isinstance(layer, TopDownLayer) or isinstance(layer, TopDownEmbeddingLayer):
@@ -629,6 +621,14 @@ def _seed_from_boxes(
             "Seeding from boxes needs a top-down crop model (centered_instance, "
             "multi_class_topdown or centered_instance_segmentation); got model "
             f"types {model_types}."
+        )
+    stage_1 = [
+        t for t in model_types if t in ("centroid", "bbox_centernet", "bbox_ssd")
+    ]
+    if stage_1:
+        raise ValueError(
+            f"Seeding from {boxes!r} boxes replaces the top-down stage 1; pass only "
+            f"the crop model, not the {'/'.join(stage_1)} model too."
         )
     return _attach_bbox_stage(
         layer,

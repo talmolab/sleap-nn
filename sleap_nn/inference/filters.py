@@ -267,6 +267,8 @@ class FilterPipeline:
             return outputs
         kpts = outputs.pred_keypoints.float()
         B, I, N, _ = kpts.shape
+        if torch.isnan(kpts).all():
+            return outputs  # no instances in the batch
         if not isinstance(sigmas, tuple):
             raise ValueError(
                 "oks_nms_threshold needs one oks_sigma per node (a Predictor "
