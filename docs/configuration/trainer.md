@@ -618,6 +618,7 @@ trainer_config:
 | `throughput_log_every_n_steps` | int | `50` | `perf/*` throughput window (0 disables) |
 | `confmap_fg_bg_diagnostics` | bool | `null` | Log confmap fg/bg MSE split (`null` = centroid only) |
 | `ema` | EMAConfig | off | Weight EMA; see [EMAConfig](#emaconfig) |
+| `balanced_sampler` | BalancedSamplerConfig | `null` | Fixed per-file counts in every batch for `crop_pipeline: warp` (`counts`, or `weights` rounded to the batch size); per-rank streams, resumed from checkpoints. See [Fast top-down data path](../guides/warp-data-path.md#mixing-datasets) |
 
 ### DataLoaderConfig
 

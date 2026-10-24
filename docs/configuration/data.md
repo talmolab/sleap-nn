@@ -249,6 +249,7 @@ data_config:
 | `use_augmentations_train` | bool | `true` | Apply augmentations during training |
 | `bbox_source` | str | `auto` | Ground-truth boxes for `bbox_*` models: `auto` (the file's user boxes if it has any, else the tight box of each user instance's visible points, else of each mask), `bboxes`, `instances` or `masks`. Ignored by other model types |
 | `bbox_padding` | float | `0.0` | Pixels added on every side of boxes derived from instances or masks |
+| `instance_filter` | InstanceFilterConfig | `null` | `crop_pipeline: warp` only: train only on instances with at least `min_labeled_nodes` of `count_nodes` (default: every node) labeled and a box of `sqrt(area) >= min_bbox_size` px. Validation keeps every instance |
 
 ### PreprocessingConfig
 
@@ -259,7 +260,10 @@ data_config:
 | `max_height` | int | `null` | Pad images to this height |
 | `max_width` | int | `null` | Pad images to this width |
 | `scale` | float | `1.0` | Resize factor (e.g., 0.5 = half size) |
-| `crop_size` | int | `null` | Crop size for centered-instance models. If `null`, auto-computed from data |
+| `crop_size` | int or `[h, w]` | `null` | Crop size for centered-instance models. If `null`, auto-computed from data. `[height, width]` (e.g. `[256, 192]` for people) needs `crop_mode: bbox` and `crop_pipeline: warp` |
+| `crop_pipeline` | str | `legacy` | How `centered_instance` training crops are cut: `legacy`, or `warp` (one affine warp from the full frame, uint8 samples, no size matcher; needs `crop_mode: bbox`). See [Fast top-down data path](../guides/warp-data-path.md) |
+| `gpu_confmaps` | bool | `false` | `crop_pipeline: warp`: render the confidence maps on the GPU in the training step instead of in the workers |
+| `crop_bbox_categories` | list | `null` | `crop_pipeline: warp`: only linked user boxes of these categories (e.g. `[person]`) are crop boxes; others (e.g. MPII head boxes) fall back to the keypoint box |
 | `min_crop_size` | int | `100` | Minimum crop size when auto-computing |
 | `crop_padding` | int | `null` | Extra padding around crops. If `null`, auto-computed from augmentation settings |
 

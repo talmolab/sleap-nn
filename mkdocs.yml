@@ -133,6 +133,7 @@ nav:
       - Pretrained Backbones: guides/pretrained-backbones.md
       - Negative Frames: guides/negative-frames.md
       - Partially Labeled Skeletons: guides/partial-labels.md
+      - Fast Top-Down Data Path: guides/warp-data-path.md
       - Centroid Focal Loss: guides/centroid-focal-loss.md
       - Monitoring: guides/monitoring.md
       - Multi-GPU: guides/multi-gpu.md
