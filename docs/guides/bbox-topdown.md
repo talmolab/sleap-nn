@@ -18,6 +18,11 @@ comes with a `sio.PredictedBoundingBox` on `LabeledFrame.bboxes`, linked to it
 (`box.instance`). The same works for `multi_class_topdown` and (with fixed crops)
 `centered_instance_segmentation` models.
 
+Boxes can also come from outside sleap-nn: `sleap-nn predict -m models/centered_instance
+-i labels.slp --boxes {dets.json | boxes.slp | gt}` seeds the crop model from a COCO
+detection file, the predicted boxes in a `.slp`, or the GT boxes (see
+[COCO-Style Evaluation](coco-evaluation.md#top-down-inference-from-given-boxes)).
+
 To generate both configs from your labels:
 
 ```bash

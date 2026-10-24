@@ -109,6 +109,8 @@ class TopDownLayer:
         image: ImageInput,
         instances: Optional[torch.Tensor] = None,
         instance_boxes: Optional[torch.Tensor] = None,
+        frame_boxes: Optional[torch.Tensor] = None,
+        frame_box_scores: Optional[torch.Tensor] = None,
     ) -> Outputs:
         """Run stage 1 → stage B → stage 2 → coord lift.
 
@@ -120,6 +122,9 @@ class TopDownLayer:
             instance_boxes: Optional ``(B, max_inst, 4)`` GT boxes aligned with
                 ``instances``, for a GT-box stage 1 (derived from ``instances``
                 when absent).
+            frame_boxes: Optional ``(B, K, 4)`` xyxy boxes per frame for a
+                given-box stage 1 (``BBoxStageLayer(use_given_boxes=True)``).
+            frame_box_scores: Optional ``(B, K)`` scores of ``frame_boxes``.
 
         Returns:
             ``Outputs`` populated with ``pred_keypoints`` (image-space),
@@ -127,7 +132,11 @@ class TopDownLayer:
             ``pred_centroid_values``, and ``instance_bboxes``.
         """
         # Stage 1: centroids.
-        if not self.centroid_layer.use_gt_centroids:
+        if getattr(self.centroid_layer, "use_given_boxes", False):
+            centroid_out = self.centroid_layer.predict(
+                image, boxes=frame_boxes, box_scores=frame_box_scores
+            )
+        elif not self.centroid_layer.use_gt_centroids:
             centroid_out = self.centroid_layer.predict(image)
         elif getattr(self.centroid_layer, "use_gt_boxes", False):
             centroid_out = self.centroid_layer.predict(
@@ -549,13 +558,30 @@ class TopDownLayer:
     def _infer_n_nodes(self) -> int:
         """Best-effort guess of the skeleton node count from the inner model.
 
-        Falls back to 1 so any "no detections" early-return still has a
-        valid 4D shape.
+        Reads the output channels of the confmap head (the model's first
+        ``head_layers`` entry): scanning the whole model would hit the backbone
+        first (a ViT's patch embedding has ``embed_dim`` channels). Falls back to
+        1 so any "no detections" early-return still has a valid 4D shape.
         """
         try:
-            for m in self.centered_instance_layer.backend.model.modules():
-                if hasattr(m, "out_channels") and m.out_channels > 1:
-                    return int(m.out_channels)
+            model = self.centered_instance_layer.backend.model
+            head = next(
+                (
+                    m.head_layers[0]
+                    for m in model.modules()
+                    if hasattr(m, "head_layers")
+                ),
+                model,
+            )
+            channels = [
+                int(m.out_channels)
+                for m in head.modules()
+                if hasattr(m, "out_channels") and m.out_channels > 1
+            ]
+            if channels:
+                # The head's output conv is its last; the whole-model fallback
+                # keeps the historical first match.
+                return channels[-1] if head is not model else channels[0]
         except Exception:
             pass
         return 1
@@ -565,6 +591,14 @@ class TopDownLayer:
         image: ImageInput,
         instances: Optional[torch.Tensor] = None,
         instance_boxes: Optional[torch.Tensor] = None,
+        frame_boxes: Optional[torch.Tensor] = None,
+        frame_box_scores: Optional[torch.Tensor] = None,
     ) -> Outputs:
         """Alias for :meth:`predict`."""
-        return self.predict(image, instances=instances, instance_boxes=instance_boxes)
+        return self.predict(
+            image,
+            instances=instances,
+            instance_boxes=instance_boxes,
+            frame_boxes=frame_boxes,
+            frame_box_scores=frame_box_scores,
+        )

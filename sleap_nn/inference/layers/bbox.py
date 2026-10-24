@@ -143,6 +143,12 @@ class BBoxStageLayer(BBoxLayer):
     visible keypoints, padded by ``gt_bbox_padding`` pixels, as the centered-instance
     model's training boxes were), the box analog of the GT-centroid fallback.
 
+    With ``use_given_boxes=True`` no detector runs either: each frame's boxes and
+    scores are handed to ``predict`` (``Batch.frame_boxes``, e.g. the
+    ``PredictedBoundingBox``es of an input ``.slp`` or a COCO detection file --
+    ``sleap-nn predict --boxes``). Boxes scoring below ``box_score_threshold``
+    are dropped; the rest seed one crop each, as a detector's would.
+
     Args:
         backend: The detector's backend (with ``use_gt_boxes``, any backend; it is
             never called).
@@ -152,6 +158,9 @@ class BBoxStageLayer(BBoxLayer):
         max_stride: Backbone max stride.
         use_gt_boxes: Read boxes from ground-truth instances instead.
         gt_bbox_padding: Pixels added on every side of ground-truth boxes.
+        use_given_boxes: Take each frame's boxes as given to ``predict``.
+        box_score_threshold: With ``use_given_boxes``, drop boxes scoring below
+            this.
         preprocess_config / postprocess_config: As for :class:`BBoxLayer`.
     """
 
@@ -163,10 +172,14 @@ class BBoxStageLayer(BBoxLayer):
         max_stride: int = 1,
         use_gt_boxes: bool = False,
         gt_bbox_padding: float = 0.0,
+        use_given_boxes: bool = False,
+        box_score_threshold: float = 0.0,
         preprocess_config: Optional[PreprocessConfig] = None,
         postprocess_config: Optional[PostprocessConfig] = None,
     ) -> None:
-        """Store the detector (or the GT-box fallback) and its configs."""
+        """Store the detector (or the GT/given-box source) and its configs."""
+        if use_gt_boxes and use_given_boxes:
+            raise ValueError("use_gt_boxes and use_given_boxes are exclusive.")
         super().__init__(
             backend=backend,
             decoder=decoder,
@@ -177,6 +190,8 @@ class BBoxStageLayer(BBoxLayer):
         )
         self.use_gt_boxes = use_gt_boxes
         self.gt_bbox_padding = float(gt_bbox_padding)
+        self.use_given_boxes = use_given_boxes
+        self.box_score_threshold = float(box_score_threshold)
 
     @property
     def use_gt_centroids(self) -> bool:
@@ -185,7 +200,7 @@ class BBoxStageLayer(BBoxLayer):
 
     @property
     def categories(self) -> List[str]:
-        """Detector class names (``[]`` for the GT-box fallback)."""
+        """Detector class names (``[]`` without a detector)."""
         return self.decoder.categories if self.decoder is not None else []
 
     def predict(
@@ -193,8 +208,9 @@ class BBoxStageLayer(BBoxLayer):
         image,
         instances: Optional[torch.Tensor] = None,
         boxes: Optional[torch.Tensor] = None,
+        box_scores: Optional[torch.Tensor] = None,
     ) -> Outputs:
-        """Detect boxes (or read GT boxes) and report their centers as centroids.
+        """Detect boxes (or read GT/given boxes) and report their centers.
 
         Args:
             image: Full frames, as for :meth:`BBoxLayer.predict`.
@@ -203,7 +219,10 @@ class BBoxStageLayer(BBoxLayer):
             boxes: ``(B, I, 4)`` GT boxes aligned with ``instances`` (NaN for
                 padding), e.g. ``Batch.instance_boxes``. With ``use_gt_boxes``
                 they are used as given; without them boxes are derived from the
-                keypoints.
+                keypoints. With ``use_given_boxes``: ``(B, K, 4)`` xyxy boxes of
+                each frame (``Batch.frame_boxes``), required.
+            box_scores: ``(B, K)`` scores of the given boxes (all ``1`` when
+                ``None``); ``use_given_boxes`` only.
 
         Returns:
             ``Outputs`` with ``pred_centroids (B, K, 2)``, ``pred_centroid_values
@@ -211,7 +230,9 @@ class BBoxStageLayer(BBoxLayer):
             ``pred_bbox_classes (B, K)`` in original-image pixels; empty slots are
             NaN (class ``-1``).
         """
-        if self.use_gt_boxes:
+        if self.use_given_boxes:
+            boxes, scores, classes = self._given_boxes(image, boxes, box_scores)
+        elif self.use_gt_boxes:
             if instances is None:
                 raise ValueError(
                     "BBoxStageLayer(use_gt_boxes=True) requires `instances`."
@@ -244,6 +265,34 @@ class BBoxStageLayer(BBoxLayer):
             pred_bbox_scores=scores,
             pred_bbox_classes=classes,
         )
+
+    def _given_boxes(
+        self,
+        image,
+        boxes: Optional[torch.Tensor],
+        box_scores: Optional[torch.Tensor],
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Validate the given boxes and drop those below the score threshold."""
+        n_frames = self._to_4d_tensor(image).shape[0]
+        if boxes is None:
+            # A frame batch with no box source at all: no detections.
+            boxes = torch.full((n_frames, 1, 4), float("nan"))
+        boxes = torch.as_tensor(boxes).float()
+        if boxes.ndim != 3 or boxes.shape[0] != n_frames or boxes.shape[-1] != 4:
+            raise ValueError(
+                f"Given boxes must be (B={n_frames}, K, 4) xyxy; got "
+                f"{tuple(boxes.shape)}."
+            )
+        if box_scores is None:
+            scores = torch.ones(boxes.shape[:2], device=boxes.device)
+        else:
+            scores = torch.as_tensor(box_scores).float().to(boxes.device)
+        valid = torch.isfinite(boxes).all(dim=-1) & torch.isfinite(scores)
+        valid &= scores >= self.box_score_threshold
+        boxes = boxes.masked_fill(~valid[..., None], float("nan"))
+        scores = scores.masked_fill(~valid, float("nan"))
+        classes = torch.zeros(valid.shape, dtype=torch.long, device=boxes.device)
+        return boxes, scores, classes.masked_fill(~valid, -1)
 
 
 def gt_boxes_from_instances(

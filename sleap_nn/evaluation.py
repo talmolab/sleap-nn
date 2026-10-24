@@ -1068,6 +1068,34 @@ def compute_dists(
     return dists_dict
 
 
+def _unmatched_prediction_scores(
+    labels_gt: sio.Labels,
+    labels_pr: sio.Labels,
+    positive_pairs: List[Tuple[Any, Any, float]],
+) -> np.ndarray:
+    """Scores of predicted instances on GT-labeled frames that matched no GT.
+
+    Covers the predictions :func:`match_instances` drops silently (after the frame's
+    GT runs out, or with OKS 0 to every GT) and every prediction on a GT labeled
+    frame with no user instances (which :func:`find_frame_pairs` skips entirely).
+    Predictions on frames absent from the GT are not scored.
+    """
+    matched = {id(pp[1].instance) for pp in positive_pairs}
+    match_result = labels_gt.match(labels_pr)
+    scores = []
+    for video_pr, video_gt in match_result.video_map.items():
+        if video_gt is None:
+            continue
+        gt_frames = {lf.frame_idx for lf in labels_gt.find(video_gt)}
+        for lf_pr in labels_pr.find(video_pr):
+            if lf_pr.frame_idx not in gt_frames:
+                continue
+            for inst in lf_pr.instances:
+                if isinstance(inst, sio.PredictedInstance) and id(inst) not in matched:
+                    scores.append(float(inst.score))
+    return np.asarray(scores, dtype="float64")
+
+
 class Evaluator:
     """Compute the standard evaluation metrics with the predicted and the ground-truth Labels.
 
@@ -1118,8 +1146,17 @@ class Evaluator:
         centroid_method: Optional[str] = None,
         centroid_fallback: Optional[str] = None,
         exclude_predicted_instance_masks: bool = False,
+        count_unmatched_as_fp: bool = False,
     ):
         """Initialize the Evaluator class with ground-truth and predicted labels.
+
+        ``count_unmatched_as_fp`` (``match_method="oks"`` only) makes
+        :meth:`voc_metrics` count every predicted instance that was not matched to a
+        GT instance -- extra detections left after the frame's GT ran out, ones with
+        OKS 0 to every GT, and ones on GT frames that have no user instances -- as a
+        false positive. Off by default for back-compat; without it ``oks_voc.*``
+        precision only sees matched pairs and over-states AP whenever a model
+        produces duplicates or spurious detections.
 
         ``exclude_predicted_instance_masks`` (``match_method="mask"`` only) drops
         masks linked to a ``PredictedInstance`` from the ground-truth labels, so a
@@ -1140,6 +1177,10 @@ class Evaluator:
         self.centroid_method = centroid_method
         self.centroid_fallback = centroid_fallback
         self.exclude_predicted_instance_masks = exclude_predicted_instance_masks
+        self.count_unmatched_as_fp = count_unmatched_as_fp
+        # Scores of predicted instances never matched to GT (oks mode, only with
+        # count_unmatched_as_fp).
+        self.unmatched_pred_scores = np.array([])
         # Populated only in centroid / mask mode.
         self.false_positives = []
         # Matched-pair IoUs, populated only in mask mode.
@@ -1186,6 +1227,12 @@ class Evaluator:
         )
 
         self.dists_dict = compute_dists(self.positive_pairs)
+        if self.count_unmatched_as_fp:
+            self.unmatched_pred_scores = _unmatched_prediction_scores(
+                self.ground_truth_instances,
+                self.predicted_instances,
+                self.positive_pairs,
+            )
 
     def _process_frames_centroid(self):
         """Match predicted vs GT centroids by pixel distance (per frame).
@@ -1458,6 +1505,14 @@ class Evaluator:
         detection_scores = np.array(
             [pp[1].instance.score for pp in self.positive_pairs]
         )
+        if self.count_unmatched_as_fp and self.unmatched_pred_scores.size:
+            # An unmatched prediction is a false positive at every threshold.
+            detection_scores = np.concatenate(
+                [detection_scores, self.unmatched_pred_scores]
+            )
+            match_scores = np.concatenate(
+                [match_scores, np.full(self.unmatched_pred_scores.size, -np.inf)]
+            )
 
         inds = np.argsort(-detection_scores, kind="mergesort")
         detection_scores = detection_scores[inds]
@@ -2696,6 +2751,11 @@ def run_evaluation(
     centroid_fallback: Optional[str] = None,
     bbox_source: str = "auto",
     bbox_padding: float = 0.0,
+    oks_sigmas: Optional[Any] = None,
+    coco_metrics: bool = False,
+    coco_protocol: Optional[str] = "auto",
+    coco_area_source: Optional[str] = None,
+    count_unmatched_as_fp: bool = False,
 ):
     """Evaluate SLEAP-NN model predictions against ground truth labels.
 
@@ -2743,6 +2803,25 @@ def run_evaluation(
             ``data_config.bbox_source``).
         bbox_padding: ``"bbox"`` mode only: pixels of padding on GT boxes derived
             from poses/masks (pass the model's ``data_config.bbox_padding``).
+        oks_sigmas: Per-node OKS sigmas (OKS mode): a preset name (``"coco"``,
+            ``"crowdpose"``, ``"ochuman"``), ``"provenance"`` (the GT file's
+            ``provenance["node_sigmas"]``), ``"auto"`` (provenance, then COCO names,
+            then ``oks_stddev``), a list (one per node) or a ``{node: sigma}`` dict.
+            Overrides ``oks_stddev`` for the native metrics too. See
+            :func:`sleap_nn.evaluation_coco.resolve_node_sigmas`.
+        coco_metrics: Also report COCOeval-faithful keypoint AP/AR under
+            ``metrics["coco_metrics"]`` (``coco.AP``, ``coco.AP50``, ...); see
+            :func:`sleap_nn.evaluation_coco.coco_keypoint_metrics`. These are the
+            numbers to compare with papers; the native ``oks_voc`` metrics are
+            kept for back-compat.
+        coco_protocol: Dataset evaluation protocol for ``coco_metrics``:
+            ``"auto"`` (from the GT ``provenance["dataset"]``), ``"coco"``,
+            ``"ochuman"``, ``"crowdpose"``, or ``None`` (plain COCOeval rules).
+        coco_area_source: GT object area for ``coco_metrics`` (``auto``, ``meta``,
+            ``bbox``, ``keypoints``; ``None`` takes the protocol's); see
+            :func:`sleap_nn.evaluation_coco.labels_to_coco_images`.
+        count_unmatched_as_fp: Count unmatched predictions as false positives in
+            the native ``oks_voc`` metrics (see :class:`Evaluator`).
 
     Returns:
         The metrics dict, or ``None`` if the predicted labels have zero
@@ -2852,10 +2931,22 @@ def run_evaluation(
         f"  Videos matched: {match_result.n_videos_matched}/{len(match_result.video_map)}"
     )
 
+    if oks_sigmas is not None and match_method == "oks" and gt_skeleton is not None:
+        from sleap_nn.evaluation_coco import resolve_node_sigmas
+
+        oks_stddev = resolve_node_sigmas(
+            gt_skeleton,
+            oks_sigmas,
+            provenance=ground_truth_instances.provenance,
+            default=oks_stddev,
+        )
+        logger.info(f"  Per-node OKS sigmas: {np.round(oks_stddev, 3).tolist()}")
+
     logger.info("Matching instances...")
     evaluator = Evaluator(
         ground_truth_instances=ground_truth_instances,
         predicted_instances=predicted_instances,
+        count_unmatched_as_fp=count_unmatched_as_fp,
         oks_stddev=oks_stddev,
         oks_scale=oks_scale,
         match_threshold=match_threshold,
@@ -2999,6 +3090,29 @@ def run_evaluation(
         f"  Visibility Precision: {metrics['visibility_metrics']['precision']:.4f}"
     )
     logger.info(f"  Visibility Recall: {metrics['visibility_metrics']['recall']:.4f}")
+
+    if coco_metrics:
+        from sleap_nn.evaluation_coco import coco_keypoint_metrics
+
+        coco = coco_keypoint_metrics(
+            ground_truth_instances,
+            predicted_instances,
+            # Resolved per-node sigmas if given, else provenance -> COCO names.
+            sigmas=None if np.isscalar(oks_stddev) else oks_stddev,
+            area_source=coco_area_source,
+            protocol=coco_protocol,
+        )
+        metrics["coco_metrics"] = coco
+        logger.info(
+            "  COCO keypoints: "
+            + " ".join(
+                f"{k[5:]}={coco[k]:.4f}"
+                for k in ["coco.AP", "coco.AP50", "coco.AP75", "coco.AP_M"]
+                + ["coco.AP_L", "coco.AR"]
+            )
+            + f" (n_gt={coco['coco.n_gt']}, ignore={coco['coco.n_gt_ignore']}, "
+            f"n_dt={coco['coco.n_dt']})"
+        )
 
     # Save metrics if path provided
     if save_metrics:

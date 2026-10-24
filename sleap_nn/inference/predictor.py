@@ -552,19 +552,26 @@ def _crop_stage_knobs(assets: Any) -> tuple:
     return BBoxCropSpec.from_config(cfg), max_hw
 
 
-def _attach_bbox_stage(layer: TopDownLayer, assets: Any, device: str) -> TopDownLayer:
+def _attach_bbox_stage(
+    layer: TopDownLayer,
+    assets: Any,
+    device: str,
+    box_source: Optional[str] = None,
+    box_score_threshold: float = 0.0,
+) -> TopDownLayer:
     """Seed a top-down layer with boxes: put the detector (or GT boxes) in front.
 
     Stage 2 stays as built; stage 1 becomes a :class:`BBoxStageLayer` -- the
     loaded detector, or, without one, boxes read from the GT instances (the
     box-scaled analog of the GT-centroid fallback, padded like the crop model's
-    training boxes). The frame is size-matched to the crop model's own training
-    target before cropping, and a box-scaled crop model (``crop_mode="bbox"``)
-    gets its crop rule.
+    training boxes), or with ``box_source="given"`` the boxes handed to each batch
+    (``Batch.frame_boxes``). The frame is size-matched to the crop model's own
+    training target before cropping, and a box-scaled crop model
+    (``crop_mode="bbox"``) gets its crop rule.
     """
     spec, max_hw = _crop_stage_knobs(assets)
     detector = getattr(assets, "detector_assets", None)
-    if detector is not None:
+    if detector is not None and box_source is None:
         layer.centroid_layer = _build_bbox_stage_layer(detector, device)
     else:
         from omegaconf import OmegaConf
@@ -575,8 +582,10 @@ def _attach_bbox_stage(layer: TopDownLayer, assets: Any, device: str) -> TopDown
         layer.centroid_layer = BBoxStageLayer(
             backend=layer.centered_instance_layer.backend,
             decoder=None,
-            use_gt_boxes=True,
+            use_gt_boxes=box_source != "given",
             gt_bbox_padding=float(padding or 0.0),
+            use_given_boxes=box_source == "given",
+            box_score_threshold=box_score_threshold,
             preprocess_config=PreprocessConfig(
                 scale=1.0,
                 max_height=_pp_field(assets, "max_height"),
@@ -589,6 +598,47 @@ def _attach_bbox_stage(layer: TopDownLayer, assets: Any, device: str) -> TopDown
     layer.bbox_crop = spec
     layer.crop_max_hw = max_hw
     return layer
+
+
+def _seed_from_boxes(
+    layer: Any,
+    assets: Any,
+    model_types: List[str],
+    device: str,
+    boxes: str,
+    box_score_threshold: float = 0.0,
+) -> TopDownLayer:
+    """Replace a top-down model's stage 1 with GT (``"gt"``) or given boxes.
+
+    The ``sleap-nn predict --boxes`` route: the crop model runs on externally
+    supplied boxes (COCO detection files, ``PredictedBoundingBox``es in the input
+    ``.slp``) or on the GT boxes, instead of a centroid model or detector.
+    """
+    if boxes not in ("gt", "given"):
+        raise ValueError(f"boxes must be 'gt' or 'given'; got {boxes!r}.")
+    from sleap_nn.inference.layers.embedding import TopDownEmbeddingLayer
+
+    if not isinstance(layer, TopDownLayer) or isinstance(layer, TopDownEmbeddingLayer):
+        raise ValueError(
+            "Seeding from boxes needs a top-down crop model (centered_instance, "
+            "multi_class_topdown or centered_instance_segmentation); got model "
+            f"types {model_types}."
+        )
+    stage_1 = [
+        t for t in model_types if t in ("centroid", "bbox_centernet", "bbox_ssd")
+    ]
+    if stage_1:
+        raise ValueError(
+            f"Seeding from {boxes!r} boxes replaces the top-down stage 1; pass only "
+            f"the crop model, not the {'/'.join(stage_1)} model too."
+        )
+    return _attach_bbox_stage(
+        layer,
+        assets,
+        device,
+        box_source=boxes,
+        box_score_threshold=box_score_threshold,
+    )
 
 
 def _maybe_gt_bbox_stage(layer: TopDownLayer, assets: Any, device: str):
@@ -1229,7 +1279,7 @@ class Predictor:
     emit_centroid: str = "instance"
 
     def __attrs_post_init__(self) -> None:
-        """Warn (once) if ``paf_workers`` was set on a layer that can't use it.
+        """Resolve OKS-NMS sigmas; warn if ``paf_workers`` can't be used.
 
         ``paf_workers > 0`` only pipelines the CPU-bound grouping stage for
         plain bottom-up (:class:`BottomUpLayer`); every other layer type
@@ -1238,6 +1288,20 @@ class Predictor:
         setting today. Without this, that's an easy-to-miss no-op — a user
         expecting a speedup gets none, with no signal why.
         """
+        cfg = self.filter_config
+        if cfg.oks_nms_threshold > 0 and not isinstance(cfg.oks_sigmas, tuple):
+            # COCO OKS-NMS needs one sigma per node: resolve the spec against the
+            # skeleton (by node name when None; COCO-17 names get COCO's).
+            if self.skeleton is None:
+                raise ValueError(
+                    "FilterConfig.oks_nms_threshold needs per-node oks_sigmas or a "
+                    "skeleton to resolve them from."
+                )
+            from sleap_nn.evaluation_coco import resolve_node_sigmas
+
+            self.filter_config = attrs.evolve(
+                cfg, oks_sigmas=resolve_node_sigmas(self.skeleton, cfg.oks_sigmas)
+            )
         if self.paf_workers > 0 and not self._can_pipeline():
             logger.warning(
                 f"paf_workers={self.paf_workers} was set, but pipelined CPU "
@@ -1298,6 +1362,8 @@ class Predictor:
         polygon_epsilon: float = 0.01,
         bbox_nms_iou: Optional[float] = None,
         flip_test: bool = False,
+        boxes: Optional[str] = None,
+        box_score_threshold: float = 0.0,
     ) -> "Predictor":
         """Build a :class:`Predictor` from one or more checkpoint paths.
 
@@ -1386,6 +1452,15 @@ class Predictor:
                 average the confmaps (symmetric nodes swapped using the skeleton
                 symmetries) before peak finding. Doubles the centered-instance
                 compute.
+            boxes: Seed a top-down crop model's stage 1 from boxes instead of a
+                centroid model or detector: ``"gt"`` (the GT boxes of a ``.slp``
+                source, scored 1) or ``"given"`` (each frame's
+                ``PredictedBoundingBox``es in the ``.slp`` / ``sio.Labels`` source,
+                e.g. attached by
+                :func:`~sleap_nn.evaluation_coco.attach_coco_detections`). Pass
+                only the crop model. ``None`` (default) keeps the usual stage 1.
+            box_score_threshold: With ``boxes="given"``, drop boxes scoring below
+                this.
         """
         from sleap_nn.inference.loaders import load_model_assets
         from sleap_nn.system_info import get_startup_info_string
@@ -1441,6 +1516,10 @@ class Predictor:
             )
         else:
             layer = _select_layer(loaded, model_types, device)
+        if boxes is not None:
+            layer = _seed_from_boxes(
+                layer, loaded, model_types, device, boxes, box_score_threshold
+            )
 
         skeleton = loaded.skeletons[0] if loaded.skeletons else None
         kwargs: dict = {
@@ -1633,17 +1712,37 @@ class Predictor:
         """
         stage_1 = getattr(self.layer, "centroid_layer", None)
         spec = getattr(self.layer, "bbox_crop", None)
-        if not getattr(stage_1, "use_gt_boxes", False) or spec is None:
+        if not getattr(stage_1, "use_gt_boxes", False):
             return None
         from sleap_nn.data.bboxes import instance_crop_bbox, resolve_bbox_source
 
-        source = resolve_bbox_source(labels, spec.bbox_source)
-        padding = spec.bbox_padding
+        if spec is not None:
+            source = resolve_bbox_source(labels, spec.bbox_source)
+            padding = spec.bbox_padding
+        else:
+            # A fixed-crop model seeded with GT boxes (`boxes="gt"`): its crops
+            # center on the boxes, so take the labels' own boxes when they have
+            # them.
+            source = resolve_bbox_source(labels, "auto")
+            padding = stage_1.gt_bbox_padding
 
         def box_fn(lf, inst):
             return instance_crop_bbox(lf, inst, source, padding)
 
         return box_fn
+
+    def _uses_given_boxes(self) -> bool:
+        """Whether stage 1 reads each frame's given boxes (``boxes="given"``)."""
+        stage_1 = getattr(self.layer, "centroid_layer", None)
+        return bool(getattr(stage_1, "use_given_boxes", False))
+
+    def _frame_box_fn(self) -> Optional[Any]:
+        """Per-frame box source of a given-box stage 1, else ``None``."""
+        if not self._uses_given_boxes():
+            return None
+        from sleap_nn.inference.providers import predicted_frame_boxes
+
+        return predicted_frame_boxes
 
     def _preprocess_provenance_params(self) -> dict:
         """The scale/crop_size actually used for this run, for provenance.
@@ -1822,6 +1921,21 @@ class Predictor:
             VideoSelection,
         )
 
+        if self._uses_given_boxes():
+            # Given boxes ride on the frames of a labels source.
+            if isinstance(source, LabelsProvider):
+                if source.frame_box_fn is None:
+                    source.frame_box_fn = self._frame_box_fn()
+            elif not (
+                isinstance(source, sio.Labels)
+                or (isinstance(source, str) and source.endswith(".slp"))
+            ):
+                raise ValueError(
+                    "A top-down model seeded from given boxes reads them from the "
+                    "frames of a .slp / sio.Labels source (PredictedBoundingBox); "
+                    f"got a {type(source).__name__} source."
+                )
+
         if isinstance(source, VideoSelection):
             # Resolved here, not by the caller, because only the Predictor knows
             # whether its layer needs GT instances (which restricts the
@@ -1860,6 +1974,7 @@ class Predictor:
                     "only_labeled_frames", self._needs_gt_instances()
                 )
                 provider_kwargs.setdefault("instance_box_fn", self._gt_box_fn(labels))
+                provider_kwargs.setdefault("frame_box_fn", self._frame_box_fn())
                 provider = LabelsProvider(
                     labels=labels,
                     batch_size=self.batch_size,
@@ -1890,6 +2005,7 @@ class Predictor:
                 "only_labeled_frames", self._needs_gt_instances()
             )
             provider_kwargs.setdefault("instance_box_fn", self._gt_box_fn(source))
+            provider_kwargs.setdefault("frame_box_fn", self._frame_box_fn())
             provider = LabelsProvider(
                 labels=source,
                 batch_size=self.batch_size,
@@ -2439,9 +2555,11 @@ class Predictor:
             sig = inspect.signature(layer.predict)
             layer_accepts_instances = "instances" in sig.parameters
             layer_accepts_boxes = "instance_boxes" in sig.parameters
+            layer_accepts_frame_boxes = "frame_boxes" in sig.parameters
         except (TypeError, ValueError):  # pragma: no cover — non-introspectable
             layer_accepts_instances = False
             layer_accepts_boxes = False
+            layer_accepts_frame_boxes = False
 
         pipeline = self.filter_pipeline
         total = _safe_num_frames(provider)
@@ -2461,6 +2579,10 @@ class Predictor:
                     if isinstance(boxes, torch.Tensor)
                     else torch.from_numpy(boxes)
                 )
+            frame_boxes = getattr(batch, "frame_boxes", None)
+            if frame_boxes is not None and layer_accepts_frame_boxes:
+                kwargs["frame_boxes"] = torch.as_tensor(frame_boxes)
+                kwargs["frame_box_scores"] = torch.as_tensor(batch.frame_box_scores)
             outputs = layer.predict(batch.images, **kwargs)
             outputs = pipeline(outputs)
             outputs = self._stamp_metadata(outputs, batch)

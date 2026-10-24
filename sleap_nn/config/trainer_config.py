@@ -493,6 +493,19 @@ class EvalConfig:
         frequency: (int) Evaluate every N epochs. *Default*: `1`.
         oks_stddev: (float) OKS standard deviation for evaluation. *Default*: `0.025`.
         oks_scale: (float) OKS scale override. If None, uses default. *Default*: `None`.
+        oks_sigmas: Per-node OKS sigmas for post-training evaluation, overriding
+            ``oks_stddev``: a preset (``"coco"``, ``"crowdpose"``, ``"ochuman"``),
+            ``"provenance"`` / ``"auto"`` (the GT file's ``node_sigmas``), or a list
+            with one value per node. *Default*: `None`.
+        coco_metrics: (bool) Also report COCOeval-faithful keypoint AP/AR
+            (``coco.AP``, ``coco.AP50``, ...; see ``sleap_nn.evaluation_coco``) in
+            post-training evaluation. For top-down models
+            (``centered_instance``, ``multi_class_topdown``) it also switches the
+            post-training predictions to the COCO protocol: no keypoint is
+            dropped (``peak_threshold`` 0) and instances are rescored as mmpose
+            does (stage-1 score x mean keypoint score above 0.2). Without it,
+            low-confidence keypoints are dropped at 0.2, which costs several AP
+            on COCO. *Default*: `False`.
         match_threshold: (float) Match threshold for post-training evaluation.
             For centroid models it is the maximum centroid distance in PIXELS
             (default `50.0`). For ``bottomup_segmentation`` it is reinterpreted
@@ -515,6 +528,8 @@ class EvalConfig:
     frequency: int = field(default=1, validator=validators.ge(1))
     oks_stddev: float = field(default=0.025, validator=validators.gt(0))
     oks_scale: Optional[float] = None
+    oks_sigmas: Optional[Any] = None
+    coco_metrics: bool = False
     match_threshold: float = field(default=50.0, validator=validators.gt(0))
     # Declared here so it is reachable from YAML at all: a structured merge against
     # this dataclass raises `ConfigKeyError` for any key it does not define, so

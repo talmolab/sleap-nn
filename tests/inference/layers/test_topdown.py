@@ -175,3 +175,26 @@ def test_centroid_nms_dedupes_close_centroids(monkeypatch):
 # end-to-end byte-for-byte parity is captured at the top of the stack
 # via the PR 0 goldens (the topdown golden is captured there directly
 # from the full predictor and is the canonical comparison point).
+
+
+def test_infer_n_nodes_reads_the_head_not_the_backbone():
+    """The empty-output node count comes from the confmap head's output conv."""
+
+    class _Model(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            # A ViT's first conv (patch embedding) has embed_dim channels.
+            self.backbone = torch.nn.Conv2d(3, 384, 16, stride=16)
+            self.head_layers = torch.nn.ModuleList(
+                [
+                    torch.nn.Sequential(
+                        torch.nn.Conv2d(384, 64, 3), torch.nn.Conv2d(64, 17, 1)
+                    )
+                ]
+            )
+
+    inst_layer = CenteredInstanceLayer.__new__(CenteredInstanceLayer)
+    inst_layer.backend = type("_B", (), {"model": _Model()})()
+    layer = TopDownLayer.__new__(TopDownLayer)
+    layer.centered_instance_layer = inst_layer
+    assert layer._infer_n_nodes() == 17

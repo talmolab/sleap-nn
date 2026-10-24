@@ -695,3 +695,199 @@ def test_filters_drop_seeding_boxes():
     assert torch.isfinite(dropped.pred_bboxes[0, 0]).all()
     assert torch.isnan(dropped.pred_bboxes[0, 1]).all()
     assert dropped.pred_bbox_classes[0].tolist() == [0, -1]
+
+
+# --------------------------------------------------------------------------- #
+# Given boxes (sleap-nn predict --boxes)
+# --------------------------------------------------------------------------- #
+class _NoBackend:
+    """A ``ModelBackend`` stand-in for stage layers that never call it."""
+
+    device = "cpu"
+    does_baked_postproc = False
+
+    def __call__(self, x):
+        raise AssertionError("not called")
+
+    def warmup(self, input_shape):
+        return None
+
+
+def test_given_boxes_stage_layer():
+    """Given boxes pass through with their scores; weak and padded ones drop."""
+    stage = BBoxStageLayer(
+        backend=_NoBackend(),
+        decoder=None,
+        use_given_boxes=True,
+        box_score_threshold=0.3,
+    )
+    assert not stage.use_gt_centroids  # needs no GT instances
+    boxes = torch.tensor(
+        [[[0.0, 0.0, 10.0, 20.0], [5.0, 5.0, 9.0, 9.0], [float("nan")] * 4]]
+    )
+    out = stage.predict(
+        torch.zeros(1, 1, 32, 32),
+        boxes=boxes,
+        box_scores=torch.tensor([[0.9, 0.1, float("nan")]]),
+    )
+    np.testing.assert_allclose(out.pred_centroids[0, 0].numpy(), [5.0, 10.0])
+    assert out.pred_centroid_values[0, 0].item() == pytest.approx(0.9)
+    assert torch.isnan(out.pred_bboxes[0, 1:]).all()
+    assert out.pred_bbox_classes[0].tolist() == [0, -1, -1]
+    # A batch with no box source at all has no detections.
+    out = stage.predict(torch.zeros(2, 1, 32, 32))
+    assert (
+        out.pred_centroids.shape == (2, 1, 2) and torch.isnan(out.pred_centroids).all()
+    )
+    with pytest.raises(ValueError, match="exclusive"):
+        BBoxStageLayer(_NoBackend(), None, use_gt_boxes=True, use_given_boxes=True)
+
+
+def test_labels_provider_frame_boxes(minimal_instance):
+    """frame_box_fn puts each frame's predicted boxes on the batch, NaN-padded."""
+    from sleap_nn.inference.providers import LabelsProvider, predicted_frame_boxes
+
+    labels = sio.load_slp(minimal_instance)
+    lf = labels[0]
+    lf.bboxes = [
+        sio.PredictedBoundingBox(x1=1, y1=2, x2=3, y2=4, score=0.7),
+        sio.UserBoundingBox(x1=0, y1=0, x2=9, y2=9),  # GT: skipped
+        sio.PredictedBoundingBox(x1=5, y1=6, x2=7, y2=8, score=0.2),
+    ]
+    boxes, scores = predicted_frame_boxes(lf)
+    np.testing.assert_allclose(boxes, [[1, 2, 3, 4], [5, 6, 7, 8]])
+    np.testing.assert_allclose(scores, [0.7, 0.2])
+    batch = next(
+        iter(
+            LabelsProvider(
+                labels=labels, frame_box_fn=predicted_frame_boxes, prefetch=False
+            )
+        )
+    )
+    assert batch.frame_boxes.shape == (1, 2, 4)
+    np.testing.assert_allclose(batch.frame_box_scores[0], [0.7, 0.2])
+
+
+def _labels_with_boxes(path, scores=(0.8, 0.6)):
+    """The fixture's frame with one predicted box per instance (padded)."""
+    labels = sio.load_slp(path)
+    lf = labels[0]
+    for inst, score in zip(lf.instances, scores):
+        x1, y1, x2, y2 = inst.to_bbox(mode="tight", padding=4.0).xyxy
+        lf.bboxes.append(
+            sio.PredictedBoundingBox(x1=x1, y1=y1, x2=x2, y2=y2, score=score)
+        )
+    return labels
+
+
+@pytest.mark.parametrize("model", ["ci_bbox", "ci_fixed"])
+def test_predictor_seeds_from_given_boxes(trained_pair, minimal_instance, model):
+    """boxes='given': one instance per box, scored by it, the box kept linked."""
+    from sleap_nn.inference.predictor import Predictor
+
+    pred = Predictor.from_model_paths(
+        [trained_pair[model].as_posix()],
+        device="cpu",
+        peak_threshold=0.0,
+        boxes="given",
+        box_score_threshold=0.7,
+    )
+    stage_1 = pred.layer.centroid_layer
+    assert isinstance(stage_1, BBoxStageLayer) and stage_1.use_given_boxes
+    assert not pred._needs_gt_instances()
+    labels = pred.predict(_labels_with_boxes(minimal_instance), make_labels=True)
+    lf = labels[0]
+    # The 0.6 box is below the threshold.
+    assert len(lf.instances) == 1
+    assert lf.instances[0].score == pytest.approx(0.8)
+    assert len(lf.bboxes) == 1 and lf.bboxes[0].instance is lf.instances[0]
+
+
+def test_predictor_seeds_fixed_crops_from_gt_boxes(trained_pair, minimal_instance):
+    """boxes='gt' seeds a fixed-crop model from GT boxes (not GT centroids)."""
+    from sleap_nn.inference.predictor import Predictor
+
+    pred = Predictor.from_model_paths(
+        [trained_pair["ci_fixed"].as_posix()],
+        device="cpu",
+        peak_threshold=0.0,
+        boxes="gt",
+    )
+    stage_1 = pred.layer.centroid_layer
+    assert isinstance(stage_1, BBoxStageLayer) and stage_1.use_gt_boxes
+    assert pred.layer.bbox_crop is None
+    labels = pred.predict(sio.load_slp(minimal_instance), make_labels=True)
+    assert len(labels[0].instances) == 2
+
+
+def test_box_seeding_refusals(trained_pair, minimal_instance):
+    """Given boxes replace stage 1, so a detector alongside is refused."""
+    from sleap_nn.inference.predictor import Predictor
+
+    with pytest.raises(ValueError, match="replaces the top-down stage 1"):
+        Predictor.from_model_paths(
+            [trained_pair["det"].as_posix(), trained_pair["ci_bbox"].as_posix()],
+            device="cpu",
+            boxes="given",
+        )
+    with pytest.raises(ValueError, match="needs a top-down crop model"):
+        Predictor.from_model_paths(
+            [trained_pair["det"].as_posix()], device="cpu", boxes="gt"
+        )
+    pred = Predictor.from_model_paths(
+        [trained_pair["ci_bbox"].as_posix()], device="cpu", boxes="given"
+    )
+    with pytest.raises(ValueError, match="frames of a .slp / sio.Labels"):
+        pred.predict(np.zeros((1, 64, 64, 1), dtype=np.uint8))
+
+
+def test_predict_cli_with_boxes_slp(trained_pair, minimal_instance, tmp_path):
+    """sleap-nn predict --boxes boxes.slp copies the boxes, rescores, and evals."""
+    from click.testing import CliRunner
+
+    from sleap_nn.cli import cli
+
+    boxes_path = tmp_path / "boxes.slp"
+    _labels_with_boxes(minimal_instance).save(boxes_path)
+    out = tmp_path / "pred.slp"
+    args = [
+        "predict",
+        "-i",
+        str(minimal_instance),
+        "-m",
+        trained_pair["ci_bbox"].as_posix(),
+        "--boxes",
+        str(boxes_path),
+        "--peak_threshold",
+        "0",
+        "--oks_nms",
+        "0.9",
+        "--device",
+        "cpu",
+        "-o",
+        str(out),
+    ]
+    result = CliRunner().invoke(cli, args)
+    assert result.exit_code == 0, result.output
+    lf = sio.load_slp(out)[0]
+    assert len(lf.instances) == 2
+    # Rescoring is on by default with --boxes: box score x mean keypoint score.
+    for inst in lf.instances:
+        box = next(b for b in lf.bboxes if b.instance is inst)
+        vals = inst.numpy(scores=True)[:, 2]
+        above = vals[vals > 0.2]
+        kpt = above.mean() if above.size else 0.0
+        assert inst.score == pytest.approx(box.score * kpt, rel=1e-4)
+    result = CliRunner().invoke(
+        cli,
+        ["eval", "-g", str(minimal_instance), "-p", str(out), "--coco"],
+    )
+    assert result.exit_code == 0, result.output
+
+    # Usage errors, before any model loads.
+    result = CliRunner().invoke(cli, args + ["--stream-to-file", str(out)])
+    assert result.exit_code != 0 and "--stream-to-file" in result.output
+    video_args = list(args)
+    video_args[2] = "video.mp4"
+    result = CliRunner().invoke(cli, video_args)
+    assert result.exit_code != 0 and "needs a .slp input" in result.output

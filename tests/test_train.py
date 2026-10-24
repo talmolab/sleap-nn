@@ -41,6 +41,34 @@ def test_oks_run_evaluation_overrides_omits_unset_values():
     assert overrides == {}
 
 
+def test_oks_run_evaluation_overrides_coco():
+    """coco_metrics and oks_sigmas reach run_evaluation (lists as plain lists)."""
+    config = OmegaConf.create(
+        {"trainer_config": {"eval": {"coco_metrics": True, "oks_sigmas": [0.1, 0.2]}}}
+    )
+    overrides = _oks_run_evaluation_overrides(config)
+    assert overrides == {"coco_metrics": True, "oks_sigmas": [0.1, 0.2]}
+    assert type(overrides["oks_sigmas"]) is list
+
+
+def test_post_training_predict_kwargs_coco_protocol():
+    """coco_metrics predicts top-down splits at threshold 0 with rescoring."""
+    from sleap_nn.inference.filters import FilterConfig
+    from sleap_nn.train import _post_training_predict_kwargs
+
+    plain = OmegaConf.create({"trainer_config": {"eval": {}}})
+    coco = OmegaConf.create({"trainer_config": {"eval": {"coco_metrics": True}}})
+    assert _post_training_predict_kwargs(plain, "centered_instance") == {
+        "peak_threshold": 0.2
+    }
+    assert _post_training_predict_kwargs(coco, "centered_instance") == {
+        "peak_threshold": 0.0,
+        "filter_config": FilterConfig(rescore_keypoint_threshold=0.2),
+    }
+    # Other model types keep today's prediction settings.
+    assert _post_training_predict_kwargs(coco, "bottomup") == {"peak_threshold": 0.2}
+
+
 def test_run_centroid_split_eval_routing(monkeypatch, tmp_path):
     """Centroid post-training eval uses the NEW flow + centroid match method.
 

@@ -381,3 +381,135 @@ def test_run_classmethod_matches_instance_apply():
     torch.testing.assert_close(
         via_run.pred_keypoints, via_inst.pred_keypoints, equal_nan=True
     )
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# COCO post-processing: rescoring + OKS-NMS
+# ─────────────────────────────────────────────────────────────────────────
+
+
+def test_rescore_box_score_times_mean_keypoint_score():
+    """score = stage-1 score x mean of keypoint scores above the threshold."""
+    out = _make_outputs()
+    res = FilterPipeline.run(out, FilterConfig(rescore_keypoint_threshold=0.2))
+    expected = [
+        0.85 * (0.9 + 0.8 + 0.7 + 0.6) / 4,
+        0.30 * (0.4 + 0.3) / 2,  # 0.2 is not above 0.2
+        0.55 * 0.95,
+    ]
+    assert res.instance_scores[0].tolist() == pytest.approx(expected)
+    # Keypoints are untouched (rescoring is not a filter).
+    assert torch.equal(res.pred_keypoints, out.pred_keypoints)
+
+
+def test_rescore_edge_cases():
+    """No keypoint above the threshold scores 0; empty slots stay NaN."""
+    out = _make_outputs()
+    kpts = out.pred_keypoints.clone()
+    kpts[0, 2] = float("nan")
+    out = Outputs(
+        pred_keypoints=kpts,
+        pred_peak_values=out.pred_peak_values,
+        pred_centroid_values=torch.tensor([[0.5, 0.5, 0.5]]),
+    )
+    res = FilterPipeline.run(out, FilterConfig(rescore_keypoint_threshold=0.5))
+    # No instance_scores: the stage-1 (centroid) value is the base.
+    assert res.instance_scores[0, 0].item() == pytest.approx(0.5 * 0.75)
+    assert res.instance_scores[0, 1].item() == 0.0
+    assert math.isnan(res.instance_scores[0, 2].item())
+
+
+def _mmpose_oks_nms(kpts, scores, areas, sigmas, thr):
+    """Reference: mmpose ``oks_nms`` / ``oks_iou`` (vis_thr=None), in numpy."""
+    import numpy as np
+
+    vars_ = (sigmas * 2) ** 2
+    order = scores.argsort()[::-1]
+    keep = []
+    while order.size > 0:
+        i = order[0]
+        keep.append(int(i))
+        d = kpts[order[1:]] - kpts[i]
+        e = (d**2).sum(-1) / vars_ / ((areas[i] + areas[order[1:]]) / 2)[:, None] / 2
+        oks = np.exp(-e).mean(-1)
+        order = order[np.where(oks <= thr)[0] + 1]
+    return sorted(keep)
+
+
+def test_oks_nms_matches_mmpose():
+    """OKS-NMS keeps exactly the instances mmpose's oks_nms keeps."""
+    import numpy as np
+
+    rng = np.random.default_rng(0)
+    n_nodes, n_inst = 5, 12
+    sigmas = np.array([0.026, 0.079, 0.072, 0.107, 0.089])
+    centers = rng.uniform(0, 100, size=(4, 2))
+    kpts = centers[rng.integers(0, 4, n_inst)][:, None] + rng.normal(
+        0, 3, size=(n_inst, n_nodes, 2)
+    )
+    scores = rng.uniform(0, 1, n_inst)
+    windows = np.stack(
+        [kpts.min(1) - 10, kpts.max(1) + 10], axis=1
+    )  # (I, 2, 2) corners
+    areas = np.prod(windows[:, 1] - windows[:, 0], axis=-1)
+    expected = _mmpose_oks_nms(kpts, scores, areas, sigmas, 0.5)
+    assert 1 < len(expected) < n_inst
+
+    corners = np.stack(
+        [
+            windows[:, 0],
+            np.stack([windows[:, 1, 0], windows[:, 0, 1]], -1),
+            windows[:, 1],
+            np.stack([windows[:, 0, 0], windows[:, 1, 1]], -1),
+        ],
+        axis=1,
+    )  # (I, 4, 2), as TopDownLayer's instance_bboxes
+    out = Outputs(
+        pred_keypoints=torch.tensor(kpts[None], dtype=torch.float32),
+        pred_peak_values=torch.ones(1, n_inst, n_nodes),
+        instance_scores=torch.tensor(scores[None], dtype=torch.float32),
+        instance_bboxes=torch.tensor(corners[None], dtype=torch.float32),
+    )
+    cfg = FilterConfig(oks_nms_threshold=0.5, oks_sigmas=sigmas.tolist())
+    res = FilterPipeline.run(out, cfg)
+    kept = (~torch.isnan(res.pred_keypoints[0]).all(-1).all(-1)).nonzero()
+    assert kept.flatten().tolist() == expected
+
+
+def test_oks_nms_needs_per_node_sigmas():
+    """An unresolved sigma spec is the Predictor's job; the pipeline refuses it."""
+    out = _make_outputs()
+    with pytest.raises(ValueError, match="one oks_sigma per node"):
+        FilterPipeline.run(out, FilterConfig(oks_nms_threshold=0.9))
+    with pytest.raises(ValueError, match="Expected 4"):
+        FilterPipeline.run(
+            out, FilterConfig(oks_nms_threshold=0.9, oks_sigmas=[0.1, 0.1])
+        )
+    # Lists are stored as hashable tuples, so the config stays a value type.
+    cfg = FilterConfig(oks_nms_threshold=0.9, oks_sigmas=[0.1] * 4)
+    assert cfg.oks_sigmas == (0.1,) * 4
+    assert pickle.loads(pickle.dumps(cfg)) == cfg
+
+
+def test_predictor_resolves_oks_nms_sigmas_from_skeleton():
+    """A Predictor fills OKS-NMS sigmas from its skeleton's node names."""
+    import sleap_io as sio
+
+    from sleap_nn.evaluation_coco import COCO_KEYPOINT_SIGMAS
+    from sleap_nn.inference.predictor import Predictor
+
+    skel = sio.Skeleton(nodes=["nose", "left_hip", "tail"])
+    pred = Predictor(
+        layer=object(),
+        skeleton=skel,
+        filter_config=FilterConfig(oks_nms_threshold=0.9),
+    )
+    assert pred.filter_config.oks_sigmas == pytest.approx(
+        (COCO_KEYPOINT_SIGMAS["nose"], COCO_KEYPOINT_SIGMAS["left_hip"], 0.025)
+    )
+    pred = Predictor(
+        layer=object(),
+        skeleton=skel,
+        filter_config=FilterConfig(oks_nms_threshold=0.9, oks_sigmas=0.05),
+    )
+    assert pred.filter_config.oks_sigmas == pytest.approx((0.05,) * 3)
