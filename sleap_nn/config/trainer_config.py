@@ -358,6 +358,31 @@ class ZMQConfig:
 
 
 @define
+class FreezeScheduleConfig:
+    """Freeze part of the model for the first steps of training.
+
+    Attributes:
+        targets: (List[str]) What to freeze: ``"encoder"`` (the backbone's
+            pretrained encoder), ``"embeddings"``, ``"blocks[:6]"`` (a slice of a
+            plain ViT's blocks), ``"backbone"``, ``"decoder"``, ``"head"`` or a glob
+            on parameter names. *Default*: ``None`` (``["encoder"]``).
+        unfreeze_at_step: (int) Global step at which the targets are unfrozen;
+            ``None`` keeps them frozen for the whole run. Requires the backbone's
+            ``freeze: false`` (the parameters must be in the optimizer).
+            *Default*: ``None``.
+
+    Under DDP, ``find_unused_parameters`` is turned on automatically (frozen
+    parameters get no gradient); an explicit
+    ``trainer_strategy: ddp_find_unused_parameters_false`` is refused.
+    """
+
+    targets: Optional[List[str]] = None
+    unfreeze_at_step: Optional[int] = field(
+        default=None, validator=validators.optional(validators.ge(0))
+    )
+
+
+@define
 class TrainerConfig:
     """Configuration for trainer.
 
@@ -428,6 +453,7 @@ class TrainerConfig:
     )
     zmq: Optional[ZMQConfig] = field(factory=ZMQConfig)  # Required for SLEAP GUI
     eval: EvalConfig = field(factory=EvalConfig)  # Epoch-end evaluation config
+    freeze_schedule: Optional[FreezeScheduleConfig] = None
 
     @staticmethod
     def validate_optimizer_name(value):
