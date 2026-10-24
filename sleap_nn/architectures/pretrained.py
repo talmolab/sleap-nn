@@ -1659,6 +1659,8 @@ class PretrainedBackbone(FreezableEncoderMixin, nn.Module):
             the stride ``2 * token_stride`` neck level).
             Case B: ``{"outputs": [], "strides": [], "middle_output": bottleneck,
             "intermediate_feat": bottleneck}``.
+            Case C also carries ``"last_tap"``: the deepest tapped token map
+            (stride ``token_stride``, after its tap norm).
         """
         x = self._normalize(x)
         if self.token_path:
@@ -1682,6 +1684,7 @@ class PretrainedBackbone(FreezableEncoderMixin, nn.Module):
                 "strides": [self.output_stride],
                 "middle_output": tokens,
                 "intermediate_feat": tokens,
+                "last_tap": tokens,
             }
 
         if self.token_path:
@@ -1697,4 +1700,7 @@ class PretrainedBackbone(FreezableEncoderMixin, nn.Module):
         skips = maps[:-1][::-1]  # deepest-first, matching encoder_channels
         out = self.dec(bottleneck, skips)
         out["middle_output"] = bottleneck
+        if self.token_path:
+            # The deepest tapped token map, before the neck (read by distillation).
+            out["last_tap"] = feats[-1]
         return out

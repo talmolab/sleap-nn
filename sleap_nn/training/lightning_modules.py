@@ -92,6 +92,7 @@ from sleap_nn.training.weight_transfer import (
     model_head_channels,
     reinit as reinit_selected,
 )
+from sleap_nn.training.distillation import drop_distiller_keys
 
 MODEL_WEIGHTS = {
     "Swin_T_Weights": Swin_T_Weights,
@@ -217,6 +218,9 @@ class LightningModel(L.LightningModule):
     ):
         """Initialise the configs and the model."""
         super().__init__()
+        # `trainer_config.distillation` (set by `attach_distillation`): adds the
+        # teacher -> student loss to the supported training steps.
+        self.distiller = None
         self.negative_loss_weight = negative_loss_weight
         self.init_from = init_from
         self.transfer_reports = []
@@ -418,9 +422,15 @@ class LightningModel(L.LightningModule):
         """Record each head's output-channel names (node names) in the checkpoint.
 
         Lets `init_from` / `pretrained_head_weights` remap channels by node name
-        without the ``training_config.yaml`` next to the checkpoint.
+        without the ``training_config.yaml`` next to the checkpoint. While
+        distilling, the distiller's own weights move to
+        ``checkpoint["distillation"]``.
         """
         checkpoint[CHECKPOINT_HEADS_KEY] = model_head_channels(self)
+        if self.distiller is not None:
+            # The projector is training-only: keep it out of `state_dict` so the
+            # checkpoint loads strictly into a plain model.
+            self.distiller.pop_state(checkpoint)
 
     @classmethod
     def get_lightning_model_from_config(cls, config: DictConfig):
@@ -534,7 +544,20 @@ class LightningModel(L.LightningModule):
         training resumes from it with no `WeightEMA` callback, continue from the
         online weights rather than the average. Loading for inference (no
         trainer) keeps the EMA weights.
+
+        While distilling, the distiller's weights saved under
+        ``checkpoint["distillation"]`` are put back (fresh ones for a checkpoint
+        saved without distillation); otherwise stray distiller weights are
+        dropped.
         """
+        self._restore_online_weights(checkpoint)
+        if self.distiller is not None:
+            self.distiller.restore_state(checkpoint, prefix_root="distiller.")
+        else:
+            drop_distiller_keys(checkpoint)
+
+    def _restore_online_weights(self, checkpoint: Dict[str, Any]) -> None:
+        """Load an EMA checkpoint's online weights when resuming without EMA."""
         from sleap_nn.training.callbacks import WeightEMA
 
         state = checkpoint.get(WeightEMA.CHECKPOINT_KEY)
@@ -1150,6 +1173,62 @@ class LightningModel(L.LightningModule):
                 sync_dist=True,
             )
 
+    def train(self, mode: bool = True):
+        """Set train/eval mode; a backbone frozen by distillation stays in eval."""
+        super().train(mode)
+        distiller = getattr(self, "distiller", None)
+        if mode and distiller is not None and distiller.frozen_backbone:
+            self.model.backbone.eval()
+        return self
+
+    def _forward_train(
+        self, X: torch.Tensor
+    ) -> Tuple[Dict[str, torch.Tensor], Optional[Dict[str, Any]]]:
+        """Head outputs for a training step, plus the backbone's while distilling."""
+        if self.distiller is None:
+            return self.model(X), None
+        return self.model(X, return_backbone_outputs=True)
+
+    def _with_distillation(
+        self,
+        loss: torch.Tensor,
+        X: torch.Tensor,
+        outputs: Dict[str, torch.Tensor],
+        backbone_outputs: Optional[Dict[str, Any]],
+        batch: Dict,
+    ) -> torch.Tensor:
+        """The loss to optimize: ``loss`` plus the distillation terms, if any.
+
+        Logs ``train/distill_heatmap``, ``train/distill_feat`` (stage 1 with a
+        feature term) and ``train/distill_weight`` (``r(t)``) as epoch means.
+        ``loss`` (the supervised loss) is what ``loss`` / ``train/loss`` log, so
+        those stay comparable with runs that do not distill.
+
+        Args:
+            loss: The step's supervised loss.
+            X: The normalized input batch.
+            outputs: The network's head outputs.
+            backbone_outputs: The backbone's output dict (`_forward_train`).
+            batch: The training batch.
+        """
+        distiller = self.distiller
+        if distiller is None:
+            return loss
+        n_nodes = outputs[distiller.student_head].shape[1]
+        node_weights = self._get_node_weights(batch, n_nodes, X.device)
+        terms = distiller.loss_terms(X, outputs, backbone_outputs, batch, node_weights)
+        r = distiller.weight(self.global_step, distiller.total_steps(self._trainer))
+        for key, value in terms.items():
+            self.log(
+                f"train/distill_{key}",
+                value,
+                on_step=False,
+                on_epoch=True,
+                sync_dist=True,
+            )
+        self.log("train/distill_weight", r, on_step=False, on_epoch=True)
+        return distiller.combine(loss, terms, r)
+
     def training_step(self, batch, batch_idx):
         """Training step."""
         pass
@@ -1638,7 +1717,8 @@ class SingleInstanceLightningModule(LightningModel):
         )
         X = normalize_on_gpu(X)
 
-        y_preds = self.model(X)["SingleInstanceConfmapsHead"]
+        outputs, backbone_outputs = self._forward_train(X)
+        y_preds = outputs["SingleInstanceConfmapsHead"]
 
         loss = self._compute_masked_confmap_loss(y_preds, y, batch)
         self._log_negative_split_metrics(
@@ -1667,7 +1747,7 @@ class SingleInstanceLightningModule(LightningModel):
 
         # Accumulate for epoch-averaged loss (logged in on_train_epoch_end)
         self._accumulate_loss(loss)
-        return loss
+        return self._with_distillation(loss, X, outputs, backbone_outputs, batch)
 
     def validation_step(self, batch, batch_idx):
         """Validation step."""
@@ -1908,7 +1988,8 @@ class TopDownCenteredInstanceLightningModule(LightningModel):
         y = self._confmap_targets(batch, X)
         X = normalize_on_gpu(X)
 
-        y_preds = self.model(X)["CenteredInstanceConfmapsHead"]
+        outputs, backbone_outputs = self._forward_train(X)
+        y_preds = outputs["CenteredInstanceConfmapsHead"]
 
         # Per-node weighted MSE (plain nn.MSELoss() without `node_weights`).
         loss = self._compute_masked_confmap_loss(y_preds, y, batch)
@@ -1935,7 +2016,7 @@ class TopDownCenteredInstanceLightningModule(LightningModel):
         )
         # Accumulate for epoch-averaged loss (logged in on_train_epoch_end)
         self._accumulate_loss(loss)
-        return loss
+        return self._with_distillation(loss, X, outputs, backbone_outputs, batch)
 
     def validation_step(self, batch, batch_idx):
         """Perform validation step."""
@@ -3323,7 +3404,7 @@ class TopDownCenteredInstanceMultiClassLightningModule(LightningModel):
         y_confmap = torch.squeeze(batch["confidence_maps"], dim=1)
         y_classvector = batch["class_vectors"]
         X = normalize_on_gpu(X)
-        preds = self.model(X)
+        preds, backbone_outputs = self._forward_train(X)
         classvector = preds["ClassVectorsHead"]
         confmaps = preds["CenteredInstanceConfmapsHead"]
 
@@ -3392,7 +3473,7 @@ class TopDownCenteredInstanceMultiClassLightningModule(LightningModel):
             on_epoch=True,
             sync_dist=True,
         )
-        return loss
+        return self._with_distillation(loss, X, preds, backbone_outputs, batch)
 
     def validation_step(self, batch, batch_idx):
         """Perform validation step."""
