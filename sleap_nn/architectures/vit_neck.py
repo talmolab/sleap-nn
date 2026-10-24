@@ -14,11 +14,17 @@ stage (Ranftl et al. 2021):
 The pyramid then feeds the existing
 :class:`~sleap_nn.architectures.encoder_decoder.Decoder` exactly like the stage
 outputs of a hierarchical backbone, so heads need no changes.
+
+:class:`ViTPoseDecoder` is the lighter alternative (``vit_decoder: classic`` /
+``simple``): no pyramid and no UNet decoder, just the last token map upsampled
+to the output stride as in ViTPose.
 """
 
+import math
 from typing import List, Sequence
 
 import torch
+import torch.nn.functional as F
 from torch import nn
 from torchvision.models.convnext import LayerNorm2d as _TorchvisionLayerNorm2d
 
@@ -185,3 +191,92 @@ class DetailStem(nn.Module):
             x = stage(x)
             feats.append(x)
         return feats
+
+
+# Decoders that read a plain ViT's last token map directly (no pyramid, no UNet).
+VIT_DIRECT_DECODERS = ("classic", "simple")
+
+
+class ViTPoseDecoder(nn.Module):
+    """ViTPose-style decoder from a single ViT token map to a dense feature map.
+
+    Unlike the pyramid neck + UNet decoder, this reads only the last token map
+    (stride ``s``) and upsamples it to the output stride, as in ViTPose (Xu et al.
+    2022):
+
+    * ``"classic"`` -- ``log2(s / output_stride)`` blocks of
+      ``ConvTranspose2d(4x4, stride 2) -> BatchNorm -> ReLU`` at ``channels``
+      channels (2 blocks, 256 channels for stride 16 -> 4: SimpleBaseline's head),
+      followed by the sleap-nn head's usual 1x1 conv, as in ViTPose.
+    * ``"simple"`` -- ReLU, then bilinear upsampling by ``s / output_stride``,
+      with no parameters. ViTPose follows it with a 3x3 conv to the heatmaps, so
+      this decoder asks for a 3x3 head conv (``head_kernel_size``).
+
+    Attributes:
+        out_channels: Channels of the output feature map.
+        head_kernel_size: Kernel size of the head conv that should read the output
+            (1 for ``"classic"``, 3 for ``"simple"``); `Model` passes it to
+            `Head.make_head` via the backbone.
+
+    Args:
+        in_channels: Channels of the token map (the ViT hidden size).
+        kind: ``"classic"`` or ``"simple"``.
+        upsample: Total upsampling factor ``s / output_stride`` (a power of two;
+            ``"classic"`` needs at least 2).
+        channels: Channels of the ``"classic"`` deconvolution blocks.
+    """
+
+    def __init__(
+        self,
+        in_channels: int,
+        kind: str = "classic",
+        upsample: int = 4,
+        channels: int = 256,
+    ) -> None:
+        """Initialize the decoder."""
+        super().__init__()
+        if kind not in VIT_DIRECT_DECODERS:
+            raise ValueError(
+                f"Unknown ViT decoder {kind!r}; use one of {VIT_DIRECT_DECODERS}."
+            )
+        upsample = int(upsample)
+        if upsample < 1 or upsample & (upsample - 1):
+            raise ValueError(f"upsample must be a power of two, got {upsample}.")
+        if kind == "classic" and upsample < 2:
+            raise ValueError(
+                "The 'classic' ViT decoder upsamples with stride-2 deconvolutions, "
+                f"so it needs an upsampling factor >= 2 (got {upsample})."
+            )
+        self.kind = kind
+        self.upsample = upsample
+        if kind == "classic":
+            layers = []
+            c_in = in_channels
+            for _ in range(int(math.log2(upsample))):
+                layers += [
+                    nn.ConvTranspose2d(
+                        c_in, channels, kernel_size=4, stride=2, padding=1, bias=False
+                    ),
+                    nn.BatchNorm2d(channels),
+                    nn.ReLU(inplace=True),
+                ]
+                c_in = channels
+            self.layers = nn.Sequential(*layers)
+            self.out_channels = int(channels)
+            self.head_kernel_size = 1
+        else:
+            self.layers = None
+            self.out_channels = int(in_channels)
+            self.head_kernel_size = 3
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Upsample a ``(B, C, h, w)`` token map by ``self.upsample``."""
+        if self.layers is not None:
+            return self.layers(x)
+        # ViTPose's order: ReLU on the token map, then upsample.
+        x = F.relu(x)
+        if self.upsample > 1:
+            x = F.interpolate(
+                x, scale_factor=self.upsample, mode="bilinear", align_corners=False
+            )
+        return x

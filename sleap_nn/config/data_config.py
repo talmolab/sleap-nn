@@ -439,6 +439,25 @@ class DataConfig:
         negative_loss_weight: (float) Relative weight applied to the loss for negative samples. Must be > 0.
             Values < 1 down-weight negatives; values > 1 up-weight them. Only has effect when
             ``use_negative_frames`` is ``True``. *Default*: `1.0`.
+        node_loss_mask: (bool) Per-node loss weighting for partially labeled
+            skeletons (single-instance, centered-instance and bottom-up confmaps).
+            Nodes a source file does not annotate get zero loss (instead of being
+            trained as absent); the per-file mask comes from
+            ``Labels.provenance["labeled_nodes"]`` (node names or indices; all nodes
+            when absent), combined with per-point ``labeled`` flags once sleap-io
+            provides them. Also the master switch for ``unlabeled_points``. Fully
+            labeled data with ``unlabeled_points: absent`` trains exactly as with
+            ``False``. *Default*: ``True``.
+        unlabeled_points: (str) What a point with no location in the model input
+            (NaN, e.g. COCO ``v=0``, or pushed out of the image/crop by augmentation)
+            trains as. ``"absent"`` keeps weight 1 and trains an all-zero confmap
+            (SLEAP's historical behavior); ``"ignore"`` gives it zero loss weight
+            (as mmpose does). Negative frames always train as absent. Requires
+            ``node_loss_mask``. *Default*: ``"absent"``.
+        supervise_occluded: (bool) If ``True``, labeled-but-occluded points that carry
+            estimated coordinates are trained as Gaussians at those coordinates; if
+            ``False`` they get zero loss. Takes effect only once sleap-io exposes per-point
+            ``labeled`` flags. *Default*: ``True``.
         skeletons: skeleton configuration for the `.slp` file. This will be pulled from the train dataset and saved to the `training_config.yaml`
         split: (Optional[SplitConfig]) Group-aware train/val split decided before training.
             When set and `val_labels_path` is not provided, the trainer
@@ -494,6 +513,11 @@ class DataConfig:
     )
     use_negative_frames: bool = False
     negative_loss_weight: float = field(default=1.0, validator=validators.gt(0))
+    node_loss_mask: bool = True
+    unlabeled_points: str = field(
+        default="absent", validator=validators.in_(("absent", "ignore"))
+    )
+    supervise_occluded: bool = True
     skeletons: Optional[list] = None
     identity: Optional[IdentityConfig] = None
     split: Optional[SplitConfig] = None

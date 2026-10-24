@@ -1,7 +1,9 @@
 """Custom Callback modules for Lightning Trainer."""
 
+import math
 import zmq
 import jsonpickle
+import torch
 from typing import Callable, Optional, Union
 from lightning.pytorch.callbacks import Callback, EarlyStopping, ModelCheckpoint
 from lightning.pytorch.callbacks.progress import TQDMProgressBar
@@ -16,6 +18,7 @@ from PIL import Image
 from pathlib import Path
 import wandb
 import csv
+import time
 from sleap_nn import RANK
 
 
@@ -48,6 +51,17 @@ class SleapProgressBar(TQDMProgressBar):
 class CSVLoggerCallback(Callback):
     """Callback for logging metrics to csv.
 
+    One row is written per training epoch that ran validation, holding that
+    epoch's train loss/LR (logged in ``LightningModule.on_train_epoch_end``)
+    and its latest validation and eval metrics.
+
+    Lightning runs the epoch-end validation loop *before*
+    ``on_train_epoch_end``, so a row written at the end of validation would
+    carry the previous epoch's ``train/loss`` and ``train/lr``. The row is
+    therefore marked pending when validation ends and written once the epoch's
+    train metrics have been logged: at the start of the next train epoch, or
+    at the end of training for the last one.
+
     Attributes:
         filepath: Path to save the csv file.
         keys: List of field names to be logged in the csv.
@@ -63,6 +77,8 @@ class CSVLoggerCallback(Callback):
         self.filepath = filepath
         self.keys = keys
         self.initialized = False
+        # Epoch whose row is waiting for its train metrics (see class docstring).
+        self._pending_epoch = None
 
     def _init_file(self):
         """Create the .csv file."""
@@ -93,16 +109,31 @@ class CSVLoggerCallback(Callback):
                 trainer.callback_metrics[key] = torch.tensor(float("nan"))
 
     def on_validation_end(self, trainer, pl_module):
-        """Log metrics to csv at the end of validation.
+        """Mark this epoch's row as pending.
 
-        Runs on ``on_validation_end`` (not ``on_validation_epoch_end``) so
-        that it reads ``trainer.callback_metrics`` *after* every callback's
-        ``on_validation_epoch_end`` hook -- including the eval callbacks --
-        has already run this epoch, regardless of callback registration
-        order.
+        Runs on ``on_validation_end`` (not ``on_validation_epoch_end``) so it
+        comes *after* every callback's ``on_validation_epoch_end`` hook --
+        including the eval callbacks -- regardless of callback registration
+        order. The row itself is written by :meth:`_write_pending_row` once the
+        epoch's train metrics exist.
         """
         if trainer.sanity_checking:
             return
+        self._pending_epoch = trainer.current_epoch
+
+    def on_train_epoch_start(self, trainer, pl_module):
+        """Write the previous epoch's row (its train metrics are logged now)."""
+        self._write_pending_row(trainer)
+
+    def on_train_end(self, trainer, pl_module):
+        """Write the last epoch's row."""
+        self._write_pending_row(trainer)
+
+    def _write_pending_row(self, trainer):
+        """Append the pending epoch's row, if any, to the csv."""
+        if self._pending_epoch is None:
+            return
+        epoch, self._pending_epoch = self._pending_epoch, None
         # Access callback_metrics BEFORE the is_global_zero guard so all
         # ranks participate in the implicit all_reduce that fires when
         # sync_dist=True metrics are first read.  Only rank 0 does I/O.
@@ -113,7 +144,7 @@ class CSVLoggerCallback(Callback):
             log_data = {}
             for key in self.keys:
                 if key == "epoch":
-                    log_data["epoch"] = trainer.current_epoch
+                    log_data["epoch"] = epoch
                 elif key == "learning_rate":
                     # Handle multiple formats:
                     # 1. Direct "learning_rate" key
@@ -1474,6 +1505,73 @@ class ProgressReporterZMQ(Callback):
         }
 
 
+def _is_eval_epoch(trainer, eval_frequency: int) -> bool:
+    """Whether this validation epoch is scored (every ``eval_frequency`` epochs)."""
+    return (
+        trainer.current_epoch + 1
+    ) % eval_frequency == 0 and not trainer.sanity_checking
+
+
+def _val_sampler(trainer):
+    """The sampler of the (first) val dataloader, or None."""
+    dataloaders = trainer.val_dataloaders
+    if isinstance(dataloaders, (list, tuple)):
+        dataloaders = dataloaders[0] if dataloaders else None
+    return getattr(dataloaders, "sampler", None)
+
+
+def _gather_val_entries(trainer, gts: list, preds: list):
+    """Every rank's collected val entries, in val-set order.
+
+    A collective under DDP: every rank must call it. DDP shards the val set with a
+    ``DistributedSampler``, so each rank holds only its shard and scoring rank 0's
+    lists alone measured ``1 / world_size`` of the val set. Validation steps append
+    one ``(gt, pred)`` pair per val sample, in sampler order, and an unshuffled
+    sampler deals sample ``i`` to rank ``i % world_size``; interleaving the ranks'
+    lists therefore restores val-set order, and the padding the sampler appends to
+    even out the shards (repeats of the first samples) is whatever lies past
+    ``len(dataset)``. When the lists do not line up one-to-one with the sampler (e.g.
+    the tiling sampler) the ranks' lists are concatenated as they are.
+
+    Top-down entries carry a ``crop_id`` counted per rank; the gathered entries are
+    renumbered so every crop stays its own pseudo-frame (:func:`_eval_frame_idx`).
+    A single process returns its own lists.
+    """
+    import torch.distributed as dist
+    from torch.utils.data import DistributedSampler
+
+    if not (dist.is_available() and dist.is_initialized()) or (trainer.world_size <= 1):
+        return gts, preds
+    gathered = [None] * trainer.world_size
+    dist.all_gather_object(gathered, (gts, preds))
+    sampler = _val_sampler(trainer)
+    aligned = (
+        isinstance(sampler, DistributedSampler)
+        and not sampler.shuffle
+        and all(
+            len(rank_gts) == len(rank_preds) == sampler.num_samples
+            for rank_gts, rank_preds in gathered
+        )
+    )
+    if aligned:
+        n = len(sampler.dataset)
+        out_gts = [r[0][i] for i in range(sampler.num_samples) for r in gathered][:n]
+        out_preds = [r[1][i] for i in range(sampler.num_samples) for r in gathered][:n]
+    else:
+        out_gts = [gt for rank_gts, _ in gathered for gt in rank_gts]
+        out_preds = [pred for _, rank_preds in gathered for pred in rank_preds]
+    if len(out_gts) == len(out_preds):
+        out_gts = [
+            {**gt, "crop_id": i} if "crop_id" in gt else gt
+            for i, gt in enumerate(out_gts)
+        ]
+        out_preds = [
+            {**pred, "crop_id": i} if "crop_id" in pred else pred
+            for i, pred in enumerate(out_preds)
+        ]
+    return out_gts, out_preds
+
+
 def _eval_frame_idx(entry: dict) -> int:
     """The frame index an epoch-end eval entry is scored under.
 
@@ -1503,6 +1601,15 @@ class EpochEndEvaluationCallback(Callback):
         oks_scale: Optional OKS scale override.
         metrics_to_log: List of metric keys to log.
     """
+
+    # The nested `Evaluator.evaluate()` scalars `_log_metrics` reads.
+    _LOGGED_METRICS = {
+        "mOKS": ("mOKS",),
+        "voc_metrics": ("oks_voc.mAP", "oks_voc.mAR"),
+        "distance_metrics": ("avg", "p50", "p95", "p99"),
+        "pck_metrics": ("mPCK", "PCK@5", "PCK@10"),
+        "visibility_metrics": ("precision", "recall"),
+    }
 
     def __init__(
         self,
@@ -1545,78 +1652,84 @@ class EpochEndEvaluationCallback(Callback):
         ]
 
     def on_validation_epoch_start(self, trainer, pl_module):
-        """Enable prediction collection at the start of validation.
-
-        Skip during sanity check to avoid inference issues.
-        """
+        """Enable prediction collection on scored epochs (not the sanity check)."""
         if trainer.sanity_checking:
             return
-        pl_module._collect_val_predictions = True
+        pl_module._collect_val_predictions = _is_eval_epoch(
+            trainer, self.eval_frequency
+        )
 
     def on_validation_epoch_end(self, trainer, pl_module):
-        """Run evaluation and log metrics at end of validation epoch."""
-        import sleap_io as sio
-        import numpy as np
-        from lightning.pytorch.loggers import WandbLogger
-        from sleap_nn.evaluation import Evaluator
+        """Run evaluation and log metrics at end of validation epoch.
 
-        # Determine if we should run evaluation this epoch (only on rank 0)
-        should_evaluate = (
-            trainer.current_epoch + 1
-        ) % self.eval_frequency == 0 and trainer.is_global_zero
+        Under DDP every rank's val shard is gathered and rank 0 scores the whole val
+        set; its metrics are then broadcast so every rank exposes the same values to
+        ``ModelCheckpoint`` / ``EarlyStopping`` (which run, and must agree, on every
+        rank).
+        """
+        scored = _is_eval_epoch(trainer, self.eval_frequency)
+        gts, preds = pl_module.val_ground_truth, pl_module.val_predictions
+        if scored:
+            gts, preds = _gather_val_entries(trainer, gts, preds)
+        metrics = None
+        if scored and trainer.is_global_zero:
+            metrics = self._evaluate(gts, preds, trainer.current_epoch)
+        if scored:
+            metrics = trainer.strategy.broadcast(metrics, src=0)
+            self._log_metrics(trainer, metrics or {}, trainer.current_epoch)
 
-        if should_evaluate:
-            # Check if we have predictions
-            if not pl_module.val_predictions or not pl_module.val_ground_truth:
-                logger.warning("No predictions collected for epoch-end evaluation")
-            else:
-                try:
-                    # Build sio.Labels from accumulated predictions and ground truth
-                    pred_labels = self._build_pred_labels(
-                        pl_module.val_predictions, sio, np
-                    )
-                    gt_labels = self._build_gt_labels(
-                        pl_module.val_ground_truth, sio, np
-                    )
-
-                    # Check if we have valid frames to evaluate
-                    if len(pred_labels) == 0:
-                        logger.warning(
-                            "No valid predictions for epoch-end evaluation "
-                            "(all predictions may be empty or NaN)"
-                        )
-                    else:
-                        # Run evaluation
-                        evaluator = Evaluator(
-                            ground_truth_instances=gt_labels,
-                            predicted_instances=pred_labels,
-                            oks_stddev=self.oks_stddev,
-                            oks_scale=self.oks_scale,
-                            user_labels_only=False,  # All validation frames are "user" frames
-                        )
-                        metrics = evaluator.evaluate()
-
-                        # Log to WandB
-                        self._log_metrics(trainer, metrics, trainer.current_epoch)
-
-                        logger.info(
-                            f"Epoch {trainer.current_epoch} evaluation: "
-                            f"PCK@5={metrics['pck_metrics']['PCK@5']:.4f}, "
-                            f"mOKS={metrics['mOKS']['mOKS']:.4f}, "
-                            f"mAP={metrics['voc_metrics']['oks_voc.mAP']:.4f}"
-                        )
-
-                except Exception as e:
-                    logger.warning(f"Epoch-end evaluation failed: {e}")
-
-        # Cleanup - all ranks reset the flag, rank 0 clears the lists
+        # Every rank clears its own lists (they only fill on scored epochs).
         pl_module._collect_val_predictions = False
-        if trainer.is_global_zero:
-            pl_module.val_predictions = []
-            pl_module.val_ground_truth = []
+        pl_module.val_predictions = []
+        pl_module.val_ground_truth = []
 
         # Sync all processes - barrier must be reached by ALL ranks
         trainer.strategy.barrier()
+
+    def _evaluate(self, gts: list, preds: list, epoch: int) -> Optional[dict]:
+        """Score the val entries; the metrics ``_log_metrics`` reads, or None."""
+        import sleap_io as sio
+        import numpy as np
+        from sleap_nn.evaluation import Evaluator
+
+        if not preds or not gts:
+            logger.warning("No predictions collected for epoch-end evaluation")
+            return None
+        try:
+            # Build sio.Labels from accumulated predictions and ground truth
+            pred_labels = self._build_pred_labels(preds, sio, np)
+            gt_labels = self._build_gt_labels(gts, sio, np)
+
+            # Check if we have valid frames to evaluate
+            if len(pred_labels) == 0:
+                logger.warning(
+                    "No valid predictions for epoch-end evaluation "
+                    "(all predictions may be empty or NaN)"
+                )
+                return None
+            evaluator = Evaluator(
+                ground_truth_instances=gt_labels,
+                predicted_instances=pred_labels,
+                oks_stddev=self.oks_stddev,
+                oks_scale=self.oks_scale,
+                user_labels_only=False,  # All validation frames are "user" frames
+            )
+            metrics = evaluator.evaluate()
+            logger.info(
+                f"Epoch {epoch} evaluation: "
+                f"PCK@5={metrics['pck_metrics']['PCK@5']:.4f}, "
+                f"mOKS={metrics['mOKS']['mOKS']:.4f}, "
+                f"mAP={metrics['voc_metrics']['oks_voc.mAP']:.4f}"
+            )
+        except Exception as e:
+            logger.warning(f"Epoch-end evaluation failed: {e}")
+            return None
+        # Only the scalars `_log_metrics` reads cross the broadcast (the full result
+        # also holds per-instance arrays).
+        return {
+            group: {key: metrics[group][key] for key in keys}
+            for group, keys in self._LOGGED_METRICS.items()
+        }
 
     def _build_pred_labels(self, predictions: list, sio, np) -> "sio.Labels":
         """Convert prediction dicts to sio.Labels."""
@@ -1713,63 +1826,71 @@ class EpochEndEvaluationCallback(Callback):
         )
 
     def _log_metrics(self, trainer, metrics: dict, epoch: int):
-        """Populate callback_metrics for ModelCheckpoint, then log to WandB."""
+        """Populate callback_metrics for ModelCheckpoint, then log to WandB.
+
+        Runs on every rank (each rank's checkpointer reads ``callback_metrics``);
+        wandb logging happens on rank 0 only. An empty ``metrics`` (a failed or
+        empty evaluation) sets every tracked key to its worst value.
+        """
         import numpy as np
         import torch
         from lightning.pytorch.loggers import WandbLogger
 
+        def _get(metrics, group, key):
+            return metrics.get(group, {}).get(key)
+
         # (metrics_to_log name, callback/wandb key, raw value, higher_is_better)
         candidates = [
-            ("mOKS", "eval/val/mOKS", metrics["mOKS"]["mOKS"], True),
+            ("mOKS", "eval/val/mOKS", _get(metrics, "mOKS", "mOKS"), True),
             (
                 "oks_voc.mAP",
                 "eval/val/oks_voc_mAP",
-                metrics["voc_metrics"]["oks_voc.mAP"],
+                _get(metrics, "voc_metrics", "oks_voc.mAP"),
                 True,
             ),
             (
                 "oks_voc.mAR",
                 "eval/val/oks_voc_mAR",
-                metrics["voc_metrics"]["oks_voc.mAR"],
+                _get(metrics, "voc_metrics", "oks_voc.mAR"),
                 True,
             ),
             (
                 "distance/avg",
                 "eval/val/distance/avg",
-                metrics["distance_metrics"]["avg"],
+                _get(metrics, "distance_metrics", "avg"),
                 False,
             ),
             (
                 "distance/p50",
                 "eval/val/distance/p50",
-                metrics["distance_metrics"]["p50"],
+                _get(metrics, "distance_metrics", "p50"),
                 False,
             ),
             (
                 "distance/p95",
                 "eval/val/distance/p95",
-                metrics["distance_metrics"]["p95"],
+                _get(metrics, "distance_metrics", "p95"),
                 False,
             ),
             (
                 "distance/p99",
                 "eval/val/distance/p99",
-                metrics["distance_metrics"]["p99"],
+                _get(metrics, "distance_metrics", "p99"),
                 False,
             ),
-            ("mPCK", "eval/val/mPCK", metrics["pck_metrics"]["mPCK"], True),
-            ("PCK@5", "eval/val/PCK_5", metrics["pck_metrics"]["PCK@5"], True),
-            ("PCK@10", "eval/val/PCK_10", metrics["pck_metrics"]["PCK@10"], True),
+            ("mPCK", "eval/val/mPCK", _get(metrics, "pck_metrics", "mPCK"), True),
+            ("PCK@5", "eval/val/PCK_5", _get(metrics, "pck_metrics", "PCK@5"), True),
+            ("PCK@10", "eval/val/PCK_10", _get(metrics, "pck_metrics", "PCK@10"), True),
             (
                 "visibility_precision",
                 "eval/val/visibility_precision",
-                metrics["visibility_metrics"]["precision"],
+                _get(metrics, "visibility_metrics", "precision"),
                 True,
             ),
             (
                 "visibility_recall",
                 "eval/val/visibility_recall",
-                metrics["visibility_metrics"]["recall"],
+                _get(metrics, "visibility_metrics", "recall"),
                 True,
             ),
         ]
@@ -1799,12 +1920,12 @@ class EpochEndEvaluationCallback(Callback):
                 wandb_logger = log
                 break
 
-        if wandb_logger is None:
+        if wandb_logger is None or not trainer.is_global_zero:
             return
 
         log_dict = {"epoch": epoch}
         for _name, ck_key, raw_value, _higher_is_better in tracked:
-            if not np.isnan(raw_value):
+            if raw_value is not None and not np.isnan(raw_value):
                 log_dict[ck_key] = raw_value
 
         wandb_logger.experiment.log(log_dict, commit=False)
@@ -1885,64 +2006,71 @@ class SegmentationEvaluationCallback(Callback):
         self.match_threshold = float(match_threshold)
 
     def on_validation_epoch_start(self, trainer, pl_module):
-        """Enable prediction collection at the start of validation.
-
-        Skip during sanity check to avoid inference issues.
-        """
+        """Enable prediction collection on scored epochs (not the sanity check)."""
         if trainer.sanity_checking:
             return
-        pl_module._collect_val_predictions = True
+        pl_module._collect_val_predictions = _is_eval_epoch(
+            trainer, self.eval_frequency
+        )
 
     def on_validation_epoch_end(self, trainer, pl_module):
-        """Run mask-IoU evaluation and log metrics at end of validation epoch."""
-        should_evaluate = (
-            trainer.current_epoch + 1
-        ) % self.eval_frequency == 0 and trainer.is_global_zero
+        """Run mask-IoU evaluation and log metrics at end of validation epoch.
 
-        if should_evaluate:
-            if not pl_module.val_predictions or not pl_module.val_ground_truth:
-                logger.warning(
-                    "No predictions collected for segmentation epoch-end evaluation"
-                )
+        Under DDP every rank's val shard is gathered, rank 0 scores the whole val
+        set, and its metrics are broadcast so every rank's checkpointer sees them.
+        """
+        scored = _is_eval_epoch(trainer, self.eval_frequency)
+        gts, preds = pl_module.val_ground_truth, pl_module.val_predictions
+        if scored:
+            gts, preds = _gather_val_entries(trainer, gts, preds)
+        metrics = None
+        if scored and trainer.is_global_zero:
+            metrics = self._evaluate(gts, preds, trainer.current_epoch)
+        if scored:
+            metrics = trainer.strategy.broadcast(metrics, src=0) or {}
+            if self.foreground:
+                self._log_metrics_foreground(trainer, metrics, trainer.current_epoch)
             else:
-                try:
-                    if self.foreground:
-                        metrics = self._compute_metrics_foreground(
-                            pl_module.val_predictions, pl_module.val_ground_truth
-                        )
-                        self._log_metrics_foreground(
-                            trainer, metrics, trainer.current_epoch
-                        )
-                        logger.info(
-                            f"Epoch {trainer.current_epoch} semantic (foreground) "
-                            f"evaluation: fg_mean_iou={metrics['fg_mean_iou']:.4f}, "
-                            f"fg_mean_cldice={metrics['fg_mean_cldice']:.4f}, "
-                            f"fg_mean_boundary_iou="
-                            f"{metrics['fg_mean_boundary_iou']:.4f}, "
-                            f"frames={metrics['n_frames']}"
-                        )
-                    else:
-                        metrics = self._compute_metrics(
-                            pl_module.val_predictions, pl_module.val_ground_truth
-                        )
-                        self._log_metrics(trainer, metrics, trainer.current_epoch)
-                        logger.info(
-                            f"Epoch {trainer.current_epoch} segmentation evaluation: "
-                            f"mask_mean_iou={metrics['mask_mean_iou']:.4f}, "
-                            f"mask_mean_cldice={metrics['mask_mean_cldice']:.4f}, "
-                            f"precision={metrics['precision']:.4f}, "
-                            f"recall={metrics['recall']:.4f}"
-                        )
-                except Exception as e:
-                    logger.warning(f"Segmentation epoch-end evaluation failed: {e}")
+                self._log_metrics(trainer, metrics, trainer.current_epoch)
 
-        # Cleanup
+        # Every rank clears its own lists (they only fill on scored epochs).
         pl_module._collect_val_predictions = False
-        if trainer.is_global_zero:
-            pl_module.val_predictions = []
-            pl_module.val_ground_truth = []
+        pl_module.val_predictions = []
+        pl_module.val_ground_truth = []
 
         trainer.strategy.barrier()
+
+    def _evaluate(self, gts: list, preds: list, epoch: int) -> Optional[dict]:
+        """Score the val entries (foreground or instance mode), or None."""
+        if not preds or not gts:
+            logger.warning(
+                "No predictions collected for segmentation epoch-end evaluation"
+            )
+            return None
+        try:
+            if self.foreground:
+                metrics = self._compute_metrics_foreground(preds, gts)
+                logger.info(
+                    f"Epoch {epoch} semantic (foreground) "
+                    f"evaluation: fg_mean_iou={metrics['fg_mean_iou']:.4f}, "
+                    f"fg_mean_cldice={metrics['fg_mean_cldice']:.4f}, "
+                    f"fg_mean_boundary_iou="
+                    f"{metrics['fg_mean_boundary_iou']:.4f}, "
+                    f"frames={metrics['n_frames']}"
+                )
+            else:
+                metrics = self._compute_metrics(preds, gts)
+                logger.info(
+                    f"Epoch {epoch} segmentation evaluation: "
+                    f"mask_mean_iou={metrics['mask_mean_iou']:.4f}, "
+                    f"mask_mean_cldice={metrics['mask_mean_cldice']:.4f}, "
+                    f"precision={metrics['precision']:.4f}, "
+                    f"recall={metrics['recall']:.4f}"
+                )
+        except Exception as e:
+            logger.warning(f"Segmentation epoch-end evaluation failed: {e}")
+            return None
+        return metrics
 
     def _compute_metrics(self, predictions: list, ground_truth: list) -> dict:
         """Match collected per-instance masks by IoU and aggregate metrics.
@@ -2076,9 +2204,8 @@ class SegmentationEvaluationCallback(Callback):
         # (model_ckpt.monitor="eval/val/fg_mean_cldice", mode="max") instead of the
         # coarse val/loss. This runs in on_validation_epoch_end (before the
         # ModelCheckpoint save in on_validation_end), so the value is available.
-        # Set on rank 0 only (this callback computes there); single-GPU. Under DDP,
-        # checkpoint-on-clDice would need an all-rank broadcast of these values.
-        # ALWAYS populate the key (0.0 for NaN/missing) so a run that monitors it does
+        # Runs on every rank with rank 0's (broadcast) values, so every rank's
+        # checkpointer agrees. ALWAYS populate the key (0.0 for NaN/missing) so a run that monitors it does
         # not crash ModelCheckpoint on an epoch with no valid metric; these are all
         # in [0, 1] and higher-is-better, so 0.0 is the correct worst value.
         for src_key, ck_key in (
@@ -2096,7 +2223,7 @@ class SegmentationEvaluationCallback(Callback):
             if isinstance(log, WandbLogger):
                 wandb_logger = log
                 break
-        if wandb_logger is None:
+        if wandb_logger is None or not trainer.is_global_zero or not metrics:
             return
 
         log_dict = {"epoch": epoch}
@@ -2128,8 +2255,8 @@ class SegmentationEvaluationCallback(Callback):
 
         # Expose per-instance mask metrics to ModelCheckpoint/EarlyStopping via
         # callback_metrics so instance-seg runs can select best.ckpt on
-        # eval/val/mask_mean_iou (mode="max") instead of val/loss. See the
-        # foreground variant above for the rank/DDP caveat. ALWAYS populate the key
+        # eval/val/mask_mean_iou (mode="max") instead of val/loss. Runs on every
+        # rank with rank 0's (broadcast) values. ALWAYS populate the key
         # (0.0 for NaN/missing): mask_mean_iou is NaN on epochs with no matched
         # instances (common early in training / on sparse-instance datasets), and a
         # missing monitored key crashes ModelCheckpoint. These metrics are in [0, 1]
@@ -2155,7 +2282,7 @@ class SegmentationEvaluationCallback(Callback):
             if isinstance(log, WandbLogger):
                 wandb_logger = log
                 break
-        if wandb_logger is None:
+        if wandb_logger is None or not trainer.is_global_zero or not metrics:
             return
 
         log_dict = {"epoch": epoch}
@@ -2223,54 +2350,51 @@ class CentroidEvaluationCallback(Callback):
         self.match_threshold = match_threshold
 
     def on_validation_epoch_start(self, trainer, pl_module):
-        """Enable prediction collection at the start of validation.
-
-        Skip during sanity check to avoid inference issues.
-        """
+        """Enable prediction collection on scored epochs (not the sanity check)."""
         if trainer.sanity_checking:
             return
-        pl_module._collect_val_predictions = True
+        pl_module._collect_val_predictions = _is_eval_epoch(
+            trainer, self.eval_frequency
+        )
 
     def on_validation_epoch_end(self, trainer, pl_module):
-        """Run centroid evaluation and log metrics at end of validation epoch."""
+        """Run centroid evaluation and log metrics at end of validation epoch.
+
+        Under DDP every rank's val shard is gathered, rank 0 scores the whole val
+        set, and its metrics are broadcast so every rank's checkpointer sees them.
+        """
         import numpy as np
-        from lightning.pytorch.loggers import WandbLogger
 
-        # Determine if we should run evaluation this epoch (only on rank 0)
-        should_evaluate = (
-            trainer.current_epoch + 1
-        ) % self.eval_frequency == 0 and trainer.is_global_zero
-
-        if should_evaluate:
-            # Check if we have predictions
-            if not pl_module.val_predictions or not pl_module.val_ground_truth:
+        scored = _is_eval_epoch(trainer, self.eval_frequency)
+        gts, preds = pl_module.val_ground_truth, pl_module.val_predictions
+        metrics = None
+        if scored:
+            gts, preds = _gather_val_entries(trainer, gts, preds)
+        if scored and trainer.is_global_zero:
+            if not preds or not gts:
                 logger.warning(
                     "No predictions collected for centroid epoch-end evaluation"
                 )
             else:
                 try:
-                    metrics = self._compute_metrics(
-                        pl_module.val_predictions, pl_module.val_ground_truth, np
-                    )
-
-                    # Log to WandB
-                    self._log_metrics(trainer, metrics, trainer.current_epoch)
-
+                    metrics = self._compute_metrics(preds, gts, np)
                     logger.info(
                         f"Epoch {trainer.current_epoch} centroid evaluation: "
                         f"precision={metrics['precision']:.4f}, "
                         f"recall={metrics['recall']:.4f}, "
                         f"dist_avg={metrics['dist_avg']:.2f}px"
                     )
-
                 except Exception as e:
+                    metrics = None
                     logger.warning(f"Centroid epoch-end evaluation failed: {e}")
+        if scored:
+            metrics = trainer.strategy.broadcast(metrics, src=0)
+            self._log_metrics(trainer, metrics or {}, trainer.current_epoch)
 
-        # Cleanup - all ranks reset the flag, rank 0 clears the lists
+        # Every rank clears its own lists (they only fill on scored epochs).
         pl_module._collect_val_predictions = False
-        if trainer.is_global_zero:
-            pl_module.val_predictions = []
-            pl_module.val_ground_truth = []
+        pl_module.val_predictions = []
+        pl_module.val_ground_truth = []
 
         # Sync all processes - barrier must be reached by ALL ranks
         trainer.strategy.barrier()
@@ -2389,24 +2513,28 @@ class CentroidEvaluationCallback(Callback):
         }
 
     def _log_metrics(self, trainer, metrics: dict, epoch: int):
-        """Populate callback_metrics for ModelCheckpoint, then log to WandB."""
+        """Populate callback_metrics for ModelCheckpoint, then log to WandB.
+
+        Runs on every rank; wandb logging happens on rank 0 only. An empty
+        ``metrics`` (a failed or empty evaluation) sets every key to its worst value.
+        """
         import numpy as np
         import torch
         from lightning.pytorch.loggers import WandbLogger
 
         # (callback/wandb key, raw value, higher_is_better)
         tracked = [
-            ("eval/val/centroid_dist_avg", metrics["dist_avg"], False),
-            ("eval/val/centroid_dist_median", metrics["dist_median"], False),
-            ("eval/val/centroid_dist_p90", metrics["dist_p90"], False),
-            ("eval/val/centroid_dist_p95", metrics["dist_p95"], False),
-            ("eval/val/centroid_dist_max", metrics["dist_max"], False),
-            ("eval/val/centroid_precision", metrics["precision"], True),
-            ("eval/val/centroid_recall", metrics["recall"], True),
-            ("eval/val/centroid_f1", metrics["f1"], True),
-            ("eval/val/centroid_n_tp", metrics["n_true_positives"], True),
-            ("eval/val/centroid_n_fp", metrics["n_false_positives"], True),
-            ("eval/val/centroid_n_fn", metrics["n_false_negatives"], True),
+            ("eval/val/centroid_dist_avg", metrics.get("dist_avg"), False),
+            ("eval/val/centroid_dist_median", metrics.get("dist_median"), False),
+            ("eval/val/centroid_dist_p90", metrics.get("dist_p90"), False),
+            ("eval/val/centroid_dist_p95", metrics.get("dist_p95"), False),
+            ("eval/val/centroid_dist_max", metrics.get("dist_max"), False),
+            ("eval/val/centroid_precision", metrics.get("precision"), True),
+            ("eval/val/centroid_recall", metrics.get("recall"), True),
+            ("eval/val/centroid_f1", metrics.get("f1"), True),
+            ("eval/val/centroid_n_tp", metrics.get("n_true_positives"), True),
+            ("eval/val/centroid_n_fp", metrics.get("n_false_positives"), True),
+            ("eval/val/centroid_n_fn", metrics.get("n_false_negatives"), True),
         ]
 
         # Expose every metric to ModelCheckpoint/EarlyStopping via
@@ -2431,12 +2559,12 @@ class CentroidEvaluationCallback(Callback):
                 wandb_logger = log
                 break
 
-        if wandb_logger is None:
+        if wandb_logger is None or not trainer.is_global_zero:
             return
 
         log_dict = {"epoch": epoch}
         for ck_key, raw_value, _higher_is_better in tracked:
-            if not np.isnan(raw_value):
+            if raw_value is not None and not np.isnan(raw_value):
                 log_dict[ck_key] = raw_value
 
         wandb_logger.experiment.log(log_dict, commit=False)
@@ -2706,6 +2834,207 @@ class EvalCadenceEarlyStopping(EarlyStopping):
             super().on_validation_end(trainer, pl_module)
 
 
+class WeightEMA(Callback):
+    """Exponential moving average (EMA) of the model weights.
+
+    Keeps a float32 shadow copy of every trainable parameter and floating-point
+    buffer, updated after each optimizer step as ``ema += (1 - d) * (w - ema)``
+    with ``d = decay * (1 - exp(-n / warmup_steps))`` after ``n`` updates (mmdet /
+    RTMPose ``ExpMomentumEMA``; ``warmup_steps=0`` uses ``decay`` throughout).
+
+    * **Validation** runs on the EMA weights: they are swapped into the module on
+      ``on_validation_start`` and the online weights swapped back on
+      ``on_validation_end``, so ``val/loss``, epoch-end evaluation callbacks, LR
+      plateau / early stopping and checkpoint selection all see the EMA model.
+    * **Checkpoints** store the EMA weights as ``state_dict`` (so inference,
+      export and ``pretrained_backbone_weights`` load them unchanged) and the
+      online weights under ``checkpoint["ema"]["online_state_dict"]``; resuming
+      with this callback restores both. Resuming a checkpoint saved without EMA
+      starts the average from the loaded weights.
+    * At the end of ``fit`` the EMA weights are left in the module.
+
+    Each DDP rank keeps its own (identical) average of its (identical) replica,
+    so no communication is needed. Sharded strategies (FSDP, DeepSpeed) are not
+    supported. Under bf16/fp16 the shadow stays float32 (an EMA with decay near 1
+    cannot be accumulated in bf16).
+
+    Args:
+        decay: EMA decay after warmup (``1 - momentum``). Default: 0.9998.
+        warmup_steps: Time constant of the decay warmup, in optimizer steps;
+            ``0`` disables it. Default: 2000.
+    """
+
+    CHECKPOINT_KEY = "ema"
+
+    def __init__(self, decay: float = 0.9998, warmup_steps: int = 2000):
+        """Initialize the callback. See the class docstring for the arguments."""
+        super().__init__()
+        if not 0.0 <= decay < 1.0:
+            raise ValueError(f"EMA decay must be in [0, 1), got {decay}")
+        if warmup_steps < 0:
+            raise ValueError(f"EMA warmup_steps must be >= 0, got {warmup_steps}")
+        self.decay = float(decay)
+        self.warmup_steps = int(warmup_steps)
+        self.num_updates = 0
+        self._shadow = None  # name -> float32 EMA tensor (on the param's device)
+        self._backup = None  # name -> online tensor while the EMA is swapped in
+        self._pending = None  # EMA tensors loaded before the shadow exists
+        self._last_step = None
+
+    # ------------------------------------------------------------------ state
+
+    @staticmethod
+    def _tensors(pl_module, trainable_only: bool = True):
+        """Name -> tensor for the parameters (and float buffers) the EMA tracks."""
+        out = {
+            n: p
+            for n, p in pl_module.named_parameters()
+            if p.requires_grad or not trainable_only
+        }
+        for n, b in pl_module.named_buffers():
+            if b.is_floating_point():
+                out[n] = b
+        return out
+
+    def current_decay(self) -> float:
+        """The decay applied by the latest update."""
+        if self.warmup_steps <= 0:
+            return self.decay
+        return self.decay * (1.0 - math.exp(-self.num_updates / self.warmup_steps))
+
+    @property
+    def shadow(self):
+        """The EMA tensors (name -> float32 tensor), or ``None`` before fit."""
+        return self._shadow
+
+    @torch.no_grad()
+    def update(self, pl_module) -> None:
+        """Fold the module's current weights into the average (one step)."""
+        if self._shadow is None:
+            return
+        self.num_updates += 1
+        d = self.current_decay()
+        tensors = self._tensors(pl_module, trainable_only=False)
+        ema, cur = [], []
+        for name, e in self._shadow.items():
+            t = tensors.get(name)
+            if t is None:
+                continue
+            ema.append(e)
+            cur.append(t.detach().to(dtype=e.dtype, device=e.device))
+        if ema:
+            torch._foreach_lerp_(ema, cur, 1.0 - d)
+
+    @torch.no_grad()
+    def _copy_into(self, pl_module, values) -> None:
+        tensors = self._tensors(pl_module, trainable_only=False)
+        for name, v in values.items():
+            t = tensors.get(name)
+            if t is not None:
+                t.copy_(v)
+
+    @torch.no_grad()
+    def swap_in(self, pl_module) -> None:
+        """Load the EMA weights into the module, keeping the online ones aside."""
+        if self._shadow is None or self._backup is not None:
+            return
+        tensors = self._tensors(pl_module, trainable_only=False)
+        self._backup = {
+            n: tensors[n].detach().clone() for n in self._shadow if n in tensors
+        }
+        self._copy_into(pl_module, self._shadow)
+
+    @torch.no_grad()
+    def swap_out(self, pl_module) -> None:
+        """Restore the online weights saved by `swap_in`."""
+        if self._backup is None:
+            return
+        self._copy_into(pl_module, self._backup)
+        self._backup = None
+
+    # ------------------------------------------------------------------ hooks
+
+    def on_fit_start(self, trainer, pl_module) -> None:
+        """Start the average from the current (possibly resumed) weights."""
+        strategy = type(trainer.strategy).__name__
+        if "FSDP" in strategy or "DeepSpeed" in strategy:
+            raise ValueError(
+                f"Weight EMA does not support sharded training ({strategy}); "
+                "use DDP or a single device."
+            )
+        self._shadow = {
+            n: t.detach().float().clone() for n, t in self._tensors(pl_module).items()
+        }
+        if self._pending is not None:
+            for n, v in self._pending.items():
+                if n in self._shadow:
+                    self._shadow[n].copy_(v)
+            self._pending = None
+        self._last_step = trainer.global_step
+
+    def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx):
+        """Update after every optimizer step (skips gradient-accumulation steps)."""
+        if trainer.global_step == self._last_step:
+            return
+        self._last_step = trainer.global_step
+        self.update(pl_module)
+
+    def on_validation_start(self, trainer, pl_module) -> None:
+        """Validate the EMA weights."""
+        self.swap_in(pl_module)
+
+    def on_validation_end(self, trainer, pl_module) -> None:
+        """Go back to the online weights for training."""
+        self.swap_out(pl_module)
+
+    def on_fit_end(self, trainer, pl_module) -> None:
+        """Leave the EMA weights in the module."""
+        self.swap_out(pl_module)
+        if self._shadow is not None:
+            self._copy_into(pl_module, self._shadow)
+
+    def on_save_checkpoint(self, trainer, pl_module, checkpoint) -> None:
+        """Save the EMA weights as the ``state_dict`` and the online ones aside."""
+        if self._shadow is None:
+            return
+        sd = checkpoint["state_dict"]
+        online = {}
+        for name, e in self._shadow.items():
+            if name not in sd:
+                continue
+            if self._backup is not None and name in self._backup:
+                online[name] = self._backup[name].detach().clone()
+            else:
+                online[name] = sd[name].detach().clone()
+            sd[name] = e.detach().to(dtype=sd[name].dtype).clone()
+        checkpoint[self.CHECKPOINT_KEY] = {
+            "online_state_dict": online,
+            "decay": self.decay,
+            "warmup_steps": self.warmup_steps,
+            "num_updates": self.num_updates,
+        }
+
+    def on_load_checkpoint(self, trainer, pl_module, checkpoint) -> None:
+        """Resume: the module got the EMA ``state_dict``; put the online weights back.
+
+        Lightning restores the module's ``state_dict`` before this hook runs.
+        """
+        state = checkpoint.get(self.CHECKPOINT_KEY)
+        if not state:
+            return
+        sd = checkpoint["state_dict"]
+        online = state["online_state_dict"]
+        ema = {n: sd[n].detach().float().clone() for n in online if n in sd}
+        self._copy_into(pl_module, online)
+        self.num_updates = int(state.get("num_updates", 0))
+        if self._shadow is not None:
+            for n, v in ema.items():
+                if n in self._shadow:
+                    self._shadow[n].copy_(v)
+        else:
+            self._pending = ema
+
+
 class LastEpochCheckpoint(ModelCheckpoint):
     """Write ``last.ckpt`` at the end of EVERY epoch.
 
@@ -2922,3 +3251,197 @@ class EmbeddingEvaluationCallback(Callback):
         pl_module.val_predictions = []
         pl_module.val_ground_truth = []
         trainer.strategy.barrier()
+
+
+def _batch_num_samples(batch) -> int:
+    """Best-effort number of samples in a collated training batch."""
+    if isinstance(batch, dict):
+        for key in ("instance_image", "image"):
+            v = batch.get(key)
+            if hasattr(v, "shape") and len(v.shape) > 0:
+                return int(v.shape[0])
+        for v in batch.values():
+            if hasattr(v, "shape") and len(v.shape) > 0:
+                return int(v.shape[0])
+        if "frame_idx" in batch:
+            return len(batch["frame_idx"])
+    elif isinstance(batch, (list, tuple)) and len(batch):
+        return _batch_num_samples(batch[0])
+    elif hasattr(batch, "shape") and len(batch.shape) > 0:
+        return int(batch.shape[0])
+    return 0
+
+
+class ThroughputMonitor(Callback):
+    """Log training speed and input-pipeline stalls every ``log_every_n_steps``.
+
+    Timing is measured over windows of ``log_every_n_steps`` training batches and
+    is reset at the start of every train epoch and around validation, so the
+    reported rates are *train-only* (unlike the epoch-level ``train/samples_per_sec``
+    which historically included the validation loop).
+
+    Host-side timings use ``time.perf_counter`` and add no device syncs. When the
+    module runs on CUDA, a pair of CUDA events is also recorded around each step
+    and read back once per window (a single sync on the last event), which gives
+    the fraction of the window the GPU was actually idle -- the true cost of a
+    slow dataloader, independent of how far the host runs ahead of the device.
+
+    Logged keys (to every Lightning logger, at ``trainer.global_step``):
+
+    * ``perf/samples_per_sec``: training samples (crops/frames) per second,
+      summed over all ranks (per-rank batch x world size).
+    * ``perf/steps_per_sec``, ``perf/iter_time_ms``: training batches per second
+      and wall time per batch (a batch, not an optimizer step, under
+      ``accumulate_grad_batches``).
+    * ``perf/data_wait_ms``, ``perf/data_wait_frac``: host time between the end
+      of one batch and the start of the next (dataloader fetch + host-to-device
+      copy + loop overhead), per batch and as a fraction of wall time.
+    * ``perf/compute_ms``: host time inside the step (forward/backward/optimizer
+      launch; equals device time only if the step synchronizes).
+    * ``perf/gpu_idle_frac``: fraction of the window the GPU stream was idle
+      between steps (CUDA only). This is the stall metric to watch: when the
+      step has no host sync the host runs ahead of the GPU, so
+      ``data_wait_frac`` can be high while the GPU is still fully busy.
+    * ``perf/max_mem_gb``, ``perf/max_mem_reserved_gb``: peak allocated/reserved
+      CUDA memory on this rank since the start of training.
+    * ``perf/lr/<group>``: learning rate of every optimizer param group (named by
+      the group's ``"name"`` key when present, else its index).
+
+    Args:
+        log_every_n_steps: Window size (in training batches) between logs.
+        log_to_console: Also emit a one-line ``loguru`` summary on rank 0.
+        cuda_events: Measure GPU idle time with CUDA events (CUDA only).
+    """
+
+    def __init__(
+        self,
+        log_every_n_steps: int = 50,
+        log_to_console: bool = True,
+        cuda_events: bool = True,
+    ):
+        """Initialize the monitor."""
+        super().__init__()
+        self.log_every_n_steps = max(1, int(log_every_n_steps))
+        self.log_to_console = log_to_console
+        self.cuda_events = cuda_events
+        # Every window's metrics (rank-local), e.g. for tests and benchmarks.
+        self.history = []
+        self._reset()
+
+    def _reset(self):
+        self._window_start = None
+        self._prev_end = None
+        self._step_start = None
+        self._wait = 0.0
+        self._compute = 0.0
+        self._n = 0
+        self._samples = 0
+        self._events = []
+
+    def _use_events(self, pl_module) -> bool:
+        import torch
+
+        return (
+            self.cuda_events
+            and torch.cuda.is_available()
+            and getattr(pl_module.device, "type", "cpu") == "cuda"
+        )
+
+    def on_train_epoch_start(self, trainer, pl_module):
+        """Start a fresh window each epoch."""
+        self._reset()
+
+    def on_validation_start(self, trainer, pl_module):
+        """Drop the partial window so validation never counts as train time."""
+        self._reset()
+
+    def on_train_batch_start(self, trainer, pl_module, batch, batch_idx):
+        """Record the end of the data wait / start of compute."""
+        now = time.perf_counter()
+        if self._window_start is None:
+            # First batch of a window opened by a reset: its wait is unknown.
+            self._window_start = now
+        elif self._prev_end is not None:
+            self._wait += now - self._prev_end
+        self._step_start = now
+        if self._use_events(pl_module):
+            import torch
+
+            start = torch.cuda.Event(enable_timing=True)
+            start.record()
+            self._events.append([start, None])
+
+    def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx):
+        """Accumulate the step and log once the window is full."""
+        now = time.perf_counter()
+        if self._step_start is None:
+            return
+        self._compute += now - self._step_start
+        self._prev_end = now
+        self._n += 1
+        self._samples += _batch_num_samples(batch)
+        if self._events and self._events[-1][1] is None:
+            import torch
+
+            end = torch.cuda.Event(enable_timing=True)
+            end.record()
+            self._events[-1][1] = end
+        if self._n >= self.log_every_n_steps:
+            self._log_window(trainer, pl_module, now)
+            # Next window starts where this one ended (keeps the wait of its
+            # first batch).
+            self._window_start = now
+            self._wait = self._compute = 0.0
+            self._n = self._samples = 0
+            self._events = []
+
+    def _log_window(self, trainer, pl_module, now):
+        import torch
+
+        wall = max(now - self._window_start, 1e-9)
+        world = int(getattr(trainer, "world_size", 1) or 1)
+        metrics = {
+            "perf/samples_per_sec": self._samples * world / wall,
+            "perf/steps_per_sec": self._n / wall,
+            "perf/iter_time_ms": 1000.0 * wall / self._n,
+            "perf/data_wait_ms": 1000.0 * self._wait / self._n,
+            "perf/data_wait_frac": self._wait / wall,
+            "perf/compute_ms": 1000.0 * self._compute / self._n,
+        }
+        events = [e for e in self._events if e[1] is not None]
+        if len(events) >= 2:
+            events[-1][1].synchronize()
+            busy = sum(s.elapsed_time(e) for s, e in events)
+            span = events[0][0].elapsed_time(events[-1][1])
+            if span > 0:
+                metrics["perf/gpu_idle_frac"] = max(0.0, 1.0 - busy / span)
+        if torch.cuda.is_available() and pl_module.device.type == "cuda":
+            dev = pl_module.device
+            metrics["perf/max_mem_gb"] = torch.cuda.max_memory_allocated(dev) / 1e9
+            metrics["perf/max_mem_reserved_gb"] = (
+                torch.cuda.max_memory_reserved(dev) / 1e9
+            )
+        for opt_idx, opt in enumerate(trainer.optimizers):
+            for g_idx, group in enumerate(opt.param_groups):
+                name = group.get("name", str(g_idx))
+                prefix = "perf/lr" if opt_idx == 0 else f"perf/lr_opt{opt_idx}"
+                metrics[f"{prefix}/{name}"] = float(group["lr"])
+        self.history.append(metrics)
+        if trainer.is_global_zero:
+            for lg in trainer.loggers:
+                lg.log_metrics(metrics, step=trainer.global_step)
+            if self.log_to_console:
+                idle = metrics.get("perf/gpu_idle_frac")
+                logger.info(
+                    f"[throughput] step {trainer.global_step}: "
+                    f"{metrics['perf/samples_per_sec']:.1f} samples/s, "
+                    f"iter {metrics['perf/iter_time_ms']:.1f} ms, "
+                    f"data wait {metrics['perf/data_wait_ms']:.1f} ms "
+                    f"({100 * metrics['perf/data_wait_frac']:.1f}%)"
+                    + (f", GPU idle {100 * idle:.1f}%" if idle is not None else "")
+                    + (
+                        f", max mem {metrics['perf/max_mem_gb']:.1f} GB"
+                        if "perf/max_mem_gb" in metrics
+                        else ""
+                    )
+                )

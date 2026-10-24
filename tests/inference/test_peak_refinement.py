@@ -5,7 +5,6 @@ The ops themselves are tested in ``tests/inference/ops/test_peak_refinement.py``
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 import numpy as np
@@ -288,17 +287,6 @@ def test_run_predict_refuses_flip_test_for_export_dir(tmp_path):
         predict(str(SLP), export_dir=str(tmp_path), flip_test=True)
 
 
-def _plain(text: str) -> str:
-    """CLI output with ANSI codes and panel borders stripped, whitespace collapsed.
-
-    rich-click renders errors into a bordered panel wrapped at the terminal
-    width, so a raw substring check is layout-dependent.
-    """
-    text = re.sub(r"\x1b\[[0-9;]*m", "", text)
-    text = re.sub(r"[│┃─━╭╮╰╯]", " ", text)
-    return " ".join(text.split())
-
-
 def test_cli_flip_test_refused_for_export_dir(tmp_path):
     from sleap_nn.cli import cli
 
@@ -307,7 +295,7 @@ def test_cli_flip_test_refused_for_export_dir(tmp_path):
         cli, ["predict", "-i", str(SLP), "-m", str(tmp_path), "--flip_test"]
     )
     assert result.exit_code != 0
-    assert "--flip_test is not supported for exported" in _plain(result.output)
+    assert "--flip_test is not supported for exported" in result.output
 
 
 def test_cli_integral_refinement_choices():
@@ -318,5 +306,4 @@ def test_cli_integral_refinement_choices():
         ["predict", "-i", str(SLP), "-m", str(SINGLE), "--integral_refinement", "x"],
     )
     assert result.exit_code != 0
-    output = _plain(result.output)
-    assert "auto" in output and "dark" in output
+    assert "auto" in result.output and "dark" in result.output

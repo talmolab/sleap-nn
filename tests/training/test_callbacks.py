@@ -1,5 +1,6 @@
 """Tests for sleap_nn/training/callbacks.py."""
 
+import math
 import numpy as np
 import pytest
 import subprocess
@@ -920,6 +921,9 @@ class TestCSVLoggerCallbackFileOps:
 
             with patch("sleap_nn.training.callbacks.RANK", 0):
                 callback.on_validation_end(mock_trainer, mock_pl_module)
+                # The row waits for the epoch's train metrics.
+                assert not filepath.exists()
+                callback.on_train_end(mock_trainer, mock_pl_module)
 
             assert filepath.exists()
 
@@ -950,6 +954,7 @@ class TestCSVLoggerCallbackFileOps:
 
             with patch("sleap_nn.training.callbacks.RANK", 0):
                 callback.on_validation_end(mock_trainer, mock_pl_module)
+                callback.on_train_epoch_start(mock_trainer, mock_pl_module)
 
             assert filepath.exists()
 
@@ -974,7 +979,63 @@ class TestCSVLoggerCallbackFileOps:
             mock_pl_module = MagicMock()
 
             callback.on_validation_end(mock_trainer, mock_pl_module)
+            callback.on_train_end(mock_trainer, mock_pl_module)
 
+            assert not filepath.exists()
+
+    def test_row_holds_its_own_epochs_train_metrics(self):
+        """Row N carries epoch N's train loss/LR, not epoch N-1's (off-by-one).
+
+        Lightning runs the epoch-end validation before
+        ``LightningModule.on_train_epoch_end`` logs ``train/loss``/``train/lr``,
+        so the row is written once those exist.
+        """
+        import csv
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            filepath = Path(tmpdir) / "metrics.csv"
+            callback = CSVLoggerCallback(
+                filepath=filepath,
+                keys=["epoch", "train/loss", "val/loss", "learning_rate"],
+            )
+            trainer = MagicMock()
+            trainer.sanity_checking = False
+            trainer.is_global_zero = True
+            trainer.callback_metrics = {}
+            module = MagicMock()
+
+            with patch("sleap_nn.training.callbacks.RANK", 0):
+                for epoch in range(3):
+                    trainer.current_epoch = epoch
+                    callback.on_train_epoch_start(trainer, module)
+                    # Validation (end of the epoch) runs first...
+                    trainer.callback_metrics["val/loss"] = torch.tensor(10.0 + epoch)
+                    callback.on_validation_end(trainer, module)
+                    # ...then the module's on_train_epoch_end logs train metrics.
+                    trainer.callback_metrics["train/loss"] = torch.tensor(1.0 + epoch)
+                    trainer.callback_metrics["train/lr"] = torch.tensor(0.1**epoch)
+                callback.on_train_end(trainer, module)
+
+            with open(filepath) as f:
+                rows = list(csv.DictReader(f))
+            assert [int(r["epoch"]) for r in rows] == [0, 1, 2]
+            for epoch, row in enumerate(rows):
+                assert float(row["train/loss"]) == pytest.approx(1.0 + epoch)
+                assert float(row["val/loss"]) == pytest.approx(10.0 + epoch)
+                assert float(row["learning_rate"]) == pytest.approx(0.1**epoch)
+
+    def test_no_row_without_validation(self):
+        """Epochs that ran no validation write no row (as before)."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            filepath = Path(tmpdir) / "metrics.csv"
+            callback = CSVLoggerCallback(filepath=filepath)
+            trainer = MagicMock()
+            trainer.sanity_checking = True
+            trainer.is_global_zero = True
+            with patch("sleap_nn.training.callbacks.RANK", 0):
+                callback.on_validation_end(trainer, MagicMock())  # sanity check
+                callback.on_train_epoch_start(trainer, MagicMock())
+                callback.on_train_end(trainer, MagicMock())
             assert not filepath.exists()
 
     def test_on_validation_epoch_start_resets_eval_keys_to_nan(self):
@@ -1613,6 +1674,7 @@ class TestEpochEndEvaluationCallback:
 
         mock_trainer = MagicMock()
         mock_trainer.sanity_checking = False  # Not during sanity check
+        mock_trainer.current_epoch = 0
         mock_pl_module = MagicMock()
         mock_pl_module._collect_val_predictions = False
 
@@ -2571,6 +2633,7 @@ class TestCentroidEvaluationCallback:
 
         mock_trainer = MagicMock()
         mock_trainer.sanity_checking = False
+        mock_trainer.current_epoch = 0
         mock_pl_module = MagicMock()
         mock_pl_module._collect_val_predictions = False
 
@@ -3144,3 +3207,193 @@ class TestUnifiedVizImgFormat:
         cb._save_local_viz(MagicMock(), "train", 3)
         assert (tmp_path / "train.0003.jpg").exists()
         assert not (tmp_path / "train.0003.png").exists()
+
+
+# ── WeightEMA ───────────────────────────────────────────────────────────────────
+
+
+class _EMAProbeModel(L.LightningModule):
+    """Linear + BatchNorm model that records the weights each phase sees."""
+
+    def __init__(self):
+        super().__init__()
+        torch.manual_seed(0)
+        self.layer = torch.nn.Linear(4, 2)
+        self.bn = torch.nn.BatchNorm1d(2)
+        self.initial = self.layer.weight.detach().clone()
+        self.after_step = []  # online weights after each optimizer step
+        self.val_weights = []
+
+    def forward(self, x):
+        return self.bn(self.layer(x))
+
+    def training_step(self, batch, batch_idx):
+        # The BatchNorm output alone is invariant to `layer`, so add a term that
+        # moves its weights every step.
+        x = batch[0]
+        return self(x).pow(2).mean() + self.layer(x).pow(2).mean()
+
+    def on_train_batch_end(self, outputs, batch, batch_idx):
+        self.after_step.append(self.layer.weight.detach().clone())
+
+    def validation_step(self, batch, batch_idx):
+        self.val_weights.append(self.layer.weight.detach().clone())
+        self.log("val/loss", self(batch[0]).pow(2).mean())
+
+    def configure_optimizers(self):
+        return torch.optim.SGD(self.parameters(), lr=0.5)
+
+
+def _ema_loaders(n_train=6, n_val=2):
+    from torch.utils.data import DataLoader, TensorDataset
+
+    g = torch.Generator().manual_seed(0)
+    train = TensorDataset(torch.randn(n_train * 4, 4, generator=g))
+    val = TensorDataset(torch.randn(n_val * 4, 4, generator=g))
+    return DataLoader(train, batch_size=4), DataLoader(val, batch_size=4)
+
+
+def _ema_trainer(tmp_path, callbacks, max_epochs=1, **kw):
+    kw.setdefault("enable_checkpointing", False)
+    return L.Trainer(
+        default_root_dir=tmp_path,
+        max_epochs=max_epochs,
+        accelerator="cpu",
+        devices=1,
+        callbacks=callbacks,
+        logger=False,
+        enable_progress_bar=False,
+        enable_model_summary=False,
+        num_sanity_val_steps=0,
+        **kw,
+    )
+
+
+def _manual_ema(initial, after_steps, decay, warmup_steps, start=1):
+    ema = initial.clone()
+    for n, w in enumerate(after_steps, start=start):
+        d = decay * (1 - math.exp(-n / warmup_steps)) if warmup_steps else decay
+        ema = d * ema + (1 - d) * w
+    return ema
+
+
+@pytest.mark.parametrize("warmup_steps", [0, 3])
+def test_weight_ema_matches_the_formula_and_is_used_for_validation(
+    tmp_path, warmup_steps
+):
+    from sleap_nn.training.callbacks import WeightEMA
+
+    model = _EMAProbeModel()
+    ema = WeightEMA(decay=0.7, warmup_steps=warmup_steps)
+    train, val = _ema_loaders()
+    _ema_trainer(tmp_path, [ema]).fit(model, train, val)
+
+    assert ema.num_updates == len(model.after_step) == 6
+    expected = _manual_ema(model.initial, model.after_step, 0.7, warmup_steps)
+    assert torch.allclose(ema.shadow["layer.weight"], expected, atol=1e-6)
+    assert not torch.allclose(model.after_step[-1], expected)
+    # Validation (after the 6th step) ran on the EMA weights...
+    assert model.val_weights
+    assert all(torch.allclose(w, expected, atol=1e-6) for w in model.val_weights)
+    # ...and fit leaves them in the module.
+    assert torch.allclose(model.layer.weight, expected, atol=1e-6)
+    # Float buffers (BatchNorm running stats) are averaged; integer ones are not.
+    assert "bn.running_mean" in ema.shadow
+    assert "bn.num_batches_tracked" not in ema.shadow
+
+
+def test_weight_ema_swaps_back_to_online_weights_for_training(tmp_path):
+    """Validation mid-run must not leak EMA weights into the next train steps."""
+    from sleap_nn.training.callbacks import WeightEMA
+
+    model = _EMAProbeModel()
+    ema = WeightEMA(decay=0.9, warmup_steps=0)
+    train, val = _ema_loaders()
+    _ema_trainer(tmp_path, [ema], max_epochs=2).fit(model, train, val)
+    # Epoch 1 continued from the online weights: the EMA over all 12 steps
+    # computed from the recorded online trajectory matches the shadow.
+    expected = _manual_ema(model.initial, model.after_step, 0.9, 0)
+    assert torch.allclose(ema.shadow["layer.weight"], expected, atol=1e-6)
+    # Two validations, each on the EMA at that time (differs between epochs).
+    assert len(model.val_weights) == 4
+    assert not torch.allclose(model.val_weights[0], model.val_weights[-1])
+
+
+def test_weight_ema_steps_once_per_optimizer_step_with_accumulation(tmp_path):
+    from sleap_nn.training.callbacks import WeightEMA
+
+    model = _EMAProbeModel()
+    ema = WeightEMA(decay=0.5, warmup_steps=0)
+    train, val = _ema_loaders(n_train=6)
+    _ema_trainer(tmp_path, [ema], accumulate_grad_batches=2).fit(model, train, val)
+    assert ema.num_updates == 3
+
+
+def test_weight_ema_checkpoint_holds_ema_weights_and_resumes(tmp_path):
+    """`state_dict` = EMA (what inference loads); online weights ride along."""
+    from lightning.pytorch.callbacks import ModelCheckpoint
+
+    from sleap_nn.training.callbacks import WeightEMA
+
+    model = _EMAProbeModel()
+    ema = WeightEMA(decay=0.8, warmup_steps=0)
+    ckpt_cb = ModelCheckpoint(dirpath=tmp_path, filename="best", monitor="val/loss")
+    train, val = _ema_loaders()
+    _ema_trainer(tmp_path, [ema, ckpt_cb], enable_checkpointing=True).fit(
+        model, train, val
+    )
+    ckpt = torch.load(tmp_path / "best.ckpt", map_location="cpu", weights_only=False)
+    ema_w = ema.shadow["layer.weight"]
+    online_w = model.after_step[-1]
+    assert torch.allclose(ckpt["state_dict"]["layer.weight"], ema_w)
+    assert torch.allclose(ckpt["ema"]["online_state_dict"]["layer.weight"], online_w)
+    assert ckpt["ema"]["num_updates"] == 6
+
+    # Inference-style load (no callback): plain load_state_dict gets the EMA.
+    fresh = _EMAProbeModel()
+    fresh.load_state_dict(ckpt["state_dict"])
+    assert torch.allclose(fresh.layer.weight, ema_w)
+
+    # Resume: online weights back in the module, average continues from the EMA.
+    seen = {}
+
+    class _Probe(L.Callback):
+        def on_fit_start(self, trainer, pl_module):
+            seen["online"] = pl_module.layer.weight.detach().clone()
+
+    resumed = _EMAProbeModel()
+    ema2 = WeightEMA(decay=0.8, warmup_steps=0)
+    _ema_trainer(tmp_path, [ema2, _Probe()], max_epochs=2).fit(
+        resumed, train, val, ckpt_path=tmp_path / "best.ckpt"
+    )
+    assert torch.allclose(seen["online"], online_w)
+    assert ema2.num_updates == 12
+    expected = _manual_ema(ema_w, resumed.after_step, 0.8, 0, start=7)
+    assert torch.allclose(ema2.shadow["layer.weight"], expected, atol=1e-6)
+
+
+def test_weight_ema_resume_from_a_checkpoint_without_ema(tmp_path):
+    """Turning EMA on when resuming a non-EMA run starts from the loaded weights."""
+    from lightning.pytorch.callbacks import ModelCheckpoint
+
+    from sleap_nn.training.callbacks import WeightEMA
+
+    model = _EMAProbeModel()
+    ckpt_cb = ModelCheckpoint(dirpath=tmp_path, filename="plain")
+    train, val = _ema_loaders()
+    _ema_trainer(tmp_path, [ckpt_cb], enable_checkpointing=True).fit(model, train, val)
+    ema = WeightEMA(decay=0.8, warmup_steps=0)
+    resumed = _EMAProbeModel()
+    _ema_trainer(tmp_path, [ema], max_epochs=2).fit(
+        resumed, train, val, ckpt_path=tmp_path / "plain.ckpt"
+    )
+    expected = _manual_ema(model.after_step[-1], resumed.after_step, 0.8, 0)
+    assert torch.allclose(ema.shadow["layer.weight"], expected, atol=1e-6)
+
+
+@pytest.mark.parametrize("kw", [{"decay": 1.0}, {"decay": -0.1}, {"warmup_steps": -1}])
+def test_weight_ema_rejects_bad_arguments(kw):
+    from sleap_nn.training.callbacks import WeightEMA
+
+    with pytest.raises(ValueError):
+        WeightEMA(**kw)
