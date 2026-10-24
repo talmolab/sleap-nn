@@ -264,6 +264,11 @@ data_config:
 | `crop_pipeline` | str | `legacy` | How `centered_instance` training crops are cut: `legacy`, or `warp` (one affine warp from the full frame, uint8 samples, no size matcher; needs `crop_mode: bbox`). See [Fast top-down data path](../guides/warp-data-path.md) |
 | `gpu_confmaps` | bool | `false` | `crop_pipeline: warp`: render the confidence maps on the GPU in the training step instead of in the workers |
 | `crop_bbox_categories` | list | `null` | `crop_pipeline: warp`: only linked user boxes of these categories (e.g. `[person]`) are crop boxes; others (e.g. MPII head boxes) fall back to the keypoint box |
+| `crop_bbox_source` | str | `gt` | `crop_pipeline: warp`: `gt` crops from the instance's user (or keypoint) box; `detector` crops from the `PredictedBoundingBox` linked to the instance (a detector box matched to the GT), so training crops look like inference crops. See [Detector-box crops](../guides/warp-data-path.md#detector-box-crops) |
+| `crop_bbox_detector` | str | `null` | `crop_bbox_source: detector`: only predicted boxes whose `source` is this string count |
+| `crop_bbox_min_score` | float | `0.0` | `crop_bbox_source: detector`: only predicted boxes scoring at least this count |
+| `crop_bbox_fallback` | str | `gt` | `crop_bbox_source: detector`: an instance without a usable detector box is cropped from its `gt` box, or left out (`drop`) |
+| `crop_bbox_jitter` | float | `0.0` | `crop_pipeline: warp`, training only: each box edge moves by Gaussian noise with this std, as a fraction of the box width / height (detector-like box noise). Off at `0` |
 | `min_crop_size` | int | `100` | Minimum crop size when auto-computing |
 | `crop_padding` | int | `null` | Extra padding around crops. If `null`, auto-computed from augmentation settings |
 

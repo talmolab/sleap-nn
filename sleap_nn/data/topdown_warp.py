@@ -121,6 +121,8 @@ class InstanceTable:
     weight: np.ndarray  # (n, K) float32: 0 = node not labeled by this file
     num_instances: np.ndarray  # (n,) int16 user instances in the frame
     filtered: Dict[str, int] = field(default_factory=dict)
+    # Crop box origin counts: "gt" and, with detector boxes, "detector".
+    box_sources: Dict[str, int] = field(default_factory=dict)
 
     def __len__(self) -> int:
         """Number of samples (or batches)."""
@@ -137,6 +139,42 @@ def _image_path(video: sio.Video, frame_idx: int) -> Optional[str]:
     return None
 
 
+def _linked_detector_boxes(
+    lf: sio.LabeledFrame,
+    categories: Optional[set],
+    detector: Optional[str],
+    min_score: float,
+) -> Dict[int, sio.BoundingBox]:
+    """Predicted boxes of a frame linked to an instance: ``{id(instance): box}``.
+
+    Only non-empty boxes of ``categories`` (any if ``None``), from ``detector`` (box
+    ``source``; any if ``None``) and scoring at least ``min_score`` count; when
+    several are linked to one instance the highest-scoring one wins.
+    """
+    out: Dict[int, sio.BoundingBox] = {}
+    for b in getattr(lf, "bboxes", None) or []:
+        inst = getattr(b, "instance", None)
+        if (
+            inst is None
+            or not b.is_predicted
+            or b.is_empty
+            or b.width <= 0
+            or b.height <= 0
+        ):
+            continue
+        if categories is not None and bbox_category_name(b) not in categories:
+            continue
+        if detector is not None and b.source != detector:
+            continue
+        score = float(getattr(b, "score", 0.0) or 0.0)
+        if score < min_score:
+            continue
+        prev = out.get(id(inst))
+        if prev is None or score > float(getattr(prev, "score", 0.0) or 0.0):
+            out[id(inst)] = b
+    return out
+
+
 def build_instance_table(
     labels_list: Sequence[sio.Labels],
     node_names: Sequence[str],
@@ -146,6 +184,10 @@ def build_instance_table(
     instance_filter: Optional[InstanceFilter] = None,
     user_instances_only: bool = True,
     supervise_occluded: bool = True,
+    crop_bbox_source: str = "gt",
+    crop_bbox_detector: Optional[str] = None,
+    crop_bbox_min_score: float = 0.0,
+    crop_bbox_fallback: str = "gt",
 ) -> InstanceTable:
     """Flatten labels into an :class:`InstanceTable` on the model's node list.
 
@@ -160,10 +202,26 @@ def build_instance_table(
     sleap-io provides them) exactly as the stock datasets do
     (:func:`~sleap_nn.data.node_weights.instance_node_weights`).
 
+    With ``crop_bbox_source="detector"`` the crop box is instead the predicted box
+    linked to the instance (a detector box matched to the ground truth; filtered by
+    ``bbox_categories``, ``crop_bbox_detector`` and ``crop_bbox_min_score``), and an
+    instance without one falls back to the box above (``crop_bbox_fallback="gt"``)
+    or is dropped (``"drop"``).
+
     Raises:
-        ValueError: If ``bbox_source`` resolves to ``masks`` (not supported here) or
-            no instance is left.
+        ValueError: If ``bbox_source`` resolves to ``masks`` (not supported here),
+            ``crop_bbox_source`` / ``crop_bbox_fallback`` is unknown, or no instance
+            is left.
     """
+    if crop_bbox_source not in ("gt", "detector"):
+        raise ValueError(
+            f"crop_bbox_source must be 'gt' or 'detector', got {crop_bbox_source!r}."
+        )
+    if crop_bbox_fallback not in ("gt", "drop"):
+        raise ValueError(
+            f"crop_bbox_fallback must be 'gt' or 'drop', got {crop_bbox_fallback!r}."
+        )
+    use_det = crop_bbox_source == "detector"
     K = len(node_names)
     count_idx = None
     if instance_filter is not None and instance_filter.count_nodes:
@@ -191,7 +249,8 @@ def build_instance_table(
             "num_instances",
         )
     }
-    n_small = n_few = n_empty = 0
+    n_small = n_few = n_empty = n_no_det = 0
+    box_sources = {"gt": 0, "detector": 0} if use_det else {"gt": 0}
     for li, labels in enumerate(labels_list):
         sk_names = labels.skeletons[0].node_names
         src = np.array([sk_names.index(n) if n in sk_names else -1 for n in node_names])
@@ -216,6 +275,13 @@ def build_instance_table(
                         cats is None or bbox_category_name(b) in cats
                     ):
                         linked[id(inst)] = b
+            det_linked = (
+                _linked_detector_boxes(
+                    lf, cats, crop_bbox_detector, float(crop_bbox_min_score)
+                )
+                if use_det
+                else {}
+            )
             path = _image_path(lf.video, lf.frame_idx)
             pid = -1
             if path is not None:
@@ -235,7 +301,13 @@ def build_instance_table(
                 if not vis.any():
                     n_empty += 1
                     continue
-                b = linked.get(id(inst))
+                b = det_linked.get(id(inst))
+                if b is None and use_det and crop_bbox_fallback == "drop":
+                    n_no_det += 1
+                    continue
+                box_from = "detector" if b is not None else "gt"
+                if b is None:
+                    b = linked.get(id(inst))
                 if b is not None and not b.is_empty:
                     box = np.asarray(b.bounds if b.is_rotated else b.xyxy, np.float32)
                 else:
@@ -252,6 +324,7 @@ def build_instance_table(
                     if math.sqrt(area) < instance_filter.min_bbox_size:
                         n_small += 1
                         continue
+                box_sources[box_from] += 1
                 cols["labels_idx"].append(li)
                 cols["lf_idx"].append(lfi)
                 cols["video_idx"].append(video_index[id(lf.video)])
@@ -279,7 +352,9 @@ def build_instance_table(
             "no_visible_node": n_empty,
             "few_labeled_nodes": n_few,
             "small_box": n_small,
+            **({"no_detector_box": n_no_det} if use_det else {}),
         },
+        box_sources=box_sources,
     )
     return table
 
@@ -874,6 +949,13 @@ class WarpCenteredInstanceDataset(Dataset):
             every node of every sample is trained.
         supervise_occluded: ``data_config.supervise_occluded`` (see
             :mod:`sleap_nn.data.node_weights`).
+        crop_bbox_source: ``"gt"`` or ``"detector"`` (the predicted box linked to
+            each instance; see :func:`build_instance_table`).
+        crop_bbox_detector / crop_bbox_min_score / crop_bbox_fallback: Which
+            predicted boxes count, and what an instance without one does.
+        crop_bbox_jitter: Training only (``apply_aug``): standard deviation of the
+            independent Gaussian shift of each box edge, as a fraction of the box's
+            width / height, applied before the window rule.
     """
 
     def __init__(
@@ -899,6 +981,11 @@ class WarpCenteredInstanceDataset(Dataset):
         unlabeled_points: str = "absent",
         node_loss_mask: bool = True,
         supervise_occluded: bool = True,
+        crop_bbox_source: str = "gt",
+        crop_bbox_detector: Optional[str] = None,
+        crop_bbox_min_score: float = 0.0,
+        crop_bbox_fallback: str = "gt",
+        crop_bbox_jitter: float = 0.0,
     ):
         """Initialize."""
         if cv2 is None:  # pragma: no cover
@@ -964,7 +1051,14 @@ class WarpCenteredInstanceDataset(Dataset):
             instance_filter=instance_filter,
             user_instances_only=user_instances_only,
             supervise_occluded=supervise_occluded,
+            crop_bbox_source=crop_bbox_source,
+            crop_bbox_detector=crop_bbox_detector,
+            crop_bbox_min_score=crop_bbox_min_score,
+            crop_bbox_fallback=crop_bbox_fallback,
         )
+        if crop_bbox_jitter < 0:
+            raise ValueError(f"crop_bbox_jitter must be >= 0, got {crop_bbox_jitter}.")
+        self.crop_bbox_jitter = float(crop_bbox_jitter) if apply_aug else 0.0
         # Per-node weights ride along only when they can differ from 1, so a run on
         # fully labeled files with `unlabeled_points: absent` uses the plain loss.
         self.emit_node_weights = node_loss_mask and (
@@ -1000,6 +1094,13 @@ class WarpCenteredInstanceDataset(Dataset):
             f"{f['no_visible_node']} without a visible node, {f['few_labeled_nodes']} "
             f"with too few labeled nodes, {f['small_box']} with small boxes."
         )
+        if "detector" in self.table.box_sources:
+            logger.info(
+                f"Warp dataset crop boxes: {self.table.box_sources['detector']} from "
+                f"the detector, {self.table.box_sources['gt']} from the GT "
+                f"(fallback); dropped {f.get('no_detector_box', 0)} without a "
+                "detector box."
+            )
 
     def __len__(self) -> int:
         """Number of samples (or batches)."""
@@ -1059,6 +1160,30 @@ class WarpCenteredInstanceDataset(Dataset):
             ]
         return np.ascontiguousarray(img)
 
+    def _jittered_window(self, i: int, rng: np.random.Generator):
+        """Window, scale and padded-box size of sample ``i``'s box, edges jittered.
+
+        Each edge moves by ``N(0, crop_bbox_jitter)`` times the box's width (x1, x2)
+        or height (y1, y2); the jittered box then goes through the same window rule
+        (:func:`~sleap_nn.data.instance_cropping.bbox_crop_windows`) as the
+        un-jittered one.
+        """
+        box = self.table.box[i].astype(np.float64)
+        w = max(box[2] - box[0], 1.0)
+        h = max(box[3] - box[1], 1.0)
+        box = box + rng.normal(0.0, self.crop_bbox_jitter, 4) * np.array([w, h, w, h])
+        # Keep the corners ordered (a jittered box never collapses below 1 px).
+        x1, x2 = min(box[0], box[2]), max(box[0], box[2], min(box[0], box[2]) + 1.0)
+        y1, y2 = min(box[1], box[3]), max(box[1], box[3], min(box[1], box[3]) + 1.0)
+        windows, scales, keep_half = bbox_crop_windows(
+            torch.tensor([[x1, y1, x2, y2]], dtype=torch.float32),
+            (self.crop_h, self.crop_w),
+            self.bbox_crop.aspect,
+            self.bbox_crop.padding,
+            self.bbox_crop.min_size,
+        )
+        return windows[0].numpy(), scales[0].numpy(), (2.0 * keep_half[0]).numpy()
+
     def __getitem__(self, i: int) -> Dict:
         """Return the sample at index ``i``."""
         t = self.table
@@ -1071,6 +1196,8 @@ class WarpCenteredInstanceDataset(Dataset):
         aug = self.augs[min(stage, len(self.augs) - 1)]
         if self.apply_aug:
             rng = self._rng_for_process()
+            if self.crop_bbox_jitter > 0:
+                window, scale, box_wh = self._jittered_window(i, rng)
             if aug.half_body_p > 0:
                 vis = np.isfinite(t.kpts[i]).all(-1) & (t.weight[i] > 0)
                 hb = aug.half_body_window(
