@@ -1,6 +1,7 @@
 """Tests for the warp path's augmentations (half-body, photometric, dropout, stages)."""
 
 import math
+import multiprocessing as mp
 
 import cv2
 import numpy as np
@@ -317,7 +318,19 @@ def _first(x):
     return x[0]
 
 
-@pytest.mark.parametrize("context", ["fork", "spawn"])
+@pytest.mark.parametrize(
+    "context",
+    [
+        pytest.param(
+            "fork",
+            marks=pytest.mark.skipif(
+                "fork" not in mp.get_all_start_methods(),
+                reason="no fork start method (Windows)",
+            ),
+        ),
+        "spawn",
+    ],
+)
 def test_stage_switch_reaches_persistent_workers(tmp_path, context):
     labels = _person_labels(tmp_path)
     ds = _stage_ds(labels)
