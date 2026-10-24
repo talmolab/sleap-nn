@@ -9,6 +9,7 @@ from torch import nn
 from sleap_nn.training.schedulers import (
     LinearWarmupCosineAnnealingLR,
     LinearWarmupLinearDecayLR,
+    LinearWarmupMultiStepLR,
 )
 
 
@@ -393,3 +394,102 @@ class TestSchedulerIntegration:
         assert lrs[1] < lrs[2]  # Warmup: increasing
         assert lrs[2] > lrs[5]  # Decay: decreasing
         assert lrs[5] > lrs[9]  # Decay: decreasing
+
+
+class TestLinearWarmupMultiStepLR:
+    """The ViTPose/mmpose step schedule: linear warmup, then x gamma per milestone."""
+
+    def _lrs(self, scheduler, optimizer, n, group=0):
+        lrs = []
+        for _ in range(n):
+            lrs.append(optimizer.param_groups[group]["lr"])
+            optimizer.step()
+            scheduler.step()
+        return lrs
+
+    def test_warmup_then_milestones(self, optimizer):
+        """mmcv linear warmup from ratio * lr, then decays AT each milestone."""
+        scheduler = LinearWarmupMultiStepLR(
+            optimizer,
+            milestones=[10, 15],
+            gamma=0.1,
+            warmup_steps=5,
+            warmup_start_factor=0.001,
+        )
+        lrs = self._lrs(scheduler, optimizer, 20)
+        base = 1e-3
+        for t in range(5):
+            expected = base * (0.001 + 0.999 * t / 5)
+            assert lrs[t] == pytest.approx(expected)
+        assert lrs[5] == pytest.approx(base)
+        assert lrs[9] == pytest.approx(base)
+        assert lrs[10] == pytest.approx(base * 0.1)
+        assert lrs[14] == pytest.approx(base * 0.1)
+        assert lrs[15] == pytest.approx(base * 0.01)
+        assert lrs[19] == pytest.approx(base * 0.01)
+
+    def test_no_warmup(self, optimizer):
+        scheduler = LinearWarmupMultiStepLR(optimizer, milestones=[3], gamma=0.5)
+        assert self._lrs(scheduler, optimizer, 5) == pytest.approx(
+            [1e-3, 1e-3, 1e-3, 5e-4, 5e-4]
+        )
+
+    def test_milestone_inside_warmup_compounds(self, optimizer):
+        """Both factors multiply, so a milestone during warmup is not lost."""
+        scheduler = LinearWarmupMultiStepLR(
+            optimizer,
+            milestones=[2],
+            gamma=0.1,
+            warmup_steps=4,
+            warmup_start_factor=0.5,
+        )
+        lrs = self._lrs(scheduler, optimizer, 5)
+        assert lrs[2] == pytest.approx(1e-3 * 0.1 * (0.5 + 0.5 * 2 / 4))
+        assert lrs[4] == pytest.approx(1e-4)
+
+    def test_per_group_lr_ratios_are_preserved(self, simple_model):
+        """Groups at scaled LRs (layer decay) keep their ratio at every step."""
+        w, b = simple_model.weight, simple_model.bias
+        opt = torch.optim.AdamW(
+            [{"params": [w], "lr": 1e-3}, {"params": [b], "lr": 2.5e-4}]
+        )
+        scheduler = LinearWarmupMultiStepLR(
+            opt, milestones=[6], warmup_steps=4, warmup_start_factor=0.001
+        )
+        for _ in range(10):
+            assert opt.param_groups[1]["lr"] == pytest.approx(
+                0.25 * opt.param_groups[0]["lr"]
+            )
+            opt.step()
+            scheduler.step()
+
+    def test_state_dict_round_trip(self, simple_model):
+        """Resuming mid-schedule continues where it left off."""
+        opt = torch.optim.Adam(simple_model.parameters(), lr=1e-3)
+        sched = LinearWarmupMultiStepLR(opt, milestones=[5], warmup_steps=3)
+        for _ in range(4):
+            opt.step()
+            sched.step()
+        state = sched.state_dict()
+        opt2 = torch.optim.Adam(simple_model.parameters(), lr=1e-3)
+        opt2.load_state_dict(opt.state_dict())
+        sched2 = LinearWarmupMultiStepLR(opt2, milestones=[5], warmup_steps=3)
+        sched2.load_state_dict(state)
+        opt2.step()
+        sched2.step()
+        assert opt2.param_groups[0]["lr"] == pytest.approx(1e-4)
+
+    @pytest.mark.parametrize(
+        "kwargs",
+        [
+            {"milestones": [5, 5]},
+            {"milestones": [5, 3]},
+            {"milestones": [-1]},
+            {"milestones": [5], "warmup_steps": -1},
+            {"milestones": [5], "warmup_start_factor": 0.0},
+            {"milestones": [5], "warmup_start_factor": 1.5},
+        ],
+    )
+    def test_invalid_arguments_raise(self, optimizer, kwargs):
+        with pytest.raises(ValueError):
+            LinearWarmupMultiStepLR(optimizer, **kwargs)

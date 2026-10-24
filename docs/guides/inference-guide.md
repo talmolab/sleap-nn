@@ -223,6 +223,59 @@ sleap-nn predict -i video.mp4 \
         --filter_min_instance_score 0.3
     ```
 
+#### Sub-pixel refinement and flip-test
+
+Confidence maps are predicted at the model's output stride, so the highest pixel
+of each map is only accurate to that grid. `--integral_refinement` picks how the
+peak is refined to sub-pixel precision:
+
+| Value | What it does | Used for |
+|-------|--------------|----------|
+| `auto` (default) | `dark` for top-down keypoints, `integral` everywhere else | all models |
+| `dark` | [DARK](https://arxiv.org/abs/1910.06278): blurs the map with the head's training `sigma`, then takes one Newton step on the log map. Exact on a clean Gaussian | one peak per channel: top-down keypoints, single instance |
+| `local` | Moves the peak a quarter pixel towards its higher neighbor | one peak per channel |
+| `integral` | Integral regression over a 5×5 patch (`--integral_patch_size`) | all models |
+| `none` | Grid-aligned peaks | all models |
+
+`dark` and `local` need exactly one peak per channel. On a top-down pipeline they
+refine the keypoints, while the centroid stage keeps `integral`. Bottom-up models
+reject them.
+
+!!! warning "Changed in 0.4.0"
+    Top-down keypoints (`centered_instance`, `multi_class_topdown`) now decode with
+    DARK by default instead of integral regression, so predictions from existing
+    top-down models shift by a fraction of an output-stride pixel. Pass
+    `--integral_refinement integral` to get the previous decoding back. Other model
+    types are unchanged.
+
+On synthetic Gaussian maps (stride 4, σ 2, error in input pixels), integral 5×5
+truncates the Gaussian and lands 0.90 px from the truth on clean maps, while DARK
+is exact. On noisy maps the errors are 1.54 px and 0.72 px
+(`scripts/benchmark_peak_refinement.py`).
+
+`--flip_test` also runs the centered-instance model on the horizontally mirrored
+crops. It swaps left/right channels using the skeleton's symmetries and averages
+the two confidence maps before decoding:
+
+```bash
+sleap-nn predict -i video.mp4 -m models/centroid/ -m models/centered_instance/ \
+    --flip_test
+```
+
+- It doubles the centered-instance compute.
+- It helps models trained with flip augmentation (`flip_p > 0`). A model that
+  never saw mirrored animals can get worse.
+- It needs **skeleton symmetries** for any left/right node pairs. If the skeleton
+  has none, the maps are averaged channel for channel and a warning is logged.
+  That is only correct when no node has a left/right partner.
+- It is available for `centered_instance` models only, including box-seeded
+  top-down with a `bbox_*` detector. Other model types refuse the flag.
+
+!!! note "Exported models"
+    ONNX/TensorRT exports bake grid peak finding into the graph and do no sub-pixel
+    refinement. `--integral_refinement` has no effect on them and `--flip_test` is
+    refused.
+
 ### Bottom-Up Segmentation
 
 Bottom-up segmentation models predict a per-instance **mask** (plus instance-center

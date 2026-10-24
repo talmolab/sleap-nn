@@ -2808,7 +2808,7 @@ def _run_in_memory_new_flow(
         "peak_threshold": peak_thresh,
         "centroid_threshold": centroid_thresh,
         "keypoint_threshold": peak_thresh,
-        "integral_refinement": kwargs.get("integral_refinement", "integral"),
+        "integral_refinement": kwargs.get("integral_refinement", "auto"),
         "integral_patch_size": kwargs.get("integral_patch_size", 5),
         "max_instances": kwargs.get("max_instances"),
         "anchor_part": kwargs.get("anchor_part"),
@@ -2835,6 +2835,7 @@ def _run_in_memory_new_flow(
         # Bottom-up segmentation knobs (inert for non-segmentation models).
         "fg_threshold": kwargs.get("fg_threshold", 0.5),
         "bbox_nms_iou": kwargs.get("bbox_nms_iou"),
+        "flip_test": kwargs.get("flip_test", False),
         "boxes": kwargs.get("boxes"),
         "box_score_threshold": kwargs.get("box_score_threshold") or 0.0,
         "min_mask_area": kwargs.get("min_mask_area", 0),
@@ -2908,6 +2909,12 @@ def _run_in_memory_new_flow(
         predict_kwargs["filter_config"] = filter_config
 
     if export_dir is not None:
+        if kwargs.get("flip_test"):
+            raise click.UsageError(
+                "--flip_test is not supported for exported ONNX/TensorRT models "
+                "(their peak finding is baked into the graph). Use the trained "
+                "checkpoint directory instead."
+            )
         # Route to the exported ONNX/TRT runtime. Exported graphs bake peak
         # finding and refinement at export time, so the checkpoint-oriented
         # construction/prediction-time knobs are dropped (the baked values are
@@ -3330,7 +3337,7 @@ def _run_stream_to_file(
     factory_kwargs = {
         "device": _resolve_device(kwargs.get("device")),
         "peak_threshold": kwargs.get("peak_threshold", 0.2),
-        "integral_refinement": kwargs.get("integral_refinement", "integral"),
+        "integral_refinement": kwargs.get("integral_refinement", "auto"),
         "integral_patch_size": kwargs.get("integral_patch_size", 5),
         "batch_size": kwargs.get("batch_size", 4),
         "max_instances": kwargs.get("max_instances"),
@@ -3346,6 +3353,7 @@ def _run_stream_to_file(
         # Bottom-up segmentation knobs (inert for non-segmentation models).
         "fg_threshold": kwargs.get("fg_threshold", 0.5),
         "bbox_nms_iou": kwargs.get("bbox_nms_iou"),
+        "flip_test": kwargs.get("flip_test", False),
         "min_mask_area": kwargs.get("min_mask_area", 0),
         "center_nms_kernel": kwargs.get("center_nms_kernel", 3),
         "mask_cleanup": kwargs.get("mask_cleanup", False),
@@ -3966,6 +3974,39 @@ def _common_inference_options(f):
             ),
         ),
         click.option(
+            "--integral_refinement",
+            # Mirrors sleap_nn.inference.ops.peaks.REFINEMENT_METHODS (not
+            # imported here to keep CLI startup torch-free).
+            type=click.Choice(
+                ["auto", "dark", "integral", "local", "none"], case_sensitive=False
+            ),
+            default="auto",
+            help=(
+                "Sub-pixel peak refinement. 'auto' (default): DARK for top-down "
+                "keypoints (centered_instance / multi_class_topdown, blurred with "
+                "the head's training sigma), integral regression for every other "
+                "model. 'dark' and 'local' (quarter-pixel offset) need one peak "
+                "per channel: the centroid stage uses 'integral' for them and "
+                "bottom-up models reject them. 'integral' restores the pre-0.4 "
+                "top-down decoding; 'none' returns grid-aligned peaks. Exported "
+                "(ONNX/TensorRT) models do no sub-pixel refinement."
+            ),
+        ),
+        click.option(
+            "--flip_test",
+            "--flip-test",
+            "flip_test",
+            is_flag=True,
+            default=False,
+            help=(
+                "Top-down centered_instance models only: also run the "
+                "centered-instance model on the horizontally mirrored crops and "
+                "average the two confidence maps (left/right nodes swapped using "
+                "the skeleton symmetries) before peak finding. Doubles the "
+                "centered-instance compute. Not available for exported models."
+            ),
+        ),
+        click.option(
             "--boxes",
             type=str,
             default=None,
@@ -4020,7 +4061,6 @@ def _common_inference_options(f):
                 "name (COCO-17 names get the COCO sigmas, others 0.025)."
             ),
         ),
-        click.option("--integral_refinement", type=str, default="integral"),
         click.option("--tracking_window_size", type=int, default=5),
         click.option("--min_new_track_points", type=int, default=0),
         # Default None (not "fixed_window") so _build_tracker_config can tell

@@ -95,7 +95,11 @@ def _run_new_keypoints(
     from sleap_nn.inference.providers import LabelsProvider, VideoProvider
 
     predictor = Predictor.from_model_paths(
-        [str(p) for p in model_paths], device="cpu", batch_size=n_frames
+        [str(p) for p in model_paths],
+        device="cpu",
+        batch_size=n_frames,
+        # Legacy decodes with integral regression; top-down now defaults to DARK.
+        integral_refinement="integral",
     )
     if str(source).endswith(".slp"):
         loaded = sio.load_slp(str(source))

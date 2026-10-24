@@ -11,6 +11,7 @@ import sleap_io as sio
 import sleap_nn
 import time
 import math
+import warnings
 import lightning as L
 import wandb
 import yaml
@@ -48,6 +49,7 @@ from sleap_nn.data.instance_centroids import (
     degrade_anchor_if_unresolved,
 )
 from sleap_nn.data.providers import get_max_height_width
+from sleap_nn.data.node_weights import carry_labeled_nodes
 from sleap_nn.data.utils import embedding_detections
 from sleap_nn.data.custom_datasets import (
     EMBEDDING_MIN_MASK_AREA,
@@ -94,6 +96,8 @@ from sleap_nn.config_generator.architecture_estimates import (
 )
 from sleap_nn.training.utils import get_gpu_memory
 from sleap_nn.config.training_job_config import verify_training_cfg
+from sleap_nn.config.trainer_config import fixed_length_lr_schedule
+from sleap_nn.training.optim import migrate_encoder_lr_options
 from sleap_nn.training.callbacks import (
     ProgressReporterZMQ,
     TrainingControllerZMQ,
@@ -108,6 +112,8 @@ from sleap_nn.training.callbacks import (
     EvalCadenceEarlyStopping,
     LastEpochCheckpoint,
     UnifiedVizCallback,
+    ThroughputMonitor,
+    WeightEMA,
 )
 from sleap_nn import RANK
 from sleap_nn.legacy_models import get_keras_first_layer_channels
@@ -117,6 +123,67 @@ from sleap_nn.legacy_models import get_keras_first_layer_channels
 _SPARSE_LABEL_THRESHOLD = 20
 
 MEMORY_BUFFER = 0.2  # Default memory buffer for caching
+
+# DDP's reducer compares gradient and bucket-view strides exactly, while autograd's
+# layout contract ignores size-1 dims. A 1x1 conv fed channels_last activations (any
+# ViT token map, `tokens.transpose(1, 2).reshape(...)`) gets a weight gradient with
+# strides like (C, 1, C, C) next to its (C, 1, 1, 1) bucket view: the same bytes, so
+# nothing is slow, but it warns on every rank. Only that case is silenced: a 1x1
+# weight whose two leading strides match.
+_DDP_SIZE_ONE_STRIDE_WARNING = (
+    r"(?s)Grad strides do not match bucket view strides\..*"
+    r"grad\.sizes\(\) = \[(\d+), (\d+), 1, 1\], "
+    r"strides\(\) = \[(\d+), (\d+), \d+, \d+\]\s*"
+    r"bucket_view\.sizes\(\) = \[\1, \2, 1, 1\], "
+    r"strides\(\) = \[\3, \4, \d+, \d+\]"
+)
+
+
+def _ignore_size_one_ddp_stride_warning() -> None:
+    """Silence DDP's grad-stride warning for 1x1 conv weights (same memory layout)."""
+    warnings.filterwarnings(
+        "ignore", message=_DDP_SIZE_ONE_STRIDE_WARNING, category=UserWarning
+    )
+
+
+def _init_process_group_before_fit(trainer: L.Trainer) -> bool:
+    """Start the process group before ``fit()`` when every rank runs the setup.
+
+    Lightning starts the process group inside ``fit()``, so collectives during the
+    trainer setup (``strategy.barrier()``, the dataset cache-fill syncs) are no-ops
+    until then. Under Lightning's own launcher (``trainer_devices > 1`` from one
+    process) that is safe: ``fit()`` spawns the other ranks, which re-run the setup
+    only after rank 0 has finished it (disk cache included), and those ranks must not
+    start a pre-fit collective because rank 0 is already inside ``fit()``. Under an
+    external launcher (torchrun, SLURM ``srun``, ...) every rank runs the setup at the
+    same time, so the group is started here; ``fit()`` then finds it running.
+
+    Args:
+        trainer: The ``lightning.Trainer`` about to be set up.
+
+    Returns:
+        Whether the process group was started.
+    """
+    from lightning.fabric.plugins.environments import LightningEnvironment
+
+    strategy = trainer.strategy
+    env = getattr(strategy, "cluster_environment", None)
+    if (
+        trainer.world_size <= 1
+        or env is None
+        or not env.creates_processes_externally
+        or isinstance(env, LightningEnvironment)
+        or not hasattr(strategy, "setup_distributed")
+        or (torch.distributed.is_available() and torch.distributed.is_initialized())
+    ):
+        return False
+    strategy.setup_environment()
+    logger.info(
+        f"Started the process group before fit (rank {trainer.global_rank} of "
+        f"{trainer.world_size}, {type(env).__name__})."
+    )
+    return True
+
 
 # Model types that crop around an instance centroid, and so need a crop size.
 CROPPING_MODEL_TYPES = (
@@ -547,6 +614,10 @@ class ModelTrainer:
             self.train_labels, self.val_labels = split_labels_list_train_val(
                 labels, split_cfg
             )
+            for source, train_split, val_split in zip(
+                labels, self.train_labels, self.val_labels
+            ):
+                carry_labeled_nodes(source, train_split, val_split)
             total_train_lfs = self._count_labeled_frames(
                 self.train_labels, user_instances_only
             )
@@ -615,6 +686,9 @@ class ModelTrainer:
                     train_split, val_split = label.make_training_splits(
                         n_train=1 - val_fraction, n_val=val_fraction, seed=seed
                     )
+                # sleap-io's splits drop `provenance`, which would silently turn
+                # the file's per-node loss mask off.
+                carry_labeled_nodes(label, train_split, val_split)
                 self.train_labels.append(train_split)
                 self.val_labels.append(val_split)
                 total_train_lfs += len(train_split)
@@ -1895,9 +1969,52 @@ class ModelTrainer:
             )
             self.config.trainer_config.trainer_accelerator = "auto"
 
+    def _setup_schedule_defaults(self):
+        """Resolve the early-stopping and plateau defaults against the LR schedule.
+
+        A fixed-length schedule (`FIXED_LENGTH_LR_SCHEDULES`) is planned around
+        the run length, so early stopping left unset (``None``) resolves to off
+        and the default ``reduce_lr_on_plateau`` (never combined with another
+        schedule) is nulled. Otherwise unset early stopping resolves to on, as
+        before. An explicit ``true`` with a fixed schedule is kept, with a warning.
+        The resolved values are written into the config, so the saved
+        ``training_config.yaml`` shows what ran.
+        """
+        trainer_config = self.config.trainer_config
+        fixed = fixed_length_lr_schedule(trainer_config.lr_scheduler)
+        es = trainer_config.early_stopping
+        if es.stop_training_on_plateau is None:
+            es.stop_training_on_plateau = fixed is None
+            if fixed is not None:
+                logger.info(
+                    f"lr_scheduler.{fixed} runs a fixed-length schedule, so early "
+                    "stopping is off (set early_stopping.stop_training_on_plateau: "
+                    "true to keep it)."
+                )
+        elif es.stop_training_on_plateau and fixed is not None:
+            # Explicit: keep it, but a plateau stop can cut the decay short.
+            logger.warning(
+                f"lr_scheduler.{fixed} runs a fixed-length schedule but "
+                "early_stopping.stop_training_on_plateau is true (patience="
+                f"{es.patience}); training may stop before the schedule ends."
+            )
+        if (
+            fixed is not None
+            and OmegaConf.select(
+                trainer_config, "lr_scheduler.reduce_lr_on_plateau", default=None
+            )
+            is not None
+        ):
+            trainer_config.lr_scheduler.reduce_lr_on_plateau = None
+
     def setup_config(self):
         """Compute config parameters."""
         logger.info("Setting up config...")
+
+        # Early stopping / plateau defaults follow the LR schedule; the encoder
+        # LR knobs move from the backbone config to `trainer_config.optimizer`.
+        self._setup_schedule_defaults()
+        self.config = migrate_encoder_lr_options(self.config)
 
         # Normalize empty strings to None for optional wandb fields
         if self.config.trainer_config.wandb.prv_runid == "":
@@ -2264,6 +2381,17 @@ class ModelTrainer:
             ckpt_monitor, ckpt_mode = "val/loss", "min"
             ckpt_every_n_epochs = 1
 
+        # Config-driven monitor/mode (main #690/#692) wins when the user set it away
+        # from the "val/loss" schema default (e.g. a seg quality metric). Left at the
+        # default, fall back to the model-type-aware default computed above
+        # (embedding -> retrieval metric, else val/loss) since contrastive objectives
+        # are not well-selected by val/loss. ModelCheckpoint and EarlyStopping both
+        # use the result, so "best" and "stop" agree.
+        user_monitor = self.config.trainer_config.model_ckpt.monitor != "val/loss"
+        if user_monitor:
+            ckpt_monitor = self.config.trainer_config.model_ckpt.monitor
+            ckpt_mode = self.config.trainer_config.model_ckpt.mode
+
         if self.config.trainer_config.save_ckpt:
             ckpt_dirpath = (
                 Path(self.config.trainer_config.ckpt_dir)
@@ -2277,29 +2405,12 @@ class ModelTrainer:
                 save_last=False,
                 dirpath=ckpt_dirpath,
                 filename="best",
-                # Config-driven monitor/mode (main #690/#692) wins when the user set
-                # it away from the "val/loss" schema default (e.g. a seg quality
-                # metric). Left at the default, fall back to the model-type-aware
-                # default computed above (embedding -> retrieval metric, else val/loss)
-                # since contrastive objectives are not well-selected by val/loss.
-                monitor=(
-                    self.config.trainer_config.model_ckpt.monitor
-                    if self.config.trainer_config.model_ckpt.monitor != "val/loss"
-                    else ckpt_monitor
-                ),
-                mode=(
-                    self.config.trainer_config.model_ckpt.mode
-                    if self.config.trainer_config.model_ckpt.monitor != "val/loss"
-                    else ckpt_mode
-                ),
+                monitor=ckpt_monitor,
+                mode=ckpt_mode,
                 # Only meaningful (and only non-1) when the monitored metric is the
                 # eval-gated embedding one; an explicitly configured monitor keeps
                 # the every-epoch default.
-                every_n_epochs=(
-                    1
-                    if self.config.trainer_config.model_ckpt.monitor != "val/loss"
-                    else ckpt_every_n_epochs
-                ),
+                every_n_epochs=1 if user_monitor else ckpt_every_n_epochs,
             )
             callbacks.append(checkpoint_callback)
             if self.config.trainer_config.model_ckpt.save_last:
@@ -2561,6 +2672,21 @@ class ModelTrainer:
             )
             callbacks.append(csv_logger)
 
+        ema_cfg = OmegaConf.select(self.config, "trainer_config.ema", default=None)
+        if ema_cfg is not None and ema_cfg.enabled:
+            # Swaps the EMA weights in for validation, so every metric the
+            # checkpointer / early stopping / LR plateau select on is the EMA
+            # model's, and writes them as the checkpoints' `state_dict`.
+            callbacks.append(
+                WeightEMA(decay=ema_cfg.decay, warmup_steps=ema_cfg.warmup_steps)
+            )
+            logger.info(
+                f"Weight EMA on (decay={ema_cfg.decay}, warmup_steps="
+                f"{ema_cfg.warmup_steps}); validation and checkpoints use EMA weights."
+            )
+
+        if self.config.trainer_config.early_stopping.stop_training_on_plateau is None:
+            self._setup_schedule_defaults()
         if self.config.trainer_config.early_stopping.stop_training_on_plateau:
             # early stopping callback
             es_kwargs = dict(
@@ -2570,20 +2696,23 @@ class ModelTrainer:
                 min_delta=self.config.trainer_config.early_stopping.min_delta,
                 patience=self.config.trainer_config.early_stopping.patience,
             )
-            if self.model_type == "embedding" or ckpt_monitor.startswith(
-                "eval/val/bbox_"
-            ):
+            if self.model_type == "embedding" or ckpt_monitor.startswith("eval/"):
                 # The verification metrics (auc/eer) can be NaN on a degenerate val
                 # set/shard; don't let that abort the run — pose/seg models keep the
-                # strict defaults. Box metrics likewise exist on eval epochs only.
+                # strict defaults on `val/*`. Every `eval/*` metric exists on eval
+                # epochs only (NaN in between, from the CSV logger's reset).
                 es_kwargs["strict"] = False
                 es_kwargs["check_finite"] = False
-                # The retrieval metric is measured every `eval.frequency` epochs and
-                # only carried forward in between; check (and count patience) on
-                # eval epochs only, the same cadence the checkpointer selects on.
+                # The eval metric is measured every `eval.frequency` epochs; check
+                # (and count patience) on eval epochs only.
                 callbacks.append(
                     EvalCadenceEarlyStopping(
-                        eval_frequency=ckpt_every_n_epochs, **es_kwargs
+                        eval_frequency=int(
+                            OmegaConf.select(
+                                self.config, "trainer_config.eval.frequency", default=1
+                            )
+                        ),
+                        **es_kwargs,
                     )
                 )
             else:
@@ -2774,6 +2903,13 @@ class ModelTrainer:
         if tiling is not None and tiling.enabled:
             callbacks.append(TilingEpochCallback())
 
+        # Train-only speed / dataloader-stall / memory / LR logging (`perf/*`).
+        throughput_every = OmegaConf.select(
+            self.config, "trainer_config.throughput_log_every_n_steps", default=50
+        )
+        if throughput_every:
+            callbacks.append(ThroughputMonitor(log_every_n_steps=throughput_every))
+
         return loggers, callbacks
 
     def _delete_cache_imgs(self):
@@ -2795,6 +2931,81 @@ class ModelTrainer:
                 (val_cache_img_path).as_posix(),
                 ignore_errors=True,
             )
+
+    def _get_trainer_speed_kwargs(self) -> dict:
+        """`lightning.Trainer` kwargs for precision, clipping, accumulation, cadence.
+
+        Every key is read with a default so configs that predate these options
+        (and raw configs that skipped schema merging) keep today's behaviour.
+        """
+        tc = self.config.trainer_config
+
+        def sel(key, default):
+            return OmegaConf.select(tc, key, default=default)
+
+        precision = str(sel("precision", "32"))
+        kwargs = dict(
+            precision=precision,
+            log_every_n_steps=int(sel("log_every_n_steps", 1)),
+            accumulate_grad_batches=int(sel("accumulate_grad_batches", 1)),
+        )
+        clip = sel("gradient_clip_val", None)
+        if clip is not None:
+            kwargs["gradient_clip_val"] = float(clip)
+            kwargs["gradient_clip_algorithm"] = sel("gradient_clip_algorithm", "norm")
+        max_steps = sel("max_steps", None)
+        if max_steps is not None:
+            kwargs["max_steps"] = int(max_steps)
+        val_check_interval = sel("val_check_interval", None)
+        if val_check_interval is not None:
+            kwargs["val_check_interval"] = val_check_interval
+            if isinstance(val_check_interval, int):
+                # An int counts training batches across epoch boundaries (our
+                # "epochs" are just `train_steps_per_epoch` batches of an infinite
+                # loader), so it may exceed the epoch length. Lightning only
+                # allows that with `check_val_every_n_epoch=None`.
+                kwargs["check_val_every_n_epoch"] = None
+        logger.info(
+            "Trainer speed settings: "
+            + ", ".join(f"{k}={v}" for k, v in kwargs.items())
+        )
+        return kwargs
+
+    def _set_float32_matmul_precision(self) -> Optional[str]:
+        """Apply `trainer_config.float32_matmul_precision` on CUDA.
+
+        Returns:
+            The previous process-wide setting (to restore after training), or
+            `None` if nothing was changed.
+        """
+        value = OmegaConf.select(
+            self.config, "trainer_config.float32_matmul_precision", default=None
+        )
+        if value is None or not torch.cuda.is_available():
+            return None
+        if (
+            self.trainer is not None
+            and self.trainer.strategy.root_device.type != "cuda"
+        ):
+            return None
+        prev = torch.get_float32_matmul_precision()
+        torch.set_float32_matmul_precision(value)
+        logger.info(f"torch.set_float32_matmul_precision('{value}') (was '{prev}').")
+        return prev
+
+    def _maybe_compile_model(self):
+        """`torch.compile` the network in place if `trainer_config.compile` is set.
+
+        `nn.Module.compile` keeps the parameter names (no `_orig_mod.` prefix), so
+        checkpoints stay loadable by uncompiled models. Only the network forward is
+        compiled; losses and logging stay eager.
+        """
+        mode = OmegaConf.select(self.config, "trainer_config.compile", default=False)
+        if mode is None or mode is False:
+            return
+        mode = "default" if mode is True else str(mode)
+        logger.info(f"Compiling the model with torch.compile(mode='{mode}')...")
+        self.lightning_model.model.compile(mode=mode)
 
     def train(self):
         """Train the lightning model."""
@@ -2893,10 +3104,14 @@ class ModelTrainer:
             enable_progress_bar=self.config.trainer_config.enable_progress_bar,
             strategy=strategy,
             profiler=profiler,
-            log_every_n_steps=1,
             use_distributed_sampler=use_distributed_sampler,
+            **self._get_trainer_speed_kwargs(),
         )
 
+        # The process group normally starts inside `fit()`, so the barriers below
+        # (and the dataset's own cache-fill syncs) would be no-ops. Start it now when
+        # the launcher runs every rank through this setup at once (torchrun / SLURM).
+        _init_process_group_before_fit(self.trainer)
         self.trainer.strategy.barrier()
 
         # setup datasets
@@ -2950,6 +3165,16 @@ class ModelTrainer:
             train_steps_per_epoch = min_train_steps_per_epoch
         self.config.trainer_config.train_steps_per_epoch = train_steps_per_epoch
         logger.info(f"Final train_steps_per_epoch={train_steps_per_epoch}")
+        if self.trainer.num_devices > 1:
+            # `train_steps_per_epoch` counts batches summed over ALL devices (an epoch
+            # stays one pass over the data); each device runs its share as optimizer
+            # steps (same rounding as `get_train_val_dataloaders`).
+            logger.info(
+                f"{train_steps_per_epoch} batches/epoch over "
+                f"{self.trainer.num_devices} devices = "
+                f"{max(1, round(train_steps_per_epoch / self.trainer.num_devices))} "
+                "optimizer steps/epoch per device"
+            )
 
         # VAL: always full-coverage (every grid tile visited once), NOT decoupled.
         val_steps_per_epoch = get_steps_per_epoch(
@@ -2971,6 +3196,7 @@ class ModelTrainer:
         total_params = sum(p.numel() for p in self.lightning_model.parameters())
         logger.info(f"Total model parameters: {total_params:,}")
         self.config.model_config.total_params = total_params
+        self._maybe_compile_model()
 
         # setup dataloaders
         # need to set up dataloaders after Trainer is initialized (for ddp). DistributedSampler depends on the rank
@@ -3055,11 +3281,15 @@ class ModelTrainer:
         # Flag to track if training was interrupted (not completed normally)
         training_interrupted = False
 
+        # TF32 matmuls/convs for the duration of training (restored afterwards).
+        prev_matmul_precision = self._set_float32_matmul_precision()
+
         try:
             logger.info(
                 f"Finished trainer set up. [{time.time() - start_setup_time:.1f}s]"
             )
             logger.info(f"Starting training loop...")
+            _ignore_size_one_ddp_stride_warning()
             start_train_time = time.time()
             self.trainer.fit(
                 self.lightning_model,
@@ -3073,6 +3303,8 @@ class ModelTrainer:
             training_interrupted = True
 
         finally:
+            if prev_matmul_precision is not None:
+                torch.set_float32_matmul_precision(prev_matmul_precision)
             logger.info(
                 f"Finished training loop. [{(time.time() - start_train_time) / 60:.1f} min]"
             )

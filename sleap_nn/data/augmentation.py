@@ -19,6 +19,7 @@ def apply_flip_augmentation(
     symmetric_inds: Optional[Sequence[Tuple[int, int]]] = None,
     flip_p: float = 0.0,
     masks: Optional[torch.Tensor] = None,
+    node_weights: Optional[torch.Tensor] = None,
 ) -> Tuple[torch.Tensor, ...]:
     """Randomly mirror an image and keypoints left/right, swapping symmetric pairs.
 
@@ -36,11 +37,14 @@ def apply_flip_augmentation(
         masks: Optional segmentation masks of shape ``(n_samples, K, H, W)`` to mirror
             under the SAME flip draw. When provided, the return tuple gains a third
             element holding the mirrored masks. Default: None.
+        node_weights: Optional per-node loss weights (node axis last), swapped with
+            the symmetric pairs under the SAME flip draw. When provided, the return
+            tuple gains a trailing element holding them. Default: None.
 
     Returns:
-        ``(image, instances)`` when ``masks`` is ``None``, else
-        ``(image, instances, masks)`` with the flip applied (or unchanged inputs when
-        not applied). NaN keypoints are preserved.
+        ``(image, instances)``, plus ``masks`` and/or ``node_weights`` (in that
+        order) when given, with the flip applied (or unchanged inputs when not
+        applied). NaN keypoints are preserved.
     """
     return apply_flip_augmentation_skia(
         image=image,
@@ -48,6 +52,7 @@ def apply_flip_augmentation(
         symmetric_inds=symmetric_inds,
         flip_p=flip_p,
         masks=masks,
+        node_weights=node_weights,
     )
 
 
@@ -130,6 +135,7 @@ def apply_geometric_augmentation(
     flip_p: float = 0.0,
     symmetric_inds: Optional[Sequence[Tuple[int, int]]] = None,
     masks: Optional[torch.Tensor] = None,
+    node_weights: Optional[torch.Tensor] = None,
 ) -> Tuple[torch.Tensor, ...]:
     """Apply geometric augmentation on image and instances.
 
@@ -168,10 +174,13 @@ def apply_geometric_augmentation(
             flip/affine transform (nearest-neighbor, re-binarized). Erase/mixup are
             image-only. When provided, the return tuple gains a third element holding
             the co-transformed masks. Default: None.
+        node_weights: Optional per-node loss weights (node axis last), swapped with
+            the symmetric pairs when the sample is flipped. When provided, the
+            return tuple gains a trailing element holding them. Default: None.
 
     Returns:
-        ``(image, instances)`` when ``masks`` is ``None``, else
-        ``(image, instances, masks)`` with augmentation applied.
+        ``(image, instances)`` with augmentation applied, plus ``masks`` and/or
+        ``node_weights`` (in that order) when given.
     """
     return apply_geometric_augmentation_skia(
         image=image,
@@ -197,4 +206,5 @@ def apply_geometric_augmentation(
         flip_p=flip_p,
         symmetric_inds=symmetric_inds,
         masks=masks,
+        node_weights=node_weights,
     )

@@ -479,6 +479,8 @@ def predict(
     polygon_epsilon: float = 0.01,
     # Bounding-box detector knob (construction-time; bbox_* models only)
     bbox_nms_iou: Optional[float] = None,
+    # Flip-test (construction-time; centered_instance top-down models only)
+    flip_test: bool = False,
     # Top-down stage 1 from given boxes (construction-time; crop models only)
     boxes: Optional[str] = None,
     box_score_threshold: float = 0.0,
@@ -595,6 +597,10 @@ def predict(
             (``None``: the style default, 0.45 for SSD / off for CenterNet; ``1.0``
             disables it). ``peak_threshold`` is their score threshold and
             ``max_instances`` their per-frame detection cap.
+        flip_test: Top-down ``centered_instance`` models only: also run the
+            centered-instance model on the mirrored crops and average the
+            confmaps (symmetric nodes swapped) before peak finding. Not
+            available for exported models (``export_dir``).
         boxes: Seed a top-down crop model's stage 1 from boxes instead of a
             centroid model or detector (pass only the crop model). ``"gt"``: the
             GT boxes of the ``.slp`` / ``sio.Labels`` source (score 1). A path to
@@ -624,7 +630,11 @@ def predict(
         centroid_threshold: Override centroid-stage threshold (top-down).
         keypoint_threshold: Override centered-instance threshold (top-down).
         max_instances: Cap on instances per frame.
-        integral_refinement: ``"integral"`` or ``"none"``.
+        integral_refinement: Override the sub-pixel peak refinement:
+            ``"auto"`` (DARK for the top-down keypoint stage, integral regression
+            elsewhere; the construction-time default), ``"dark"``,
+            ``"integral"``, ``"local"`` or ``"none"``. ``None`` keeps the
+            default. Exported models do no sub-pixel refinement.
         integral_patch_size: Refinement patch size.
         return_confmaps: Keep confidence maps on Outputs.
         return_crops: Keep per-instance crops on Outputs (top-down).
@@ -829,11 +839,18 @@ def predict(
         build_kwargs["full_res_masks"] = full_res_masks
         build_kwargs["mask_output"] = mask_output
         build_kwargs["polygon_epsilon"] = polygon_epsilon
+        build_kwargs["flip_test"] = flip_test
         if box_mode is not None:
             build_kwargs["boxes"] = box_mode
             build_kwargs["box_score_threshold"] = box_score_threshold
         predictor = Predictor.from_model_paths(model_paths, **build_kwargs)
     else:
+        if flip_test:
+            raise ValueError(
+                "flip_test is not available for exported (ONNX/TensorRT) models, "
+                "whose peak finding is baked into the graph; run the checkpoint "
+                "directory instead."
+            )
         if box_mode is not None:
             raise ValueError(
                 "boxes is not supported for exported models; use the checkpoint."

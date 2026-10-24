@@ -1251,6 +1251,31 @@ def test_encoder_lr_scale_makes_one_scaled_encoder_group():
     assert _ids(groups[0]["params"]) == _ids(_trainable(bb.enc))
 
 
+def test_encoder_param_groups_overrides_match_the_backbone_keys():
+    """`trainer_config.optimizer` values (passed as overrides) = backbone keys."""
+    via_backbone = _vit_backbone(encoder_lr_scale=0.5, layer_decay=0.75)
+    via_optimizer = _vit_backbone()
+    expected = via_backbone.encoder_param_groups(1e-3)
+    got = via_optimizer.encoder_param_groups(
+        1e-3, encoder_lr_scale=0.5, layer_decay=0.75
+    )
+    assert [(g["name"], g["lr"], len(g["params"])) for g in got] == [
+        (g["name"], g["lr"], len(g["params"])) for g in expected
+    ]
+    assert got[0]["name"] == "encoder/depth00"
+    names = [g["name"] for g in got]
+    assert names == sorted(set(names))
+    # Overrides win over the backbone's own values.
+    groups = via_backbone.encoder_param_groups(
+        1e-3, encoder_lr_scale=0.1, layer_decay=1.0
+    )
+    assert [g["lr"] for g in groups] == pytest.approx([1e-4] * len(groups))
+    assert (
+        via_optimizer.encoder_param_groups(1e-3, encoder_lr_scale=0.1)[0]["name"]
+        == "encoder"
+    )
+
+
 def test_layer_decay_lr_grows_with_depth():
     """Block i of L trains at scale * decay**(L + 1 - i); embeddings decay most."""
     base, scale, decay = 1e-3, 0.5, 0.75
@@ -1339,7 +1364,12 @@ def test_frozen_encoder_has_no_encoder_param_groups():
     ],
     ids=["default", "lr-scale", "layer-decay", "frozen"],
 )
-def test_optimizer_covers_every_trainable_parameter_exactly_once(overrides):
+@pytest.mark.parametrize(
+    "move_to_optimizer", [False, True], ids=["backbone-keys", "optimizer-keys"]
+)
+def test_optimizer_covers_every_trainable_parameter_exactly_once(
+    overrides, move_to_optimizer
+):
     """Through the LightningModule: config -> backbone -> optimizer param groups.
 
     The non-encoder parameters (tap norms, neck, decoder, heads) always train at
@@ -1377,6 +1407,13 @@ def test_optimizer_covers_every_trainable_parameter_exactly_once(overrides):
         learning_rate=lr,
     )
     assert module.model.backbone.token_path
+    if move_to_optimizer:
+        # The same knobs set on `trainer_config.optimizer` (module attributes)
+        # instead of the deprecated backbone keys.
+        module.encoder_lr_scale = overrides.get("encoder_lr_scale")
+        module.layer_decay = overrides.get("layer_decay")
+        bb = module.model.backbone
+        bb.encoder_lr_scale, bb.layer_decay = 1.0, None
     optimizer = module.configure_optimizers()["optimizer"]
     groups = optimizer.param_groups
     in_optimizer = [id(p) for g in groups for p in g["params"]]
@@ -1390,7 +1427,8 @@ def test_optimizer_covers_every_trainable_parameter_exactly_once(overrides):
         assert len(groups) == 1
         assert groups[0]["lr"] == lr
         return
-    assert groups[0]["lr"] == lr
+    assert groups[0]["lr"] == lr and groups[0]["name"] == "base"
+    assert all(g["name"].startswith("encoder") for g in groups[1:])
     assert sorted(id(p) for p in groups[0]["params"]) == sorted(rest)
     scale = overrides["encoder_lr_scale"]
     assert all(g["lr"] <= lr * scale * (1 + 1e-9) for g in groups[1:])
@@ -1896,3 +1934,449 @@ def test_neck_loads_checkpoints_from_the_wrapper_layernorm():
     torch.testing.assert_close(
         fresh.get_submodule(some_norm).weight, old_style[f"{some_norm}.norm.weight"]
     )
+
+
+# ── Recipe knobs on pretrained ViTs: weight decay groups x layer decay, drop path ─
+
+
+def _vit_lightning_module(**backbone_overrides):
+    from sleap_nn.training.lightning_modules import SingleInstanceLightningModule
+
+    return SingleInstanceLightningModule(
+        model_type="single_instance",
+        backbone_type="pretrained",
+        backbone_config={
+            "pretrained": {
+                "model_name": VIT,
+                "weights": False,
+                "in_channels": 3,
+                "output_stride": 2,
+                "max_stride": 32,
+                **backbone_overrides,
+            }
+        },
+        head_configs=OmegaConf.create(
+            {
+                "single_instance": {
+                    "confmaps": {
+                        "part_names": ["a", "b"],
+                        "sigma": 2.5,
+                        "output_stride": 2,
+                        "loss_weight": 1.0,
+                    }
+                }
+            }
+        ),
+        lr_scheduler=None,
+        optimizer="AdamW",
+        learning_rate=1e-3,
+    )
+
+
+def test_weight_decay_composes_with_layer_decay():
+    """Each layer-decay group splits into decay/no-decay; both keep the group's LR."""
+    module = _vit_lightning_module(encoder_lr_scale=0.5, layer_decay=0.75)
+    lr_groups = module._trainable_param_groups()
+    lr_of = {id(p): g["lr"] for g in lr_groups for p in g["params"]}
+
+    module.weight_decay = 0.1
+    opt = module.configure_optimizers()["optimizer"]
+    groups = opt.param_groups
+    assert len(groups) == 2 * len(lr_groups)  # every depth has weights AND norms
+    covered = [id(p) for g in groups for p in g["params"]]
+    assert len(covered) == len(set(covered))
+    assert sorted(covered) == _ids(_trainable(module))
+    for g in groups:
+        assert {lr_of[id(p)] for p in g["params"]} == {g["lr"]}
+        assert g["weight_decay"] == (0.1 if g["name"].endswith("/decay") else 0.0)
+
+    names = {id(p): n for n, p in module.named_parameters()}
+    no_decay = {
+        names[id(p)] for g in groups if g["weight_decay"] == 0 for p in g["params"]
+    }
+    decay = {names[id(p)] for g in groups if g["weight_decay"] > 0 for p in g["params"]}
+    enc = "model.backbone.enc."
+    for token in ("embeddings.cls_token", "embeddings.register_tokens"):
+        assert enc + token in no_decay
+    assert enc + "embeddings.position_embeddings" in no_decay  # 3-D, by name
+    assert enc + "embeddings.patch_embeddings.projection.weight" in decay
+    assert any(n.endswith("attention.attention.query.weight") for n in decay)
+    assert all(not n.endswith(".bias") for n in decay)
+    assert any("layer_scale" in n for n in no_decay)
+
+
+def test_drop_path_rate_ramps_linearly_on_hf_dinov2():
+    """HF DINOv2 gives every block the same rate; we ramp 0 -> rate over depth."""
+    bb = _vit_backbone(drop_path_rate=0.2)
+    probs = [m.drop_prob for _, m in bb.enc.named_modules() if hasattr(m, "drop_prob")]
+    assert len(probs) == bb.num_layers
+    assert probs == pytest.approx(
+        [0.2 * i / (bb.num_layers - 1) for i in range(bb.num_layers)]
+    )
+
+
+def test_drop_path_rate_unset_keeps_the_checkpoint_setting():
+    bb = _vit_backbone()
+    assert not [m for m in bb.enc.modules() if hasattr(m, "drop_prob")]
+
+
+def test_drop_path_rate_is_ignored_with_a_warning_without_the_field():
+    from loguru import logger
+
+    messages = []
+    sink = logger.add(lambda m: messages.append(str(m)), level="WARNING")
+    try:
+        bb = _vit_backbone(CLIP, drop_path_rate=0.1)
+    finally:
+        logger.remove(sink)
+    assert any("drop_path_rate" in m for m in messages)
+    assert not [m for m in bb.enc.modules() if hasattr(m, "drop_prob")]
+
+
+def test_drop_path_rate_on_a_hierarchical_hf_backbone_keeps_its_ramp():
+    """ConvNeXtV2 already ramps its rate; it is passed through untouched."""
+    bb = PretrainedBackbone.from_config(
+        _caseA_cfg("facebook/convnextv2-nano-22k-224", drop_path_rate=0.3)
+    )
+    probs = [m.drop_prob for m in bb.enc.modules() if hasattr(m, "drop_prob")]
+    assert probs == sorted(probs) and probs[0] < 0.05  # its own linear ramp
+    assert probs[-1] == pytest.approx(0.3)
+
+
+@requires_timm
+def test_drop_path_rate_reaches_timm_create_model():
+    bb = _vit_backbone(TIMM_VIT, drop_path_rate=0.3)
+    probs = [m.drop_prob for m in bb.enc.modules() if hasattr(m, "drop_prob")]
+    assert probs and max(probs) == pytest.approx(0.3)
+
+
+def test_drop_path_is_inactive_in_eval_and_active_in_train():
+    """Eval is deterministic; train mode (with a high rate) is not."""
+    model = _vit_model(drop_path_rate=0.9)
+    x = torch.rand(2, 3, 64, 64)
+    model.eval()
+    with torch.no_grad():
+        a, b = model(x), model(x)
+    for k in a:
+        assert torch.equal(a[k], b[k])
+    model.train()
+    torch.manual_seed(0)
+    with torch.no_grad():
+        c = model(x)
+    torch.manual_seed(1)
+    with torch.no_grad():
+        d = model(x)
+    assert any(not torch.allclose(c[k], d[k]) for k in c)
+# ─────────────────────────────────────────────────────────────────────────
+# Case C with a ViTPose-style direct decoder (`vit_decoder: classic|simple`):
+# last token map -> (pretrained final norm) -> deconvs / bilinear -> head.
+# ─────────────────────────────────────────────────────────────────────────
+
+
+def _dead_params(model):
+    return [
+        n for n, p in model.named_parameters() if p.requires_grad and p.grad is None
+    ]
+
+
+@pytest.mark.parametrize("vit_decoder", ["classic", "simple"])
+@pytest.mark.parametrize(
+    "model_name, final_norm",
+    [
+        (VIT, "layernorm"),
+        (CLIP, "post_layernorm"),
+        pytest.param(TIMM_VIT, "timm_model.norm", marks=requires_timm),
+    ],
+    ids=["dinov2", "clip", "timm-dinov3"],
+)
+def test_direct_decoder_centered_instance(model_name, final_norm, vit_decoder):
+    """No neck, no UNet decoder: the last tap goes through the encoder's final norm
+    into the ViTPose decoder, and every trainable parameter gets a gradient (so DDP
+    needs no `find_unused_parameters`)."""
+    heads = OmegaConf.create(
+        {"confmaps": {"part_names": ["a", "b"], "sigma": 2.5, "output_stride": 4}}
+    )
+    model = _vit_model(
+        model_name,
+        output_stride=4,
+        model_type="centered_instance",
+        heads=heads,
+        mode="decoder",
+        vit_decoder=vit_decoder,
+    )
+    bb = model.backbone
+    assert bb.direct_decoder and bb.vit_final_norm
+    assert not hasattr(bb, "neck") and not hasattr(bb, "dec")
+    assert bb.layers == [bb.num_layers]
+    assert bb._final_norm_name == final_norm
+    assert isinstance(bb.tap_norms[0], torch.nn.Identity)
+    # The final norm feeds the decoder now, so the probe keeps it trainable.
+    norm = bb.enc.get_submodule(final_norm)
+    assert all(p.requires_grad for p in norm.parameters())
+    assert bb.max_stride == bb.token_stride == 16
+    channels = 256 if vit_decoder == "classic" else bb.hidden_size
+    assert bb.decoder_stride_to_filters == {4: channels}
+
+    # ViTPose's heatmap conv: 1x1 after the deconvs, 3x3 after `simple`.
+    kernel = 1 if vit_decoder == "classic" else 3
+    head_conv = model.head_layers[0][0][0]
+    assert head_conv.weight.shape == (2, channels, kernel, kernel)
+
+    out = model(torch.rand(2, 1, 64, 96))["CenteredInstanceConfmapsHead"]
+    assert out.shape == (2, 2, 16, 24)
+    out.sum().backward()
+    dead = _dead_params(model)
+    assert not dead, f"{len(dead)} parameter tensor(s) received no gradient: {dead}"
+
+
+def test_direct_decoder_uses_the_pretrained_final_norm():
+    """With the HF DINOv2 final norm, the decoder input is `last_hidden_state`."""
+    bb = _vit_backbone(VIT, output_stride=4, vit_decoder="simple").eval()
+    x = torch.rand(1, 3, 64, 96)
+    with torch.no_grad():
+        tokens = bb(x)["middle_output"]
+        b, c, h, w = tokens.shape
+        # Patch 14 runs at token stride 16: the input is resampled to the grid.
+        resized = torch.nn.functional.interpolate(
+            bb._normalize(x), size=(h * 14, w * 14), mode="bilinear"
+        )
+        hf = bb.enc(pixel_values=resized).last_hidden_state
+    ref = hf[:, -h * w :].transpose(1, 2).reshape(b, c, h, w)
+    torch.testing.assert_close(tokens, ref)
+
+
+def test_direct_decoder_fresh_norm_when_final_norm_off():
+    """`vit_final_norm: false` keeps today's fresh tap LayerNorm; the unreachable
+    final norm is excluded from training again."""
+    bb = _vit_backbone(
+        VIT, output_stride=4, vit_decoder="classic", vit_final_norm=False
+    )
+    assert isinstance(bb.tap_norms[0], torch.nn.LayerNorm)
+    assert not any(p.requires_grad for p in bb.enc.layernorm.parameters())
+
+
+def test_unet_decoder_can_opt_into_the_final_norm():
+    """`vit_final_norm` also applies to the neck path (sfp from the last layer)."""
+    model = _vit_model(VIT, output_stride=4, vit_neck="sfp", layers=[-1])
+    assert isinstance(model.backbone.tap_norms[0], torch.nn.LayerNorm)
+    model = _vit_model(
+        VIT, output_stride=4, vit_neck="sfp", layers=[-1], vit_final_norm=True
+    )
+    bb = model.backbone
+    assert isinstance(bb.tap_norms[0], torch.nn.Identity)
+    assert hasattr(bb, "neck")
+    model(torch.rand(1, 1, 64, 96))["SingleInstanceConfmapsHead"].sum().backward()
+    assert not _dead_params(model)
+
+
+@pytest.mark.parametrize(
+    "model_type, output_stride, vit_decoder",
+    [
+        ("single_instance", 4, "classic"),
+        ("single_instance", 2, "classic"),
+        ("centroid", 2, "simple"),
+        ("centroid", 8, "classic"),
+        ("single_instance", 16, "simple"),
+    ],
+)
+def test_direct_decoder_other_heads_and_strides(model_type, output_stride, vit_decoder):
+    heads = OmegaConf.create(
+        {
+            "confmaps": {
+                "part_names": ["a", "b"],
+                "anchor_part": None,
+                "sigma": 2.5,
+                "output_stride": output_stride,
+            }
+        }
+    )
+    if model_type == "centroid":
+        heads.confmaps.pop("part_names")
+    else:
+        heads.confmaps.pop("anchor_part")
+    model = _vit_model(
+        VIT,
+        output_stride=output_stride,
+        model_type=model_type,
+        heads=heads,
+        vit_decoder=vit_decoder,
+    )
+    if vit_decoder == "classic":
+        deconvs = [
+            m
+            for m in model.backbone.vit_dec.modules()
+            if isinstance(m, torch.nn.ConvTranspose2d)
+        ]
+        assert len(deconvs) == int(np.log2(16 // output_stride))
+    out = next(iter(model(torch.rand(1, 1, 64, 96)).values()))
+    assert out.shape[-2:] == (64 // output_stride, 96 // output_stride)
+    out.sum().backward()
+    assert not _dead_params(model)
+
+
+def test_direct_decoder_param_counts():
+    from sleap_nn.architectures.vit_neck import ViTPoseDecoder
+
+    classic = ViTPoseDecoder(768, "classic", upsample=4, channels=256)
+    expected = 768 * 256 * 16 + 256 * 256 * 16 + 2 * (2 * 256)  # deconvs + BN
+    assert sum(p.numel() for p in classic.parameters()) == expected
+    assert classic.head_kernel_size == 1
+    simple = ViTPoseDecoder(768, "simple", upsample=4)
+    assert sum(p.numel() for p in simple.parameters()) == 0
+    assert simple.head_kernel_size == 3
+
+
+def test_simple_decoder_is_relu_then_upsample():
+    """ViTPose's order (ReLU on the token map, then bilinear), which differs from
+    upsampling first: bilinear mixes negative and positive neighbors."""
+    from sleap_nn.architectures.vit_neck import ViTPoseDecoder
+
+    x = torch.randn(1, 8, 4, 3)
+    out = ViTPoseDecoder(8, "simple", upsample=4)(x)
+    up = lambda t: torch.nn.functional.interpolate(
+        t, scale_factor=4, mode="bilinear", align_corners=False
+    )
+    torch.testing.assert_close(out, up(torch.relu(x)))
+    assert not torch.allclose(out, torch.relu(up(x)))
+    assert out.shape == (1, 8, 16, 12) and (out >= 0).all()
+
+
+def test_simple_decoder_3x3_conv_on_every_spatial_head():
+    """A bottom-up model's confmap and PAF heads both get the 3x3 conv; the input
+    is padded so the output keeps the feature map's size."""
+    heads = OmegaConf.create(
+        {
+            "confmaps": {
+                "part_names": ["a", "b"],
+                "sigma": 2.5,
+                "output_stride": 4,
+                "loss_weight": 1.0,
+            },
+            "pafs": {
+                "edges": [["a", "b"]],
+                "sigma": 15.0,
+                "output_stride": 4,
+                "loss_weight": 1.0,
+            },
+        }
+    )
+    model = _vit_model(
+        VIT, output_stride=4, model_type="bottomup", heads=heads, vit_decoder="simple"
+    )
+    convs = [layer[0][0] for layer in model.head_layers]
+    assert [c.kernel_size for c in convs] == [(3, 3), (3, 3)]
+    outs = model(torch.rand(1, 1, 64, 96))
+    assert [o.shape[-2:] for o in outs.values()] == [(16, 24), (16, 24)]
+
+
+@pytest.mark.parametrize(
+    "kw, match",
+    [
+        ({"vit_decoder": "fpn"}, "Unknown vit_decoder"),
+        ({"vit_decoder": "classic", "layers": [6, 12]}, "exactly one tapped layer"),
+        ({"vit_decoder": "classic", "output_stride": 32}, "coarser than the token"),
+        ({"vit_decoder": "classic", "output_stride": 16}, "upsampling factor >= 2"),
+        ({"vit_decoder": "simple", "output_stride": 4, "max_stride": 24}, "multiple"),
+    ],
+    ids=["unknown", "two-taps", "os-too-coarse", "classic-no-upsample", "max-stride"],
+)
+def test_direct_decoder_misconfiguration_raises(kw, match):
+    kw = {"output_stride": 4, **kw}
+    with pytest.raises(ValueError, match=match):
+        _vit_backbone(VIT, **kw)
+
+
+def test_direct_decoder_warns_about_neck_knobs(loguru_caplog):
+    bb = _vit_backbone(
+        VIT,
+        output_stride=4,
+        vit_decoder="classic",
+        vit_neck="sfp",
+        neck_channels=[8, 8, 8, 8],
+        detail_stem=True,
+    )
+    assert bb.direct_decoder
+    for knob in ("vit_neck", "neck_channels", "detail_stem"):
+        assert knob in loguru_caplog.text
+
+
+def test_vit_decoder_ignored_by_hierarchical_backbones(loguru_caplog):
+    bb = PretrainedBackbone.from_config(
+        _caseA_cfg("facebook/convnextv2-nano-22k-224", vit_decoder="classic")
+    )
+    assert not bb.direct_decoder
+    assert "vit_decoder" in loguru_caplog.text
+
+
+def test_direct_decoder_from_training_config():
+    """The new keys round-trip through `PretrainedConfig` into the backbone."""
+    from sleap_nn.config.model_config import PretrainedConfig
+
+    cfg = OmegaConf.structured(
+        PretrainedConfig(
+            model_name=VIT,
+            weights=False,
+            output_stride=4,
+            vit_decoder="classic",
+            vit_decoder_channels=64,
+        )
+    )
+    assert cfg.vit_final_norm is None
+    bb = PretrainedBackbone.from_config(cfg, spatial_heads=True)
+    assert bb.direct_decoder and bb.vit_final_norm
+    assert bb.decoder_stride_to_filters == {4: 64}
+
+
+def test_direct_decoder_layer_decay_groups():
+    """With `layer_decay`, the now-trainable final norm trains at the post-block
+    rate (`encoder_lr_scale` x base LR) and the ViTPose decoder at the base LR."""
+    bb = _vit_backbone(
+        VIT,
+        output_stride=4,
+        vit_decoder="classic",
+        encoder_lr_scale=0.5,
+        layer_decay=0.75,
+    )
+    groups = bb.encoder_param_groups(base_lr=1.0)
+    lr_of = {id(p): g["lr"] for g in groups for p in g["params"]}
+    for p in bb.enc.layernorm.parameters():
+        assert lr_of[id(p)] == pytest.approx(0.5)
+    assert not any(id(p) in lr_of for p in bb.vit_dec.parameters())
+    trainable = {id(p) for p in bb.enc.parameters() if p.requires_grad}
+    assert set(lr_of) == trainable
+
+
+def test_final_norm_falls_back_to_a_fresh_layernorm(loguru_caplog, monkeypatch):
+    """No recognizable final norm: warn and use a fresh tap LayerNorm."""
+    import sleap_nn.architectures.pretrained as pretrained_mod
+
+    monkeypatch.setattr(pretrained_mod, "_FINAL_NORM_NAMES", ())
+    bb = _vit_backbone(VIT, output_stride=4, vit_decoder="classic")
+    assert bb._final_norm_name is None
+    assert isinstance(bb.tap_norms[0], torch.nn.LayerNorm)
+    assert "no final norm found" in loguru_caplog.text
+
+
+def test_final_norm_needs_a_last_layer_tap(loguru_caplog):
+    """`vit_final_norm` on a tap that is not the last layer: warn, fresh norm."""
+    bb = _vit_backbone(
+        VIT, output_stride=4, vit_neck="sfp", layers=[6], vit_final_norm=True
+    )
+    assert bb._final_norm_name == "layernorm"
+    assert isinstance(bb.tap_norms[0], torch.nn.LayerNorm)
+    assert "applies only to a tap of the last layer" in loguru_caplog.text
+
+
+@pytest.mark.parametrize(
+    "kw, match",
+    [
+        ({"kind": "fpn"}, "Unknown ViT decoder"),
+        ({"kind": "simple", "upsample": 3}, "power of two"),
+        ({"kind": "classic", "upsample": 0}, "power of two"),
+    ],
+)
+def test_vitpose_decoder_rejects_bad_arguments(kw, match):
+    from sleap_nn.architectures.vit_neck import ViTPoseDecoder
+
+    with pytest.raises(ValueError, match=match):
+        ViTPoseDecoder(8, **kw)

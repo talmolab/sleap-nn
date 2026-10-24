@@ -82,7 +82,7 @@ def test_resolve_auto_num_workers_streaming(monkeypatch):
         (1, 0),
         (2, 1),
         (4, 3),
-        (8, utils.MAX_AUTO_NUM_WORKERS),
+        (8, 7),
         (64, utils.MAX_AUTO_NUM_WORKERS),
     ],
 )
@@ -92,11 +92,44 @@ def test_resolve_auto_num_workers_cached(monkeypatch, data_pipeline_fw, cpus, ex
     assert utils.resolve_auto_num_workers(data_pipeline_fw) == expected
 
 
+def test_resolve_auto_num_workers_streaming_image_sequences(monkeypatch):
+    """Image-sequence videos have no handle to pickle, so streaming gets workers."""
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(utils, "usable_cpu_count", lambda: 32)
+    imgs = SimpleNamespace(videos=[SimpleNamespace(filename=["a.jpg", "b.jpg"])])
+    h5 = SimpleNamespace(videos=[SimpleNamespace(filename="x.slp")])
+    assert utils.resolve_auto_num_workers("torch_dataset", train_labels=[imgs]) == 16
+    assert (
+        utils.resolve_auto_num_workers(
+            "torch_dataset", train_labels=[imgs], val_labels=[h5]
+        )
+        == 0
+    )
+
+
+@pytest.mark.parametrize(
+    "cpus,procs,expected", [(128, 4, 16), (64, 4, 15), (16, 4, 3), (4, 8, 0)]
+)
+def test_resolve_auto_num_workers_splits_cpus_across_processes(
+    monkeypatch, cpus, procs, expected
+):
+    """Under DDP each local process gets its share of the node's cores."""
+    monkeypatch.setattr(utils, "usable_cpu_count", lambda: cpus)
+    assert (
+        utils.resolve_auto_num_workers(
+            "torch_dataset_cache_img_disk", num_local_processes=procs
+        )
+        == expected
+    )
+
+
 def _num_workers_cfg(train, val, data_pipeline_fw="torch_dataset_cache_img_memory"):
     return OmegaConf.create(
         {
             "data_config": {"data_pipeline_fw": data_pipeline_fw},
             "trainer_config": {
+                "trainer_devices": 1,
                 "train_data_loader": {"num_workers": train},
                 "val_data_loader": {"num_workers": val},
             },
@@ -426,3 +459,22 @@ def test_suggestion_skips_estimate_when_nothing_to_suggest(monkeypatch):
         train_labels=[object()],
         val_labels=[],
     )
+
+
+@pytest.mark.parametrize(
+    "trainer,cuda_count,expected",
+    [
+        ({"trainer_device_indices": [0, 2, 3]}, 4, 3),
+        ({"trainer_devices": 2}, 4, 2),
+        ({"trainer_devices": "auto", "trainer_accelerator": "gpu"}, 4, 4),
+        ({"trainer_devices": None, "trainer_accelerator": "auto"}, 0, 1),
+        ({"trainer_devices": "auto", "trainer_accelerator": "cpu"}, 4, 1),
+    ],
+)
+def test_num_local_processes(monkeypatch, trainer, cuda_count, expected):
+    """One training process per local device, for splitting CPUs under DDP."""
+    import torch
+
+    monkeypatch.setattr(torch.cuda, "device_count", lambda: cuda_count)
+    cfg = OmegaConf.create({"trainer_config": trainer})
+    assert utils._num_local_processes(cfg) == expected
