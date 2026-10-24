@@ -265,6 +265,23 @@ trainer_config:
   seed: 42                        # Random seed (ensures deterministic train/val splits)
 ```
 
+### Freeze Schedule
+
+Freeze part of the model for the first steps, e.g. to warm up a new head on a
+frozen pretrained encoder:
+
+```yaml
+trainer_config:
+  freeze_schedule:
+    targets: [encoder]      # selectors; default [encoder]
+    unfreeze_at_step: 1000  # null = frozen for the whole run
+```
+
+Frozen parameters stay in the optimizer and train once unfrozen. Under DDP,
+`find_unused_parameters` is enabled automatically. Do not combine
+`unfreeze_at_step` with the backbone's `freeze: true`. See
+[Freeze schedule](../guides/init-from.md#freeze-schedule).
+
 ---
 
 ## Online Hard Keypoint Mining
@@ -379,6 +396,7 @@ trainer_config:
 | `keep_viz` | bool | `false` | Keep viz folder after training |
 | `use_wandb` | bool | `false` | Enable WandB logging |
 | `resume_ckpt_path` | str | `null` | Path to checkpoint to resume from |
+| `freeze_schedule` | FreezeScheduleConfig | `null` | Freeze `targets` (selectors, default `[encoder]`) until `unfreeze_at_step` (`null` = whole run) |
 | `optimizer_name` | str | `Adam` | Optimizer: `Adam` or `AdamW` |
 
 ### DataLoaderConfig

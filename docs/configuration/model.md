@@ -11,6 +11,7 @@ model_config:
   init_weights: default
   pretrained_backbone_weights: null
   pretrained_head_weights: null
+  init_from: null     # Initialize from another model (see below)
 
   backbone_config:
     unet: {...}       # Only one backbone
@@ -344,6 +345,31 @@ model_config:
 !!! note "UNet only"
     Legacy SLEAP weights only work with UNet backbone.
 
+!!! warning "Shape mismatches are skipped"
+    A `.ckpt` tensor whose shape differs from the new model's is now skipped with
+    a warning (the target keeps its init) instead of raising. Set
+    `init_from.strict: true` to raise again.
+
+### From Another Model, Tolerating Differences
+
+`init_from` loads what fits from another sleap-nn model: head channels are matched
+by node name (so the skeleton can grow or be reordered), learned positional
+embeddings are resized, and selected parts can be re-initialized. Every tensor is
+accounted for in a logged report.
+
+```yaml
+model_config:
+  init_from:
+    path: /runs/coco17          # model directory, .ckpt or state dict
+    include: null               # e.g. [backbone]
+    exclude: null
+    node_map: null              # {target node: source node}
+    reinit: null                # e.g. [head] or ["blocks[-2:]", head]
+    strict: false
+```
+
+See the [Initializing from Another Model](../guides/init-from.md) guide.
+
 ---
 
 ## Common Configurations
@@ -433,6 +459,22 @@ model_config:
 | `init_weights` | str | `default` | Weight initialization: `default` (kaiming) or `xavier` |
 | `pretrained_backbone_weights` | str | `null` | Path to `.ckpt` or `.h5` file for backbone weights |
 | `pretrained_head_weights` | str | `null` | Path to `.ckpt` or `.h5` file for head weights |
+| `init_from` | InitFromConfig | `null` | Shape-tolerant, node-name-aware init from another model, plus re-init ([guide](../guides/init-from.md)) |
+
+### InitFromConfig
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `path` | str | `null` | Model directory (`best.ckpt`), `.ckpt` or raw state dict. `null`: load nothing (`reinit` still applies) |
+| `include` | list | `null` | Selectors of weights to load (`null` = all): `all`, `backbone`, `encoder`, `decoder`, `neck`, `head`, `embeddings`, `blocks[a:b]`, globs |
+| `exclude` | list | `null` | Selectors of weights to leave at their init |
+| `remap_nodes` | bool | `true` | Copy per-node head channels by node name |
+| `node_map` | dict | `null` | `{target node: source node}` overrides |
+| `source_part_names` | list | `null` | Source node names, for checkpoints that record none |
+| `interpolate_pos_embed` | bool | `true` | Resize learned positional embeddings to the new token grid |
+| `reinit` | list | `null` | Selectors re-initialized after loading |
+| `reinit_layer_scale` | float | `1e-5` | LayerScale for re-initialized ViT blocks |
+| `strict` | bool | `false` | Raise on any shape-mismatched tensor (also for `pretrained_*_weights`) |
 
 ### UNetConfig
 

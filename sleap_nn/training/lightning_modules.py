@@ -286,7 +286,10 @@ class LightningModel(L.LightningModule):
                 # Shape-tolerant: matching tensors load, the rest are reported.
                 self.transfer_reports.append(
                     init_from_checkpoint(
-                        self, self.pretrained_backbone_weights, include=["backbone"]
+                        self,
+                        self.pretrained_backbone_weights,
+                        include=["backbone"],
+                        strict=self._init_from_option("strict", False),
                     )
                 )
 
@@ -313,7 +316,10 @@ class LightningModel(L.LightningModule):
                 # the checkpoint / its training_config.yaml).
                 self.transfer_reports.append(
                     init_from_checkpoint(
-                        self, self.pretrained_head_weights, include=["head"]
+                        self,
+                        self.pretrained_head_weights,
+                        include=["head"],
+                        strict=self._init_from_option("strict", False),
                     )
                 )
 
@@ -331,20 +337,25 @@ class LightningModel(L.LightningModule):
                 raise ValueError(message)
 
         if self.init_from is not None:
-            self._apply_init_from(self.init_from)
+            self._apply_init_from()
 
-    def _apply_init_from(self, cfg: Union[DictConfig, Dict[str, Any]]) -> None:
+    def _init_from_option(self, key: str, default: Any = None) -> Any:
+        """One ``model_config.init_from`` option (``default`` when unset)."""
+        cfg = self.init_from
+        if cfg is None:
+            return default
+        val = (
+            OmegaConf.select(cfg, key, default=default)
+            if OmegaConf.is_config(cfg)
+            else cfg.get(key, default)
+        )
+        if OmegaConf.is_config(val):
+            val = OmegaConf.to_container(val)
+        return default if val is None else val
+
+    def _apply_init_from(self) -> None:
         """Apply ``model_config.init_from``: transfer, then re-initialize."""
-
-        def get(key, default=None):
-            val = (
-                OmegaConf.select(cfg, key, default=default)
-                if OmegaConf.is_config(cfg)
-                else cfg.get(key, default)
-            )
-            if OmegaConf.is_config(val):
-                val = OmegaConf.to_container(val)
-            return default if val is None else val
+        get = self._init_from_option
 
         if get("path") is not None:
             self.transfer_reports.append(

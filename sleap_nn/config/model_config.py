@@ -1972,8 +1972,10 @@ class InitFromConfig:
             *Default*: ``None``.
         reinit_layer_scale: (float) LayerScale value for re-initialized ViT blocks
             (small = block starts near identity). *Default*: ``1e-5``.
-        strict: (bool) Raise if any selected source tensor had to be skipped.
-            *Default*: ``False``.
+        strict: (bool) Raise if any selected source tensor had to be skipped
+            for a shape mismatch, here and in the ``.ckpt`` forms of
+            ``pretrained_backbone_weights`` / ``pretrained_head_weights`` (which
+            otherwise warn and skip). *Default*: ``False``.
     """
 
     path: Optional[str] = None

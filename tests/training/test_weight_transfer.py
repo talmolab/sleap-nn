@@ -30,6 +30,10 @@ from sleap_nn.training.weight_transfer import (
 HEAD_W = "model.head_layers.0.CenteredInstanceConfmapsHead.0.weight"
 HEAD_B = "model.head_layers.0.CenteredInstanceConfmapsHead.0.bias"
 
+requires_transformers = pytest.mark.skipif(
+    importlib.util.find_spec("transformers") is None,
+    reason="needs the `transformers` package (the `backbones` extra)",
+)
 requires_timm = pytest.mark.skipif(
     importlib.util.find_spec("timm") is None, reason="needs the `timm` package"
 )
@@ -160,6 +164,20 @@ def test_legacy_pretrained_head_weights_remap(
     assert len(model.transfer_reports) == 2
 
 
+def test_legacy_keys_warn_on_shape_mismatch_unless_strict(
+    minimal_instance_centered_instance_ckpt,
+):
+    """Documented behaviour change: skip + warn, `init_from.strict` raises."""
+    ckpt = minimal_instance_centered_instance_ckpt
+    cfg = _ci_config(ckpt, filters=8)
+    cfg.model_config.pretrained_backbone_weights = str(Path(ckpt) / "best.ckpt")
+    model = LightningModel.get_lightning_model_from_config(cfg)
+    assert model.transfer_reports[0].skipped
+    cfg.model_config.init_from = {"strict": True}
+    with pytest.raises(ValueError, match="strict=True"):
+        LightningModel.get_lightning_model_from_config(cfg)
+
+
 def test_checkpoint_records_head_channels(
     tmp_path, minimal_instance_centered_instance_ckpt
 ):
@@ -264,6 +282,7 @@ def dinov2_model():
     return _vit_lightning(VIT)
 
 
+@requires_transformers
 def test_vit_block_selectors(dinov2_model):
     m = dinov2_model
     name, blocks = vit_blocks(m.model.backbone)
@@ -276,6 +295,7 @@ def test_vit_block_selectors(dinov2_model):
     assert enc == ["model.backbone.enc.*"]
 
 
+@requires_transformers
 def test_reinit_last_blocks(dinov2_model):
     m = _vit_lightning(VIT)
     before = {k: v.clone() for k, v in m.state_dict().items()}
@@ -293,6 +313,7 @@ def test_reinit_last_blocks(dinov2_model):
     assert ls and torch.allclose(ls[0], torch.full_like(ls[0], 1e-5))
 
 
+@requires_transformers
 @pytest.mark.parametrize(
     "model_name",
     [VIT, pytest.param(TIMM_VIT, marks=requires_timm)],
@@ -324,6 +345,7 @@ def test_resolution_finetune_roundtrip(model_name):
             torch.testing.assert_close(ya, yb)
 
 
+@requires_transformers
 def test_freeze_schedule_keeps_layer_decay_groups():
     m = _vit_lightning(VIT, layer_decay=0.75)
     opt = m.configure_optimizers()["optimizer"]
@@ -352,6 +374,7 @@ def test_freeze_schedule_keeps_layer_decay_groups():
     assert [g["lr"] for g in opt.param_groups] == lrs_before
 
 
+@requires_transformers
 def test_set_requires_grad_first_blocks(dinov2_model):
     m = _vit_lightning(VIT)
     changed = set_requires_grad(m, ["embeddings", "blocks[:6]"], False)
@@ -369,6 +392,12 @@ def test_set_requires_grad_first_blocks(dinov2_model):
     reason="set SLEAP_NN_TEST_COCO17_CKPT to a COCO-17 model dir",
 )
 def test_real_coco17_to_union46():
+    """A real COCO-17 model seeds a grown skeleton (opt-in, local checkpoint).
+
+    Point ``SLEAP_NN_TEST_COCO17_CKPT`` at a centered-instance model directory,
+    e.g. the integration run ``.../integration/_scratch/runs/vitpose_s_coco_210e``
+    (that one needs PR 3's ``vit_decoder`` config keys to build).
+    """
     run = Path(os.environ["SLEAP_NN_TEST_COCO17_CKPT"])
     cfg = OmegaConf.load(run / "training_config.yaml")
     coco = list(cfg.model_config.head_configs.centered_instance.confmaps.part_names)
@@ -398,6 +427,7 @@ def _worker_module():
     return mod
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="gloo DDP on Windows")
 @pytest.mark.parametrize(
     "strategy", ["ddp", "ddp_find_unused_parameters_false"], ids=["auto", "refused"]
 )
