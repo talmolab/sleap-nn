@@ -6,7 +6,7 @@ the parameters required to initialize the data config.
 
 from attrs import define, field, validators
 from omegaconf import MISSING
-from typing import Optional, Tuple, Any, List, Union
+from typing import Optional, Tuple, Any, Dict, List, Union
 from loguru import logger
 import sleap_io as sio
 import yaml
@@ -302,6 +302,28 @@ class IntensityConfig:
         brightness_min: (float) Minimum brightness factor to apply. *Default*: `0.9`.
         brightness_max: (float) Maximum brightness factor to apply. *Default*: `1.1`.
         brightness_p: (float) Probability of applying random brightness. *Default*: `0.0`.
+        hsv_p: (float) `crop_pipeline="warp"` only. Probability of a random HSV shift
+            of the crop (mmdet `YOLOXHSVRandomAug`, which RTMPose applies always:
+            `hsv_p: 1.0`). Each of hue / saturation / value is shifted with p=0.5 by
+            an integer in `[-delta, delta]` (OpenCV 8-bit HSV: hue in [0, 180)).
+            *Default*: `0.0`.
+        hsv_hue_delta: (float) Max hue shift. *Default*: `5.0`.
+        hsv_saturation_delta: (float) Max saturation shift. *Default*: `30.0`.
+        hsv_value_delta: (float) Max value shift. *Default*: `30.0`.
+        blur_p: (float) `crop_pipeline="warp"` only. Probability of a box blur with a
+            random odd kernel in `[blur_kernel_min, blur_kernel_max]`
+            (albumentations `Blur`). *Default*: `0.0`.
+        blur_kernel_min: (int) Smallest box-blur kernel. *Default*: `3`.
+        blur_kernel_max: (int) Largest box-blur kernel. *Default*: `7`.
+        median_blur_p: (float) `crop_pipeline="warp"` only. Probability of a median
+            blur (albumentations `MedianBlur`). *Default*: `0.0`.
+        median_blur_kernel_min: (int) Smallest median kernel. *Default*: `3`.
+        median_blur_kernel_max: (int) Largest median kernel. *Default*: `7`.
+        gaussian_blur_p: (float) `crop_pipeline="warp"` only. Probability of a
+            Gaussian blur with sigma in `[gaussian_blur_sigma_min,
+            gaussian_blur_sigma_max]` crop pixels. *Default*: `0.0`.
+        gaussian_blur_sigma_min: (float) Smallest blur sigma. *Default*: `0.1`.
+        gaussian_blur_sigma_max: (float) Largest blur sigma. *Default*: `2.0`.
     """
 
     uniform_noise_min: float = field(default=0.0, validator=validators.ge(0))
@@ -316,6 +338,30 @@ class IntensityConfig:
     brightness_min: float = field(default=0.9, validator=validators.ge(0))
     brightness_max: float = field(default=1.1, validator=validators.le(2))
     brightness_p: float = field(default=0.0, validator=validate_proportion)
+    hsv_p: float = field(default=0.0, validator=validate_proportion)
+    hsv_hue_delta: float = field(default=5.0, validator=validators.ge(0))
+    hsv_saturation_delta: float = field(default=30.0, validator=validators.ge(0))
+    hsv_value_delta: float = field(default=30.0, validator=validators.ge(0))
+    blur_p: float = field(default=0.0, validator=validate_proportion)
+    blur_kernel_min: int = field(default=3, validator=validators.ge(3))
+    blur_kernel_max: int = field(default=7, validator=validators.ge(3))
+    median_blur_p: float = field(default=0.0, validator=validate_proportion)
+    median_blur_kernel_min: int = field(default=3, validator=validators.ge(3))
+    median_blur_kernel_max: int = field(default=7, validator=validators.ge(3))
+    gaussian_blur_p: float = field(default=0.0, validator=validate_proportion)
+    gaussian_blur_sigma_min: float = field(default=0.1, validator=validators.gt(0))
+    gaussian_blur_sigma_max: float = field(default=2.0, validator=validators.gt(0))
+
+
+def _warn_mixup(instance, attribute, value):
+    """Warn that `mixup_p` is not implemented (it used to be silently ignored)."""
+    validate_proportion(instance, attribute, value)
+    if value is not None and value > 0:
+        logger.warning(
+            f"geometric.mixup_p={value} is not implemented by any sleap-nn data "
+            "pipeline and is ignored (crop_pipeline='warp' raises instead). Set "
+            "mixup_p: 0 to silence this warning."
+        )
 
 
 @define
@@ -340,7 +386,44 @@ class GeometricConfig:
         erase_p: (float) Probability of applying random erase. *Default*: `1.0`.
         mixup_lambda_min: (float) Minimum mixup strength value. *Default*: `0.01`.
         mixup_lambda_max: (float) Maximum mixup strength value. *Default*: `0.05`.
-        mixup_p: (float) Probability of applying random mixup v2. *Default*: `0.0`.
+        mixup_p: (float) NOT IMPLEMENTED: a value > 0 logs a warning (and raises with
+            `crop_pipeline="warp"`). *Default*: `0.0`.
+        affine_sampling: (str) `crop_pipeline="warp"` only. `"uniform"`: rotation,
+            scale and translation are uniform in their ranges and `scale_*` scales the
+            image content (> 1 zooms in), as in the stock pipeline. `"mmpose"`: mmpose
+            `RandomBBoxTransform` semantics -- truncated-normal draws (+-1 sigma =
+            the range ends) around the range middle, `scale_*` scales the crop *box*
+            (content scale = 1 / box scale) and the shift moves the box before it is
+            rotated, so `scale_min: 0.6, scale_max: 1.4, rotation_min: -80,
+            rotation_max: 80` reproduce RTMPose's config. *Default*: `"uniform"`.
+        half_body_p: (float) `crop_pipeline="warp"` only. Probability of mmpose's
+            `RandomHalfBody`: crop to the upper or lower body only. The crop box is
+            recomputed from the chosen half's visible nodes (centered on their mean,
+            `half_body_padding` times their extent, fit to the crop aspect) before
+            the single warp, so it costs nothing extra. *Default*: `0.0` (ViTPose /
+            RTMPose: `0.3`).
+        half_body_min_total_keypoints: (int) Only instances with at least this many
+            visible (labeled, located) nodes are eligible. *Default*: `9`.
+        half_body_min_upper_keypoints: (int) Visible upper-body nodes needed to
+            choose the upper half. *Default*: `2`.
+        half_body_min_lower_keypoints: (int) Visible lower-body nodes needed to
+            choose the lower half. *Default*: `3`.
+        half_body_padding: (float) Box size as a multiple of the half's keypoint
+            extent. *Default*: `1.5`.
+        half_body_upper_prob: (float) Probability of preferring the upper half when
+            both qualify. *Default*: `0.7`.
+        half_body_lower_nodes: (list of str) Lower-body node names. `None` takes
+            the nodes whose name contains hip / knee / ankle / heel / toe / foot (COCO:
+            hips, knees, ankles, like mmpose's `lower_body_ids`). *Default*: `None`.
+        coarse_dropout_p: (float) `crop_pipeline="warp"` only. Probability of
+            albumentations `CoarseDropout`: black holes in the crop. Keypoints inside
+            holes keep their targets (as in mmpose). *Default*: `0.0` (RTMPose stage
+            1: `1.0`, stage 2: `0.5`).
+        coarse_dropout_min_holes: (int) Fewest holes. *Default*: `1`.
+        coarse_dropout_max_holes: (int) Most holes. *Default*: `1`.
+        coarse_dropout_min_size: (float) Smallest hole side as a fraction of the crop
+            side (height and width drawn independently). *Default*: `0.2`.
+        coarse_dropout_max_size: (float) Largest hole side fraction. *Default*: `0.4`.
         flip_p: (float) Probability of mirroring the image and keypoints left/right (`x' = (W-1) - x`). When applied, left/right symmetric body parts are swapped using the skeleton's symmetries so labels stay correct. *Correctness note*: if the skeleton has no symmetries, flipping is only valid when the animal is truly left/right symmetric in labeling; a warning is emitted otherwise. *Default*: `0.0` (disabled).
     """
 
@@ -361,8 +444,55 @@ class GeometricConfig:
     erase_p: float = field(default=0.0, validator=validate_proportion)
     mixup_lambda_min: float = field(default=0.01, validator=validators.ge(0))
     mixup_lambda_max: float = field(default=0.05, validator=validators.le(1))
-    mixup_p: float = field(default=0.0, validator=validate_proportion)
+    mixup_p: float = field(default=0.0, validator=_warn_mixup)
     flip_p: float = field(default=0.0, validator=validate_proportion)
+    affine_sampling: str = field(
+        default="uniform", validator=validators.in_(("uniform", "mmpose"))
+    )
+    half_body_p: float = field(default=0.0, validator=validate_proportion)
+    half_body_min_total_keypoints: int = field(default=9, validator=validators.ge(0))
+    half_body_min_upper_keypoints: int = field(default=2, validator=validators.ge(1))
+    half_body_min_lower_keypoints: int = field(default=3, validator=validators.ge(1))
+    half_body_padding: float = field(default=1.5, validator=validators.gt(0))
+    half_body_upper_prob: float = field(default=0.7, validator=validate_proportion)
+    half_body_lower_nodes: Optional[List[str]] = None
+    coarse_dropout_p: float = field(default=0.0, validator=validate_proportion)
+    coarse_dropout_min_holes: int = field(default=1, validator=validators.ge(0))
+    coarse_dropout_max_holes: int = field(default=1, validator=validators.ge(0))
+    coarse_dropout_min_size: float = field(default=0.2, validator=validate_proportion)
+    coarse_dropout_max_size: float = field(default=0.4, validator=validate_proportion)
+
+
+@define
+class AugmentationStage2Config:
+    """A second augmentation stage from a given epoch or step (warp pipeline only).
+
+    The "stage-2 pipeline switch" of RTMPose (mmdet `PipelineSwitchHook`): the last
+    epochs train with weaker augmentation. `geometric` / `intensity` are partial
+    overrides merged over the stage-1 sections (e.g. `{rotation_min: -60,
+    rotation_max: 60, coarse_dropout_p: 0.5}`). Applied by
+    `AugmentationStageCallback`, which flips a shared-memory flag that persistent
+    workers read per sample; batches already prefetched when the switch happens
+    (at most `num_workers * prefetch_factor`) still use stage 1.
+
+    Attributes:
+        start_epoch: (int) First epoch (0-based) of stage 2. *Default*: `None`.
+        start_step: (int) First global step of stage 2 (used when `start_epoch` is
+            `None`). *Default*: `None`.
+        geometric: (dict) Overrides of `augmentation_config.geometric`.
+            *Default*: `None`.
+        intensity: (dict) Overrides of `augmentation_config.intensity`.
+            *Default*: `None`.
+    """
+
+    start_epoch: Optional[int] = field(
+        default=None, validator=validators.optional(validators.ge(0))
+    )
+    start_step: Optional[int] = field(
+        default=None, validator=validators.optional(validators.ge(0))
+    )
+    geometric: Optional[Dict[str, Any]] = None
+    intensity: Optional[Dict[str, Any]] = None
 
 
 @define
@@ -372,10 +502,13 @@ class AugmentationConfig:
     Attributes:
         intensity: Configuration options for intensity-based augmentations like brightness, contrast, etc. If None, no intensity augmentations will be applied.
         geometric: Configuration options for geometric augmentations like rotation, scaling, translation etc. If None, no geometric augmentations will be applied.
+        stage2: (AugmentationStage2Config) Optional second augmentation stage
+            (`crop_pipeline="warp"` only). *Default*: `None`.
     """
 
     intensity: Optional[IntensityConfig] = None
     geometric: Optional[GeometricConfig] = None
+    stage2: Optional[AugmentationStage2Config] = None
 
 
 def validate_test_file_path(instance, attribute, value):

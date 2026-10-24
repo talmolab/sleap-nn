@@ -288,6 +288,9 @@ def build_instance_table(
 # Geometry
 # ---------------------------------------------------------------------------
 
+#: ``geometric.affine_sampling`` values (see :class:`WarpAug`).
+AFFINE_SAMPLINGS = ("uniform", "mmpose")
+
 
 def _translate(tx: float, ty: float) -> np.ndarray:
     return np.array([[1.0, 0.0, tx], [0.0, 1.0, ty], [0.0, 0.0, 1.0]])
@@ -310,15 +313,94 @@ def window_affine(window: np.ndarray, scale: np.ndarray) -> np.ndarray:
     )
 
 
+#: Substrings of node names that :class:`WarpAug` half-body treats as lower body
+#: when ``half_body_lower_nodes`` is not given (COCO / AIC / Halpe style names).
+LOWER_BODY_KEYWORDS = ("hip", "knee", "ankle", "heel", "toe", "foot")
+
+
+def _truncnorm(rng: np.random.Generator) -> float:
+    """One draw of a standard normal truncated to ``[-1, 1]`` (rejection)."""
+    while True:
+        v = rng.standard_normal()
+        if -1.0 <= v <= 1.0:
+            return float(v)
+
+
+def _odd_kernel(rng: np.random.Generator, lo: int, hi: int) -> int:
+    """A random odd kernel size in ``[lo, hi]`` (albumentations ``blur_limit``)."""
+    choices = [k for k in range(int(lo), int(hi) + 1) if k % 2 == 1 and k >= 3]
+    return int(rng.choice(choices)) if choices else 3
+
+
+def center_size_window(
+    center: np.ndarray,
+    size: np.ndarray,
+    crop_hw: Tuple[int, int],
+    aspect: str = "square",
+    min_size: Optional[float] = None,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Window + scale of a ``size`` box at ``center``, fit to the crop's aspect.
+
+    The numpy, padding-free counterpart of
+    :func:`~sleap_nn.data.instance_cropping.bbox_crop_windows` (same aspect fit and
+    ``min_size`` floor) for a box given as a center and a ``(w, h)`` size in
+    keypoint coordinates -- what mmpose's ``TopdownAffine`` does with the
+    half-body ``bbox_center`` / ``bbox_scale``.
+
+    Args:
+        center: ``(2,)`` box center (keypoint coordinates).
+        size: ``(2,)`` box ``(width, height)``.
+        crop_hw: Crop ``(height, width)``.
+        aspect: ``"stretch"`` (one scale per axis) or anything else (one scale).
+        min_size: Smallest window side in frame pixels, or ``None``.
+
+    Returns:
+        ``(window, scale)``: ``(4,)`` edge-coordinate window and ``(2,)`` scale.
+    """
+    ch, cw = crop_hw
+    out_wh = np.array([cw, ch], np.float64)
+    floor = max(float(min_size or 0.0), 1.0)
+    padded = np.maximum(np.asarray(size, np.float64), 1e-6)
+    if aspect == "stretch":
+        sides = np.maximum(padded, floor)
+    else:
+        s = min((out_wh / padded).min(), min(ch, cw) / floor)
+        sides = out_wh / s
+    c = np.asarray(center, np.float64) + 0.5
+    window = np.concatenate([c - sides / 2, c + sides / 2]).astype(np.float32)
+    return window, (out_wh / sides).astype(np.float32)
+
+
 @dataclass
 class WarpAug:
-    """Augmentation of the warp path: geometry folded into the crop affine.
+    """Warp-path augmentation: geometry in the crop affine, photometry on the crop.
 
-    Rotation and scale act about the crop center. Translation shifts the window by
-    ``translate_*`` times the padded box's width / height (mmpose's
-    ``RandomBBoxTransform`` shift), not the crop's. ``flip_p`` mirrors the crop and
-    swaps left/right nodes through ``flip_idx``. Contrast pivots on 127.5 and
-    brightness scales, as in the stock path (one lookup table on the uint8 crop).
+    Geometry (:meth:`sample`): rotation and scale act about the crop center;
+    translation shifts the window by ``translate_*`` times the padded box's width /
+    height (mmpose's ``RandomBBoxTransform`` shift), not the crop's; ``flip_p``
+    mirrors the crop and swaps left/right nodes through ``flip_idx``. With
+    ``affine_sampling="uniform"`` (default) the draws are uniform, ``scale > 1``
+    zooms in and the shift is applied after rotation / scale, as in the stock path.
+    With ``"mmpose"`` they follow ``RandomBBoxTransform``: truncated-normal draws
+    (``[-1, 1]`` sigma) around the middle of each range, ``scale_*`` is the *box*
+    scale (content scale = 1 / box scale) and the shift moves the box before it is
+    rotated and scaled, so an mmpose config's numbers can be used as they are.
+
+    Half-body (:meth:`half_body_window`, mmpose ``RandomHalfBody``): with
+    ``half_body_p``, an instance with at least ``half_body_min_total`` visible
+    nodes is cropped to its upper or lower body (upper preferred with
+    ``half_body_upper_prob``; each half needs ``half_body_min_upper`` /
+    ``half_body_min_lower`` visible nodes): the box is centered on the mean of the
+    chosen nodes, ``half_body_padding`` times their extent, fit to the crop aspect.
+    It replaces the crop window, so it costs nothing extra (still one warp).
+
+    Photometric (:meth:`intensity`, on the uint8 RGB crop, in this order):
+    contrast / brightness (contrast pivots on 127.5, as in the stock path), HSV
+    shift (mmdet ``YOLOXHSVRandomAug``), box blur (albumentations ``Blur``), median
+    blur, Gaussian blur, uniform / Gaussian noise, coarse dropout (albumentations
+    ``CoarseDropout``, fill 0) and random erase (random-colour box, as in the stock
+    pipeline). Holes and erases leave the keypoint targets untouched (as mmpose /
+    albumentations do): the model learns to infer occluded joints.
     """
 
     rotation: Tuple[float, float] = (0.0, 0.0)
@@ -328,16 +410,50 @@ class WarpAug:
     translate: Tuple[float, float] = (0.0, 0.0)
     translate_p: float = 0.0
     flip_p: float = 0.0
+    affine_sampling: str = "uniform"
+    # Half-body.
+    half_body_p: float = 0.0
+    half_body_min_total: int = 9
+    half_body_min_upper: int = 2
+    half_body_min_lower: int = 3
+    half_body_padding: float = 1.5
+    half_body_upper_prob: float = 0.7
+    half_body_lower_nodes: Optional[List[str]] = None
+    # Photometric.
     contrast: Tuple[float, float] = (1.0, 1.0)
     contrast_p: float = 0.0
     brightness: Tuple[float, float] = (1.0, 1.0)
     brightness_p: float = 0.0
+    hsv_delta: Tuple[float, float, float] = (5.0, 30.0, 30.0)
+    hsv_p: float = 0.0
+    blur_kernel: Tuple[int, int] = (3, 7)
+    blur_p: float = 0.0
+    median_blur_kernel: Tuple[int, int] = (3, 7)
+    median_blur_p: float = 0.0
+    gaussian_blur_sigma: Tuple[float, float] = (0.1, 2.0)
+    gaussian_blur_p: float = 0.0
+    uniform_noise: Tuple[float, float] = (0.0, 0.04)  # 0-1 scale
+    uniform_noise_p: float = 0.0
     gaussian_noise: Tuple[float, float] = (0.0, 0.0)  # mean, std (0-1 scale)
     gaussian_noise_p: float = 0.0
+    coarse_dropout_holes: Tuple[int, int] = (1, 1)
+    coarse_dropout_size: Tuple[float, float] = (0.2, 0.4)  # fraction of crop h / w
+    coarse_dropout_p: float = 0.0
+    erase_scale: Tuple[float, float] = (0.0001, 0.01)
+    erase_ratio: Tuple[float, float] = (1.0, 1.0)
+    erase_p: float = 0.0
+    # Bound to the model's nodes by :meth:`bind_nodes`.
+    upper_idx: Optional[np.ndarray] = field(default=None, repr=False)
+    lower_idx: Optional[np.ndarray] = field(default=None, repr=False)
 
     @classmethod
     def from_configs(cls, geometric, intensity) -> "WarpAug":
-        """From the ``augmentation_config.geometric`` / ``.intensity`` sections."""
+        """From the ``augmentation_config.geometric`` / ``.intensity`` sections.
+
+        Raises:
+            ValueError: On ``mixup_p > 0`` (not implemented; it is not silently
+                ignored) or an unknown ``affine_sampling``.
+        """
         a = cls()
         if geometric is not None:
             g = dict(geometric)
@@ -347,42 +463,136 @@ class WarpAug:
                 v = g.get(key)
                 return affine_p if v is None else float(v)
 
+            def f(key, default):
+                v = g.get(key)
+                return default if v is None else v
+
             a.rotation = (
-                float(g.get("rotation_min", 0.0)),
-                float(g.get("rotation_max", 0.0)),
+                float(f("rotation_min", 0.0)),
+                float(f("rotation_max", 0.0)),
             )
             a.rotation_p = p("rotation_p")
-            a.scale = (float(g.get("scale_min", 1.0)), float(g.get("scale_max", 1.0)))
+            a.scale = (float(f("scale_min", 1.0)), float(f("scale_max", 1.0)))
             a.scale_p = p("scale_p")
             a.translate = (
-                float(g.get("translate_width", 0.0)),
-                float(g.get("translate_height", 0.0)),
+                float(f("translate_width", 0.0)),
+                float(f("translate_height", 0.0)),
             )
             a.translate_p = p("translate_p")
-            a.flip_p = float(g.get("flip_p", 0.0) or 0.0)
-            unsupported = [k for k in ("erase_p", "mixup_p") if (g.get(k) or 0) > 0]
-            if unsupported:
-                logger.warning(f"crop_pipeline='warp' ignores {unsupported}.")
+            a.flip_p = float(f("flip_p", 0.0))
+            a.affine_sampling = str(f("affine_sampling", "uniform"))
+            if a.affine_sampling not in AFFINE_SAMPLINGS:
+                raise ValueError(
+                    f"affine_sampling must be one of {AFFINE_SAMPLINGS}, got "
+                    f"{a.affine_sampling!r}."
+                )
+            a.half_body_p = float(f("half_body_p", 0.0))
+            a.half_body_min_total = int(f("half_body_min_total_keypoints", 9))
+            a.half_body_min_upper = int(f("half_body_min_upper_keypoints", 2))
+            a.half_body_min_lower = int(f("half_body_min_lower_keypoints", 3))
+            a.half_body_padding = float(f("half_body_padding", 1.5))
+            a.half_body_upper_prob = float(f("half_body_upper_prob", 0.7))
+            lower = g.get("half_body_lower_nodes")
+            a.half_body_lower_nodes = list(lower) if lower else None
+            a.coarse_dropout_p = float(f("coarse_dropout_p", 0.0))
+            a.coarse_dropout_holes = (
+                int(f("coarse_dropout_min_holes", 1)),
+                int(f("coarse_dropout_max_holes", 1)),
+            )
+            a.coarse_dropout_size = (
+                float(f("coarse_dropout_min_size", 0.2)),
+                float(f("coarse_dropout_max_size", 0.4)),
+            )
+            a.erase_p = float(f("erase_p", 0.0))
+            a.erase_scale = (
+                float(f("erase_scale_min", 0.0001)),
+                float(f("erase_scale_max", 0.01)),
+            )
+            a.erase_ratio = (
+                float(f("erase_ratio_min", 1.0)),
+                float(f("erase_ratio_max", 1.0)),
+            )
+            if float(f("mixup_p", 0.0)) > 0:
+                raise ValueError(
+                    "crop_pipeline='warp' does not implement mixup (mixup_p > 0). "
+                    "Neither ViTPose nor RTMPose uses it; set mixup_p: 0."
+                )
         if intensity is not None:
             i = dict(intensity)
+
+            def fi(key, default):
+                v = i.get(key)
+                return default if v is None else v
+
             a.contrast = (
-                float(i.get("contrast_min", 1.0)),
-                float(i.get("contrast_max", 1.0)),
+                float(fi("contrast_min", 1.0)),
+                float(fi("contrast_max", 1.0)),
             )
-            a.contrast_p = float(i.get("contrast_p", 0.0) or 0.0)
+            a.contrast_p = float(fi("contrast_p", 0.0))
             a.brightness = (
-                float(i.get("brightness_min", 1.0)),
-                float(i.get("brightness_max", 1.0)),
+                float(fi("brightness_min", 1.0)),
+                float(fi("brightness_max", 1.0)),
             )
-            a.brightness_p = float(i.get("brightness_p", 0.0) or 0.0)
+            a.brightness_p = float(fi("brightness_p", 0.0))
+            a.hsv_p = float(fi("hsv_p", 0.0))
+            a.hsv_delta = (
+                float(fi("hsv_hue_delta", 5.0)),
+                float(fi("hsv_saturation_delta", 30.0)),
+                float(fi("hsv_value_delta", 30.0)),
+            )
+            a.blur_p = float(fi("blur_p", 0.0))
+            a.blur_kernel = (
+                int(fi("blur_kernel_min", 3)),
+                int(fi("blur_kernel_max", 7)),
+            )
+            a.median_blur_p = float(fi("median_blur_p", 0.0))
+            a.median_blur_kernel = (
+                int(fi("median_blur_kernel_min", 3)),
+                int(fi("median_blur_kernel_max", 7)),
+            )
+            a.gaussian_blur_p = float(fi("gaussian_blur_p", 0.0))
+            a.gaussian_blur_sigma = (
+                float(fi("gaussian_blur_sigma_min", 0.1)),
+                float(fi("gaussian_blur_sigma_max", 2.0)),
+            )
+            a.uniform_noise_p = float(fi("uniform_noise_p", 0.0))
+            a.uniform_noise = (
+                float(fi("uniform_noise_min", 0.0)),
+                float(fi("uniform_noise_max", 0.04)),
+            )
             a.gaussian_noise = (
-                float(i.get("gaussian_noise_mean", 0.0)),
-                float(i.get("gaussian_noise_std", 0.0)),
+                float(fi("gaussian_noise_mean", 0.0)),
+                float(fi("gaussian_noise_std", 0.0)),
             )
-            a.gaussian_noise_p = float(i.get("gaussian_noise_p", 0.0) or 0.0)
-            if (i.get("uniform_noise_p") or 0) > 0:
-                logger.warning("crop_pipeline='warp' ignores uniform_noise_p.")
+            a.gaussian_noise_p = float(fi("gaussian_noise_p", 0.0))
         return a
+
+    def bind_nodes(self, node_names: Sequence[str]) -> "WarpAug":
+        """Resolve the half-body upper / lower node indices on the model's nodes."""
+        if self.half_body_lower_nodes:
+            lower_set = set(self.half_body_lower_nodes)
+            lower = [n in lower_set for n in node_names]
+        else:
+            lower = [
+                any(k in n.lower() for k in LOWER_BODY_KEYWORDS) for n in node_names
+            ]
+        lower = np.asarray(lower, bool)
+        self.lower_idx = np.flatnonzero(lower)
+        self.upper_idx = np.flatnonzero(~lower)
+        if self.half_body_p > 0 and (
+            not len(self.lower_idx) or not len(self.upper_idx)
+        ):
+            logger.warning(
+                "half_body_p > 0 but the nodes do not split into an upper and a lower "
+                f"body (lower: {[node_names[j] for j in self.lower_idx]}); set "
+                "half_body_lower_nodes."
+            )
+        return self
+
+    def _draw(self, rng: np.random.Generator, lo: float, hi: float) -> float:
+        if self.affine_sampling == "mmpose":
+            return (lo + hi) / 2.0 + _truncnorm(rng) * (hi - lo) / 2.0
+        return float(rng.uniform(lo, hi))
 
     def sample(
         self,
@@ -402,24 +612,78 @@ class WarpAug:
         """
         cx, cy = (crop_w - 1) / 2.0, (crop_h - 1) / 2.0
         theta, s, tx, ty = 0.0, 1.0, 0.0, 0.0
+        mm = self.affine_sampling == "mmpose"
         if self.rotation_p > 0 and rng.random() < self.rotation_p:
-            theta = math.radians(rng.uniform(*self.rotation))
+            theta = math.radians(self._draw(rng, *self.rotation))
         if self.scale_p > 0 and rng.random() < self.scale_p:
-            s = rng.uniform(*self.scale)
+            s = self._draw(rng, *self.scale)
+            if mm:  # mmpose scales the box: content scale is its inverse.
+                s = 1.0 / max(s, 1e-6)
         if self.translate_p > 0 and rng.random() < self.translate_p:
             bw, bh = (crop_w, crop_h) if box_wh is None else box_wh
-            tx = rng.uniform(-1, 1) * self.translate[0] * float(bw)
-            ty = rng.uniform(-1, 1) * self.translate[1] * float(bh)
+            tx = self._draw(rng, -1.0, 1.0) * self.translate[0] * float(bw)
+            ty = self._draw(rng, -1.0, 1.0) * self.translate[1] * float(bh)
         c, si = math.cos(theta) * s, math.sin(theta) * s
         rs = np.array([[c, -si, 0.0], [si, c, 0.0], [0.0, 0.0, 1.0]])
-        A = _translate(cx + tx, cy + ty) @ rs @ _translate(-cx, -cy)
+        if mm:
+            # The box center moves first; the crop is then cut around it.
+            A = _translate(cx, cy) @ rs @ _translate(-cx - tx, -cy - ty)
+        else:
+            A = _translate(cx + tx, cy + ty) @ rs @ _translate(-cx, -cy)
         flipped = self.flip_p > 0 and rng.random() < self.flip_p
         if flipped:
             A = np.array([[-1.0, 0.0, crop_w - 1.0], [0.0, 1.0, 0.0], [0, 0, 1.0]]) @ A
         return A, flipped
 
+    def half_body_nodes(
+        self, rng: np.random.Generator, visible: np.ndarray
+    ) -> Optional[np.ndarray]:
+        """Select half-body nodes (mmpose ``RandomHalfBody``); None = no half-body."""
+        if self.half_body_p <= 0 or self.upper_idx is None:
+            return None
+        if visible.sum() < self.half_body_min_total:
+            return None
+        if rng.random() > self.half_body_p:
+            return None
+        up = self.upper_idx[visible[self.upper_idx]]
+        lo = self.lower_idx[visible[self.lower_idx]]
+        prefer_upper = rng.random() < self.half_body_upper_prob
+        ok_up = len(up) >= self.half_body_min_upper
+        ok_lo = len(lo) >= self.half_body_min_lower
+        if not ok_up and not ok_lo:
+            return None
+        if not ok_lo:
+            return up
+        if not ok_up:
+            return lo
+        return up if prefer_upper else lo
+
+    def half_body_window(
+        self,
+        rng: np.random.Generator,
+        kpts: np.ndarray,
+        visible: np.ndarray,
+        crop_hw: Tuple[int, int],
+        aspect: str = "square",
+        min_size: Optional[float] = None,
+    ) -> Optional[Tuple[np.ndarray, np.ndarray, np.ndarray]]:
+        """The half-body window of an instance, or None (no half-body).
+
+        Returns:
+            ``(window, scale, box_wh)``: the window and scale as
+            :func:`center_size_window` returns them, and the half-body box size in
+            crop pixels (the unit of the shift).
+        """
+        idx = self.half_body_nodes(rng, visible)
+        if idx is None:
+            return None
+        pts = kpts[idx].astype(np.float64)
+        size = (pts.max(0) - pts.min(0)) * self.half_body_padding
+        window, scale = center_size_window(pts.mean(0), size, crop_hw, aspect, min_size)
+        return window, scale, (np.maximum(size, 1e-6) * scale).astype(np.float32)
+
     def intensity(self, crop: np.ndarray, rng: np.random.Generator) -> np.ndarray:
-        """Contrast / brightness / gaussian noise on a uint8 crop."""
+        """Photometric ops on a uint8 ``(H, W, C)`` RGB (or gray) crop."""
         alpha, beta = 1.0, 0.0
         if self.contrast_p > 0 and rng.random() < self.contrast_p:
             # About mid-grey, like the stock path (not the crop mean).
@@ -433,12 +697,86 @@ class WarpAug:
             # 0 back up through abs()).
             lut = np.clip(np.arange(256, dtype=np.float32) * alpha + beta, 0, 255)
             crop = cv2.LUT(crop, np.rint(lut).astype(np.uint8))
-            if crop.ndim == 2:
-                crop = crop[:, :, None]
+        if crop.ndim == 2:
+            crop = crop[:, :, None]
+        if self.hsv_p > 0 and crop.shape[-1] == 3 and rng.random() < self.hsv_p:
+            crop = self._hsv(crop, rng)
+        if self.blur_p > 0 and rng.random() < self.blur_p:
+            k = _odd_kernel(rng, *self.blur_kernel)
+            crop = cv2.blur(crop, (k, k))
+        if self.median_blur_p > 0 and rng.random() < self.median_blur_p:
+            k = _odd_kernel(rng, *self.median_blur_kernel)
+            crop = cv2.medianBlur(np.ascontiguousarray(crop), k)
+        if self.gaussian_blur_p > 0 and rng.random() < self.gaussian_blur_p:
+            sigma = rng.uniform(*self.gaussian_blur_sigma)
+            crop = cv2.GaussianBlur(crop, (0, 0), sigma)
+        if crop.ndim == 2:
+            crop = crop[:, :, None]
+        if self.uniform_noise_p > 0 and rng.random() < self.uniform_noise_p:
+            lo, hi = int(self.uniform_noise[0] * 255), int(self.uniform_noise[1] * 255)
+            noise = rng.integers(lo, hi + 1, crop.shape, dtype=np.int16)
+            crop = np.clip(crop.astype(np.int16) + noise, 0, 255).astype(np.uint8)
         if self.gaussian_noise_p > 0 and rng.random() < self.gaussian_noise_p:
             m, sd = self.gaussian_noise
-            noise = rng.normal(m * 255.0, sd * 255.0, crop.shape).astype(np.float32)
-            crop = np.clip(crop.astype(np.float32) + noise, 0, 255).astype(np.uint8)
+            noise = rng.standard_normal(crop.shape, dtype=np.float32)
+            noise = noise * np.float32(sd * 255.0) + np.float32(m * 255.0)
+            crop = np.clip(crop + noise, 0, 255).astype(np.uint8)
+        if self.coarse_dropout_p > 0 and rng.random() < self.coarse_dropout_p:
+            crop = self._coarse_dropout(crop, rng)
+        if self.erase_p > 0 and rng.random() < self.erase_p:
+            crop = self._erase(crop, rng)
+        return crop
+
+    def _hsv(self, crop: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+        # mmdet YOLOXHSVRandomAug: gains in [-delta, delta], each of h/s/v kept with
+        # p=0.5, truncated to int; hue wraps mod 180 (OpenCV 8-bit hue), s/v clip.
+        # Done as one 3-channel LUT on the HSV image.
+        gains = rng.uniform(-1, 1, 3) * np.asarray(self.hsv_delta)
+        gains = (gains * rng.integers(0, 2, 3)).astype(np.int16)
+        if not gains.any():
+            return crop
+        x = np.arange(256, dtype=np.int16)
+        lut = np.stack(
+            [
+                (x + gains[0]) % 180,
+                np.clip(x + gains[1], 0, 255),
+                np.clip(x + gains[2], 0, 255),
+            ],
+            axis=-1,
+        ).astype(np.uint8)[:, None, :]
+        hsv = cv2.cvtColor(crop, cv2.COLOR_RGB2HSV)
+        return cv2.cvtColor(cv2.LUT(hsv, lut), cv2.COLOR_HSV2RGB)
+
+    def _coarse_dropout(self, crop: np.ndarray, rng: np.random.Generator):
+        # albumentations CoarseDropout with fractional sizes: integer hole sides in
+        # [min * side, max * side], uniformly placed, filled with 0.
+        H, W = crop.shape[:2]
+        crop = crop.copy()
+        lo, hi = self.coarse_dropout_size
+        n_holes = int(
+            rng.integers(self.coarse_dropout_holes[0], self.coarse_dropout_holes[1] + 1)
+        )
+        for _ in range(n_holes):
+            h = int(rng.integers(int(lo * H), int(hi * H) + 1))
+            w = int(rng.integers(int(lo * W), int(hi * W) + 1))
+            y = int(rng.integers(0, max(H - h, 0) + 1))
+            x = int(rng.integers(0, max(W - w, 0) + 1))
+            crop[y : y + h, x : x + w] = 0
+        return crop
+
+    def _erase(self, crop: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+        # Stock `_apply_random_erase`: area fraction + aspect ratio, random colour.
+        H, W = crop.shape[:2]
+        area = rng.uniform(*self.erase_scale) * H * W
+        ratio = rng.uniform(*self.erase_ratio)
+        eh, ew = int(math.sqrt(area * ratio)), int(math.sqrt(area / ratio))
+        if eh >= H or ew >= W or eh < 1 or ew < 1:
+            return crop
+        y, x = int(rng.integers(0, H - eh)), int(rng.integers(0, W - ew))
+        crop = crop.copy()
+        crop[y : y + eh, x : x + ew] = rng.integers(
+            0, 256, crop.shape[-1], dtype=np.uint8
+        )
         return crop
 
 
@@ -516,7 +854,13 @@ class WarpCenteredInstanceDataset(Dataset):
         instance_filter: Train-time :class:`InstanceFilter`.
         ensure_rgb / ensure_grayscale: As in the other datasets.
         user_instances_only: Train on user instances only.
-        return_flip: Add a ``flipped`` flag to samples (debugging / visualization).
+        stage2_aug: Optional ``(geometric, intensity)`` sections of a second
+            augmentation stage (e.g. RTMPose's weaker last epochs). The active
+            stage is :attr:`aug_stage`, a shared-memory tensor that
+            :class:`~sleap_nn.training.callbacks.AugmentationStageCallback` flips in
+            the main process and persistent workers read per sample.
+        return_flip: Add ``flipped`` / ``half_body`` / ``aug_stage`` flags to
+            samples (debugging / visualization).
         return_geometry: Add the crop geometry (``crop_window``, ``crop_scale``,
             ``instance_bbox``, ...) validation needs; default: when not augmenting.
         base_seed: Augmentation seed (mixed with the rank and the worker's torch
@@ -548,6 +892,7 @@ class WarpCenteredInstanceDataset(Dataset):
         ensure_rgb: bool = False,
         ensure_grayscale: bool = False,
         user_instances_only: bool = True,
+        stage2_aug=None,
         return_flip: bool = False,
         return_geometry: Optional[bool] = None,
         base_seed: int = 0,
@@ -569,11 +914,21 @@ class WarpCenteredInstanceDataset(Dataset):
         self.output_stride = int(confmap_head_config.output_stride)
         self.bbox_crop = bbox_crop or BBoxCropSpec()
         self.apply_aug = apply_aug
-        self.aug = (
-            WarpAug.from_configs(geometric_aug, intensity_aug)
-            if apply_aug
-            else WarpAug()
-        )
+        self.augs = [
+            (
+                WarpAug.from_configs(geometric_aug, intensity_aug)
+                if apply_aug
+                else WarpAug()
+            ).bind_nodes(self.node_names)
+        ]
+        if apply_aug and stage2_aug is not None:
+            self.augs.append(
+                WarpAug.from_configs(*stage2_aug).bind_nodes(self.node_names)
+            )
+        # Active augmentation stage, in shared memory so persistent (forked or
+        # spawned) workers see the main process's switch (they never observe plain
+        # attribute writes made after they started).
+        self.aug_stage = torch.zeros((), dtype=torch.long).share_memory_()
         self.gpu_confmaps = gpu_confmaps
         self.ensure_rgb = ensure_rgb
         self.ensure_grayscale = ensure_grayscale
@@ -594,7 +949,7 @@ class WarpCenteredInstanceDataset(Dataset):
         self.unlabeled_points = unlabeled_points
         self.flip_idx = flip_index(skeleton_symmetry_names(labels), self.node_names)
         if (
-            self.aug.flip_p > 0
+            any(a.flip_p > 0 for a in self.augs)
             and (self.flip_idx == np.arange(len(self.flip_idx))).all()
         ):
             logger.warning(
@@ -651,6 +1006,15 @@ class WarpCenteredInstanceDataset(Dataset):
         return len(self.table)
 
     @property
+    def aug(self) -> WarpAug:
+        """The augmentation of the active stage (:attr:`aug_stage`)."""
+        return self.augs[min(int(self.aug_stage), len(self.augs) - 1)]
+
+    def set_aug_stage(self, stage: int) -> None:
+        """Switch the augmentation stage (visible to running workers)."""
+        self.aug_stage.fill_(int(stage))
+
+    @property
     def labels_idx(self) -> np.ndarray:
         """``labels_idx`` of every sample (for :class:`BalancedBatchSampler`)."""
         return self.table.labels_idx
@@ -700,12 +1064,28 @@ class WarpCenteredInstanceDataset(Dataset):
         t = self.table
         i = int(i)
         H, W = self.crop_h, self.crop_w
-        M = window_affine(self.windows[i], self.scales[i])
-        flipped = False
+        window, scale, box_wh = self.windows[i], self.scales[i], self.box_wh[i]
+        flipped = half_body = False
         rng = None
+        stage = int(self.aug_stage)
+        aug = self.augs[min(stage, len(self.augs) - 1)]
         if self.apply_aug:
             rng = self._rng_for_process()
-            A, flipped = self.aug.sample(rng, H, W, self.box_wh[i])
+            if aug.half_body_p > 0:
+                vis = np.isfinite(t.kpts[i]).all(-1) & (t.weight[i] > 0)
+                hb = aug.half_body_window(
+                    rng,
+                    t.kpts[i],
+                    vis,
+                    (H, W),
+                    "stretch" if self.bbox_crop.aspect == "stretch" else "square",
+                    self.bbox_crop.min_size,
+                )
+                if hb is not None:
+                    (window, scale, box_wh), half_body = hb, True
+        M = window_affine(window, scale)
+        if self.apply_aug:
+            A, flipped = aug.sample(rng, H, W, box_wh)
             M = A @ M
         img = self._read(i)
         orig_hw = img.shape[:2]
@@ -723,11 +1103,13 @@ class WarpCenteredInstanceDataset(Dataset):
             if self.ensure_grayscale:
                 crop = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)[:, :, None]
             else:
-                crop = crop[:, :, ::-1]  # BGR -> RGB
+                # BGR -> RGB as a contiguous array: the photometric ops (and the
+                # CHW copy below) are ~2x slower on a reversed-channel view.
+                crop = cv2.cvtColor(crop, cv2.COLOR_BGR2RGB)
         elif self.ensure_rgb:
             crop = np.repeat(crop, 3, axis=-1)
         if rng is not None:
-            crop = self.aug.intensity(crop, rng)
+            crop = aug.intensity(crop, rng)
 
         k = t.kpts[i].astype(np.float64) @ M[:2, :2].T + M[:2, 2]
         k = k.astype(np.float32)
@@ -778,6 +1160,8 @@ class WarpCenteredInstanceDataset(Dataset):
             )
         if self.return_flip:
             sample["flipped"] = flipped
+            sample["half_body"] = half_body
+            sample["aug_stage"] = stage
         if not self.gpu_confmaps:
             sample["confidence_maps"] = render_confmaps(
                 sample["instance"], (H, W), self.sigma, self.output_stride
