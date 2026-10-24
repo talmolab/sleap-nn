@@ -201,7 +201,8 @@ class Distiller(nn.Module):
         stage: ``1`` or ``2``.
         alpha, beta, gamma: Loss weights (see `DistillationConfig`).
         supervised_weight: Weight of the student's own (supervised) loss.
-        decay: ``"linear"`` or ``"none"``.
+        decay: ``"linear"`` or ``"none"`` (``None`` at construction: linear at
+            stage 1, none at stage 2).
         teacher_input_scale: Student crop -> teacher input resampling factor.
         mask_unlabeled_nodes: Weight the heatmap term by ``node_weights``.
         teacher_bf16: Run the teacher under bf16 autocast on CUDA.
@@ -227,7 +228,7 @@ class Distiller(nn.Module):
         beta: float = 1.0,
         gamma: float = 1.0,
         supervised_weight: Optional[float] = None,
-        decay: str = "linear",
+        decay: Optional[str] = None,
         teacher_input_scale: float = 1.0,
         mask_unlabeled_nodes: bool = True,
         teacher_bf16: bool = True,
@@ -248,6 +249,8 @@ class Distiller(nn.Module):
         if supervised_weight is None:
             supervised_weight = 1.0 if self.stage == 1 else 0.0
         self.supervised_weight = float(supervised_weight)
+        if decay is None:
+            decay = "linear" if self.stage == 1 else "none"
         self.decay = decay
         self.teacher_input_scale = float(teacher_input_scale)
         self.mask_unlabeled_nodes = bool(mask_unlabeled_nodes)
@@ -517,7 +520,7 @@ def attach_distillation(student: nn.Module, cfg: Any) -> Distiller:
             alpha=alpha,
             beta=get("beta", 1.0),
             supervised_weight=get("supervised_weight"),
-            decay=get("decay", "linear"),
+            decay=get("decay"),
             teacher_input_scale=scale,
             mask_unlabeled_nodes=get("mask_unlabeled_nodes", True),
             teacher_bf16=get("teacher_precision", "bf16") == "bf16",
@@ -563,7 +566,7 @@ def attach_distillation(student: nn.Module, cfg: Any) -> Distiller:
             teacher_idx=list(range(len(names))),
             gamma=get("gamma", 1.0),
             supervised_weight=get("supervised_weight"),
-            decay=get("decay", "linear"),
+            decay=get("decay"),
             mask_unlabeled_nodes=get("mask_unlabeled_nodes", True),
             teacher_bf16=get("teacher_precision", "bf16") == "bf16",
             shared_features=frozen_backbone,

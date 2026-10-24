@@ -84,8 +84,9 @@ At the start of the run:
 3. Everything outside `trainable` (default `[head]`) is frozen, and `trainable` is
    re-initialized.
 
-The loss is `r(t) * gamma * L_heatmap`, with no supervised loss
-(`supervised_weight: 0`, as in DWPose). When the whole backbone is frozen it stays
+The loss is `gamma * L_heatmap`, with no supervised loss (`supervised_weight: 0`,
+as in DWPose) and no decay (`decay` defaults to `none` at stage 2, since the
+distillation term is the whole loss). When the whole backbone is frozen it stays
 in eval mode (no drop path, no BatchNorm updates) and the teacher's head reads the
 student's own backbone features, so the backbone runs once per step.
 
@@ -169,7 +170,7 @@ distillation run (`resume_ckpt_path`) restores it. Resuming stage 2 needs
 | `beta` | `1.0` | Heatmap loss weight (stage 1) |
 | `gamma` | `1.0` | Heatmap loss weight (stage 2) |
 | `supervised_weight` | `null` | Supervised loss weight; `null` = 1 at stage 1, 0 at stage 2 |
-| `decay` | `linear` | `linear` (`r(t) = 1 - t/T`) or `none` |
+| `decay` | `null` | `linear` (`r(t) = 1 - t/T`) or `none`; `null` = `linear` at stage 1, `none` at stage 2 |
 | `teacher_input_scale` | `1.0` | Student crop → teacher input resampling factor |
 | `mask_unlabeled_nodes` | `true` | Weight the heatmap term by `node_weights` |
 | `trainable` | `null` | Stage 2: what is re-initialized and trained (`[head]`) |

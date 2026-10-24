@@ -648,7 +648,8 @@ class DistillationConfig:
       nodes they share BY NAME (a COCO-17 teacher can teach a larger student
       skeleton), node-weighted like the supervised loss (see
       ``mask_unlabeled_nodes``).
-    * ``r(t) = 1 - t / T`` over the run's optimizer steps (``decay: linear``).
+    * ``r(t) = 1 - t / T`` over the run's optimizer steps (``decay``; stage 1
+      only by default).
 
     **Stage 2** (head self-distillation): the student's own trained head
     becomes the teacher; everything except ``trainable`` is frozen (and kept in
@@ -674,7 +675,9 @@ class DistillationConfig:
         supervised_weight: (float) Weight of the supervised loss. ``None`` = 1 at
             stage 1 and 0 at stage 2. *Default*: ``None``.
         decay: (str) ``"linear"`` (``r(t) = 1 - t / T``, DWPose) or ``"none"``
-            (constant weights). *Default*: ``"linear"``.
+            (constant weights). ``None`` = ``"linear"`` at stage 1 and ``"none"``
+            at stage 2 (where the distillation term is the whole loss).
+            *Default*: ``None``.
         teacher_input_scale: (float) The teacher sees the student's input crop
             resampled by this factor (e.g. ``1.5`` for a 384x288 teacher and a
             256x192 student). Its outputs are resized back to the student's
@@ -702,7 +705,9 @@ class DistillationConfig:
     supervised_weight: Optional[float] = field(
         default=None, validator=validators.optional(validators.ge(0))
     )
-    decay: str = field(default="linear", validator=validators.in_(["linear", "none"]))
+    decay: Optional[str] = field(
+        default=None, validator=validators.optional(validators.in_(["linear", "none"]))
+    )
     teacher_input_scale: float = field(default=1.0, validator=validators.gt(0))
     mask_unlabeled_nodes: bool = True
     trainable: Optional[List[str]] = None

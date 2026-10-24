@@ -76,7 +76,7 @@ def test_config_defaults_off():
     assert TrainerConfig().distillation is None
     cfg = DistillationConfig(teacher="t")
     assert (cfg.stage, cfg.alpha, cfg.beta, cfg.gamma) == (1, 1.0, 1.0, 1.0)
-    assert cfg.supervised_weight is None and cfg.decay == "linear"
+    assert cfg.supervised_weight is None and cfg.decay is None
     assert cfg.mask_unlabeled_nodes and cfg.teacher_input_scale == 1.0
     with pytest.raises(ValueError, match="needs a `teacher`"):
         DistillationConfig()
@@ -241,6 +241,7 @@ def test_teacher_input_scale_and_teacher_image(minimal_instance_centered_instanc
 def test_decay_schedule(minimal_instance_centered_instance_ckpt):
     ckpt = minimal_instance_centered_instance_ckpt
     d = attach_distillation(_student(ckpt), {"teacher": str(ckpt)})
+    assert d.decay == "linear"
     assert d.weight(0, 100) == 1.0
     assert d.weight(25, 100) == pytest.approx(0.75)
     assert d.weight(150, 100) == 0.0
@@ -314,6 +315,7 @@ def test_stage2_head_self_distillation(minimal_instance_centered_instance_ckpt):
     d = attach_distillation(student, {"stage": 2, "teacher": str(ckpt)})
     assert d.stage == 2 and d.shared_features and d.frozen_backbone
     assert d.supervised_weight == 0.0 and d.projector is None
+    assert d.decay == "none"  # the KD term is the whole loss
     trainable = [n for n, p in student.named_parameters() if p.requires_grad]
     assert trainable and all(n.startswith("model.head_layers.") for n in trainable)
     # The head was re-initialized; the teacher keeps the old head.
