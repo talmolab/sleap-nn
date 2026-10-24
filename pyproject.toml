@@ -40,13 +40,21 @@ dependencies = [
     # and the persistence/tracking layers use the single `identity_embedding` slot
     # + `save_embedding_vectors` (talmolab/sleap-io #531/#535/#536, released in 0.9.0).
     #
-    # Fenced below 0.10.0 so a future breaking bump is an explicit, audited upgrade.
+    # SLP format 3.0 (sleap-io 0.10): points carry independent `labeled` and
+    # `visible` flags, and training weights each node by `labeled | visible`
+    # (unlabeled nodes get zero loss; see `sleap_nn.data.node_weights`). Fenced
+    # below 0.11.0 so the next breaking bump is an explicit, audited upgrade.
+    #
+    # TEMPORARY: sleap-io 0.10.0 is unreleased. Until it is, [tool.uv.sources]
+    # resolves sleap-io from its `release/0.10` branch on GitHub, which still
+    # reports version 0.9.4. Before releasing sleap-nn 0.4.0, raise this floor to
+    # >=0.10.0 and delete that source entry.
     #
     # The `pyav` extra (PyAV, which ships libdav1d) is what sleap-io reads AV1 video
     # with: the opencv-python wheels for Linux before 4.14.0.94 (and 5.0.0.93)
     # cannot decode AV1, and the Windows wheels decode it 4-6x slower. 0.9.3 is the
     # first sleap-io that reads AV1 with PyAV by default (talmolab/sleap-io#561).
-    "sleap-io[pyav]>=0.9.3,<0.10.0",
+    "sleap-io[pyav]>=0.9.4,<0.11.0",
     "numpy",
     "torch",
     "torchvision>=0.20.0",
@@ -222,6 +230,9 @@ conflicts = [
 ]
 
 [tool.uv.sources]
+# TEMPORARY (see the sleap-io dependency comment): the unreleased sleap-io 0.10.0
+# (SLP format 3.0) on its `release/0.10` branch. Remove on release.
+sleap-io = { git = "https://github.com/talmolab/sleap-io", branch = "release/0.10" }
 torch = [
     { index = "pytorch-cpu", extra = "torch-cpu" },
     # `cpu`/`gpu` are first-class extras (see [project.optional-dependencies]).

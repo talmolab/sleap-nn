@@ -368,7 +368,9 @@ def labels_to_coco_images(
 
         pts, area, bbox, crowd, ignore = [], [], [], [], []
         for inst in insts:
-            p = inst.numpy()[:, :2].astype("float64")
+            # Labeled points with coordinates, occluded estimates (COCO v=1)
+            # included; NaN = unlabeled or no location.
+            p = inst.numpy(invisible_as_nan=False)[:, :2].astype("float64")
             linked = box_of_inst.get(id(inst))
             if np.isnan(p).any(axis=-1).all():
                 # A person with no labeled keypoint: COCO's num_keypoints == 0,
@@ -551,14 +553,14 @@ def _accumulate(results: list, thresholds: np.ndarray, rec_thrs: np.ndarray):
     fp_sum = np.cumsum(fps, axis=1).astype(float)
     for t in range(T):
         tp, fp = tp_sum[t], fp_sum[t]
-        nd = len(tp)
+        n_dets = len(tp)
         rc = tp / npig
         pr = tp / (fp + tp + np.spacing(1))
-        recall[t] = rc[-1] if nd else 0
+        recall[t] = rc[-1] if n_dets else 0
         pr = np.maximum.accumulate(pr[::-1])[::-1]
         inds = np.searchsorted(rc, rec_thrs, side="left")
         q = np.zeros(R)
-        valid = inds < nd
+        valid = inds < n_dets
         q[valid] = pr[inds[valid]]
         precision[t] = q
     return precision, recall
