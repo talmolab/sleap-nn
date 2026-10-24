@@ -123,6 +123,9 @@ backbone_config:
     # encoder_lr_scale / layer_decay moved to trainer_config.optimizer
     detail_stem: false     # conv stream adding stride-2/4/8 skips to the ViT pyramid
     detail_channels: null  # null = [32, 64, 128]
+    vit_decoder: unet      # unet (neck + UNet decoder) | classic | simple (ViTPose heads)
+    vit_decoder_channels: 256  # classic deconv channels
+    vit_final_norm: null   # null = on for classic/simple: last tap uses the encoder's final norm
 ```
 
 Three integration cases (`mode: auto` picks one from the backbone family and the
@@ -517,6 +520,9 @@ External HuggingFace / timm backbone (`backbone_config.pretrained`). See the
 | `drop_path_rate` | float | `null` | Stochastic depth of the encoder, ramped linearly from `0` (first block) to this value (last block). HF DINOv2 / DINOv3-ViT apply the rate uniformly; sleap-nn converts them to the ramp. Ignored, with a warning, for families without stochastic depth (CLIP, SigLIP, ViT, MAE). `null` keeps the checkpoint's setting |
 | `detail_stem` | bool | `false` | Plain ViT: add a light conv stream whose stride-2/4/8 features join the pyramid as decoder skips |
 | `detail_channels` | list[int] | `null` | Detail-stem channels at strides 2, 4, 8 (exactly three). `null` = `[32, 64, 128]` |
+| `vit_decoder` | str | `unet` | Plain ViT: `unet` (`vit_neck` pyramid + UNet decoder), or a ViTPose-style direct decoder on the last tap: `classic` (deconv 4×4/s2 + BN + ReLU blocks down to `output_stride`) or `simple` (ReLU + bilinear upsampling, no parameters; the heads' output conv becomes 3×3, as in ViTPose). The direct decoders take one tap and ignore `vit_neck`, `neck_channels`, `detail_stem`; `max_stride` need only be a multiple of `token_stride` |
+| `vit_decoder_channels` | int | `256` | Channels of the `classic` deconv blocks |
+| `vit_final_norm` | bool | `null` | Plain ViT: normalize a last-layer tap with the encoder's own pretrained final norm instead of a fresh LayerNorm. `null` = on for `classic`/`simple`, off for `unet` |
 
 ### single_instance.confmaps
 

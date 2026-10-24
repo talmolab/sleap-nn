@@ -101,6 +101,9 @@ model_config:
       drop_path_rate: null   # stochastic depth, ramped 0 -> rate over blocks (e.g. 0.1)
       detail_stem: false     # conv stream adding stride-2/4/8 decoder skips
       detail_channels: null  # null = [32, 64, 128]
+      vit_decoder: unet      # unet (neck + UNet decoder) | classic | simple (ViTPose heads, use output_stride 4)
+      vit_decoder_channels: 256  # classic deconv channels
+      vit_final_norm: null   # null = on for classic/simple: last tap uses the encoder's final norm
   head_configs:
     single_instance: null
     centroid: null

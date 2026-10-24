@@ -282,6 +282,9 @@ class Model(nn.Module):
             ),
         )
 
+        # Kernel size of the spatial heads' output conv: 1 unless the backbone's
+        # decoder asks for more (a pretrained ViT's `vit_decoder: simple`).
+        head_kernel_size = int(getattr(self.backbone, "head_kernel_size", 1))
         self.head_layers = nn.ModuleList([])
         for head in self.heads:
             if isinstance(head, MultiScaleHead):
@@ -306,6 +309,7 @@ class Model(nn.Module):
                 continue
             if isinstance(head, (ClassVectorsHead, EmbeddingHead)):
                 in_channels = int(self.backbone.middle_blocks[-1].filters)
+                head_kwargs = {}
             else:
                 stride_to_filters = self.backbone.decoder_stride_to_filters
                 if head.output_stride not in stride_to_filters:
@@ -325,7 +329,8 @@ class Model(nn.Module):
                     logger.error(message)
                     raise ValueError(message)
                 in_channels = stride_to_filters[head.output_stride]
-            self.head_layers.append(head.make_head(x_in=in_channels))
+                head_kwargs = {"kernel_size": head_kernel_size}
+            self.head_layers.append(head.make_head(x_in=in_channels, **head_kwargs))
 
     @classmethod
     def from_config(

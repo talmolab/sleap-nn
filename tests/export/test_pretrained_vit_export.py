@@ -65,7 +65,7 @@ def _tiny_vit_dir(tmp_path, kind):
     return path.as_posix()
 
 
-def _caseC_model(model_dir):
+def _caseC_model(model_dir, **kw):
     backbone_config = OmegaConf.create(
         dict(
             source="hf",
@@ -79,6 +79,7 @@ def _caseC_model(model_dir):
             # Explicit stats: a bare config dir ships no image processor.
             image_mean=[0.485, 0.456, 0.406],
             image_std=[0.229, 0.224, 0.225],
+            **kw,
         )
     )
     heads = OmegaConf.create(
@@ -95,12 +96,15 @@ def _caseC_model(model_dir):
     return model
 
 
+@pytest.mark.parametrize("vit_decoder", ["unet", "classic", "simple"])
 @pytest.mark.parametrize("kind", ["dinov2_with_registers", "clip"])
-def test_caseC_vit_onnx_export_parity(tmp_path, kind):
-    """Exported Case C graph == PyTorch at a new batch size and input size."""
+def test_caseC_vit_onnx_export_parity(tmp_path, kind, vit_decoder):
+    """Exported Case C graph == PyTorch at a new batch size and input size, for the
+    pyramid neck + UNet decoder and both ViTPose-style direct decoders."""
     import onnxruntime as ort
 
-    model = _caseC_model(_tiny_vit_dir(tmp_path, kind))
+    model = _caseC_model(_tiny_vit_dir(tmp_path, kind), vit_decoder=vit_decoder)
+    assert model.backbone.direct_decoder == (vit_decoder != "unet")
     wrapper = _ConfmapsWrapper(model).eval()
     onnx_path = export_to_onnx(
         wrapper,

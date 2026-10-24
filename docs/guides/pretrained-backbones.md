@@ -292,6 +292,9 @@ backbone it logs a warning and applies only `encoder_lr_scale`.
 | `neck_channels` | `null` → `[h/8, h/4, h/2, h]` for hidden size `h` (ViT-S: `[48, 96, 192, 384]`; ViT-B: `[96, 192, 384, 768]`) | Channels of the 4 neck levels, finest first. |
 | `detail_stem` | `false` | Add a light conv stream on the image (ViTMatte-style) whose stride-2/4/8 features are concatenated into the pyramid as decoder skips, so the decoder sees real image detail below the token stride. ~0.3 M parameters. |
 | `detail_channels` | `null` → `[32, 64, 128]` | Detail-stem channels at strides 2, 4, 8 (exactly three values). |
+| `vit_decoder` | `unet` | `unet`: the pyramid neck + sleap UNet decoder above. `classic` / `simple`: a ViTPose-style head on the last tap with no neck or UNet decoder -- `classic` is `log2(token_stride / output_stride)` blocks of deconv 4×4/s2 + BatchNorm + ReLU (2 blocks, 256 channels at `output_stride: 4`); `simple` is ReLU + bilinear upsampling with no parameters, and the heads' output conv becomes 3×3 (ViTPose's final conv) instead of sleap-nn's usual 1×1. Both match ViTPose's heads. Use `output_stride: 4`. |
+| `vit_decoder_channels` | `256` | Channels of the `classic` deconv blocks. |
+| `vit_final_norm` | `null` → on for `classic`/`simple`, off for `unet` | Pass a last-layer tap through the encoder's own pretrained final norm (`layernorm` / `norm` / `post_layernorm`, as ViTPose does) instead of a fresh LayerNorm. That norm is then an encoder parameter (frozen with `freeze`, restored with the pretrained weights) rather than being excluded as unreachable. |
 | `freeze` | `false` | Freeze the ViT. The tap LayerNorms, neck, decoder, and heads still train. |
 | `drop_path_rate` | `null` (checkpoint's own) | Stochastic depth, ramped linearly from `0` at the first block to this value at the last, as in timm and the ViTPose/MAE fine-tuning recipes (0.1–0.3 is typical). Passed to timm models and set on HF configs that have the field. HF DINOv2 and DINOv3-ViT apply the rate uniformly to every block; sleap-nn converts them to the linear ramp so one value means the same regularization across families. Families without stochastic depth (CLIP, SigLIP, ViT, MAE) log a warning and ignore it. Active in training only. |
 | `encoder_lr_scale` | `1.0` | **Deprecated** here: set `trainer_config.optimizer.encoder_lr_scale` (see **Learning rates** below). |
@@ -379,6 +382,36 @@ model_config:
 The full config is
 [`config_topdown_centered_instance_pretrained_vit.yaml`](https://github.com/talmolab/sleap-nn/blob/main/docs/sample_configs/config_topdown_centered_instance_pretrained_vit.yaml).
 Train the matching centroid model as usual (any backbone).
+
+**ViTPose-style head.** `vit_decoder: classic` or `simple` replaces the
+pyramid neck and UNet decoder with ViTPose's heads (Xu et al. 2022), which read
+only the last layer:
+
+```
+unet     taps -> fresh LayerNorm -> dpt/sfp neck -> UNet decoder -> 1x1 head conv
+classic  last layer -> final norm -> 2x [deconv 4x4/s2 + BN + ReLU] -> 1x1 head conv
+simple   last layer -> final norm -> ReLU -> bilinear x4 -> 3x3 head conv
+```
+
+"Final norm" is the encoder's own pretrained final norm (`vit_final_norm`,
+on by default for these two), as in ViTPose, so the tapped tokens are exactly
+the encoder's `last_hidden_state`. `classic` is the faster of the two and the
+one to start with: on one GPU at 256 × 192 with bf16 autocast it trains DINOv3
+ViT-B at 826 crops/s eager (1,229 compiled) against 684 for `sfp` and 670 for
+`dpt`, with about 20M fewer parameters. `simple` is no faster and uses more
+memory, because it upsamples 768-channel maps. Both decode to a single
+`output_stride` (use 4, as ViTPose does), so `vit_neck`, `neck_channels`, and
+`detail_stem` do not apply (they log a warning), `layers` takes one entry, and
+`max_stride` need only be a multiple of `token_stride`. In the config above:
+
+```yaml
+      output_stride: 4
+      vit_decoder: classic    # unet (default) | classic | simple
+      vit_decoder_channels: 256
+      vit_final_norm: null    # null = on for classic/simple, off for unet
+```
+
+with the head's `output_stride: 4`.
 
 ### Freeze vs. fine-tune
 
