@@ -155,7 +155,7 @@ class PreprocessingConfig:
         max_height: (int) Maximum height the original image should be resized and padded to. If not provided, the original image size will be retained. *Default*: `None`.
         max_width: (int) Maximum width the original image should be resized and padded to. If not provided, the original image size will be retained. *Default*: `None`.
         scale: (float) Factor to resize the image dimensions by, specified as a float. *Default*: `1.0`.
-        crop_size: (int) Crop size of each instance for centered-instance model. If `None`, this would be automatically computed based on the largest instance in the `sio.Labels` file.
+        crop_size: (int or [height, width]) Crop size of each instance for centered-instance model. A `[height, width]` pair gives non-square crops (`crop_mode="bbox"` only; e.g. `[256, 192]` for people). If `None`, this would be automatically computed based on the largest instance in the `sio.Labels` file.
             If `scale` is provided, then the cropped image will be resized according to `scale`.*Default*: `None`.
         min_crop_size: (int) Minimum crop size to be used if `crop_size` is `None`. *Default*: `100`.
         crop_padding: (int) Padding in pixels to add around the instance bounding box when computing crop size.
@@ -184,6 +184,21 @@ class PreprocessingConfig:
             in size-matched frame pixels, which caps how much a tiny or partial box is
             magnified. If `None`, it is set at training time to a quarter of the median
             training window side and saved into the config. *Default*: `None`.
+        crop_pipeline: (str) How `centered_instance` training crops are produced.
+            `legacy` decodes the frame, size-matches it to
+            `max_height`/`max_width`, cuts an oversized pre-crop, augments it and
+            re-crops it. `warp` (requires `crop_mode="bbox"`) reads the frame and cuts
+            the augmented box-scaled crop with ONE affine warp from the full frame
+            (`sleap_nn.data.topdown_warp`): no size matcher, frames of any size, nodes
+            matched by name across files (nodes a file lacks get zero loss), uint8
+            samples (~4x the legacy loader throughput). *Default*: `"legacy"`.
+        gpu_confmaps: (bool) With `crop_pipeline="warp"`, render the confidence maps
+            on the GPU in the training step instead of in the dataloader workers.
+            *Default*: `False`.
+        crop_bbox_categories: (list of str) With `crop_pipeline="warp"`, only user
+            boxes of these categories (e.g. `["person"]`) are crop boxes; other linked
+            boxes (e.g. MPII head boxes) fall back to the keypoint box. *Default*:
+            `None` (any category).
         tiling: Configuration of tiled training/inference. Inert unless `tiling.enabled` is `True`.
         burn_in: (bool) For the `embedding` model type: burn the instance mask into the
             crop (background pixels set to `background_fill`) so the embedder sees only
@@ -209,7 +224,10 @@ class PreprocessingConfig:
     scale: float = field(
         default=1.0, validator=lambda instance, attr, value: instance.validate_scale()
     )
-    crop_size: Optional[int] = None
+    crop_size: Optional[Any] = field(
+        default=None,
+        validator=lambda instance, attr, value: instance.validate_crop_size(),
+    )
     min_crop_size: Optional[int] = 100  # to help app work in case of error
     crop_padding: Optional[int] = None
     crop_mode: str = field(default="fixed", validator=validators.in_(("fixed", "bbox")))
@@ -220,10 +238,36 @@ class PreprocessingConfig:
     crop_bbox_min_size: Optional[float] = field(
         default=None, validator=validators.optional(validators.gt(0))
     )
+    crop_pipeline: str = field(
+        default="legacy", validator=validators.in_(("legacy", "warp"))
+    )
+    gpu_confmaps: bool = False
+    crop_bbox_categories: Optional[List[str]] = None
     tiling: TilingConfig = field(factory=TilingConfig)
     burn_in: bool = False
     background_fill: str = "black"
     crop_centering: str = "auto"
+
+    def validate_crop_size(self):
+        """Validate `crop_size`: an int, or `[height, width]` for warp crops."""
+        value = self.crop_size
+        if value is None or isinstance(value, (int, float)):
+            return
+        try:
+            hw = [int(v) for v in value]
+        except TypeError:
+            raise ValueError(
+                f"crop_size must be an int or [height, width], got {value!r}."
+            )
+        if len(hw) != 2 or min(hw) <= 0:
+            raise ValueError(
+                f"crop_size must be an int or [height, width], got {value!r}."
+            )
+        if self.crop_mode != "bbox" or self.crop_pipeline != "warp":
+            raise ValueError(
+                "A [height, width] crop_size needs crop_mode='bbox' and "
+                "crop_pipeline='warp' (the other crop paths are square)."
+            )
 
     def validate_scale(self):
         """Scale Validation.
@@ -411,6 +455,24 @@ class SplitConfig:
 
 
 @define
+class InstanceFilterConfig:
+    """Train-time instance filters (`crop_pipeline="warp"` only).
+
+    Attributes:
+        min_labeled_nodes: (int) Train only on instances with at least this many of
+            `count_nodes` labeled. *Default*: `0`.
+        count_nodes: (list of str) Nodes counted by `min_labeled_nodes` (e.g. the 12
+            limb joints). `None` counts every model node. *Default*: `None`.
+        min_bbox_size: (float) Train only on instances whose box has
+            `sqrt(area) >= min_bbox_size` frame pixels. *Default*: `0.0`.
+    """
+
+    min_labeled_nodes: int = field(default=0, validator=validators.ge(0))
+    count_nodes: Optional[List[str]] = None
+    min_bbox_size: float = field(default=0.0, validator=validators.ge(0))
+
+
+@define
 class DataConfig:
     """Data configuration.
 
@@ -489,6 +551,8 @@ class DataConfig:
             Pose keypoints sit inside the animal's outline, so a tight keypoint box
             is slightly smaller than the animal; a few pixels of padding compensate.
             Never applied to existing `UserBoundingBox` annotations. *Default*: `0.0`.
+        instance_filter: (InstanceFilterConfig) Train-time instance filters for
+            `crop_pipeline="warp"` (validation keeps every instance). *Default*: `None`.
     """
 
     train_labels_path: Optional[List[str]] = None
@@ -527,6 +591,7 @@ class DataConfig:
         validator=validators.in_(("auto", "bboxes", "instances", "masks")),
     )
     bbox_padding: float = field(default=0.0, validator=validators.ge(0))
+    instance_filter: Optional[InstanceFilterConfig] = None
 
 
 def data_mapper(legacy_config: dict) -> DataConfig:

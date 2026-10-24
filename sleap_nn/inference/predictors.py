@@ -13,6 +13,7 @@
     classes in this file will be removed in a future release.
 """
 
+from sleap_nn.data.instance_cropping import crop_hw
 import threading
 import warnings
 from collections import defaultdict
@@ -903,10 +904,7 @@ class TopDownPredictor(Predictor):
             )
             centroid_crop_layer = CentroidCrop(
                 use_gt_centroids=True,
-                crop_hw=(
-                    self.preprocess_config.crop_size,
-                    self.preprocess_config.crop_size,
-                ),
+                crop_hw=crop_hw(self.preprocess_config.crop_size),
                 anchor_ind=anchor_ind,
                 centroid_method=centroid_method,
                 centroid_fallback=centroid_fallback,
@@ -929,10 +927,7 @@ class TopDownPredictor(Predictor):
                 max_instances=self.max_instances,
                 max_stride=max_stride,
                 input_scale=self.centroid_scale,
-                crop_hw=(
-                    self.preprocess_config.crop_size,
-                    self.preprocess_config.crop_size,
-                ),
+                crop_hw=crop_hw(self.preprocess_config.crop_size),
                 use_gt_centroids=False,
             )
 
@@ -3333,10 +3328,7 @@ class TopDownMultiClassPredictor(Predictor):
             )
             centroid_crop_layer = CentroidCrop(
                 use_gt_centroids=True,
-                crop_hw=(
-                    self.preprocess_config.crop_size,
-                    self.preprocess_config.crop_size,
-                ),
+                crop_hw=crop_hw(self.preprocess_config.crop_size),
                 anchor_ind=anchor_ind,
                 centroid_method=centroid_method,
                 centroid_fallback=centroid_fallback,
@@ -3359,10 +3351,7 @@ class TopDownMultiClassPredictor(Predictor):
                 max_instances=self.max_instances,
                 max_stride=max_stride,
                 input_scale=self.centroid_scale,
-                crop_hw=(
-                    self.preprocess_config.crop_size,
-                    self.preprocess_config.crop_size,
-                ),
+                crop_hw=crop_hw(self.preprocess_config.crop_size),
                 use_gt_centroids=False,
             )
 

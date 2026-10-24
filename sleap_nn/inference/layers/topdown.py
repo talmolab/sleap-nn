@@ -331,8 +331,12 @@ class TopDownLayer:
         windows = scales = None
         if self.bbox_crop is not None:
             valid_boxes = boxes[valid_idx[:, 0], valid_idx[:, 1]].float()
-            windows, scales, keep_half = self.bbox_crop.windows(valid_boxes, crop_h)
-            crops = crop_windows(image_4d, windows, sample_inds, crop_h)
+            # Non-square crops (`crop_size: [h, w]`) use the same window rule as
+            # training (`bbox_crop_windows`), so pass both sides.
+            windows, scales, keep_half = self.bbox_crop.windows(
+                valid_boxes, (crop_h, crop_w)
+            )
+            crops = crop_windows(image_4d, windows, sample_inds, (crop_h, crop_w))
             if self.bbox_crop.aspect == "letterbox":
                 crops = letterbox_crops(crops, keep_half)
             if not torch.is_floating_point(image_4d):
