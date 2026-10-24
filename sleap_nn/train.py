@@ -793,7 +793,7 @@ def train(
     learning_rate: float = 1e-3,
     amsgrad: bool = False,
     lr_scheduler: Optional[Union[str, Dict[str, Any]]] = None,
-    early_stopping: bool = False,
+    early_stopping: Optional[bool] = False,
     early_stopping_min_delta: float = 0.0,
     early_stopping_patience: int = 1,
     online_mining: bool = False,
@@ -804,6 +804,26 @@ def train(
     zmq_publish_port: Optional[int] = None,
     zmq_controller_port: Optional[int] = None,
     zmq_controller_timeout: int = 10,
+    precision: Union[str, int] = "32",
+    float32_matmul_precision: Optional[str] = None,
+    compile: Union[bool, str] = False,
+    gradient_clip_val: Optional[float] = None,
+    gradient_clip_algorithm: str = "norm",
+    accumulate_grad_batches: int = 1,
+    log_every_n_steps: int = 1,
+    max_steps: Optional[int] = None,
+    val_check_interval: Optional[Union[int, float]] = None,
+    throughput_log_every_n_steps: Optional[int] = 50,
+    confmap_fg_bg_diagnostics: Optional[bool] = None,
+    prefetch_factor: Optional[int] = 2,
+    pin_memory: Optional[bool] = None,
+    drop_last: Optional[bool] = None,
+    weight_decay: Optional[float] = None,
+    encoder_lr_scale: Optional[float] = None,
+    layer_decay: Optional[float] = None,
+    ema: bool = False,
+    ema_decay: float = 0.9998,
+    ema_warmup_steps: int = 2000,
 ):
     """Train a pose-estimation model with SLEAP-NN framework.
 
@@ -986,8 +1006,10 @@ def train(
         optimizer: Optimizer to be used. One of ["Adam", "AdamW"]. Default: "Adam".
         learning_rate: Learning rate of type float. Default: 1e-3.
         amsgrad: Enable AMSGrad with the optimizer. Default: False.
-        lr_scheduler: One of ["step_lr", "reduce_lr_on_plateau"] (the default values in
-            `sleap_nn.config.trainer_config` are used). To use custom values, pass a
+        lr_scheduler: One of ["step_lr", "reduce_lr_on_plateau",
+            "cosine_annealing_warmup", "linear_warmup_linear_decay"] (the default
+            values in `sleap_nn.config.trainer_config` are used). To use custom
+            values (required for "multi_step_lr", which needs `milestones`), pass a
             dictionary with the structure in `sleap_nn.config.trainer_config.LRSchedulerConfig`.
             For eg, {
                         "step_lr":
@@ -995,7 +1017,9 @@ def train(
                                 (params in `sleap_nn.config.trainer_config.StepLRConfig`)
                             }
                     }
-        early_stopping: True if early stopping should be enabled. Default: False.
+        early_stopping: True if early stopping should be enabled. `None` = on, except
+            with a fixed-length schedule (cosine_annealing_warmup,
+            linear_warmup_linear_decay, multi_step_lr). Default: False.
         early_stopping_min_delta: Minimum change in the monitored quantity to qualify as
             an improvement, i.e. an absolute change of less than or equal to min_delta,
             will count as no improvement. Default: 0.0.
@@ -1023,6 +1047,51 @@ def train(
         zmq_controller_port: (int) Specifies the port to listen to to stop the training (specific to SLEAP GUI).
         zmq_controller_timeout: (int) Polling timeout in microseconds specified as an integer. This controls how long the poller
             should wait to receive a response and should be set to a small value to minimize the impact on training speed.
+        precision: Lightning training precision: `"32"` (fp32), `"bf16-mixed"` (bf16
+            autocast with fp32 weights; recommended on Ampere+ GPUs) or `"16-mixed"`
+            (fp16 autocast with a gradient scaler). Default: `"32"`.
+        float32_matmul_precision: `torch.set_float32_matmul_precision` value used
+            while training on CUDA (`"high"` = TF32 matmuls, `"highest"` = strict
+            fp32), restored afterwards. `None` leaves the process setting untouched.
+            Default: `None`.
+        compile: `torch.compile` the model in place: `True` (`"default"` mode) or one
+            of `"reduce-overhead"`, `"max-autotune"`, `"max-autotune-no-cudagraphs"`.
+            Default: `False`.
+        gradient_clip_val: Clip gradients at this value; `None` disables clipping.
+            Default: `None`.
+        gradient_clip_algorithm: `"norm"` (global L2 norm) or `"value"`.
+            Default: `"norm"`.
+        accumulate_grad_batches: Batches per optimizer step. Default: 1.
+        log_every_n_steps: Step-level metric logging cadence (each logged step
+            syncs the GPU). Default: 1.
+        max_steps: Optimizer-step budget; training stops at `max_steps` or
+            `max_epochs`, whichever comes first. `None` = no step limit.
+            Default: `None`.
+        val_check_interval: Validate every N training batches (int) or every
+            fraction of an epoch (float). `None` = once per epoch. Default: `None`.
+        throughput_log_every_n_steps: Window (in training batches) of the `perf/*`
+            throughput metrics; `0` or `None` disables them. Default: 50.
+        confmap_fg_bg_diagnostics: Log the confmap foreground/background MSE split.
+            `None` = only for centroid models. Default: `None`.
+        prefetch_factor: Batches each dataloader worker loads ahead (ignored with
+            `num_workers=0`). Default: 2.
+        pin_memory: Use pinned host memory for batches. `None` = `True`.
+            Default: `None`.
+        drop_last: Drop the partial batch at the end of each pass over the training
+            data. `None` = only when `compile` is enabled. Default: `None`.
+        weight_decay: Weight decay for weight matrices / kernels only (biases, norms,
+            other 1-D params, position embeddings and special tokens get none).
+            `None` keeps the optimizer's torch default on every parameter.
+            Default: `None`.
+        encoder_lr_scale: Learning-rate multiplier for a `pretrained` backbone's
+            encoder. `None` = 1.0. Default: `None`.
+        layer_decay: Layer-wise learning-rate decay for a plain-ViT `pretrained`
+            encoder. `None` disables it. Default: `None`.
+        ema: Keep an exponential moving average of the weights, used for
+            validation and saved in the checkpoints. Default: False.
+        ema_decay: EMA decay after warmup. Default: 0.9998.
+        ema_warmup_steps: Time constant (optimizer steps) of the EMA decay warmup;
+            0 disables it. Default: 2000.
     """
     data_config = get_data_config(
         train_labels_path=train_labels_path,
@@ -1104,6 +1173,26 @@ def train(
         zmq_publish_port=zmq_publish_port,
         zmq_controller_port=zmq_controller_port,
         zmq_controller_timeout=zmq_controller_timeout,
+        precision=precision,
+        float32_matmul_precision=float32_matmul_precision,
+        compile=compile,
+        gradient_clip_val=gradient_clip_val,
+        gradient_clip_algorithm=gradient_clip_algorithm,
+        accumulate_grad_batches=accumulate_grad_batches,
+        log_every_n_steps=log_every_n_steps,
+        max_steps=max_steps,
+        val_check_interval=val_check_interval,
+        throughput_log_every_n_steps=throughput_log_every_n_steps,
+        confmap_fg_bg_diagnostics=confmap_fg_bg_diagnostics,
+        prefetch_factor=prefetch_factor,
+        pin_memory=pin_memory,
+        drop_last=drop_last,
+        weight_decay=weight_decay,
+        encoder_lr_scale=encoder_lr_scale,
+        layer_decay=layer_decay,
+        ema=ema,
+        ema_decay=ema_decay,
+        ema_warmup_steps=ema_warmup_steps,
     )
 
     # create omegaconf object

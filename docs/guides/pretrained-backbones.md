@@ -278,10 +278,11 @@ PE-Spatial, EVA02, and DINOv3-ConvNeXt.
 `token_stride`, `layers`, `vit_neck`, `neck_channels`, and `detail_stem` shape
 the plain-ViT path (Case C, and the token path of Case B); a hierarchical
 backbone logs a warning that it ignores them, and so does the plain-ViT path for
-the knobs it cannot use (`out_indices`; the neck knobs in encoder-only mode). `freeze`, `encoder_lr_scale`, and
-`gradient_checkpointing` apply to every encoder. `layer_decay` applies to plain
-ViTs (including DINOv2 in encoder-only mode); on a hierarchical backbone it logs
-a warning and applies only `encoder_lr_scale`.
+the knobs it cannot use (`out_indices`; the neck knobs in encoder-only mode). `freeze`,
+`gradient_checkpointing` and `drop_path_rate` apply to every encoder, as does
+`trainer_config.optimizer.encoder_lr_scale`. `trainer_config.optimizer.layer_decay`
+applies to plain ViTs (including DINOv2 in encoder-only mode); on a hierarchical
+backbone it logs a warning and applies only `encoder_lr_scale`.
 
 | Field | Default | What it does |
 |-------|---------|--------------|
@@ -291,9 +292,13 @@ a warning and applies only `encoder_lr_scale`.
 | `neck_channels` | `null` → `[h/8, h/4, h/2, h]` for hidden size `h` (ViT-S: `[48, 96, 192, 384]`; ViT-B: `[96, 192, 384, 768]`) | Channels of the 4 neck levels, finest first. |
 | `detail_stem` | `false` | Add a light conv stream on the image (ViTMatte-style) whose stride-2/4/8 features are concatenated into the pyramid as decoder skips, so the decoder sees real image detail below the token stride. ~0.3 M parameters. |
 | `detail_channels` | `null` → `[32, 64, 128]` | Detail-stem channels at strides 2, 4, 8 (exactly three values). |
+| `vit_decoder` | `unet` | `unet`: the pyramid neck + sleap UNet decoder above. `classic` / `simple`: a ViTPose-style head on the last tap with no neck or UNet decoder -- `classic` is `log2(token_stride / output_stride)` blocks of deconv 4×4/s2 + BatchNorm + ReLU (2 blocks, 256 channels at `output_stride: 4`); `simple` is ReLU + bilinear upsampling with no parameters, and the heads' output conv becomes 3×3 (ViTPose's final conv) instead of sleap-nn's usual 1×1. Both match ViTPose's heads. Use `output_stride: 4`. |
+| `vit_decoder_channels` | `256` | Channels of the `classic` deconv blocks. |
+| `vit_final_norm` | `null` → on for `classic`/`simple`, off for `unet` | Pass a last-layer tap through the encoder's own pretrained final norm (`layernorm` / `norm` / `post_layernorm`, as ViTPose does) instead of a fresh LayerNorm. That norm is then an encoder parameter (frozen with `freeze`, restored with the pretrained weights) rather than being excluded as unreachable. |
 | `freeze` | `false` | Freeze the ViT. The tap LayerNorms, neck, decoder, and heads still train. |
-| `encoder_lr_scale` | `1.0` | Learning-rate multiplier for the pretrained encoder; the neck, decoder, and heads train at the base LR. |
-| `layer_decay` | `null` (off) | Layer-wise LR decay: block `i` of `L` trains at `encoder_lr_scale · layer_decay^(L+1−i)` × base LR. Everything registered before the first block (patch/position embeddings, prefix tokens, CLIP's pre-norm) gets `layer_decay^(L+1)`; everything after the last block (final norm) gets `encoder_lr_scale`. An LR schedule's absolute values (`warmup_start_lr`, `eta_min`, `end_lr`, `min_lr`) are scaled by each group's factor too, so the ratios hold for the whole run. |
+| `drop_path_rate` | `null` (checkpoint's own) | Stochastic depth, ramped linearly from `0` at the first block to this value at the last, as in timm and the ViTPose/MAE fine-tuning recipes (0.1–0.3 is typical). Passed to timm models and set on HF configs that have the field. HF DINOv2 and DINOv3-ViT apply the rate uniformly to every block; sleap-nn converts them to the linear ramp so one value means the same regularization across families. Families without stochastic depth (CLIP, SigLIP, ViT, MAE) log a warning and ignore it. Active in training only. |
+| `encoder_lr_scale` | `1.0` | **Deprecated** here: set `trainer_config.optimizer.encoder_lr_scale` (see **Learning rates** below). |
+| `layer_decay` | `null` (off) | **Deprecated** here: set `trainer_config.optimizer.layer_decay` (see **Learning rates** below). |
 | `gradient_checkpointing` | `false` | Recompute encoder activations in the backward pass: less memory, slower steps. Only active in training (off for inference and export). Logs a warning and does nothing on a model that does not support it. |
 
 **Strides.** The neck emits strides `s/4, s/2, s, 2s`: 4/8/16/32 at the default
@@ -318,12 +323,22 @@ unchanged. Likewise the neck builds only the levels the decoder reads: at
 `output_stride: 8` (token stride 16) it builds strides 8/16/32 from three taps,
 and the detail stem contributes only the strides at or above `output_stride`.
 
-**Learning rates.** A fine-tuned ViT trains at the same LR as the randomly
-initialized neck and decoder by default. `encoder_lr_scale` (e.g. `0.1`) and
-`layer_decay` (values around 0.65–0.9 are common in ViT fine-tuning recipes)
-let the pretrained layers move more slowly than the new ones. Both are applied
-through optimizer parameter groups, so they also apply to the `embedding` model
-type.
+**Learning rates.** A fine-tuned ViT trains at the same LR as the randomly initialized neck and
+decoder by default. `trainer_config.optimizer.encoder_lr_scale` (e.g. `0.1`) and
+`trainer_config.optimizer.layer_decay` (values around 0.65–0.9 are common in ViT
+fine-tuning recipes) let the pretrained layers move more slowly than the new
+ones. Block `i` of `L` trains at `encoder_lr_scale · layer_decay^(L+1−i)` × base
+LR. Everything registered before the first block (patch/position embeddings,
+prefix tokens, CLIP's pre-norm) gets `layer_decay^(L+1)`; everything after the
+last block (final norm) gets `encoder_lr_scale`. An LR schedule's absolute values
+(`warmup_start_lr`, `eta_min`, `end_lr`, `min_lr`) are scaled by each group's
+factor too, so the ratios hold for the whole run. Both are applied through
+optimizer parameter groups, so they also apply to the `embedding` model type, and
+they compose with `trainer_config.optimizer.weight_decay` (which exempts the
+position embeddings and tokens). Before 0.4 these keys lived on
+`backbone_config.pretrained`; they are still read there, with a deprecation
+warning. See the [trainer config](../configuration/trainer.md#optimizer) for the
+rest of the ViTPose-style recipe (per-step warmup, multi-step decay, weight EMA).
 
 A top-down centered-instance pose model on DINOv3 ViT-S/16 (swap in
 `facebook/dinov2-with-registers-small` for an Apache-2.0, `transformers`-only
@@ -353,8 +368,7 @@ model_config:
       layers: null            # [3, 6, 9, 12] for a 12-layer ViT
       vit_neck: dpt           # dpt | sfp
       neck_channels: null     # [48, 96, 192, 384] for ViT-S (hidden size 384)
-      encoder_lr_scale: 1.0
-      layer_decay: null
+      drop_path_rate: null
       gradient_checkpointing: false
   head_configs:
     centered_instance:
@@ -369,11 +383,42 @@ The full config is
 [`config_topdown_centered_instance_pretrained_vit.yaml`](https://github.com/talmolab/sleap-nn/blob/main/docs/sample_configs/config_topdown_centered_instance_pretrained_vit.yaml).
 Train the matching centroid model as usual (any backbone).
 
+**ViTPose-style head.** `vit_decoder: classic` or `simple` replaces the
+pyramid neck and UNet decoder with ViTPose's heads (Xu et al. 2022), which read
+only the last layer:
+
+```
+unet     taps -> fresh LayerNorm -> dpt/sfp neck -> UNet decoder -> 1x1 head conv
+classic  last layer -> final norm -> 2x [deconv 4x4/s2 + BN + ReLU] -> 1x1 head conv
+simple   last layer -> final norm -> ReLU -> bilinear x4 -> 3x3 head conv
+```
+
+"Final norm" is the encoder's own pretrained final norm (`vit_final_norm`,
+on by default for these two), as in ViTPose, so the tapped tokens are exactly
+the encoder's `last_hidden_state`. `classic` is the faster of the two and the
+one to start with: on one GPU at 256 × 192 with bf16 autocast it trains DINOv3
+ViT-B at 826 crops/s eager (1,229 compiled) against 684 for `sfp` and 670 for
+`dpt`, with about 20M fewer parameters. `simple` is no faster and uses more
+memory, because it upsamples 768-channel maps. Both decode to a single
+`output_stride` (use 4, as ViTPose does), so `vit_neck`, `neck_channels`, and
+`detail_stem` do not apply (they log a warning), `layers` takes one entry, and
+`max_stride` need only be a multiple of `token_stride`. In the config above:
+
+```yaml
+      output_stride: 4
+      vit_decoder: classic    # unet (default) | classic | simple
+      vit_decoder_channels: 256
+      vit_final_norm: null    # null = on for classic/simple, off for unet
+```
+
+with the head's `output_stride: 4`.
+
 ### Freeze vs. fine-tune
 
 - `freeze: false` (default) — the whole backbone fine-tunes end-to-end. Best
-  accuracy; recommended when you have enough labeled data. `encoder_lr_scale`
-  and `layer_decay` (above) are a middle ground between this and freezing.
+  accuracy; recommended when you have enough labeled data.
+  `trainer_config.optimizer.encoder_lr_scale` and `layer_decay` (above) are a
+  middle ground between this and freezing.
 - `freeze: true` — the encoder is frozen (feature extraction) and only the
   decoder/head train (for Case C also the tap LayerNorms and the neck). Faster,
   lower memory, and more robust on very small datasets. sleap-nn filters frozen
