@@ -598,15 +598,33 @@ def run_inference(
             # (its loader does `path.iterdir()`, which breaks on a file). #575.
             model_paths = [resolve_model_dir(_mp) for _mp in model_paths]
 
+            from sleap_nn.data.instance_cropping import BBoxCropSpec
+
             _types = []
+            _box_scaled = False
             for _mp in model_paths:
                 try:
                     _cfg, _ = _load_training_config(_mp)
                     _types.append(get_model_type_from_cfg(config=_cfg))
+                    _box_scaled = (
+                        _box_scaled or BBoxCropSpec.from_config(_cfg) is not None
+                    )
                 except (
                     Exception
                 ):  # noqa: BLE001 - fail open; only block the exact lone-centroid case
                     _types.append(None)
+            if _box_scaled:
+                # The legacy pipeline only cuts fixed windows around centroids, so
+                # it would silently feed a box-scaled model crops it never saw.
+                raise ValueError(
+                    "Centered-instance models trained with box-scaled crops "
+                    "(preprocessing.crop_mode='bbox') are not supported by the "
+                    "legacy `track` / `run_inference` pipeline. Use the new flow "
+                    "with a box detector:\n"
+                    "  sleap-nn predict --data_path <video|.slp> "
+                    "--model_paths <bbox_dir> --model_paths <centered_instance_dir> "
+                    "[--tracking]"
+                )
             if _types == ["centroid"]:
                 raise ValueError(
                     "Centroid-only inference is not supported by the legacy "
@@ -649,17 +667,18 @@ def run_inference(
                     "  predict(src, model_paths=[centroid_dir, seg_dir])"
                 )
             if "bbox_centernet" in _types or "bbox_ssd" in _types:
-                # Box detectors emit `sio.PredictedBoundingBox`es, which the legacy
-                # pose pipeline has no output path for.
+                # Box detectors emit `sio.PredictedBoundingBox`es, and a detector-
+                # seeded top-down pipeline exists only in the new flow.
                 raise ValueError(
                     "Bounding-box models are not supported by the legacy "
-                    "`track` / `run_inference` pipeline (they emit boxes, not "
-                    "poses). Use the new flow:\n"
+                    "`track` / `run_inference` pipeline, alone or as the first "
+                    "stage of a top-down model. Use the new flow:\n"
                     "  sleap-nn predict --data_path <video|.slp> "
-                    "--model_paths <bbox_dir>\n"
+                    "--model_paths <bbox_dir> [--model_paths <centered_instance_dir>] "
+                    "[--tracking]\n"
                     "or, from Python:\n"
                     "  from sleap_nn.inference.run import predict\n"
-                    "  predict(src, model_paths=[bbox_dir])"
+                    "  predict(src, model_paths=[bbox_dir, centered_instance_dir])"
                 )
 
         start_inf_time = time()

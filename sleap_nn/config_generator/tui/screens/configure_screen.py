@@ -1310,11 +1310,14 @@ class ConfigureScreen(Widget):
 
     def _compose_topdown_config(self) -> ComposeResult:
         """Compose top-down specific configuration with tabs."""
+        # Stage 1 is a box detector for the ``topdown_bbox_*`` pipelines.
+        is_bbox = bool(self._state and self._state.is_topdown_bbox)
         with TabbedContent(id="topdown-tabs"):
             with TabPane("Shared Settings", id="shared-tab"):
                 yield from self._compose_shared_topdown_params()
 
-            with TabPane("Centroid Model", id="centroid-tab"):
+            first_title = "Detector Model" if is_bbox else "Centroid Model"
+            with TabPane(first_title, id="centroid-tab"):
                 yield from self._compose_centroid_params()
 
             with TabPane("Instance Model", id="instance-tab"):
@@ -2470,6 +2473,18 @@ class ConfigureScreen(Widget):
 
     def _compose_shared_topdown_params(self) -> ComposeResult:
         """Compose shared parameters for top-down models (anchor point only)."""
+        if self._state and self._state.is_topdown_bbox:
+            # Box-scaled crops are centered on the box: no anchor point.
+            with Container(classes="section-box"):
+                yield Static("[bold]Instance Crops[/bold]", classes="section-header")
+                yield Static(
+                    "[dim]Each crop is a detected box, padded by 10% of its longest "
+                    "side, squared and resized to the crop size (crop_mode: bbox), so "
+                    "no anchor point is needed. Both configs derive their training "
+                    "boxes the same way (bbox_source / bbox_padding).[/dim]"
+                )
+            return
+
         # Anchor part selection with visibility percentages
         with Container(classes="section-box"):
             yield Static("[bold]Anchor Point[/bold]", classes="section-header")
@@ -2802,7 +2817,12 @@ class ConfigureScreen(Widget):
         # Model configuration
         with Container(classes="section-box"):
             yield Static("[bold]Model Architecture[/bold]", classes="section-header")
-            yield Static("[dim]Detects animal centers in full frame[/dim]")
+            is_bbox = bool(self._state and self._state.is_topdown_bbox)
+            yield Static(
+                "[dim]Detects animal boxes in full frame[/dim]"
+                if is_bbox
+                else "[dim]Detects animal centers in full frame[/dim]"
+            )
 
             # Model info display
             yield Static(id="centroid-model-info-display", classes="shape-info")
@@ -2859,16 +2879,17 @@ class ConfigureScreen(Widget):
                 )
                 yield Label("Multiplier per block (1.5 typical)", classes="param-hint")
 
-            # Sigma for centroid
-            with Horizontal(classes="param-row"):
-                yield Label("Sigma:", classes="param-label")
-                yield Input(
-                    value=str(self._state._sigma if self._state else 5.0),
-                    id="centroid-sigma-input",
-                    classes="param-input",
-                    type="number",
-                )
-                yield Label("Centroid confidence map spread", classes="param-hint")
+            # Sigma for centroid (box detectors size their own targets)
+            if not is_bbox:
+                with Horizontal(classes="param-row"):
+                    yield Label("Sigma:", classes="param-label")
+                    yield Input(
+                        value=str(self._state._sigma if self._state else 5.0),
+                        id="centroid-sigma-input",
+                        classes="param-input",
+                        type="number",
+                    )
+                    yield Label("Centroid confidence map spread", classes="param-hint")
 
             # Output stride
             with Horizontal(classes="param-row"):
@@ -3330,20 +3351,31 @@ class ConfigureScreen(Widget):
         with Container(classes="section-box"):
             yield Static("[bold]Data Configuration[/bold]", classes="section-header")
 
-            # Crop size (main param for instance model)
-            crop_size = self._state._crop_size if self._state else None
-            if crop_size is None and self._state:
-                crop_size = self._state._compute_auto_crop_size()
+            if self._state and self._state.is_topdown_bbox:
+                # Box-scaled crops are sized from the training boxes at train time.
+                with Horizontal(classes="param-row"):
+                    yield Label("Crop Size:", classes="param-label")
+                    yield Label(
+                        "auto - each box is resized to the median padded box side",
+                        classes="param-hint",
+                    )
+            else:
+                # Crop size (main param for instance model)
+                crop_size = self._state._crop_size if self._state else None
+                if crop_size is None and self._state:
+                    crop_size = self._state._compute_auto_crop_size()
 
-            with Horizontal(classes="param-row"):
-                yield Label("Crop Size:", classes="param-label")
-                yield Input(
-                    value=str(crop_size or 256),
-                    id="crop-size-input",
-                    classes="param-input",
-                    type="integer",
-                )
-                yield Label("Square crop around each instance", classes="param-hint")
+                with Horizontal(classes="param-row"):
+                    yield Label("Crop Size:", classes="param-label")
+                    yield Input(
+                        value=str(crop_size or 256),
+                        id="crop-size-input",
+                        classes="param-input",
+                        type="integer",
+                    )
+                    yield Label(
+                        "Square crop around each instance", classes="param-hint"
+                    )
 
             # Instance scale
             with Horizontal(classes="param-row"):

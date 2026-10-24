@@ -97,6 +97,25 @@ MODEL_WEIGHTS = {
 }
 
 
+def _bbox_crop_points_to_frame(points, batch: dict, i: int) -> np.ndarray:
+    """Map box-scaled-crop keypoints of sample ``i`` to original-frame pixels.
+
+    Args:
+        points: ``(n_nodes, 2)`` keypoints in the model's (input-scaled) crop pixels.
+        batch: A batch from a ``crop_mode="bbox"`` dataset (``crop_window``,
+            ``crop_scale``, ``input_scale``, ``eff_scale``).
+        i: Sample index in the batch.
+    """
+    from sleap_nn.data.instance_cropping import points_from_crop
+
+    pts = torch.as_tensor(np.asarray(points), dtype=torch.float32)[None]
+    pts = pts / float(batch["input_scale"][i])
+    window = batch["crop_window"][i].reshape(1, 4).float().cpu()
+    scale = batch["crop_scale"][i].reshape(1, 2).float().cpu()
+    frame = points_from_crop(pts, window, scale)[0]
+    return (frame / float(batch["eff_scale"][i])).numpy()
+
+
 class LightningModel(L.LightningModule):
     """Base PyTorch Lightning Module for all sleap-nn models.
 
@@ -1525,10 +1544,24 @@ class TopDownCenteredInstanceLightningModule(LightningModel):
                 gt_crop_orig = gt_crop_prep / eff
                 gt_full_orig = gt_crop_orig + bbox_top_left_orig
 
+                if "crop_window" in batch:
+                    # Box-scaled crop: undo the input scale and the crop's own
+                    # window/scale (exact on un-augmented val samples), so both
+                    # land in original-frame pixels.
+                    pred_peaks_full = _bbox_crop_points_to_frame(
+                        pred_peaks_crop * eff, batch, i
+                    )
+                    gt_full_orig = _bbox_crop_points_to_frame(gt_crop_prep, batch, i)
+
+                # One entry per crop: `crop_id` pairs this prediction with its
+                # own GT instance (a frame holds several crops, each in its own
+                # crop coordinates, so they must not be pooled by frame).
+                crop_id = len(self.val_ground_truth)
                 self.val_predictions.append(
                     {
                         "video_idx": batch["video_idx"][i].item(),
                         "frame_idx": batch["frame_idx"][i].item(),
+                        "crop_id": crop_id,
                         "pred_peaks": pred_peaks_full.reshape(
                             1, -1, 2
                         ),  # (1, n_nodes, 2)
@@ -1539,6 +1572,7 @@ class TopDownCenteredInstanceLightningModule(LightningModel):
                     {
                         "video_idx": batch["video_idx"][i].item(),
                         "frame_idx": batch["frame_idx"][i].item(),
+                        "crop_id": crop_id,
                         "gt_instances": gt_full_orig.reshape(
                             1, -1, 2
                         ),  # (1, n_nodes, 2)
@@ -3033,10 +3067,24 @@ class TopDownCenteredInstanceMultiClassLightningModule(LightningModel):
                 gt_crop_orig = gt_crop_prep / eff
                 gt_full_orig = gt_crop_orig + bbox_top_left_orig
 
+                if "crop_window" in batch:
+                    # Box-scaled crop: undo the input scale and the crop's own
+                    # window/scale (exact on un-augmented val samples), so both
+                    # land in original-frame pixels.
+                    pred_peaks_full = _bbox_crop_points_to_frame(
+                        pred_peaks_crop * eff, batch, i
+                    )
+                    gt_full_orig = _bbox_crop_points_to_frame(gt_crop_prep, batch, i)
+
+                # One entry per crop: `crop_id` pairs this prediction with its
+                # own GT instance (a frame holds several crops, each in its own
+                # crop coordinates, so they must not be pooled by frame).
+                crop_id = len(self.val_ground_truth)
                 self.val_predictions.append(
                     {
                         "video_idx": batch["video_idx"][i].item(),
                         "frame_idx": batch["frame_idx"][i].item(),
+                        "crop_id": crop_id,
                         "pred_peaks": pred_peaks_full.reshape(
                             1, -1, 2
                         ),  # (1, n_nodes, 2)
@@ -3047,6 +3095,7 @@ class TopDownCenteredInstanceMultiClassLightningModule(LightningModel):
                     {
                         "video_idx": batch["video_idx"][i].item(),
                         "frame_idx": batch["frame_idx"][i].item(),
+                        "crop_id": crop_id,
                         "gt_instances": gt_full_orig.reshape(
                             1, -1, 2
                         ),  # (1, n_nodes, 2)

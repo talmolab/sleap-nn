@@ -149,6 +149,51 @@ def add_bboxes_to_labels(
     return resolved
 
 
+def instance_crop_bbox(
+    lf: sio.LabeledFrame, inst: sio.Instance, source: str, padding: float = 0.0
+) -> Optional[np.ndarray]:
+    """The box a box-scaled crop of one pose instance is cut from.
+
+    Used by the ``crop_mode="bbox"`` centered-instance datasets, it derives the box
+    the way :func:`add_bboxes_to_labels` derives a detector's ground truth, so a
+    detector and a centered-instance model trained with the same ``bbox_source`` /
+    ``bbox_padding`` agree on what a box is:
+
+    * ``bboxes``: the frame's user box linked to ``inst`` (``box.instance``), as is;
+    * ``masks``: the user mask linked to ``inst`` (``mask.instance``), padded;
+    * ``instances`` -- or no linked box/mask -- the tight box of the instance's
+      visible keypoints, padded.
+
+    Args:
+        lf: The instance's frame.
+        inst: The pose instance.
+        source: A resolved bbox source (:func:`resolve_bbox_source`, not ``auto``).
+        padding: Pixels added on every side of derived boxes.
+
+    Returns:
+        ``(4,)`` float32 ``(x1, y1, x2, y2)`` in original-frame pixels, or ``None``
+        when the instance has no visible keypoint.
+    """
+    box = None
+    if source == "bboxes":
+        for b in frame_user_bboxes(lf):
+            if getattr(b, "instance", None) is inst:
+                box = b
+                break
+    elif source == "masks":
+        for mask in getattr(lf, "masks", None) or []:
+            if not mask.is_predicted and getattr(mask, "instance", None) is inst:
+                box = mask.to_bbox(padding=padding)
+                break
+    if box is None or box.is_empty:
+        if inst.is_empty:
+            return None
+        box = inst.to_bbox(mode="tight", padding=padding)
+    xyxy = box.bounds if box.is_rotated else box.xyxy
+    out = np.asarray(xyxy, dtype=np.float32)
+    return out if np.isfinite(out).all() else None
+
+
 def frame_bbox_arrays(
     lf: sio.LabeledFrame, categories: Sequence[str]
 ) -> Tuple[np.ndarray, np.ndarray]:

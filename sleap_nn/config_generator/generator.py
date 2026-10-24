@@ -5,7 +5,7 @@ configurations from SLP files with sensible defaults.
 """
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, List, Optional, Tuple, Union
 
 from omegaconf import DictConfig, OmegaConf
 
@@ -17,6 +17,7 @@ from sleap_nn.config_generator.architecture_estimates import (
 )
 from sleap_nn.config_generator.memory import MemoryEstimate, estimate_memory
 from sleap_nn.config_generator.recommender import (
+    TOPDOWN_BBOX_DETECTORS,
     BackboneType,
     ConfigRecommendation,
     PipelineType,
@@ -121,6 +122,19 @@ class ConfigGenerator:
         self._crop_size: Optional[int] = None
         self._min_crop_size: int = 100
         self._crop_padding: Optional[int] = None
+        # Box-scaled crops (``crop_mode: bbox``) for the centered-instance stage of
+        # a ``topdown_bbox_*`` pipeline: each instance's box, padded by a fraction
+        # of its longest side and squared, is resized to the crop. A null min size
+        # is set from the training boxes at train time.
+        self._crop_mode: str = "fixed"
+        self._crop_bbox_aspect: str = "square"
+        self._crop_bbox_padding: float = 0.1
+        self._crop_bbox_min_size: Optional[float] = None
+        # Where training boxes come from (detector ground truth, box-scaled crops):
+        # the file's user boxes if it has any, else the tight box of each user
+        # instance's visible points (else of each mask), grown by ``bbox_padding`` px.
+        self._bbox_source: str = "auto"
+        self._bbox_padding: float = 0.0
         self._max_height: Optional[int] = None  # override; defaults to stats max
         self._max_width: Optional[int] = None
         self._view_type: ViewType = ViewType.UNKNOWN
@@ -385,6 +399,13 @@ class ConfigGenerator:
           three anchor levels need max_stride >= 32), rotation augmentation off
           (rotated corners inflate the box), and evaluation on so checkpoints
           are selected on ``eval/val/bbox_mAP``.
+        - ``topdown_bbox_centernet``, ``topdown_bbox_ssd``: top-down pose whose
+          first stage is that box detector instead of a centroid model. Two
+          configs: the detector (:meth:`build_detector`, the same config as the
+          standalone detector pipeline) and a centered-instance model with
+          box-scaled crops (:meth:`build_centered_instance`). Here the detector's
+          rotation-off / eval-on defaults apply to the detector config only, so
+          the centered-instance config keeps the pose augmentation.
 
         Args:
             pipeline: A canonical pipeline type (see ``PipelineType``).
@@ -428,13 +449,18 @@ class ConfigGenerator:
             # CI stages operate on cropped instances; max_stride=16 is the
             # web-app default ("ci-max-stride" HTML).
             self._max_stride = 16
-        elif pipeline in ("bbox_centernet", "bbox_ssd"):
+        elif pipeline in ("bbox_centernet", "bbox_ssd") or (
+            pipeline in TOPDOWN_BBOX_DETECTORS
+        ):
+            detector = TOPDOWN_BBOX_DETECTORS.get(pipeline, pipeline)
             self._input_scale = 0.5
-            self._output_stride = 4 if pipeline == "bbox_centernet" else 8
-            self._rotation_range = (0.0, 0.0)
-            self._enable_eval = True
+            self._output_stride = 4 if detector == "bbox_centernet" else 8
+            if pipeline == detector:
+                # A top-down pair gets these in build_detector() only.
+                self._rotation_range = (0.0, 0.0)
+                self._enable_eval = True
             self._recalculate_max_stride()
-            if pipeline == "bbox_ssd":
+            if detector == "bbox_ssd":
                 # Anchor levels at strides 8/16/32 read the bottleneck at 32.
                 self._max_stride = max(self._max_stride, 32)
         else:  # single_instance, bottomup, multi_class_bottomup
@@ -670,7 +696,19 @@ class ConfigGenerator:
     @property
     def is_topdown(self) -> bool:
         """Check if current pipeline is top-down (requires 2 models)."""
-        return self._pipeline in ("centroid", "multi_class_topdown")
+        return self._pipeline in ("centroid", "multi_class_topdown") or (
+            self.is_topdown_bbox
+        )
+
+    @property
+    def is_topdown_bbox(self) -> bool:
+        """Check if current pipeline is top-down with a box detector as stage 1."""
+        return self._pipeline in TOPDOWN_BBOX_DETECTORS
+
+    @property
+    def detector_pipeline(self) -> Optional[str]:
+        """The stage-1 detector of a ``topdown_bbox_*`` pipeline, else ``None``."""
+        return TOPDOWN_BBOX_DETECTORS.get(self._pipeline)
 
     @property
     def is_bbox(self) -> bool:
@@ -688,6 +726,9 @@ class ConfigGenerator:
         """
         if self._pipeline is None:
             raise ValueError("Pipeline not set. Call .auto() or .pipeline() first.")
+        if self.is_topdown_bbox:
+            # Stage 1 of the pair, as ``centroid`` is for the top-down pipeline.
+            return self.build_detector()
 
         # Build the configuration dict
         config = {
@@ -710,13 +751,24 @@ class ConfigGenerator:
             "centered_instance",
             "multi_class_topdown",
         )
+        bbox_crop = is_centered_instance and self._crop_mode == "bbox"
 
         # Preprocessing block depends on whether this is a CI model.
         preprocessing: dict = {
             "ensure_rgb": self._ensure_rgb,
             "ensure_grayscale": self._ensure_grayscale,
         }
-        if is_centered_instance:
+        if bbox_crop:
+            # Box-scaled crops: each box is resized to crop_size, so a null
+            # crop_size (and min size) is sized from the training boxes at train
+            # time; min_crop_size / crop_padding only size fixed crops.
+            preprocessing["crop_size"] = self._crop_size
+            preprocessing["crop_mode"] = "bbox"
+            preprocessing["crop_bbox_aspect"] = self._crop_bbox_aspect
+            preprocessing["crop_bbox_padding"] = self._crop_bbox_padding
+            preprocessing["crop_bbox_min_size"] = self._crop_bbox_min_size
+            preprocessing["scale"] = 1.0
+        elif is_centered_instance:
             preprocessing["crop_size"] = self._crop_size
             preprocessing["min_crop_size"] = self._min_crop_size
             preprocessing["crop_padding"] = self._crop_padding
@@ -752,11 +804,12 @@ class ConfigGenerator:
             "use_augmentations_train": self._use_augmentations,
             "augmentation_config": self._build_augmentation_config(),
         }
-        if self.is_bbox:
-            # GT boxes: the file's user boxes if it has any, else the tight box of
-            # each user instance's visible points (else of each mask).
-            config["bbox_source"] = "auto"
-            config["bbox_padding"] = 0.0
+        if self.is_bbox or bbox_crop:
+            # Detector GT boxes / box-scaled crop boxes. Both stages of a box
+            # top-down pair emit the same two values, so the training crops match
+            # the boxes the detector learns to predict.
+            config["bbox_source"] = self._bbox_source
+            config["bbox_padding"] = self._bbox_padding
         return config
 
     def _build_augmentation_config(self) -> Optional[dict]:
@@ -1190,6 +1243,70 @@ class ConfigGenerator:
 
         return config
 
+    def build_detector(self) -> DictConfig:
+        """Build the box-detector config of a ``topdown_bbox_*`` pipeline.
+
+        The first config of the pair: the same config as the standalone
+        ``bbox_centernet`` / ``bbox_ssd`` pipeline, i.e. the current state with
+        rotation augmentation off (rotated corners inflate the boxes) and
+        evaluation on (checkpoints selected on box mAP).
+
+        Returns:
+            Detector-stage configuration.
+
+        Raises:
+            ValueError: If the pipeline is not a ``topdown_bbox_*`` pipeline.
+        """
+        detector = self.detector_pipeline
+        if detector is None:
+            raise ValueError("Detector config only for top-down box pipelines")
+
+        orig_pipeline = self._pipeline
+        orig_rotation = self._rotation_range
+        orig_eval = self._enable_eval
+        self._pipeline = detector
+        self._rotation_range = (0.0, 0.0)
+        self._enable_eval = True
+        try:
+            return self.build()
+        finally:
+            self._pipeline = orig_pipeline
+            self._rotation_range = orig_rotation
+            self._enable_eval = orig_eval
+
+    def _build_bbox_crop_instance(self) -> DictConfig:
+        """Build the current centered-instance state with box-scaled crops.
+
+        The second config of a ``topdown_bbox_*`` pair. Each crop is an
+        instance's box, so it is centered on the box center (no anchor part), and
+        its size is left to training (the median padded box side).
+
+        Returns:
+            Centered-instance configuration with ``crop_mode: bbox``.
+        """
+        saved = (
+            self._crop_mode,
+            self._crop_size,
+            self._anchor_part,
+            self._centroid_method,
+            self._centroid_fallback,
+        )
+        self._crop_mode = "bbox"
+        self._crop_size = None
+        self._anchor_part = None
+        self._centroid_method = "bbox_center"
+        self._centroid_fallback = None
+        try:
+            return self.build()
+        finally:
+            (
+                self._crop_mode,
+                self._crop_size,
+                self._anchor_part,
+                self._centroid_method,
+                self._centroid_fallback,
+            ) = saved
+
     def build_centered_instance(self) -> DictConfig:
         """Build the centered-instance / multi-class-topdown CI config.
 
@@ -1201,6 +1318,9 @@ class ConfigGenerator:
           picks the multi-class top-down model type.
         - anything else (including the centroid stage) → emits a
           ``centered_instance`` head.
+
+        For a ``topdown_bbox_*`` pipeline the crops are box-scaled
+        (``crop_mode: bbox``, see :meth:`_build_bbox_crop_instance`).
 
         Returns:
             Centered-instance / multi-class-topdown CI configuration.
@@ -1223,7 +1343,10 @@ class ConfigGenerator:
         self._max_stride = 16  # CI default; crops are size-limited
 
         # Build the config
-        config = self.build()
+        if orig_pipeline in TOPDOWN_BBOX_DETECTORS:
+            config = self._build_bbox_crop_instance()
+        else:
+            config = self.build()
 
         # Restore original state
         self._pipeline = orig_pipeline
@@ -1234,12 +1357,39 @@ class ConfigGenerator:
 
         return config
 
+    def topdown_paths(self, path: str) -> List[Tuple[str, Path]]:
+        """The ``(stage, file)`` pairs :meth:`save` writes for a top-down pipeline.
+
+        Stage 1 is ``{stem}_centroid`` (``"centroid"``), or ``{stem}_bbox_centernet``
+        / ``{stem}_bbox_ssd`` (``"detector"``) for a ``topdown_bbox_*`` pipeline;
+        stage 2 is ``{stem}_centered_instance`` (``"instance"``).
+
+        Args:
+            path: Output path given to :meth:`save`.
+
+        Returns:
+            ``[(stage 1 name, path), ("instance", path)]``.
+        """
+        path_obj = Path(path)
+        stem = path_obj.stem
+        suffix = path_obj.suffix or ".yaml"
+        parent = path_obj.parent
+        detector = self.detector_pipeline
+        first = ("detector", detector) if detector else ("centroid", "centroid")
+        return [
+            (first[0], parent / f"{stem}_{first[1]}{suffix}"),
+            ("instance", parent / f"{stem}_centered_instance{suffix}"),
+        ]
+
     def save(self, path: str) -> "ConfigGenerator":
         """Save configuration to YAML file(s).
 
         For top-down models (centroid, multi_class_topdown), saves TWO files:
         - {path}_centroid.yaml
         - {path}_centered_instance.yaml
+
+        For ``topdown_bbox_*`` the first file is the detector,
+        ``{path}_bbox_centernet.yaml`` / ``{path}_bbox_ssd.yaml``.
 
         For other models, saves a single file.
 
@@ -1249,20 +1399,17 @@ class ConfigGenerator:
         Returns:
             self for method chaining.
         """
-        path_obj = Path(path)
-        stem = path_obj.stem
-        suffix = path_obj.suffix or ".yaml"
-        parent = path_obj.parent
-
         if self.is_topdown:
-            # Save centroid stage (always a ``centroid`` head)
-            centroid_path = parent / f"{stem}_centroid{suffix}"
-            centroid_config = self.build_centroid()
-            OmegaConf.save(centroid_config, centroid_path)
+            (_, first_path), (_, instance_path) = self.topdown_paths(path)
+            # Save stage 1: a ``centroid`` head, or the box detector.
+            if self.is_topdown_bbox:
+                first_config = self.build_detector()
+            else:
+                first_config = self.build_centroid()
+            OmegaConf.save(first_config, first_path)
 
             # Save CI stage (centered_instance or multi_class_topdown head,
             # depending on the original pipeline).
-            instance_path = parent / f"{stem}_centered_instance{suffix}"
             instance_config = self.build_centered_instance()
             OmegaConf.save(instance_config, instance_path)
         else:
@@ -1274,15 +1421,17 @@ class ConfigGenerator:
     def to_yaml(self) -> str:
         """Convert configuration to YAML string.
 
-        For top-down models, returns both centroid and centered_instance configs.
+        For top-down models, returns both the stage-1 (centroid or detector) and
+        centered_instance configs.
 
         Returns:
             YAML string representation.
         """
         if self.is_topdown:
-            centroid_yaml = OmegaConf.to_yaml(self.build())
+            first = "DETECTOR" if self.is_topdown_bbox else "CENTROID"
+            first_yaml = OmegaConf.to_yaml(self.build())
             instance_yaml = OmegaConf.to_yaml(self.build_centered_instance())
-            return f"# === CENTROID CONFIG ===\n{centroid_yaml}\n\n# === CENTERED INSTANCE CONFIG ===\n{instance_yaml}"
+            return f"# === {first} CONFIG ===\n{first_yaml}\n\n# === CENTERED INSTANCE CONFIG ===\n{instance_yaml}"
         return OmegaConf.to_yaml(self.build())
 
     def memory_estimate(self) -> MemoryEstimate:

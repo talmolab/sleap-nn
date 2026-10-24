@@ -161,6 +161,29 @@ class PreprocessingConfig:
         crop_padding: (int) Padding in pixels to add around the instance bounding box when computing crop size.
             If `None`, padding is auto-computed based on augmentation settings (rotation/scale).
             Only used when `crop_size` is `None`. *Default*: `None`.
+        crop_mode: (str) How a centered-instance crop is cut from the frame (the
+            `centered_instance` and `multi_class_topdown` model types). `fixed` cuts a
+            `crop_size` x `crop_size` window centered on the instance centroid, so the
+            animal keeps its pixel size. `bbox` cuts the instance's bounding box (padded
+            by `crop_bbox_padding` and shaped by `crop_bbox_aspect`) and resizes it to
+            `crop_size` x `crop_size`, so every animal fills the crop the same way
+            whatever its size. Inference then needs boxes: a `bbox_centernet` /
+            `bbox_ssd` detector, or ground-truth boxes. The training box of an instance
+            is derived like a detector's ground truth (`bbox_source`, `bbox_padding`),
+            so pair the model with a detector trained with the same two values.
+            *Default*: `"fixed"`.
+        crop_bbox_aspect: (str) For `crop_mode="bbox"`: `square` expands the padded box
+            to a square on its longest side (one scale for both axes; the frame around
+            the box fills the margin), `letterbox` does the same but zeroes the pixels
+            outside the padded box, and `stretch` resizes the padded box to the square
+            crop on each axis separately (distorts the animal's aspect ratio).
+            *Default*: `"square"`.
+        crop_bbox_padding: (float) For `crop_mode="bbox"`: margin added on every side
+            of the box, as a fraction of its longest side. *Default*: `0.1`.
+        crop_bbox_min_size: (float) For `crop_mode="bbox"`: smallest crop window side,
+            in size-matched frame pixels, which caps how much a tiny or partial box is
+            magnified. If `None`, it is set at training time to a quarter of the median
+            training window side and saved into the config. *Default*: `None`.
         tiling: Configuration of tiled training/inference. Inert unless `tiling.enabled` is `True`.
         burn_in: (bool) For the `embedding` model type: burn the instance mask into the
             crop (background pixels set to `background_fill`) so the embedder sees only
@@ -189,6 +212,14 @@ class PreprocessingConfig:
     crop_size: Optional[int] = None
     min_crop_size: Optional[int] = 100  # to help app work in case of error
     crop_padding: Optional[int] = None
+    crop_mode: str = field(default="fixed", validator=validators.in_(("fixed", "bbox")))
+    crop_bbox_aspect: str = field(
+        default="square", validator=validators.in_(("square", "letterbox", "stretch"))
+    )
+    crop_bbox_padding: float = field(default=0.1, validator=validators.ge(0))
+    crop_bbox_min_size: Optional[float] = field(
+        default=None, validator=validators.optional(validators.gt(0))
+    )
     tiling: TilingConfig = field(factory=TilingConfig)
     burn_in: bool = False
     background_fill: str = "black"

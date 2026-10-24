@@ -23,7 +23,7 @@ from __future__ import annotations
 import queue
 import threading
 from copy import deepcopy
-from typing import TYPE_CHECKING, Iterator, Optional, Protocol, Union
+from typing import TYPE_CHECKING, Any, Iterator, Optional, Protocol, Union
 
 import attrs
 import numpy as np
@@ -89,12 +89,16 @@ class Batch:
         instances: Optional ``(B, max_instances, n_nodes, 2)`` GT
             instances, populated by :class:`LabelsProvider` for the
             GT-fallback layer paths.
+        instance_boxes: Optional ``(B, max_instances, 4)`` GT box of each slot of
+            ``instances`` (NaN for padding), populated by :class:`LabelsProvider`
+            when given an ``instance_box_fn`` (the GT-box fallback).
     """
 
     images: np.ndarray | torch.Tensor
     frame_indices: Optional[np.ndarray] = None
     video_indices: Optional[np.ndarray] = None
     instances: Optional[np.ndarray] = None
+    instance_boxes: Optional[np.ndarray] = None
 
 
 class Provider(Protocol):
@@ -158,6 +162,9 @@ class VideoProvider:
             prefetch queue ahead of the consumer. Kept small and explicit
             (like ``paf_workers``' ``max_in_flight``) so a fast decoder
             can't race far ahead of a slow GPU stage and balloon memory.
+        check_readable: If ``True`` (default), make sure the video can be
+            decoded (falling back to PyAV) before reading it. ``False`` when
+            the caller already checked, e.g. :class:`VideoSelection`.
 
     Notes:
         Yields raw ``(B, H, W, C)`` frames as ``np.uint8``. The
@@ -173,6 +180,7 @@ class VideoProvider:
     remote_kwargs: Optional[dict] = None
     prefetch: bool = True
     queue_maxsize: int = 4
+    check_readable: bool = True
 
     _sio_video: "Optional[sio.Video]" = attrs.field(
         default=None, init=False, repr=False
@@ -197,7 +205,7 @@ class VideoProvider:
                 kwargs.update(self.remote_kwargs)
             self._sio_video = sio.load_video(str(self.video), **kwargs)
 
-        if self.frames is None or len(self.frames) > 0:
+        if self.check_readable:
             # An undecodable video reports 0 frames: raise instead of yielding
             # nothing.
             check_video_readable(self._sio_video, self.frames)
@@ -381,6 +389,11 @@ class LabelsProvider:
             of the source video's backing (embedded vs. external). Positions
             beyond the list's length are dropped with a logged warning
             rather than silently ignored.
+        instance_box_fn: Optional ``(LabeledFrame, Instance) -> (4,) xyxy | None``
+            giving each GT instance's box; when set, batches carry
+            ``instance_boxes`` aligned with ``instances``. The GT-box fallback of
+            a box-scaled centered-instance model uses it to derive boxes exactly
+            as its training boxes were (linked user boxes / masks, or keypoints).
     """
 
     labels: "Union[str, sio.Labels]"
@@ -393,6 +406,7 @@ class LabelsProvider:
     prefetch: bool = True
     queue_maxsize: int = 4
     frames: Optional[list] = None
+    instance_box_fn: Optional[Any] = None
 
     _sio_labels: "Optional[sio.Labels]" = attrs.field(
         default=None, init=False, repr=False
@@ -554,6 +568,7 @@ class LabelsProvider:
 
             inst_lists = [self._frame_instances(lf) for lf in chunk]
             max_inst = max(len(insts) for insts in inst_lists)
+            instance_boxes = None
             if max_inst == 0:
                 instances = None
             else:
@@ -570,6 +585,15 @@ class LabelsProvider:
                     for j, inst in enumerate(insts):
                         pts = np.asarray(inst.numpy(), dtype=np.float32)
                         instances[i, j, : pts.shape[0]] = pts
+                if self.instance_box_fn is not None:
+                    instance_boxes = np.full(
+                        (len(chunk), max_inst, 4), np.nan, dtype=np.float32
+                    )
+                    for i, (lf, insts) in enumerate(zip(chunk, inst_lists)):
+                        for j, inst in enumerate(insts):
+                            box = self.instance_box_fn(lf, inst)
+                            if box is not None:
+                                instance_boxes[i, j] = box
 
             frame_idxs = np.array([lf.frame_idx for lf in chunk], dtype=np.int64)
             # Attribute each frame to the index of ITS video in the Labels'
@@ -585,6 +609,7 @@ class LabelsProvider:
                 frame_indices=frame_idxs,
                 video_indices=video_idxs,
                 instances=instances,
+                instance_boxes=instance_boxes,
             )
 
         if unreadable:
@@ -728,6 +753,7 @@ class VideoSelection:
     only_suggested_frames: bool = False
     exclude_user_labeled: bool = False
     only_predicted_frames: bool = False
+    _readable_checked: bool = attrs.field(default=False, init=False, repr=False)
 
     def __attrs_post_init__(self) -> None:
         """Validate ``video_index`` and the filter combination."""
@@ -767,8 +793,34 @@ class VideoSelection:
             if lf.has_user_instances
         }
 
+    def _check_readable(self) -> None:
+        """Raise if the video can't be decoded, falling back to PyAV (once).
+
+        An undecodable video reports 0 frames, which would make every requested
+        index "out of range" and select nothing, so this runs before anything
+        trusts the video's length. Not done at construction so the CLI's
+        ``--gui`` error reporting, which wraps prediction, sees the error.
+        """
+        if self._readable_checked:
+            return
+        from sleap_nn.data.providers import check_video_readable
+
+        frames = self.frames
+        n_frames = len(self.video)
+        if frames is not None and len(frames) > 0 and n_frames > 0:
+            # Probe a frame that will actually be read, not whatever came first
+            # in the request (which may be out of range).
+            frames = [i for i in sorted(set(frames)) if 0 <= i < n_frames] or None
+        check_video_readable(self.video, frames)
+        self._readable_checked = True
+
     def candidate_indices(self, warn: bool = True) -> "Union[range, list[int]]":
-        """The video's frames, restricted to ``frames`` if given."""
+        """The video's frames, restricted to ``frames`` if given.
+
+        Raises:
+            ValueError: If the video can't be decoded with any available plugin.
+        """
+        self._check_readable()
         n_frames = len(self.video)
         if self.frames is None:
             return range(n_frames)
@@ -829,8 +881,13 @@ class VideoSelection:
             batch_size: Frames per yielded ``Batch``.
             needs_gt_instances: Whether the layer consumes GT instances
                 (``Predictor._needs_gt_instances()``).
+
+        Raises:
+            ValueError: If the video can't be decoded with any available plugin.
         """
         import sleap_io as sio
+
+        self._check_readable()
 
         if needs_gt_instances or self.only_labeled_frames:
             # GT instances must ride along, so only user-labeled frames can
@@ -877,7 +934,10 @@ class VideoSelection:
                 else list(self.frame_indices())
             )
             provider = VideoProvider(
-                video=self.video, batch_size=batch_size, frames=frames
+                video=self.video,
+                batch_size=batch_size,
+                frames=frames,
+                check_readable=False,
             )
         if provider.num_frames() == 0:
             logger.warning(

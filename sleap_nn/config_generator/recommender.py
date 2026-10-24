@@ -20,7 +20,17 @@ PipelineType = Literal[
     "multi_class_topdown",
     "bbox_centernet",
     "bbox_ssd",
+    "topdown_bbox_centernet",
+    "topdown_bbox_ssd",
 ]
+
+# Top-down pipelines whose first stage is a bounding-box detector instead of a
+# centroid model, mapped to that detector's pipeline. The second stage is a
+# centered-instance model with box-scaled crops (``crop_mode: bbox``).
+TOPDOWN_BBOX_DETECTORS = {
+    "topdown_bbox_centernet": "bbox_centernet",
+    "topdown_bbox_ssd": "bbox_ssd",
+}
 
 BackboneType = Literal[
     "unet_medium_rf",

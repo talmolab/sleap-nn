@@ -179,3 +179,82 @@ class TestInfoCLI:
         runner = CliRunner()
         result = runner.invoke(cli, ["--help"])
         assert "info" in result.output
+
+
+MODEL_CENTERED_INSTANCE = ASSETS / "minimal_instance_centered_instance"
+
+
+def _data_rows(output: str) -> dict:
+    """``{property: value}`` of the rows of the printed "Data" table."""
+    lines = output.splitlines()
+    titles = [line.strip() for line in lines]
+    table = lines[titles.index("Data") + 1 : titles.index("Training")]
+    rows = {}
+    for line in table:
+        cells = [c.strip() for c in line.strip("│ ").split("│")]
+        if len(cells) == 2 and cells[0]:
+            rows[cells[0]] = cells[1]
+    return rows
+
+
+class TestBBoxCropInfo:
+    """`info` on box-scaled (`crop_mode: bbox`) centered-instance configs."""
+
+    def _write_config(self, tmp_path, **preprocessing):
+        from omegaconf import OmegaConf
+
+        cfg = OmegaConf.load(MODEL_CENTERED_INSTANCE / "training_config.yaml")
+        cfg.data_config.preprocessing.crop_mode = "bbox"
+        for key, value in preprocessing.items():
+            cfg.data_config.preprocessing[key] = value
+        path = tmp_path / "training_config.yaml"
+        OmegaConf.save(cfg, path)
+        return path
+
+    def test_trained_box_crop(self, tmp_path, capsys):
+        """A trained model shows its crop size, aspect, padding and min size."""
+        path = self._write_config(
+            tmp_path, crop_bbox_aspect="letterbox", crop_bbox_min_size=19.86
+        )
+        print_model_info(str(path))
+        rows = _data_rows(capsys.readouterr().out)
+        assert rows["Preprocessing"] == "scale=1.0, 384x384, crop=96"
+        assert rows["Crop mode"] == (
+            "bbox (aspect=letterbox, padding=0.1, min_size=19.86px)"
+        )
+        assert rows["Training boxes"] == "bbox_source=auto, bbox_padding=0.0"
+
+    def test_untrained_box_crop_is_auto(self, tmp_path, capsys):
+        """A generated config's null sizes are shown as auto, not as "no crop"."""
+        path = self._write_config(tmp_path, crop_size=None, crop_bbox_padding=0.25)
+        print_model_info(str(path))
+        rows = _data_rows(capsys.readouterr().out)
+        assert rows["Preprocessing"] == "scale=1.0, 384x384, crop=auto"
+        assert rows["Crop mode"] == "bbox (aspect=square, padding=0.25, min_size=auto)"
+
+    def test_fixed_crop_unchanged(self, capsys):
+        """A fixed-crop model gets no box rows."""
+        print_model_info(str(MODEL_CENTERED_INSTANCE / "training_config.yaml"))
+        rows = _data_rows(capsys.readouterr().out)
+        assert rows == {
+            "Training data": rows["Training data"],
+            "Preprocessing": "scale=1.0, 384x384, crop=96",
+            "Augmentations": "Enabled",
+        }
+
+    def test_detector_shows_training_boxes(self, tmp_path, capsys):
+        """A detector shows the box source its paired instance model must share."""
+        from omegaconf import OmegaConf
+
+        from sleap_nn.config_generator.generator import ConfigGenerator
+
+        gen = ConfigGenerator.from_slp(
+            "tests/assets/datasets/minimal_instance.pkg.slp"
+        ).auto()
+        cfg = gen.pipeline("topdown_bbox_centernet").build_detector()
+        cfg.data_config.bbox_padding = 2.0
+        OmegaConf.save(cfg, tmp_path / "detector.yaml")
+        print_model_info(str(tmp_path / "detector.yaml"))
+        rows = _data_rows(capsys.readouterr().out)
+        assert rows["Training boxes"] == "bbox_source=auto, bbox_padding=2.0"
+        assert "Crop mode" not in rows

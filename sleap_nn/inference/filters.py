@@ -374,6 +374,23 @@ class FilterPipeline:
             valid = outputs.instance_valid.clone()
             valid[drop_mask] = False
             kwargs["instance_valid"] = valid
+        # A box-seeded top-down layer keeps the detection behind each instance in
+        # the same slot: drop it with its instance, or it is packaged unlinked.
+        if (
+            outputs.pred_bboxes is not None
+            and outputs.pred_bboxes.shape[:2] == drop_mask.shape
+        ):
+            boxes = outputs.pred_bboxes.clone()
+            boxes[drop_mask] = float("nan")
+            kwargs["pred_bboxes"] = boxes
+            if outputs.pred_bbox_scores is not None:
+                bscores = outputs.pred_bbox_scores.clone()
+                bscores[drop_mask] = float("nan")
+                kwargs["pred_bbox_scores"] = bscores
+            if outputs.pred_bbox_classes is not None:
+                bclasses = outputs.pred_bbox_classes.clone()
+                bclasses[drop_mask] = -1
+                kwargs["pred_bbox_classes"] = bclasses
         return attrs.evolve(outputs, **kwargs)
 
     @staticmethod

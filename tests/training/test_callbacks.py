@@ -1806,6 +1806,51 @@ class TestEpochEndEvaluationCallback:
         assert labels.labeled_frames[0].frame_idx == 5
         assert len(labels.labeled_frames[0].instances) == 1
 
+    def test_topdown_crops_scored_per_instance(self, mock_skeleton):
+        """Crops of one frame are each scored against their own GT instance.
+
+        Centered-instance entries are one per crop, in crop coordinates. Pooled
+        under one frame index, every GT crop of a frame was paired with the
+        frame's last prediction, halving mOKS on two-animal frames.
+        """
+        import sleap_io as sio
+
+        from sleap_nn.evaluation import Evaluator
+
+        videos = [sio.Video(filename="a.mp4", open_backend=False)]
+        callback = EpochEndEvaluationCallback(skeleton=mock_skeleton, videos=videos)
+        crops = [
+            np.array([[[40.0, 50.0], [60.0, 70.0], [50.0, 60.0]]]),
+            np.array([[[70.0, 30.0], [30.0, 75.0], [52.0, 58.0]]]),
+        ]
+        predictions, ground_truth = [], []
+        for crop_id, pts in enumerate(crops):
+            predictions.append(
+                {
+                    "video_idx": 0,
+                    "frame_idx": 7,
+                    "crop_id": crop_id,
+                    "pred_peaks": pts.copy(),
+                    "pred_scores": np.ones((1, 3)),
+                }
+            )
+            ground_truth.append(
+                {
+                    "video_idx": 0,
+                    "frame_idx": 7,
+                    "crop_id": crop_id,
+                    "gt_instances": pts.copy(),
+                    "num_instances": 1,
+                }
+            )
+        pred = callback._build_pred_labels(predictions, sio, np)
+        gt = callback._build_gt_labels(ground_truth, sio, np)
+        metrics = Evaluator(gt, pred, user_labels_only=False).evaluate()
+        assert metrics["mOKS"]["mOKS"] == pytest.approx(1.0)
+        # Entries without a crop_id (whole-frame models) keep their frame index.
+        del predictions[0]["crop_id"]
+        assert callback._build_pred_labels(predictions[:1], sio, np)[0].frame_idx == 7
+
     def test_log_metrics_no_wandb_logger(self, mock_skeleton, mock_videos):
         """Still populates callback_metrics (for ModelCheckpoint) with no wandb logger."""
         callback = EpochEndEvaluationCallback(

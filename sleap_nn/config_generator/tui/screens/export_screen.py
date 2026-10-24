@@ -123,13 +123,17 @@ class ExportScreen(VerticalScroll):
 
     def _compose_dual_preview(self) -> ComposeResult:
         """Compose dual config preview for top-down pipelines."""
+        first = "box detector" if self._state.is_topdown_bbox else "centroid"
         yield InfoBox(
-            "Top-down pipelines require two separate configs: one for the centroid model "
-            "and one for the centered instance model.",
+            f"Top-down pipelines require two separate configs: one for the {first} "
+            "model and one for the centered instance model.",
         )
 
         with TabbedContent(id="dual-preview-tabs"):
-            with TabPane("Centroid Config", id="centroid-tab"):
+            first_title = (
+                "Detector Config" if self._state.is_topdown_bbox else "Centroid Config"
+            )
+            with TabPane(first_title, id="centroid-tab"):
                 yield TextArea(
                     id="centroid-yaml-preview",
                     read_only=True,
@@ -176,9 +180,11 @@ class ExportScreen(VerticalScroll):
         with Container(classes="cli-box"):
             yield Static("Train the model:", classes="subsection-title")
             if self._state.is_topdown:
+                first = self._state.first_stage_name
+                first_label = "detector" if self._state.is_topdown_bbox else "centroid"
                 yield Static(
-                    f"# Step 1: Train centroid model\n"
-                    f"sleap-nn train --config {output_path.stem}_centroid.yaml\n\n"
+                    f"# Step 1: Train {first_label} model\n"
+                    f"sleap-nn train --config {output_path.stem}_{first}.yaml\n\n"
                     f"# Step 2: Train centered instance model\n"
                     f"sleap-nn train --config {output_path.stem}_centered_instance.yaml",
                     id="train-command",
@@ -195,9 +201,10 @@ class ExportScreen(VerticalScroll):
         with Container(classes="cli-box"):
             yield Static("Run inference:", classes="subsection-title")
             if self._state.is_topdown:
+                first = "detector" if self._state.is_topdown_bbox else "centroid"
                 yield Static(
                     "sleap-nn predict \\\n"
-                    "  --model-paths centroid_model.ckpt centered_instance_model.ckpt \\\n"
+                    f"  --model-paths {first}_model.ckpt centered_instance_model.ckpt \\\n"
                     "  --video-path your_video.mp4 \\\n"
                     "  --output-path predictions.slp",
                     id="predict-command",
@@ -300,8 +307,9 @@ class ExportScreen(VerticalScroll):
         try:
             if self._state.is_topdown:
                 # Copy both configs
+                first = "DETECTOR" if self._state.is_topdown_bbox else "CENTROID"
                 yaml_str = (
-                    "# ============== CENTROID CONFIG ==============\n"
+                    f"# ============== {first} CONFIG ==============\n"
                     + self._state.to_centroid_yaml()
                     + "\n\n# ============== CENTERED INSTANCE CONFIG ==============\n"
                     + self._state.to_centered_instance_yaml()

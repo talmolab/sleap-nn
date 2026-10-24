@@ -155,6 +155,11 @@ sleap-nn predict --data_path video.mp4 --model_paths models/my_detector \
   --peak_threshold 0.3 --max_instances 10
 ```
 
+A detector can also be the first stage of a top-down pose model, in place of a
+centroid model: pass it with a centered-instance model directory (`--model_paths
+<detector> --model_paths <centered_instance>`). See
+[Top-down pose with a box detector](bbox-topdown.md).
+
 `sleap-nn predict` detects the model type from its directory. For detectors,
 `--peak_threshold` is the detection score threshold, `--max_instances` caps
 detections per frame (default 100) and `--bbox_nms_iou` sets the class-wise IoU-NMS
