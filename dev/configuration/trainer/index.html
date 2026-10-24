@@ -9081,7 +9081,7 @@ commands on <code>tcp://127.0.0.1:{controller_port}</code>. Each is enabled inde
 <td><code>warmup_start_lr</code></td>
 <td>float</td>
 <td><code>0.0</code></td>
-<td>Starting LR for warmup</td>
+<td>LR the warmup ramps up from; warmup epoch <code>e</code> trains at <code>(e + 1) / (warmup_epochs + 1)</code> of the way to the base LR, so epoch 0 is never at this value</td>
 </tr>
 <tr>
 <td><code>eta_min</code></td>
@@ -9118,7 +9118,7 @@ commands on <code>tcp://127.0.0.1:{controller_port}</code>. Each is enabled inde
 <td><code>warmup_start_lr</code></td>
 <td>float</td>
 <td><code>0.0</code></td>
-<td>Starting LR for warmup</td>
+<td>LR the warmup ramps up from; warmup epoch <code>e</code> trains at <code>(e + 1) / (warmup_epochs + 1)</code> of the way to the base LR, so epoch 0 is never at this value</td>
 </tr>
 <tr>
 <td><code>end_lr</code></td>

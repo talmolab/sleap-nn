@@ -8472,7 +8472,7 @@ same instance is safe to run on multiple sources.</p>
 </tr>
 <tr>
 <td><code>integral_refinement</code></td>
-<td><code>"integral"</code> or <code>"none"</code></td>
+<td><code>"integral"</code>, <code>"local"</code>, or <code>"none"</code> / <code>None</code></td>
 <td><code>"integral"</code></td>
 </tr>
 <tr>
@@ -8540,7 +8540,8 @@ or a <code>List[Outputs]</code> when <code>make_labels=False</code>.</p>
 <code>videos</code>, <code>clean_empty_frames</code>, <code>progress_callback</code>, <code>peak_threshold</code>,
 <code>centroid_threshold</code>, <code>keypoint_threshold</code>, <code>max_instances</code>,
 <code>integral_refinement</code>, <code>integral_patch_size</code>, <code>return_confmaps</code>,
-<code>return_crops</code>.</p>
+<code>return_crops</code>. Each override defaults to keeping the predictor's setting;
+<code>integral_refinement=None</code> turns refinement off for that call.</p>
 <div class="admonition note">
 <p class="admonition-title">Per-stage thresholds (top-down)</p>
 <p>For top-down models, <code>peak_threshold</code> sets <em>both</em> stages; use

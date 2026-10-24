@@ -31646,15 +31646,7 @@ on the batch composition.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>sleap_nn/data/custom_datasets.py</code></summary>
-              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-7741">7741</a></span>
-<span class="normal"><a href="#__codelineno-0-7742">7742</a></span>
-<span class="normal"><a href="#__codelineno-0-7743">7743</a></span>
-<span class="normal"><a href="#__codelineno-0-7744">7744</a></span>
-<span class="normal"><a href="#__codelineno-0-7745">7745</a></span>
-<span class="normal"><a href="#__codelineno-0-7746">7746</a></span>
-<span class="normal"><a href="#__codelineno-0-7747">7747</a></span>
-<span class="normal"><a href="#__codelineno-0-7748">7748</a></span>
-<span class="normal"><a href="#__codelineno-0-7749">7749</a></span>
+              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-7749">7749</a></span>
 <span class="normal"><a href="#__codelineno-0-7750">7750</a></span>
 <span class="normal"><a href="#__codelineno-0-7751">7751</a></span>
 <span class="normal"><a href="#__codelineno-0-7752">7752</a></span>
@@ -31675,36 +31667,44 @@ on the batch composition.</p>
 <span class="normal"><a href="#__codelineno-0-7767">7767</a></span>
 <span class="normal"><a href="#__codelineno-0-7768">7768</a></span>
 <span class="normal"><a href="#__codelineno-0-7769">7769</a></span>
-<span class="normal"><a href="#__codelineno-0-7770">7770</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-7741"><a id="__codelineno-0-7741" name="__codelineno-0-7741"></a><span class="k">def</span><span class="w"> </span><span class="nf">get_embedding_batch_sampler</span><span class="p">(</span>
-</span><span id="__span-0-7742"><a id="__codelineno-0-7742" name="__codelineno-0-7742"></a>    <span class="n">train_dataset</span><span class="p">:</span> <span class="s2">&quot;EmbeddingDataset&quot;</span><span class="p">,</span>
-</span><span id="__span-0-7743"><a id="__codelineno-0-7743" name="__codelineno-0-7743"></a>    <span class="n">config</span><span class="p">:</span> <span class="n">DictConfig</span><span class="p">,</span>
-</span><span id="__span-0-7744"><a id="__codelineno-0-7744" name="__codelineno-0-7744"></a>    <span class="n">batches_per_epoch</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-</span><span id="__span-0-7745"><a id="__codelineno-0-7745" name="__codelineno-0-7745"></a>    <span class="n">rank</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
-</span><span id="__span-0-7746"><a id="__codelineno-0-7746" name="__codelineno-0-7746"></a>    <span class="n">world_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span>
-</span><span id="__span-0-7747"><a id="__codelineno-0-7747" name="__codelineno-0-7747"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">GroupAwareBatchSampler</span><span class="p">:</span>
-</span><span id="__span-0-7748"><a id="__codelineno-0-7748" name="__codelineno-0-7748"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Build the group-aware batch sampler an ``embedding`` training run uses.</span>
-</span><span id="__span-0-7749"><a id="__codelineno-0-7749" name="__codelineno-0-7749"></a>
-</span><span id="__span-0-7750"><a id="__codelineno-0-7750" name="__codelineno-0-7750"></a><span class="sd">    The one place the ``objective.sampler`` config is read, so the training loader</span>
-</span><span id="__span-0-7751"><a id="__codelineno-0-7751" name="__codelineno-0-7751"></a><span class="sd">    and the steps-per-epoch count (:func:`get_train_samples_per_step`) always agree</span>
-</span><span id="__span-0-7752"><a id="__codelineno-0-7752" name="__codelineno-0-7752"></a><span class="sd">    on the batch composition.</span>
-</span><span id="__span-0-7753"><a id="__codelineno-0-7753" name="__codelineno-0-7753"></a><span class="sd">    &quot;&quot;&quot;</span>
-</span><span id="__span-0-7754"><a id="__codelineno-0-7754" name="__codelineno-0-7754"></a>    <span class="n">sampler</span> <span class="o">=</span> <span class="n">resolve_embedding_objective</span><span class="p">(</span>
-</span><span id="__span-0-7755"><a id="__codelineno-0-7755" name="__codelineno-0-7755"></a>        <span class="n">OmegaConf</span><span class="o">.</span><span class="n">select</span><span class="p">(</span>
-</span><span id="__span-0-7756"><a id="__codelineno-0-7756" name="__codelineno-0-7756"></a>            <span class="n">config</span><span class="p">,</span> <span class="s2">&quot;model_config.head_configs.embedding.embedding.objective&quot;</span>
-</span><span id="__span-0-7757"><a id="__codelineno-0-7757" name="__codelineno-0-7757"></a>        <span class="p">)</span>
-</span><span id="__span-0-7758"><a id="__codelineno-0-7758" name="__codelineno-0-7758"></a>    <span class="p">)</span><span class="o">.</span><span class="n">sampler</span>
-</span><span id="__span-0-7759"><a id="__codelineno-0-7759" name="__codelineno-0-7759"></a>    <span class="k">return</span> <span class="n">GroupAwareBatchSampler</span><span class="p">(</span>
-</span><span id="__span-0-7760"><a id="__codelineno-0-7760" name="__codelineno-0-7760"></a>        <span class="n">group_ids</span><span class="o">=</span><span class="n">train_dataset</span><span class="o">.</span><span class="n">group_ids</span><span class="p">,</span>
-</span><span id="__span-0-7761"><a id="__codelineno-0-7761" name="__codelineno-0-7761"></a>        <span class="n">video_ids</span><span class="o">=</span><span class="n">train_dataset</span><span class="o">.</span><span class="n">video_ids</span><span class="p">,</span>
-</span><span id="__span-0-7762"><a id="__codelineno-0-7762" name="__codelineno-0-7762"></a>        <span class="n">frame_ids</span><span class="o">=</span><span class="n">train_dataset</span><span class="o">.</span><span class="n">frame_ids</span><span class="p">,</span>
-</span><span id="__span-0-7763"><a id="__codelineno-0-7763" name="__codelineno-0-7763"></a>        <span class="n">kind</span><span class="o">=</span><span class="n">sampler</span><span class="o">.</span><span class="n">kind</span><span class="p">,</span>
-</span><span id="__span-0-7764"><a id="__codelineno-0-7764" name="__codelineno-0-7764"></a>        <span class="n">P</span><span class="o">=</span><span class="n">sampler</span><span class="o">.</span><span class="n">groups_per_batch</span><span class="p">,</span>
-</span><span id="__span-0-7765"><a id="__codelineno-0-7765" name="__codelineno-0-7765"></a>        <span class="n">K</span><span class="o">=</span><span class="n">sampler</span><span class="o">.</span><span class="n">samples_per_group</span><span class="p">,</span>
-</span><span id="__span-0-7766"><a id="__codelineno-0-7766" name="__codelineno-0-7766"></a>        <span class="n">batches_per_epoch</span><span class="o">=</span><span class="n">batches_per_epoch</span><span class="p">,</span>
-</span><span id="__span-0-7767"><a id="__codelineno-0-7767" name="__codelineno-0-7767"></a>        <span class="n">seed</span><span class="o">=</span><span class="n">OmegaConf</span><span class="o">.</span><span class="n">select</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="s2">&quot;trainer_config.seed&quot;</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span> <span class="ow">or</span> <span class="mi">0</span><span class="p">,</span>
-</span><span id="__span-0-7768"><a id="__codelineno-0-7768" name="__codelineno-0-7768"></a>        <span class="n">rank</span><span class="o">=</span><span class="n">rank</span><span class="p">,</span>
-</span><span id="__span-0-7769"><a id="__codelineno-0-7769" name="__codelineno-0-7769"></a>        <span class="n">world_size</span><span class="o">=</span><span class="n">world_size</span><span class="p">,</span>
-</span><span id="__span-0-7770"><a id="__codelineno-0-7770" name="__codelineno-0-7770"></a>    <span class="p">)</span>
+<span class="normal"><a href="#__codelineno-0-7770">7770</a></span>
+<span class="normal"><a href="#__codelineno-0-7771">7771</a></span>
+<span class="normal"><a href="#__codelineno-0-7772">7772</a></span>
+<span class="normal"><a href="#__codelineno-0-7773">7773</a></span>
+<span class="normal"><a href="#__codelineno-0-7774">7774</a></span>
+<span class="normal"><a href="#__codelineno-0-7775">7775</a></span>
+<span class="normal"><a href="#__codelineno-0-7776">7776</a></span>
+<span class="normal"><a href="#__codelineno-0-7777">7777</a></span>
+<span class="normal"><a href="#__codelineno-0-7778">7778</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-7749"><a id="__codelineno-0-7749" name="__codelineno-0-7749"></a><span class="k">def</span><span class="w"> </span><span class="nf">get_embedding_batch_sampler</span><span class="p">(</span>
+</span><span id="__span-0-7750"><a id="__codelineno-0-7750" name="__codelineno-0-7750"></a>    <span class="n">train_dataset</span><span class="p">:</span> <span class="s2">&quot;EmbeddingDataset&quot;</span><span class="p">,</span>
+</span><span id="__span-0-7751"><a id="__codelineno-0-7751" name="__codelineno-0-7751"></a>    <span class="n">config</span><span class="p">:</span> <span class="n">DictConfig</span><span class="p">,</span>
+</span><span id="__span-0-7752"><a id="__codelineno-0-7752" name="__codelineno-0-7752"></a>    <span class="n">batches_per_epoch</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+</span><span id="__span-0-7753"><a id="__codelineno-0-7753" name="__codelineno-0-7753"></a>    <span class="n">rank</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
+</span><span id="__span-0-7754"><a id="__codelineno-0-7754" name="__codelineno-0-7754"></a>    <span class="n">world_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span>
+</span><span id="__span-0-7755"><a id="__codelineno-0-7755" name="__codelineno-0-7755"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">GroupAwareBatchSampler</span><span class="p">:</span>
+</span><span id="__span-0-7756"><a id="__codelineno-0-7756" name="__codelineno-0-7756"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Build the group-aware batch sampler an ``embedding`` training run uses.</span>
+</span><span id="__span-0-7757"><a id="__codelineno-0-7757" name="__codelineno-0-7757"></a>
+</span><span id="__span-0-7758"><a id="__codelineno-0-7758" name="__codelineno-0-7758"></a><span class="sd">    The one place the ``objective.sampler`` config is read, so the training loader</span>
+</span><span id="__span-0-7759"><a id="__codelineno-0-7759" name="__codelineno-0-7759"></a><span class="sd">    and the steps-per-epoch count (:func:`get_train_samples_per_step`) always agree</span>
+</span><span id="__span-0-7760"><a id="__codelineno-0-7760" name="__codelineno-0-7760"></a><span class="sd">    on the batch composition.</span>
+</span><span id="__span-0-7761"><a id="__codelineno-0-7761" name="__codelineno-0-7761"></a><span class="sd">    &quot;&quot;&quot;</span>
+</span><span id="__span-0-7762"><a id="__codelineno-0-7762" name="__codelineno-0-7762"></a>    <span class="n">sampler</span> <span class="o">=</span> <span class="n">resolve_embedding_objective</span><span class="p">(</span>
+</span><span id="__span-0-7763"><a id="__codelineno-0-7763" name="__codelineno-0-7763"></a>        <span class="n">OmegaConf</span><span class="o">.</span><span class="n">select</span><span class="p">(</span>
+</span><span id="__span-0-7764"><a id="__codelineno-0-7764" name="__codelineno-0-7764"></a>            <span class="n">config</span><span class="p">,</span> <span class="s2">&quot;model_config.head_configs.embedding.embedding.objective&quot;</span>
+</span><span id="__span-0-7765"><a id="__codelineno-0-7765" name="__codelineno-0-7765"></a>        <span class="p">)</span>
+</span><span id="__span-0-7766"><a id="__codelineno-0-7766" name="__codelineno-0-7766"></a>    <span class="p">)</span><span class="o">.</span><span class="n">sampler</span>
+</span><span id="__span-0-7767"><a id="__codelineno-0-7767" name="__codelineno-0-7767"></a>    <span class="k">return</span> <span class="n">GroupAwareBatchSampler</span><span class="p">(</span>
+</span><span id="__span-0-7768"><a id="__codelineno-0-7768" name="__codelineno-0-7768"></a>        <span class="n">group_ids</span><span class="o">=</span><span class="n">train_dataset</span><span class="o">.</span><span class="n">group_ids</span><span class="p">,</span>
+</span><span id="__span-0-7769"><a id="__codelineno-0-7769" name="__codelineno-0-7769"></a>        <span class="n">video_ids</span><span class="o">=</span><span class="n">train_dataset</span><span class="o">.</span><span class="n">video_ids</span><span class="p">,</span>
+</span><span id="__span-0-7770"><a id="__codelineno-0-7770" name="__codelineno-0-7770"></a>        <span class="n">frame_ids</span><span class="o">=</span><span class="n">train_dataset</span><span class="o">.</span><span class="n">frame_ids</span><span class="p">,</span>
+</span><span id="__span-0-7771"><a id="__codelineno-0-7771" name="__codelineno-0-7771"></a>        <span class="n">kind</span><span class="o">=</span><span class="n">sampler</span><span class="o">.</span><span class="n">kind</span><span class="p">,</span>
+</span><span id="__span-0-7772"><a id="__codelineno-0-7772" name="__codelineno-0-7772"></a>        <span class="n">P</span><span class="o">=</span><span class="n">sampler</span><span class="o">.</span><span class="n">groups_per_batch</span><span class="p">,</span>
+</span><span id="__span-0-7773"><a id="__codelineno-0-7773" name="__codelineno-0-7773"></a>        <span class="n">K</span><span class="o">=</span><span class="n">sampler</span><span class="o">.</span><span class="n">samples_per_group</span><span class="p">,</span>
+</span><span id="__span-0-7774"><a id="__codelineno-0-7774" name="__codelineno-0-7774"></a>        <span class="n">batches_per_epoch</span><span class="o">=</span><span class="n">batches_per_epoch</span><span class="p">,</span>
+</span><span id="__span-0-7775"><a id="__codelineno-0-7775" name="__codelineno-0-7775"></a>        <span class="n">seed</span><span class="o">=</span><span class="n">OmegaConf</span><span class="o">.</span><span class="n">select</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="s2">&quot;trainer_config.seed&quot;</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span> <span class="ow">or</span> <span class="mi">0</span><span class="p">,</span>
+</span><span id="__span-0-7776"><a id="__codelineno-0-7776" name="__codelineno-0-7776"></a>        <span class="n">rank</span><span class="o">=</span><span class="n">rank</span><span class="p">,</span>
+</span><span id="__span-0-7777"><a id="__codelineno-0-7777" name="__codelineno-0-7777"></a>        <span class="n">world_size</span><span class="o">=</span><span class="n">world_size</span><span class="p">,</span>
+</span><span id="__span-0-7778"><a id="__codelineno-0-7778" name="__codelineno-0-7778"></a>    <span class="p">)</span>
 </span></code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -31727,11 +31727,11 @@ on the batch composition.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>sleap_nn/data/custom_datasets.py</code></summary>
-              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-7736">7736</a></span>
-<span class="normal"><a href="#__codelineno-0-7737">7737</a></span>
-<span class="normal"><a href="#__codelineno-0-7738">7738</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-7736"><a id="__codelineno-0-7736" name="__codelineno-0-7736"></a><span class="k">def</span><span class="w"> </span><span class="nf">get_steps_per_epoch</span><span class="p">(</span><span class="n">dataset</span><span class="p">:</span> <span class="n">BaseDataset</span><span class="p">,</span> <span class="n">batch_size</span><span class="p">:</span> <span class="nb">int</span><span class="p">):</span>
-</span><span id="__span-0-7737"><a id="__codelineno-0-7737" name="__codelineno-0-7737"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Compute the number of steps (iterations) per epoch for the given dataset.&quot;&quot;&quot;</span>
-</span><span id="__span-0-7738"><a id="__codelineno-0-7738" name="__codelineno-0-7738"></a>    <span class="k">return</span> <span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">dataset</span><span class="p">)</span> <span class="o">//</span> <span class="n">batch_size</span><span class="p">)</span> <span class="o">+</span> <span class="p">(</span><span class="mi">1</span> <span class="k">if</span> <span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">dataset</span><span class="p">)</span> <span class="o">%</span> <span class="n">batch_size</span><span class="p">)</span> <span class="k">else</span> <span class="mi">0</span><span class="p">)</span>
+              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-7744">7744</a></span>
+<span class="normal"><a href="#__codelineno-0-7745">7745</a></span>
+<span class="normal"><a href="#__codelineno-0-7746">7746</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-7744"><a id="__codelineno-0-7744" name="__codelineno-0-7744"></a><span class="k">def</span><span class="w"> </span><span class="nf">get_steps_per_epoch</span><span class="p">(</span><span class="n">dataset</span><span class="p">:</span> <span class="n">BaseDataset</span><span class="p">,</span> <span class="n">batch_size</span><span class="p">:</span> <span class="nb">int</span><span class="p">):</span>
+</span><span id="__span-0-7745"><a id="__codelineno-0-7745" name="__codelineno-0-7745"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Compute the number of steps (iterations) per epoch for the given dataset.&quot;&quot;&quot;</span>
+</span><span id="__span-0-7746"><a id="__codelineno-0-7746" name="__codelineno-0-7746"></a>    <span class="k">return</span> <span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">dataset</span><span class="p">)</span> <span class="o">//</span> <span class="n">batch_size</span><span class="p">)</span> <span class="o">+</span> <span class="p">(</span><span class="mi">1</span> <span class="k">if</span> <span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">dataset</span><span class="p">)</span> <span class="o">%</span> <span class="n">batch_size</span><span class="p">)</span> <span class="k">else</span> <span class="mi">0</span><span class="p">)</span>
 </span></code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -31759,29 +31759,29 @@ one pass needs by <code>P x K / batch_size</code> (with the defaults P=8, K=16 a
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>sleap_nn/data/custom_datasets.py</code></summary>
-              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-7773">7773</a></span>
-<span class="normal"><a href="#__codelineno-0-7774">7774</a></span>
-<span class="normal"><a href="#__codelineno-0-7775">7775</a></span>
-<span class="normal"><a href="#__codelineno-0-7776">7776</a></span>
-<span class="normal"><a href="#__codelineno-0-7777">7777</a></span>
-<span class="normal"><a href="#__codelineno-0-7778">7778</a></span>
-<span class="normal"><a href="#__codelineno-0-7779">7779</a></span>
-<span class="normal"><a href="#__codelineno-0-7780">7780</a></span>
-<span class="normal"><a href="#__codelineno-0-7781">7781</a></span>
+              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-7781">7781</a></span>
 <span class="normal"><a href="#__codelineno-0-7782">7782</a></span>
 <span class="normal"><a href="#__codelineno-0-7783">7783</a></span>
-<span class="normal"><a href="#__codelineno-0-7784">7784</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-7773"><a id="__codelineno-0-7773" name="__codelineno-0-7773"></a><span class="k">def</span><span class="w"> </span><span class="nf">get_train_samples_per_step</span><span class="p">(</span><span class="n">train_dataset</span><span class="p">:</span> <span class="n">BaseDataset</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="n">DictConfig</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
-</span><span id="__span-0-7774"><a id="__codelineno-0-7774" name="__codelineno-0-7774"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Number of training samples one optimizer step consumes (per device).</span>
-</span><span id="__span-0-7775"><a id="__codelineno-0-7775" name="__codelineno-0-7775"></a>
-</span><span id="__span-0-7776"><a id="__codelineno-0-7776" name="__codelineno-0-7776"></a><span class="sd">    ``train_data_loader.batch_size`` for every model type except ``embedding``, whose</span>
-</span><span id="__span-0-7777"><a id="__codelineno-0-7777" name="__codelineno-0-7777"></a><span class="sd">    loader ignores it: :class:`GroupAwareBatchSampler` draws P groups x K crops per</span>
-</span><span id="__span-0-7778"><a id="__codelineno-0-7778" name="__codelineno-0-7778"></a><span class="sd">    step instead. Dividing the dataset by ``batch_size`` there overstated the steps</span>
-</span><span id="__span-0-7779"><a id="__codelineno-0-7779" name="__codelineno-0-7779"></a><span class="sd">    one pass needs by ``P x K / batch_size`` (with the defaults P=8, K=16 and</span>
-</span><span id="__span-0-7780"><a id="__codelineno-0-7780" name="__codelineno-0-7780"></a><span class="sd">    ``batch_size=4``, an &quot;epoch&quot; walked the dataset 32 times).</span>
-</span><span id="__span-0-7781"><a id="__codelineno-0-7781" name="__codelineno-0-7781"></a><span class="sd">    &quot;&quot;&quot;</span>
-</span><span id="__span-0-7782"><a id="__codelineno-0-7782" name="__codelineno-0-7782"></a>    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">train_dataset</span><span class="p">,</span> <span class="n">EmbeddingDataset</span><span class="p">):</span>
-</span><span id="__span-0-7783"><a id="__codelineno-0-7783" name="__codelineno-0-7783"></a>        <span class="k">return</span> <span class="n">get_embedding_batch_sampler</span><span class="p">(</span><span class="n">train_dataset</span><span class="p">,</span> <span class="n">config</span><span class="p">)</span><span class="o">.</span><span class="n">samples_per_batch</span>
-</span><span id="__span-0-7784"><a id="__codelineno-0-7784" name="__codelineno-0-7784"></a>    <span class="k">return</span> <span class="n">config</span><span class="o">.</span><span class="n">trainer_config</span><span class="o">.</span><span class="n">train_data_loader</span><span class="o">.</span><span class="n">batch_size</span>
+<span class="normal"><a href="#__codelineno-0-7784">7784</a></span>
+<span class="normal"><a href="#__codelineno-0-7785">7785</a></span>
+<span class="normal"><a href="#__codelineno-0-7786">7786</a></span>
+<span class="normal"><a href="#__codelineno-0-7787">7787</a></span>
+<span class="normal"><a href="#__codelineno-0-7788">7788</a></span>
+<span class="normal"><a href="#__codelineno-0-7789">7789</a></span>
+<span class="normal"><a href="#__codelineno-0-7790">7790</a></span>
+<span class="normal"><a href="#__codelineno-0-7791">7791</a></span>
+<span class="normal"><a href="#__codelineno-0-7792">7792</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-7781"><a id="__codelineno-0-7781" name="__codelineno-0-7781"></a><span class="k">def</span><span class="w"> </span><span class="nf">get_train_samples_per_step</span><span class="p">(</span><span class="n">train_dataset</span><span class="p">:</span> <span class="n">BaseDataset</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="n">DictConfig</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+</span><span id="__span-0-7782"><a id="__codelineno-0-7782" name="__codelineno-0-7782"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Number of training samples one optimizer step consumes (per device).</span>
+</span><span id="__span-0-7783"><a id="__codelineno-0-7783" name="__codelineno-0-7783"></a>
+</span><span id="__span-0-7784"><a id="__codelineno-0-7784" name="__codelineno-0-7784"></a><span class="sd">    ``train_data_loader.batch_size`` for every model type except ``embedding``, whose</span>
+</span><span id="__span-0-7785"><a id="__codelineno-0-7785" name="__codelineno-0-7785"></a><span class="sd">    loader ignores it: :class:`GroupAwareBatchSampler` draws P groups x K crops per</span>
+</span><span id="__span-0-7786"><a id="__codelineno-0-7786" name="__codelineno-0-7786"></a><span class="sd">    step instead. Dividing the dataset by ``batch_size`` there overstated the steps</span>
+</span><span id="__span-0-7787"><a id="__codelineno-0-7787" name="__codelineno-0-7787"></a><span class="sd">    one pass needs by ``P x K / batch_size`` (with the defaults P=8, K=16 and</span>
+</span><span id="__span-0-7788"><a id="__codelineno-0-7788" name="__codelineno-0-7788"></a><span class="sd">    ``batch_size=4``, an &quot;epoch&quot; walked the dataset 32 times).</span>
+</span><span id="__span-0-7789"><a id="__codelineno-0-7789" name="__codelineno-0-7789"></a><span class="sd">    &quot;&quot;&quot;</span>
+</span><span id="__span-0-7790"><a id="__codelineno-0-7790" name="__codelineno-0-7790"></a>    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">train_dataset</span><span class="p">,</span> <span class="n">EmbeddingDataset</span><span class="p">):</span>
+</span><span id="__span-0-7791"><a id="__codelineno-0-7791" name="__codelineno-0-7791"></a>        <span class="k">return</span> <span class="n">get_embedding_batch_sampler</span><span class="p">(</span><span class="n">train_dataset</span><span class="p">,</span> <span class="n">config</span><span class="p">)</span><span class="o">.</span><span class="n">samples_per_batch</span>
+</span><span id="__span-0-7792"><a id="__codelineno-0-7792" name="__codelineno-0-7792"></a>    <span class="k">return</span> <span class="n">config</span><span class="o">.</span><span class="n">trainer_config</span><span class="o">.</span><span class="n">train_data_loader</span><span class="o">.</span><span class="n">batch_size</span>
 </span></code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -32126,15 +32126,7 @@ disk occurs only once across all workers.</p>
 <span class="normal"><a href="#__codelineno-0-7722">7722</a></span>
 <span class="normal"><a href="#__codelineno-0-7723">7723</a></span>
 <span class="normal"><a href="#__codelineno-0-7724">7724</a></span>
-<span class="normal"><a href="#__codelineno-0-7725">7725</a></span>
-<span class="normal"><a href="#__codelineno-0-7726">7726</a></span>
-<span class="normal"><a href="#__codelineno-0-7727">7727</a></span>
-<span class="normal"><a href="#__codelineno-0-7728">7728</a></span>
-<span class="normal"><a href="#__codelineno-0-7729">7729</a></span>
-<span class="normal"><a href="#__codelineno-0-7730">7730</a></span>
-<span class="normal"><a href="#__codelineno-0-7731">7731</a></span>
-<span class="normal"><a href="#__codelineno-0-7732">7732</a></span>
-<span class="normal"><a href="#__codelineno-0-7733">7733</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-7553"><a id="__codelineno-0-7553" name="__codelineno-0-7553"></a><span class="k">def</span><span class="w"> </span><span class="nf">get_train_val_dataloaders</span><span class="p">(</span>
+<span class="normal"><a href="#__codelineno-0-7725">7725</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-7553"><a id="__codelineno-0-7553" name="__codelineno-0-7553"></a><span class="k">def</span><span class="w"> </span><span class="nf">get_train_val_dataloaders</span><span class="p">(</span>
 </span><span id="__span-0-7554"><a id="__codelineno-0-7554" name="__codelineno-0-7554"></a>    <span class="n">train_dataset</span><span class="p">:</span> <span class="n">BaseDataset</span><span class="p">,</span>
 </span><span id="__span-0-7555"><a id="__codelineno-0-7555" name="__codelineno-0-7555"></a>    <span class="n">val_dataset</span><span class="p">:</span> <span class="n">BaseDataset</span><span class="p">,</span>
 </span><span id="__span-0-7556"><a id="__codelineno-0-7556" name="__codelineno-0-7556"></a>    <span class="n">config</span><span class="p">:</span> <span class="n">DictConfig</span><span class="p">,</span>
@@ -32264,57 +32256,49 @@ disk occurs only once across all workers.</p>
 </span><span id="__span-0-7680"><a id="__codelineno-0-7680" name="__codelineno-0-7680"></a>        <span class="n">persistent_workers</span><span class="o">=</span><span class="p">(</span>
 </span><span id="__span-0-7681"><a id="__codelineno-0-7681" name="__codelineno-0-7681"></a>            <span class="kc">True</span> <span class="k">if</span> <span class="n">config</span><span class="o">.</span><span class="n">trainer_config</span><span class="o">.</span><span class="n">train_data_loader</span><span class="o">.</span><span class="n">num_workers</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="k">else</span> <span class="kc">None</span>
 </span><span id="__span-0-7682"><a id="__codelineno-0-7682" name="__codelineno-0-7682"></a>        <span class="p">),</span>
-</span><span id="__span-0-7683"><a id="__codelineno-0-7683" name="__codelineno-0-7683"></a>        <span class="n">prefetch_factor</span><span class="o">=</span><span class="p">(</span>
-</span><span id="__span-0-7684"><a id="__codelineno-0-7684" name="__codelineno-0-7684"></a>            <span class="n">config</span><span class="o">.</span><span class="n">trainer_config</span><span class="o">.</span><span class="n">train_data_loader</span><span class="o">.</span><span class="n">batch_size</span>
-</span><span id="__span-0-7685"><a id="__codelineno-0-7685" name="__codelineno-0-7685"></a>            <span class="k">if</span> <span class="n">config</span><span class="o">.</span><span class="n">trainer_config</span><span class="o">.</span><span class="n">train_data_loader</span><span class="o">.</span><span class="n">num_workers</span> <span class="o">&gt;</span> <span class="mi">0</span>
-</span><span id="__span-0-7686"><a id="__codelineno-0-7686" name="__codelineno-0-7686"></a>            <span class="k">else</span> <span class="kc">None</span>
-</span><span id="__span-0-7687"><a id="__codelineno-0-7687" name="__codelineno-0-7687"></a>        <span class="p">),</span>
-</span><span id="__span-0-7688"><a id="__codelineno-0-7688" name="__codelineno-0-7688"></a>    <span class="p">)</span>
-</span><span id="__span-0-7689"><a id="__codelineno-0-7689" name="__codelineno-0-7689"></a>
-</span><span id="__span-0-7690"><a id="__codelineno-0-7690" name="__codelineno-0-7690"></a>    <span class="k">if</span> <span class="n">tiling_enabled</span><span class="p">:</span>
-</span><span id="__span-0-7691"><a id="__codelineno-0-7691" name="__codelineno-0-7691"></a>        <span class="n">val_sampler</span> <span class="o">=</span> <span class="n">FrameGroupedTileSampler</span><span class="p">(</span>
-</span><span id="__span-0-7692"><a id="__codelineno-0-7692" name="__codelineno-0-7692"></a>            <span class="n">val_dataset</span><span class="o">.</span><span class="n">frame_blocks</span><span class="p">,</span>
-</span><span id="__span-0-7693"><a id="__codelineno-0-7693" name="__codelineno-0-7693"></a>            <span class="n">batch_size</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">trainer_config</span><span class="o">.</span><span class="n">val_data_loader</span><span class="o">.</span><span class="n">batch_size</span><span class="p">,</span>
-</span><span id="__span-0-7694"><a id="__codelineno-0-7694" name="__codelineno-0-7694"></a>            <span class="n">shuffle</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
-</span><span id="__span-0-7695"><a id="__codelineno-0-7695" name="__codelineno-0-7695"></a>            <span class="n">seed</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">trainer_config</span><span class="o">.</span><span class="n">seed</span> <span class="ow">or</span> <span class="mi">0</span><span class="p">,</span>
-</span><span id="__span-0-7696"><a id="__codelineno-0-7696" name="__codelineno-0-7696"></a>            <span class="n">num_replicas</span><span class="o">=</span><span class="n">trainer_devices</span><span class="p">,</span>
-</span><span id="__span-0-7697"><a id="__codelineno-0-7697" name="__codelineno-0-7697"></a>            <span class="n">rank</span><span class="o">=</span><span class="p">(</span><span class="n">rank</span> <span class="k">if</span> <span class="n">rank</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="mi">0</span><span class="p">),</span>
-</span><span id="__span-0-7698"><a id="__codelineno-0-7698" name="__codelineno-0-7698"></a>        <span class="p">)</span>
-</span><span id="__span-0-7699"><a id="__codelineno-0-7699" name="__codelineno-0-7699"></a>    <span class="k">else</span><span class="p">:</span>
-</span><span id="__span-0-7700"><a id="__codelineno-0-7700" name="__codelineno-0-7700"></a>        <span class="n">val_sampler</span> <span class="o">=</span> <span class="p">(</span>
-</span><span id="__span-0-7701"><a id="__codelineno-0-7701" name="__codelineno-0-7701"></a>            <span class="n">DistributedSampler</span><span class="p">(</span>
-</span><span id="__span-0-7702"><a id="__codelineno-0-7702" name="__codelineno-0-7702"></a>                <span class="n">dataset</span><span class="o">=</span><span class="n">val_dataset</span><span class="p">,</span>
-</span><span id="__span-0-7703"><a id="__codelineno-0-7703" name="__codelineno-0-7703"></a>                <span class="n">shuffle</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
-</span><span id="__span-0-7704"><a id="__codelineno-0-7704" name="__codelineno-0-7704"></a>                <span class="n">rank</span><span class="o">=</span><span class="n">rank</span> <span class="k">if</span> <span class="n">rank</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="mi">0</span><span class="p">,</span>
-</span><span id="__span-0-7705"><a id="__codelineno-0-7705" name="__codelineno-0-7705"></a>                <span class="n">num_replicas</span><span class="o">=</span><span class="n">trainer_devices</span><span class="p">,</span>
-</span><span id="__span-0-7706"><a id="__codelineno-0-7706" name="__codelineno-0-7706"></a>            <span class="p">)</span>
-</span><span id="__span-0-7707"><a id="__codelineno-0-7707" name="__codelineno-0-7707"></a>            <span class="k">if</span> <span class="n">trainer_devices</span> <span class="o">&gt;</span> <span class="mi">1</span>
-</span><span id="__span-0-7708"><a id="__codelineno-0-7708" name="__codelineno-0-7708"></a>            <span class="k">else</span> <span class="kc">None</span>
-</span><span id="__span-0-7709"><a id="__codelineno-0-7709" name="__codelineno-0-7709"></a>        <span class="p">)</span>
-</span><span id="__span-0-7710"><a id="__codelineno-0-7710" name="__codelineno-0-7710"></a>    <span class="n">val_data_loader</span> <span class="o">=</span> <span class="n">InfiniteDataLoader</span><span class="p">(</span>
-</span><span id="__span-0-7711"><a id="__codelineno-0-7711" name="__codelineno-0-7711"></a>        <span class="n">dataset</span><span class="o">=</span><span class="n">val_dataset</span><span class="p">,</span>
-</span><span id="__span-0-7712"><a id="__codelineno-0-7712" name="__codelineno-0-7712"></a>        <span class="n">shuffle</span><span class="o">=</span><span class="kc">False</span> <span class="k">if</span> <span class="n">val_sampler</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="kc">None</span><span class="p">,</span>
-</span><span id="__span-0-7713"><a id="__codelineno-0-7713" name="__codelineno-0-7713"></a>        <span class="n">sampler</span><span class="o">=</span><span class="n">val_sampler</span><span class="p">,</span>
-</span><span id="__span-0-7714"><a id="__codelineno-0-7714" name="__codelineno-0-7714"></a>        <span class="n">len_dataloader</span><span class="o">=</span><span class="p">(</span>
-</span><span id="__span-0-7715"><a id="__codelineno-0-7715" name="__codelineno-0-7715"></a>            <span class="nb">max</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="nb">round</span><span class="p">(</span><span class="n">val_steps_per_epoch</span> <span class="o">/</span> <span class="n">trainer_devices</span><span class="p">))</span>
-</span><span id="__span-0-7716"><a id="__codelineno-0-7716" name="__codelineno-0-7716"></a>            <span class="k">if</span> <span class="n">trainer_devices</span> <span class="o">&gt;</span> <span class="mi">1</span>
-</span><span id="__span-0-7717"><a id="__codelineno-0-7717" name="__codelineno-0-7717"></a>            <span class="k">else</span> <span class="kc">None</span>
-</span><span id="__span-0-7718"><a id="__codelineno-0-7718" name="__codelineno-0-7718"></a>        <span class="p">),</span>
-</span><span id="__span-0-7719"><a id="__codelineno-0-7719" name="__codelineno-0-7719"></a>        <span class="n">batch_size</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">trainer_config</span><span class="o">.</span><span class="n">val_data_loader</span><span class="o">.</span><span class="n">batch_size</span><span class="p">,</span>
-</span><span id="__span-0-7720"><a id="__codelineno-0-7720" name="__codelineno-0-7720"></a>        <span class="n">num_workers</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">trainer_config</span><span class="o">.</span><span class="n">val_data_loader</span><span class="o">.</span><span class="n">num_workers</span><span class="p">,</span>
-</span><span id="__span-0-7721"><a id="__codelineno-0-7721" name="__codelineno-0-7721"></a>        <span class="n">pin_memory</span><span class="o">=</span><span class="n">pin_memory</span><span class="p">,</span>
-</span><span id="__span-0-7722"><a id="__codelineno-0-7722" name="__codelineno-0-7722"></a>        <span class="n">worker_init_fn</span><span class="o">=</span><span class="n">worker_init_fn</span><span class="p">,</span>
-</span><span id="__span-0-7723"><a id="__codelineno-0-7723" name="__codelineno-0-7723"></a>        <span class="n">persistent_workers</span><span class="o">=</span><span class="p">(</span>
-</span><span id="__span-0-7724"><a id="__codelineno-0-7724" name="__codelineno-0-7724"></a>            <span class="kc">True</span> <span class="k">if</span> <span class="n">config</span><span class="o">.</span><span class="n">trainer_config</span><span class="o">.</span><span class="n">val_data_loader</span><span class="o">.</span><span class="n">num_workers</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="k">else</span> <span class="kc">None</span>
-</span><span id="__span-0-7725"><a id="__codelineno-0-7725" name="__codelineno-0-7725"></a>        <span class="p">),</span>
-</span><span id="__span-0-7726"><a id="__codelineno-0-7726" name="__codelineno-0-7726"></a>        <span class="n">prefetch_factor</span><span class="o">=</span><span class="p">(</span>
-</span><span id="__span-0-7727"><a id="__codelineno-0-7727" name="__codelineno-0-7727"></a>            <span class="n">config</span><span class="o">.</span><span class="n">trainer_config</span><span class="o">.</span><span class="n">val_data_loader</span><span class="o">.</span><span class="n">batch_size</span>
-</span><span id="__span-0-7728"><a id="__codelineno-0-7728" name="__codelineno-0-7728"></a>            <span class="k">if</span> <span class="n">config</span><span class="o">.</span><span class="n">trainer_config</span><span class="o">.</span><span class="n">val_data_loader</span><span class="o">.</span><span class="n">num_workers</span> <span class="o">&gt;</span> <span class="mi">0</span>
-</span><span id="__span-0-7729"><a id="__codelineno-0-7729" name="__codelineno-0-7729"></a>            <span class="k">else</span> <span class="kc">None</span>
-</span><span id="__span-0-7730"><a id="__codelineno-0-7730" name="__codelineno-0-7730"></a>        <span class="p">),</span>
-</span><span id="__span-0-7731"><a id="__codelineno-0-7731" name="__codelineno-0-7731"></a>    <span class="p">)</span>
-</span><span id="__span-0-7732"><a id="__codelineno-0-7732" name="__codelineno-0-7732"></a>
-</span><span id="__span-0-7733"><a id="__codelineno-0-7733" name="__codelineno-0-7733"></a>    <span class="k">return</span> <span class="n">train_data_loader</span><span class="p">,</span> <span class="n">val_data_loader</span>
+</span><span id="__span-0-7683"><a id="__codelineno-0-7683" name="__codelineno-0-7683"></a>        <span class="n">prefetch_factor</span><span class="o">=</span><span class="n">_get_prefetch_factor</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="s2">&quot;train_data_loader&quot;</span><span class="p">),</span>
+</span><span id="__span-0-7684"><a id="__codelineno-0-7684" name="__codelineno-0-7684"></a>    <span class="p">)</span>
+</span><span id="__span-0-7685"><a id="__codelineno-0-7685" name="__codelineno-0-7685"></a>
+</span><span id="__span-0-7686"><a id="__codelineno-0-7686" name="__codelineno-0-7686"></a>    <span class="k">if</span> <span class="n">tiling_enabled</span><span class="p">:</span>
+</span><span id="__span-0-7687"><a id="__codelineno-0-7687" name="__codelineno-0-7687"></a>        <span class="n">val_sampler</span> <span class="o">=</span> <span class="n">FrameGroupedTileSampler</span><span class="p">(</span>
+</span><span id="__span-0-7688"><a id="__codelineno-0-7688" name="__codelineno-0-7688"></a>            <span class="n">val_dataset</span><span class="o">.</span><span class="n">frame_blocks</span><span class="p">,</span>
+</span><span id="__span-0-7689"><a id="__codelineno-0-7689" name="__codelineno-0-7689"></a>            <span class="n">batch_size</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">trainer_config</span><span class="o">.</span><span class="n">val_data_loader</span><span class="o">.</span><span class="n">batch_size</span><span class="p">,</span>
+</span><span id="__span-0-7690"><a id="__codelineno-0-7690" name="__codelineno-0-7690"></a>            <span class="n">shuffle</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+</span><span id="__span-0-7691"><a id="__codelineno-0-7691" name="__codelineno-0-7691"></a>            <span class="n">seed</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">trainer_config</span><span class="o">.</span><span class="n">seed</span> <span class="ow">or</span> <span class="mi">0</span><span class="p">,</span>
+</span><span id="__span-0-7692"><a id="__codelineno-0-7692" name="__codelineno-0-7692"></a>            <span class="n">num_replicas</span><span class="o">=</span><span class="n">trainer_devices</span><span class="p">,</span>
+</span><span id="__span-0-7693"><a id="__codelineno-0-7693" name="__codelineno-0-7693"></a>            <span class="n">rank</span><span class="o">=</span><span class="p">(</span><span class="n">rank</span> <span class="k">if</span> <span class="n">rank</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="mi">0</span><span class="p">),</span>
+</span><span id="__span-0-7694"><a id="__codelineno-0-7694" name="__codelineno-0-7694"></a>        <span class="p">)</span>
+</span><span id="__span-0-7695"><a id="__codelineno-0-7695" name="__codelineno-0-7695"></a>    <span class="k">else</span><span class="p">:</span>
+</span><span id="__span-0-7696"><a id="__codelineno-0-7696" name="__codelineno-0-7696"></a>        <span class="n">val_sampler</span> <span class="o">=</span> <span class="p">(</span>
+</span><span id="__span-0-7697"><a id="__codelineno-0-7697" name="__codelineno-0-7697"></a>            <span class="n">DistributedSampler</span><span class="p">(</span>
+</span><span id="__span-0-7698"><a id="__codelineno-0-7698" name="__codelineno-0-7698"></a>                <span class="n">dataset</span><span class="o">=</span><span class="n">val_dataset</span><span class="p">,</span>
+</span><span id="__span-0-7699"><a id="__codelineno-0-7699" name="__codelineno-0-7699"></a>                <span class="n">shuffle</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+</span><span id="__span-0-7700"><a id="__codelineno-0-7700" name="__codelineno-0-7700"></a>                <span class="n">rank</span><span class="o">=</span><span class="n">rank</span> <span class="k">if</span> <span class="n">rank</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="mi">0</span><span class="p">,</span>
+</span><span id="__span-0-7701"><a id="__codelineno-0-7701" name="__codelineno-0-7701"></a>                <span class="n">num_replicas</span><span class="o">=</span><span class="n">trainer_devices</span><span class="p">,</span>
+</span><span id="__span-0-7702"><a id="__codelineno-0-7702" name="__codelineno-0-7702"></a>            <span class="p">)</span>
+</span><span id="__span-0-7703"><a id="__codelineno-0-7703" name="__codelineno-0-7703"></a>            <span class="k">if</span> <span class="n">trainer_devices</span> <span class="o">&gt;</span> <span class="mi">1</span>
+</span><span id="__span-0-7704"><a id="__codelineno-0-7704" name="__codelineno-0-7704"></a>            <span class="k">else</span> <span class="kc">None</span>
+</span><span id="__span-0-7705"><a id="__codelineno-0-7705" name="__codelineno-0-7705"></a>        <span class="p">)</span>
+</span><span id="__span-0-7706"><a id="__codelineno-0-7706" name="__codelineno-0-7706"></a>    <span class="n">val_data_loader</span> <span class="o">=</span> <span class="n">InfiniteDataLoader</span><span class="p">(</span>
+</span><span id="__span-0-7707"><a id="__codelineno-0-7707" name="__codelineno-0-7707"></a>        <span class="n">dataset</span><span class="o">=</span><span class="n">val_dataset</span><span class="p">,</span>
+</span><span id="__span-0-7708"><a id="__codelineno-0-7708" name="__codelineno-0-7708"></a>        <span class="n">shuffle</span><span class="o">=</span><span class="kc">False</span> <span class="k">if</span> <span class="n">val_sampler</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="kc">None</span><span class="p">,</span>
+</span><span id="__span-0-7709"><a id="__codelineno-0-7709" name="__codelineno-0-7709"></a>        <span class="n">sampler</span><span class="o">=</span><span class="n">val_sampler</span><span class="p">,</span>
+</span><span id="__span-0-7710"><a id="__codelineno-0-7710" name="__codelineno-0-7710"></a>        <span class="n">len_dataloader</span><span class="o">=</span><span class="p">(</span>
+</span><span id="__span-0-7711"><a id="__codelineno-0-7711" name="__codelineno-0-7711"></a>            <span class="nb">max</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="nb">round</span><span class="p">(</span><span class="n">val_steps_per_epoch</span> <span class="o">/</span> <span class="n">trainer_devices</span><span class="p">))</span>
+</span><span id="__span-0-7712"><a id="__codelineno-0-7712" name="__codelineno-0-7712"></a>            <span class="k">if</span> <span class="n">trainer_devices</span> <span class="o">&gt;</span> <span class="mi">1</span>
+</span><span id="__span-0-7713"><a id="__codelineno-0-7713" name="__codelineno-0-7713"></a>            <span class="k">else</span> <span class="kc">None</span>
+</span><span id="__span-0-7714"><a id="__codelineno-0-7714" name="__codelineno-0-7714"></a>        <span class="p">),</span>
+</span><span id="__span-0-7715"><a id="__codelineno-0-7715" name="__codelineno-0-7715"></a>        <span class="n">batch_size</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">trainer_config</span><span class="o">.</span><span class="n">val_data_loader</span><span class="o">.</span><span class="n">batch_size</span><span class="p">,</span>
+</span><span id="__span-0-7716"><a id="__codelineno-0-7716" name="__codelineno-0-7716"></a>        <span class="n">num_workers</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">trainer_config</span><span class="o">.</span><span class="n">val_data_loader</span><span class="o">.</span><span class="n">num_workers</span><span class="p">,</span>
+</span><span id="__span-0-7717"><a id="__codelineno-0-7717" name="__codelineno-0-7717"></a>        <span class="n">pin_memory</span><span class="o">=</span><span class="n">pin_memory</span><span class="p">,</span>
+</span><span id="__span-0-7718"><a id="__codelineno-0-7718" name="__codelineno-0-7718"></a>        <span class="n">worker_init_fn</span><span class="o">=</span><span class="n">worker_init_fn</span><span class="p">,</span>
+</span><span id="__span-0-7719"><a id="__codelineno-0-7719" name="__codelineno-0-7719"></a>        <span class="n">persistent_workers</span><span class="o">=</span><span class="p">(</span>
+</span><span id="__span-0-7720"><a id="__codelineno-0-7720" name="__codelineno-0-7720"></a>            <span class="kc">True</span> <span class="k">if</span> <span class="n">config</span><span class="o">.</span><span class="n">trainer_config</span><span class="o">.</span><span class="n">val_data_loader</span><span class="o">.</span><span class="n">num_workers</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="k">else</span> <span class="kc">None</span>
+</span><span id="__span-0-7721"><a id="__codelineno-0-7721" name="__codelineno-0-7721"></a>        <span class="p">),</span>
+</span><span id="__span-0-7722"><a id="__codelineno-0-7722" name="__codelineno-0-7722"></a>        <span class="n">prefetch_factor</span><span class="o">=</span><span class="n">_get_prefetch_factor</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="s2">&quot;val_data_loader&quot;</span><span class="p">),</span>
+</span><span id="__span-0-7723"><a id="__codelineno-0-7723" name="__codelineno-0-7723"></a>    <span class="p">)</span>
+</span><span id="__span-0-7724"><a id="__codelineno-0-7724" name="__codelineno-0-7724"></a>
+</span><span id="__span-0-7725"><a id="__codelineno-0-7725" name="__codelineno-0-7725"></a>    <span class="k">return</span> <span class="n">train_data_loader</span><span class="p">,</span> <span class="n">val_data_loader</span>
 </span></code></pre></div></td></tr></table></div>
             </details>
     </div>

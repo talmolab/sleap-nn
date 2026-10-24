@@ -8160,6 +8160,11 @@
 <td>Only evaluate user-labeled frames</td>
 <td><code>True</code></td>
 </tr>
+<tr>
+<td><code>--count_unmatched_as_fp</code> / <code>--no-count_unmatched_as_fp</code></td>
+<td>Count predictions that match no ground-truth instance as false positives in <code>oks_voc.*</code> (see the note below)</td>
+<td>off</td>
+</tr>
 </tbody>
 </table>
 <hr />
@@ -8221,6 +8226,15 @@
 </tbody>
 </table>
 <p>Higher is better. mAP &gt; 0.7 is generally good.</p>
+<div class="admonition note">
+<p class="admonition-title">Unmatched predictions</p>
+<p>By default <code>oks_voc.*</code> scores only the predictions matched to a
+ground-truth instance: extra detections (duplicates, false alarms) are not
+counted as false positives, so precision and AP are overstated for models
+that produce them. Pass <code>--count_unmatched_as_fp</code> (or
+<code>run_evaluation(..., count_unmatched_as_fp=True)</code>) to count them. It is off
+by default so existing numbers stay comparable.</p>
+</div>
 <h3 id="distance-metrics">Distance Metrics<a class="headerlink" href="#distance-metrics" title="Permanent link">&para;</a></h3>
 <p>Euclidean distance between predicted and ground truth keypoints (in pixels):</p>
 <table>
