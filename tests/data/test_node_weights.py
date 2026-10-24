@@ -255,24 +255,24 @@ def _frame_datasets(labels, **kwargs):
     si = SingleInstanceDataset(
         labels=[labels], confmap_head_config=head, max_stride=8, **kwargs
     )
-    bu = BottomUpDataset(
+    bottomup = BottomUpDataset(
         labels=[labels],
         confmap_head_config=head,
         pafs_head_config=DictConfig({"sigma": 4, "output_stride": 4}),
         max_stride=8,
         **kwargs,
     )
-    return si, bu
+    return si, bottomup
 
 
 def test_frame_level_datasets_emit_file_weights(minimal_instance):
     labels = _labels(minimal_instance, labeled_nodes=["B"])
-    si, bu = _frame_datasets(labels)
+    si, bottomup = _frame_datasets(labels)
     assert torch.equal(si[0]["node_weights"], torch.tensor([[0.0, 1.0]]))
-    assert torch.equal(bu[0]["node_weights"], torch.tensor([[0.0, 1.0]]))
-    si_off, bu_off = _frame_datasets(labels, node_loss_mask=False)
+    assert torch.equal(bottomup[0]["node_weights"], torch.tensor([[0.0, 1.0]]))
+    si_off, bottomup_off = _frame_datasets(labels, node_loss_mask=False)
     assert "node_weights" not in si_off[0]
-    assert "node_weights" not in bu_off[0]
+    assert "node_weights" not in bottomup_off[0]
 
 
 def test_frame_level_unlabeled_points(minimal_instance):
@@ -280,13 +280,13 @@ def test_frame_level_unlabeled_points(minimal_instance):
     # Node B missing in instance 0 only: bottom-up keeps it (instance 1 has it).
     labels[0].instances[0].points["xy"][1] = np.nan
     labels[0].instances[0].points["visible"][1] = False
-    _, bu = _frame_datasets(labels, unlabeled_points="ignore")
-    assert torch.equal(bu[0]["node_weights"], torch.tensor([[1.0, 1.0]]))
+    _, bottomup = _frame_datasets(labels, unlabeled_points="ignore")
+    assert torch.equal(bottomup[0]["node_weights"], torch.tensor([[1.0, 1.0]]))
     # Missing in every instance: ignored.
     labels[0].instances[1].points["xy"][1] = np.nan
     labels[0].instances[1].points["visible"][1] = False
-    _, bu = _frame_datasets(labels, unlabeled_points="ignore")
-    assert torch.equal(bu[0]["node_weights"], torch.tensor([[1.0, 0.0]]))
+    _, bottomup = _frame_datasets(labels, unlabeled_points="ignore")
+    assert torch.equal(bottomup[0]["node_weights"], torch.tensor([[1.0, 0.0]]))
 
     # Single instance: one instance per frame.
     single = _labels(minimal_instance)
@@ -303,10 +303,10 @@ def test_negative_frames_keep_unit_weights(minimal_instance):
     labels = _labels(minimal_instance, labeled_nodes=["A"])
     lf = labels[0]
     labels.append(sio.LabeledFrame(video=lf.video, frame_idx=0, is_negative=True))
-    si, bu = _frame_datasets(
+    si, bottomup = _frame_datasets(
         labels, use_negative_frames=True, unlabeled_points="ignore"
     )
-    for ds in (si, bu):
+    for ds in (si, bottomup):
         negatives = [ds[i] for i in range(len(ds)) if ds[i].get("is_negative")]
         assert negatives, "expected a negative sample"
         for s in negatives:
@@ -441,13 +441,13 @@ def test_unlabeled_node_gets_zero_weight_in_samples(minimal_instance):
     lf.instances[0].set_unlabeled(["B"])
 
     # Bottom-up: B is still labeled in instance 1, so the frame keeps it.
-    _, bu = _frame_datasets(labels)
-    s = bu[0]
+    _, bottomup = _frame_datasets(labels)
+    s = bottomup[0]
     assert torch.equal(s["node_weights"], torch.tensor([[1.0, 1.0]]))
     assert torch.equal(s["edge_weights"], torch.tensor([[1.0]]))
     lf.instances[1].set_unlabeled(["B"])
-    _, bu = _frame_datasets(labels)
-    s = bu[0]
+    _, bottomup = _frame_datasets(labels)
+    s = bottomup[0]
     assert torch.equal(s["node_weights"], torch.tensor([[1.0, 0.0]]))
     # The A-B edge loses an endpoint, so its PAF is unsupervised.
     assert torch.equal(s["edge_weights"], torch.tensor([[0.0]]))

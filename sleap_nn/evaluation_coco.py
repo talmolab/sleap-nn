@@ -553,14 +553,14 @@ def _accumulate(results: list, thresholds: np.ndarray, rec_thrs: np.ndarray):
     fp_sum = np.cumsum(fps, axis=1).astype(float)
     for t in range(T):
         tp, fp = tp_sum[t], fp_sum[t]
-        nd = len(tp)
+        n_dets = len(tp)
         rc = tp / npig
         pr = tp / (fp + tp + np.spacing(1))
-        recall[t] = rc[-1] if nd else 0
+        recall[t] = rc[-1] if n_dets else 0
         pr = np.maximum.accumulate(pr[::-1])[::-1]
         inds = np.searchsorted(rc, rec_thrs, side="left")
         q = np.zeros(R)
-        valid = inds < nd
+        valid = inds < n_dets
         q[valid] = pr[inds[valid]]
         precision[t] = q
     return precision, recall
