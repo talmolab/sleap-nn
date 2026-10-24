@@ -1779,7 +1779,8 @@ def _labels_with_spurious_predictions():
     """GT: one instance on frame 0, none on frame 1 (a labeled empty frame).
 
     Predictions: a perfect match (score 0.5) and a far-away false alarm (score
-    0.9) on frame 0, plus a false alarm on frame 1.
+    0.9) on frame 0, plus a false alarm on frame 1. A prediction on a frame the
+    ground truth does not label (2) is not scored.
     """
     skel = sio.Skeleton(["a", "b", "c"])
     video = sio.Video(filename="fake.mp4", open_backend=False)
@@ -1810,6 +1811,7 @@ def _labels_with_spurious_predictions():
                 instances=[pred(pts, 0.5), pred(pts + 300.0, 0.9)],
             ),
             sio.LabeledFrame(video=video, frame_idx=1, instances=[pred(pts, 0.8)]),
+            sio.LabeledFrame(video=video, frame_idx=2, instances=[pred(pts, 0.7)]),
         ],
         videos=[video],
         skeletons=[skel],
