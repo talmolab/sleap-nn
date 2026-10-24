@@ -461,7 +461,16 @@ def test_freeze_schedule_under_ddp(tmp_path, strategy):
     raises "parameters that were not used in producing the loss"); an explicit
     ``find_unused_parameters=False`` is refused with a clear error.
     """
-    env = {**os.environ, "CUDA_VISIBLE_DEVICES": "", "PL_DISABLE_FORK": "1"}
+    # One intra-op thread per rank: with torch's default (all cores) the two
+    # gloo ranks oversubscribe the CPU, which took the run from ~16 s to ~90 s
+    # on a 128-core host and past the timeout on CI runners.
+    env = {
+        **os.environ,
+        "CUDA_VISIBLE_DEVICES": "",
+        "PL_DISABLE_FORK": "1",
+        "OMP_NUM_THREADS": "1",
+        "MKL_NUM_THREADS": "1",
+    }
     proc = subprocess.run(
         [sys.executable, str(_WORKER), str(tmp_path), strategy],
         env=env,
