@@ -494,3 +494,25 @@ def test_distillation_under_ddp(tmp_path, minimal_instance_centered_instance_ckp
     assert r0["projector_sum"] == pytest.approx(r1["projector_sum"], rel=0, abs=0)
     assert r0["student_sum"] == pytest.approx(r1["student_sum"], rel=0, abs=0)
     assert r0["projector_changed"] and r1["projector_changed"]
+
+
+def test_model_trainer_guards(minimal_instance_centered_instance_ckpt):
+    """Stage 2 refuses a freeze schedule, and a resume without its teacher."""
+    from types import SimpleNamespace
+
+    from sleap_nn.training.model_trainer import ModelTrainer
+
+    ckpt = minimal_instance_centered_instance_ckpt
+
+    def setup(**trainer_config):
+        cfg = OmegaConf.create({"trainer_config": trainer_config})
+        host = SimpleNamespace(config=cfg, lightning_model=_student(ckpt))
+        ModelTrainer._setup_distillation(host)
+        return host.lightning_model
+
+    assert setup(distillation=None).distiller is None
+    with pytest.raises(ValueError, match="remove trainer_config.freeze_schedule"):
+        setup(distillation={"stage": 2}, freeze_schedule={"targets": ["encoder"]})
+    with pytest.raises(ValueError, match="Resuming distillation stage 2"):
+        setup(distillation={"stage": 2}, resume_ckpt_path="last.ckpt")
+    assert setup(distillation={"teacher": str(ckpt)}).distiller.stage == 1
