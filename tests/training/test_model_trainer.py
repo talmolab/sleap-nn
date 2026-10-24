@@ -2845,3 +2845,139 @@ def test_computed_crop_size_is_reported_with_its_provenance(config, caplog):
         record.levelname == "WARNING" and "Computed crop size" in record.message
         for record in caplog.records
     )
+
+
+def test_training_recipe_knobs_end_to_end(config, tmp_path, caplog):
+    """weight_decay + per-step multi-step warmup + EMA train together on CPU.
+
+    The checkpoint's `state_dict` holds the EMA weights (what inference loads) and
+    the online weights ride under `"ema"`; the LR schedule is stepped per
+    iteration; early stopping left on next to a fixed schedule warns.
+    """
+    cfg = config.copy()
+    OmegaConf.update(cfg, "trainer_config.trainer_accelerator", "cpu")
+    OmegaConf.update(cfg, "trainer_config.save_ckpt", True)
+    OmegaConf.update(cfg, "trainer_config.ckpt_dir", f"{tmp_path}")
+    OmegaConf.update(cfg, "trainer_config.run_name", "recipe")
+    OmegaConf.update(cfg, "trainer_config.max_epochs", 2)
+    OmegaConf.update(cfg, "trainer_config.optimizer_name", "AdamW")
+    OmegaConf.update(cfg, "trainer_config.optimizer.weight_decay", 0.1)
+    OmegaConf.update(
+        cfg,
+        "trainer_config.lr_scheduler",
+        {
+            "multi_step_lr": {
+                "milestones": [1],
+                "gamma": 0.1,
+                "milestone_unit": "epoch",
+                "warmup_steps": 2,
+                "warmup_start_factor": 0.001,
+            }
+        },
+        force_add=True,
+    )
+    OmegaConf.update(
+        cfg,
+        "trainer_config.ema",
+        {"enabled": True, "decay": 0.9, "warmup_steps": 0},
+        force_add=True,
+    )
+    trainer = ModelTrainer.get_model_trainer_from_config(cfg)
+    trainer.train()
+
+    sched_cfg = trainer.trainer.lr_scheduler_configs[0]
+    assert sched_cfg.interval == "step"
+    steps_per_epoch = trainer.config.trainer_config.train_steps_per_epoch
+    assert sched_cfg.scheduler.milestones == [steps_per_epoch]
+    opt = trainer.trainer.optimizers[0]
+    assert {g["name"] for g in opt.param_groups} == {"base/decay", "base/no_decay"}
+    # After the epoch-1 milestone: 0.1 x base LR.
+    assert opt.param_groups[0]["lr"] == pytest.approx(
+        0.1 * cfg.trainer_config.optimizer.lr
+    )
+
+    best = torch.load(
+        tmp_path / "recipe" / "best.ckpt", map_location="cpu", weights_only=False
+    )
+    assert "ema" in best and best["ema"]["num_updates"] > 0
+    online = best["ema"]["online_state_dict"]
+    assert set(online) <= set(best["state_dict"])
+    assert any(
+        not torch.allclose(online[k].float(), best["state_dict"][k].float())
+        for k in online
+        if best["state_dict"][k].is_floating_point()
+    )
+    # The fixture sets `stop_training_on_plateau: true` explicitly: kept, warned.
+    assert trainer.config.trainer_config.early_stopping.stop_training_on_plateau
+    assert "early_stopping.stop_training_on_plateau is true" in caplog.text
+    saved = OmegaConf.load(tmp_path / "recipe" / "training_config.yaml")
+    assert saved.trainer_config.lr_scheduler.reduce_lr_on_plateau is None
+    assert saved.trainer_config.lr_scheduler.multi_step_lr.milestones == [1]
+
+
+def _schedule_cfg(lr_scheduler, stop_training_on_plateau=None):
+    from sleap_nn.config.trainer_config import TrainerConfig
+
+    cfg = OmegaConf.create(
+        {
+            "trainer_config": OmegaConf.to_container(
+                OmegaConf.structured(TrainerConfig())
+            )
+        }
+    )
+    cfg.trainer_config.lr_scheduler = lr_scheduler
+    cfg.trainer_config.early_stopping.stop_training_on_plateau = (
+        stop_training_on_plateau
+    )
+    return cfg
+
+
+_PLATEAU = {"reduce_lr_on_plateau": {"patience": 5}}
+
+
+@pytest.mark.parametrize(
+    "fixed",
+    [
+        {"cosine_annealing_warmup": {"warmup_epochs": 1}},
+        {"linear_warmup_linear_decay": {"warmup_epochs": 1}},
+        {"multi_step_lr": {"milestones": [3]}},
+    ],
+)
+def test_fixed_schedule_turns_off_unset_early_stopping_and_plateau(fixed):
+    from types import SimpleNamespace
+
+    holder = SimpleNamespace(config=_schedule_cfg({**_PLATEAU, **fixed}))
+    ModelTrainer._setup_schedule_defaults(holder)
+    tc = holder.config.trainer_config
+    assert tc.early_stopping.stop_training_on_plateau is False
+    assert tc.lr_scheduler.reduce_lr_on_plateau is None
+    assert tc.lr_scheduler[next(iter(fixed))] is not None
+
+
+@pytest.mark.parametrize(
+    "lr_scheduler", [_PLATEAU, {**_PLATEAU, "step_lr": {"step_size": 2}}, None]
+)
+def test_other_schedules_keep_early_stopping_on_by_default(lr_scheduler):
+    """Byte-identical to before for plateau / step_lr / no scheduler."""
+    from types import SimpleNamespace
+
+    holder = SimpleNamespace(config=_schedule_cfg(lr_scheduler))
+    ModelTrainer._setup_schedule_defaults(holder)
+    tc = holder.config.trainer_config
+    assert tc.early_stopping.stop_training_on_plateau is True
+    if lr_scheduler is not None:
+        assert tc.lr_scheduler.reduce_lr_on_plateau.patience == 5
+
+
+@pytest.mark.parametrize("explicit", [True, False])
+def test_fixed_schedule_keeps_explicit_early_stopping(explicit, caplog):
+    from types import SimpleNamespace
+
+    cfg = _schedule_cfg(
+        {"cosine_annealing_warmup": {"warmup_epochs": 1}},
+        stop_training_on_plateau=explicit,
+    )
+    holder = SimpleNamespace(config=cfg)
+    ModelTrainer._setup_schedule_defaults(holder)
+    assert cfg.trainer_config.early_stopping.stop_training_on_plateau is explicit
+    assert ("may stop before the schedule ends" in caplog.text) is explicit

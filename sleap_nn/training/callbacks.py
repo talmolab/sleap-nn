@@ -1,7 +1,9 @@
 """Custom Callback modules for Lightning Trainer."""
 
+import math
 import zmq
 import jsonpickle
+import torch
 from typing import Callable, Optional, Union
 from lightning.pytorch.callbacks import Callback, EarlyStopping, ModelCheckpoint
 from lightning.pytorch.callbacks.progress import TQDMProgressBar
@@ -2733,6 +2735,207 @@ class EvalCadenceEarlyStopping(EarlyStopping):
         """Check on eval epochs only (when checking at validation end)."""
         if self._is_eval_epoch(trainer):
             super().on_validation_end(trainer, pl_module)
+
+
+class WeightEMA(Callback):
+    """Exponential moving average (EMA) of the model weights.
+
+    Keeps a float32 shadow copy of every trainable parameter and floating-point
+    buffer, updated after each optimizer step as ``ema += (1 - d) * (w - ema)``
+    with ``d = decay * (1 - exp(-n / warmup_steps))`` after ``n`` updates (mmdet /
+    RTMPose ``ExpMomentumEMA``; ``warmup_steps=0`` uses ``decay`` throughout).
+
+    * **Validation** runs on the EMA weights: they are swapped into the module on
+      ``on_validation_start`` and the online weights swapped back on
+      ``on_validation_end``, so ``val/loss``, epoch-end evaluation callbacks, LR
+      plateau / early stopping and checkpoint selection all see the EMA model.
+    * **Checkpoints** store the EMA weights as ``state_dict`` (so inference,
+      export and ``pretrained_backbone_weights`` load them unchanged) and the
+      online weights under ``checkpoint["ema"]["online_state_dict"]``; resuming
+      with this callback restores both. Resuming a checkpoint saved without EMA
+      starts the average from the loaded weights.
+    * At the end of ``fit`` the EMA weights are left in the module.
+
+    Each DDP rank keeps its own (identical) average of its (identical) replica,
+    so no communication is needed. Sharded strategies (FSDP, DeepSpeed) are not
+    supported. Under bf16/fp16 the shadow stays float32 (an EMA with decay near 1
+    cannot be accumulated in bf16).
+
+    Args:
+        decay: EMA decay after warmup (``1 - momentum``). Default: 0.9998.
+        warmup_steps: Time constant of the decay warmup, in optimizer steps;
+            ``0`` disables it. Default: 2000.
+    """
+
+    CHECKPOINT_KEY = "ema"
+
+    def __init__(self, decay: float = 0.9998, warmup_steps: int = 2000):
+        """Initialize the callback. See the class docstring for the arguments."""
+        super().__init__()
+        if not 0.0 <= decay < 1.0:
+            raise ValueError(f"EMA decay must be in [0, 1), got {decay}")
+        if warmup_steps < 0:
+            raise ValueError(f"EMA warmup_steps must be >= 0, got {warmup_steps}")
+        self.decay = float(decay)
+        self.warmup_steps = int(warmup_steps)
+        self.num_updates = 0
+        self._shadow = None  # name -> float32 EMA tensor (on the param's device)
+        self._backup = None  # name -> online tensor while the EMA is swapped in
+        self._pending = None  # EMA tensors loaded before the shadow exists
+        self._last_step = None
+
+    # ------------------------------------------------------------------ state
+
+    @staticmethod
+    def _tensors(pl_module, trainable_only: bool = True):
+        """Name -> tensor for the parameters (and float buffers) the EMA tracks."""
+        out = {
+            n: p
+            for n, p in pl_module.named_parameters()
+            if p.requires_grad or not trainable_only
+        }
+        for n, b in pl_module.named_buffers():
+            if b.is_floating_point():
+                out[n] = b
+        return out
+
+    def current_decay(self) -> float:
+        """The decay applied by the latest update."""
+        if self.warmup_steps <= 0:
+            return self.decay
+        return self.decay * (1.0 - math.exp(-self.num_updates / self.warmup_steps))
+
+    @property
+    def shadow(self):
+        """The EMA tensors (name -> float32 tensor), or ``None`` before fit."""
+        return self._shadow
+
+    @torch.no_grad()
+    def update(self, pl_module) -> None:
+        """Fold the module's current weights into the average (one step)."""
+        if self._shadow is None:
+            return
+        self.num_updates += 1
+        d = self.current_decay()
+        tensors = self._tensors(pl_module, trainable_only=False)
+        ema, cur = [], []
+        for name, e in self._shadow.items():
+            t = tensors.get(name)
+            if t is None:
+                continue
+            ema.append(e)
+            cur.append(t.detach().to(dtype=e.dtype, device=e.device))
+        if ema:
+            torch._foreach_lerp_(ema, cur, 1.0 - d)
+
+    @torch.no_grad()
+    def _copy_into(self, pl_module, values) -> None:
+        tensors = self._tensors(pl_module, trainable_only=False)
+        for name, v in values.items():
+            t = tensors.get(name)
+            if t is not None:
+                t.copy_(v)
+
+    @torch.no_grad()
+    def swap_in(self, pl_module) -> None:
+        """Load the EMA weights into the module, keeping the online ones aside."""
+        if self._shadow is None or self._backup is not None:
+            return
+        tensors = self._tensors(pl_module, trainable_only=False)
+        self._backup = {
+            n: tensors[n].detach().clone() for n in self._shadow if n in tensors
+        }
+        self._copy_into(pl_module, self._shadow)
+
+    @torch.no_grad()
+    def swap_out(self, pl_module) -> None:
+        """Restore the online weights saved by `swap_in`."""
+        if self._backup is None:
+            return
+        self._copy_into(pl_module, self._backup)
+        self._backup = None
+
+    # ------------------------------------------------------------------ hooks
+
+    def on_fit_start(self, trainer, pl_module) -> None:
+        """Start the average from the current (possibly resumed) weights."""
+        strategy = type(trainer.strategy).__name__
+        if "FSDP" in strategy or "DeepSpeed" in strategy:
+            raise ValueError(
+                f"Weight EMA does not support sharded training ({strategy}); "
+                "use DDP or a single device."
+            )
+        self._shadow = {
+            n: t.detach().float().clone() for n, t in self._tensors(pl_module).items()
+        }
+        if self._pending is not None:
+            for n, v in self._pending.items():
+                if n in self._shadow:
+                    self._shadow[n].copy_(v)
+            self._pending = None
+        self._last_step = trainer.global_step
+
+    def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx):
+        """Update after every optimizer step (skips gradient-accumulation steps)."""
+        if trainer.global_step == self._last_step:
+            return
+        self._last_step = trainer.global_step
+        self.update(pl_module)
+
+    def on_validation_start(self, trainer, pl_module) -> None:
+        """Validate the EMA weights."""
+        self.swap_in(pl_module)
+
+    def on_validation_end(self, trainer, pl_module) -> None:
+        """Go back to the online weights for training."""
+        self.swap_out(pl_module)
+
+    def on_fit_end(self, trainer, pl_module) -> None:
+        """Leave the EMA weights in the module."""
+        self.swap_out(pl_module)
+        if self._shadow is not None:
+            self._copy_into(pl_module, self._shadow)
+
+    def on_save_checkpoint(self, trainer, pl_module, checkpoint) -> None:
+        """Save the EMA weights as the ``state_dict`` and the online ones aside."""
+        if self._shadow is None:
+            return
+        sd = checkpoint["state_dict"]
+        online = {}
+        for name, e in self._shadow.items():
+            if name not in sd:
+                continue
+            if self._backup is not None and name in self._backup:
+                online[name] = self._backup[name].detach().clone()
+            else:
+                online[name] = sd[name].detach().clone()
+            sd[name] = e.detach().to(dtype=sd[name].dtype).clone()
+        checkpoint[self.CHECKPOINT_KEY] = {
+            "online_state_dict": online,
+            "decay": self.decay,
+            "warmup_steps": self.warmup_steps,
+            "num_updates": self.num_updates,
+        }
+
+    def on_load_checkpoint(self, trainer, pl_module, checkpoint) -> None:
+        """Resume: the module got the EMA ``state_dict``; put the online weights back.
+
+        Lightning restores the module's ``state_dict`` before this hook runs.
+        """
+        state = checkpoint.get(self.CHECKPOINT_KEY)
+        if not state:
+            return
+        sd = checkpoint["state_dict"]
+        online = state["online_state_dict"]
+        ema = {n: sd[n].detach().float().clone() for n in online if n in sd}
+        self._copy_into(pl_module, online)
+        self.num_updates = int(state.get("num_updates", 0))
+        if self._shadow is not None:
+            for n, v in ema.items():
+                if n in self._shadow:
+                    self._shadow[n].copy_(v)
+        else:
+            self._pending = ema
 
 
 class LastEpochCheckpoint(ModelCheckpoint):

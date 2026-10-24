@@ -224,3 +224,79 @@ class LinearWarmupLinearDecayLR(LRScheduler):
                 base_lr + progress * (end_lr - base_lr)
                 for end_lr, base_lr in zip(self._end_lrs, self.base_lrs)
             ]
+
+
+class LinearWarmupMultiStepLR(LRScheduler):
+    """Step decay at milestones, after a linear warmup (the ViTPose/mmpose schedule).
+
+    The learning rate of each param group is its base learning rate times
+
+    * ``warmup_start_factor + (1 - warmup_start_factor) * t / warmup_steps`` while
+      ``t < warmup_steps`` (mmcv's linear warmup with ``warmup_ratio``), and
+    * ``gamma ** (number of milestones <= t)``,
+
+    where ``t`` counts ``scheduler.step()`` calls (optimizer steps when stepped per
+    iteration). Both factors are multiplicative, so param groups at different
+    learning rates (``encoder_lr_scale`` / ``layer_decay``) keep their ratios.
+
+    Args:
+        optimizer: Wrapped optimizer.
+        milestones: Increasing step indices at which the learning rate is
+            multiplied by ``gamma``.
+        gamma: Multiplicative decay at each milestone. Default: 0.1.
+        warmup_steps: Linear warmup length in steps. ``0`` disables warmup.
+            Default: 0.
+        warmup_start_factor: Fraction of the base learning rate the warmup starts
+            from. Default: 0.001.
+        last_epoch: The index of the last step. Default: -1.
+
+    Example:
+        >>> scheduler = LinearWarmupMultiStepLR(
+        ...     optimizer, milestones=[170 * spe, 200 * spe], warmup_steps=500
+        ... )
+        >>> for batch in loader:
+        ...     train_step(batch)
+        ...     scheduler.step()
+    """
+
+    def __init__(
+        self,
+        optimizer,
+        milestones: Sequence[int],
+        gamma: float = 0.1,
+        warmup_steps: int = 0,
+        warmup_start_factor: float = 0.001,
+        last_epoch: int = -1,
+    ):
+        """Initialize the scheduler. See the class docstring for the arguments."""
+        milestones = [int(m) for m in milestones]
+        if any(b <= a for a, b in zip(milestones, milestones[1:])):
+            raise ValueError(
+                f"milestones must be strictly increasing, got {milestones}"
+            )
+        if any(m < 0 for m in milestones):
+            raise ValueError(f"milestones must be >= 0, got {milestones}")
+        if warmup_steps < 0:
+            raise ValueError(f"warmup_steps must be >= 0, got {warmup_steps}")
+        if not 0 < warmup_start_factor <= 1:
+            raise ValueError(
+                f"warmup_start_factor must be in (0, 1], got {warmup_start_factor}"
+            )
+        self.milestones = milestones
+        self.gamma = float(gamma)
+        self.warmup_steps = int(warmup_steps)
+        self.warmup_start_factor = float(warmup_start_factor)
+        super().__init__(optimizer, last_epoch)
+
+    def _factor(self, t: int) -> float:
+        """Learning-rate multiplier at step ``t``."""
+        factor = self.gamma ** sum(1 for m in self.milestones if m <= t)
+        if t < self.warmup_steps:
+            alpha = t / self.warmup_steps
+            factor *= self.warmup_start_factor + (1 - self.warmup_start_factor) * alpha
+        return factor
+
+    def get_lr(self):
+        """Compute the learning rate of each group at the current step."""
+        factor = self._factor(self.last_epoch)
+        return [base_lr * factor for base_lr in self.base_lrs]

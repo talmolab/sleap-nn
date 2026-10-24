@@ -1251,6 +1251,31 @@ def test_encoder_lr_scale_makes_one_scaled_encoder_group():
     assert _ids(groups[0]["params"]) == _ids(_trainable(bb.enc))
 
 
+def test_encoder_param_groups_overrides_match_the_backbone_keys():
+    """`trainer_config.optimizer` values (passed as overrides) = backbone keys."""
+    via_backbone = _vit_backbone(encoder_lr_scale=0.5, layer_decay=0.75)
+    via_optimizer = _vit_backbone()
+    expected = via_backbone.encoder_param_groups(1e-3)
+    got = via_optimizer.encoder_param_groups(
+        1e-3, encoder_lr_scale=0.5, layer_decay=0.75
+    )
+    assert [(g["name"], g["lr"], len(g["params"])) for g in got] == [
+        (g["name"], g["lr"], len(g["params"])) for g in expected
+    ]
+    assert got[0]["name"] == "encoder/depth00"
+    names = [g["name"] for g in got]
+    assert names == sorted(set(names))
+    # Overrides win over the backbone's own values.
+    groups = via_backbone.encoder_param_groups(
+        1e-3, encoder_lr_scale=0.1, layer_decay=1.0
+    )
+    assert [g["lr"] for g in groups] == pytest.approx([1e-4] * len(groups))
+    assert (
+        via_optimizer.encoder_param_groups(1e-3, encoder_lr_scale=0.1)[0]["name"]
+        == "encoder"
+    )
+
+
 def test_layer_decay_lr_grows_with_depth():
     """Block i of L trains at scale * decay**(L + 1 - i); embeddings decay most."""
     base, scale, decay = 1e-3, 0.5, 0.75
@@ -1339,7 +1364,12 @@ def test_frozen_encoder_has_no_encoder_param_groups():
     ],
     ids=["default", "lr-scale", "layer-decay", "frozen"],
 )
-def test_optimizer_covers_every_trainable_parameter_exactly_once(overrides):
+@pytest.mark.parametrize(
+    "move_to_optimizer", [False, True], ids=["backbone-keys", "optimizer-keys"]
+)
+def test_optimizer_covers_every_trainable_parameter_exactly_once(
+    overrides, move_to_optimizer
+):
     """Through the LightningModule: config -> backbone -> optimizer param groups.
 
     The non-encoder parameters (tap norms, neck, decoder, heads) always train at
@@ -1377,6 +1407,13 @@ def test_optimizer_covers_every_trainable_parameter_exactly_once(overrides):
         learning_rate=lr,
     )
     assert module.model.backbone.token_path
+    if move_to_optimizer:
+        # The same knobs set on `trainer_config.optimizer` (module attributes)
+        # instead of the deprecated backbone keys.
+        module.encoder_lr_scale = overrides.get("encoder_lr_scale")
+        module.layer_decay = overrides.get("layer_decay")
+        bb = module.model.backbone
+        bb.encoder_lr_scale, bb.layer_decay = 1.0, None
     optimizer = module.configure_optimizers()["optimizer"]
     groups = optimizer.param_groups
     in_optimizer = [id(p) for g in groups for p in g["params"]]
@@ -1390,7 +1427,8 @@ def test_optimizer_covers_every_trainable_parameter_exactly_once(overrides):
         assert len(groups) == 1
         assert groups[0]["lr"] == lr
         return
-    assert groups[0]["lr"] == lr
+    assert groups[0]["lr"] == lr and groups[0]["name"] == "base"
+    assert all(g["name"].startswith("encoder") for g in groups[1:])
     assert sorted(id(p) for p in groups[0]["params"]) == sorted(rest)
     scale = overrides["encoder_lr_scale"]
     assert all(g["lr"] <= lr * scale * (1 + 1e-9) for g in groups[1:])
@@ -1896,3 +1934,136 @@ def test_neck_loads_checkpoints_from_the_wrapper_layernorm():
     torch.testing.assert_close(
         fresh.get_submodule(some_norm).weight, old_style[f"{some_norm}.norm.weight"]
     )
+
+
+# ── Recipe knobs on pretrained ViTs: weight decay groups x layer decay, drop path ─
+
+
+def _vit_lightning_module(**backbone_overrides):
+    from sleap_nn.training.lightning_modules import SingleInstanceLightningModule
+
+    return SingleInstanceLightningModule(
+        model_type="single_instance",
+        backbone_type="pretrained",
+        backbone_config={
+            "pretrained": {
+                "model_name": VIT,
+                "weights": False,
+                "in_channels": 3,
+                "output_stride": 2,
+                "max_stride": 32,
+                **backbone_overrides,
+            }
+        },
+        head_configs=OmegaConf.create(
+            {
+                "single_instance": {
+                    "confmaps": {
+                        "part_names": ["a", "b"],
+                        "sigma": 2.5,
+                        "output_stride": 2,
+                        "loss_weight": 1.0,
+                    }
+                }
+            }
+        ),
+        lr_scheduler=None,
+        optimizer="AdamW",
+        learning_rate=1e-3,
+    )
+
+
+def test_weight_decay_composes_with_layer_decay():
+    """Each layer-decay group splits into decay/no-decay; both keep the group's LR."""
+    module = _vit_lightning_module(encoder_lr_scale=0.5, layer_decay=0.75)
+    lr_groups = module._trainable_param_groups()
+    lr_of = {id(p): g["lr"] for g in lr_groups for p in g["params"]}
+
+    module.weight_decay = 0.1
+    opt = module.configure_optimizers()["optimizer"]
+    groups = opt.param_groups
+    assert len(groups) == 2 * len(lr_groups)  # every depth has weights AND norms
+    covered = [id(p) for g in groups for p in g["params"]]
+    assert len(covered) == len(set(covered))
+    assert sorted(covered) == _ids(_trainable(module))
+    for g in groups:
+        assert {lr_of[id(p)] for p in g["params"]} == {g["lr"]}
+        assert g["weight_decay"] == (0.1 if g["name"].endswith("/decay") else 0.0)
+
+    names = {id(p): n for n, p in module.named_parameters()}
+    no_decay = {
+        names[id(p)] for g in groups if g["weight_decay"] == 0 for p in g["params"]
+    }
+    decay = {names[id(p)] for g in groups if g["weight_decay"] > 0 for p in g["params"]}
+    enc = "model.backbone.enc."
+    for token in ("embeddings.cls_token", "embeddings.register_tokens"):
+        assert enc + token in no_decay
+    assert enc + "embeddings.position_embeddings" in no_decay  # 3-D, by name
+    assert enc + "embeddings.patch_embeddings.projection.weight" in decay
+    assert any(n.endswith("attention.attention.query.weight") for n in decay)
+    assert all(not n.endswith(".bias") for n in decay)
+    assert any("layer_scale" in n for n in no_decay)
+
+
+def test_drop_path_rate_ramps_linearly_on_hf_dinov2():
+    """HF DINOv2 gives every block the same rate; we ramp 0 -> rate over depth."""
+    bb = _vit_backbone(drop_path_rate=0.2)
+    probs = [m.drop_prob for _, m in bb.enc.named_modules() if hasattr(m, "drop_prob")]
+    assert len(probs) == bb.num_layers
+    assert probs == pytest.approx(
+        [0.2 * i / (bb.num_layers - 1) for i in range(bb.num_layers)]
+    )
+
+
+def test_drop_path_rate_unset_keeps_the_checkpoint_setting():
+    bb = _vit_backbone()
+    assert not [m for m in bb.enc.modules() if hasattr(m, "drop_prob")]
+
+
+def test_drop_path_rate_is_ignored_with_a_warning_without_the_field():
+    from loguru import logger
+
+    messages = []
+    sink = logger.add(lambda m: messages.append(str(m)), level="WARNING")
+    try:
+        bb = _vit_backbone(CLIP, drop_path_rate=0.1)
+    finally:
+        logger.remove(sink)
+    assert any("drop_path_rate" in m for m in messages)
+    assert not [m for m in bb.enc.modules() if hasattr(m, "drop_prob")]
+
+
+def test_drop_path_rate_on_a_hierarchical_hf_backbone_keeps_its_ramp():
+    """ConvNeXtV2 already ramps its rate; it is passed through untouched."""
+    bb = PretrainedBackbone.from_config(
+        _caseA_cfg("facebook/convnextv2-nano-22k-224", drop_path_rate=0.3)
+    )
+    probs = [m.drop_prob for m in bb.enc.modules() if hasattr(m, "drop_prob")]
+    assert probs == sorted(probs) and probs[0] < 0.05  # its own linear ramp
+    assert probs[-1] == pytest.approx(0.3)
+
+
+@requires_timm
+def test_drop_path_rate_reaches_timm_create_model():
+    bb = _vit_backbone(TIMM_VIT, drop_path_rate=0.3)
+    probs = [m.drop_prob for m in bb.enc.modules() if hasattr(m, "drop_prob")]
+    assert probs and max(probs) == pytest.approx(0.3)
+
+
+def test_drop_path_is_inactive_in_eval_and_active_in_train():
+    """Eval is deterministic; train mode (with a high rate) is not."""
+    model = _vit_model(drop_path_rate=0.9)
+    x = torch.rand(2, 3, 64, 64)
+    model.eval()
+    with torch.no_grad():
+        a, b = model(x), model(x)
+    for k in a:
+        assert torch.equal(a[k], b[k])
+    model.train()
+    torch.manual_seed(0)
+    with torch.no_grad():
+        c = model(x)
+    torch.manual_seed(1)
+    with torch.no_grad():
+        d = model(x)
+    assert any(not torch.allclose(c[k], d[k]) for k in c)

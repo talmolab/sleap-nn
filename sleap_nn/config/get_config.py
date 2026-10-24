@@ -64,6 +64,10 @@ from sleap_nn.config.trainer_config import (
     ValDataLoaderConfig,
     LRSchedulerConfig,
     StepLRConfig,
+    CosineAnnealingWarmupConfig,
+    LinearWarmupLinearDecayConfig,
+    MultiStepLRConfig,
+    EMAConfig,
     EarlyStoppingConfig,
     ReduceLROnPlateauConfig,
     TrainerConfig,
@@ -827,7 +831,7 @@ def get_trainer_config(
     learning_rate: float = 1e-3,
     amsgrad: bool = False,
     lr_scheduler: Optional[Union[str, Dict[str, Any]]] = None,
-    early_stopping: bool = False,
+    early_stopping: Optional[bool] = False,
     early_stopping_min_delta: float = 0.0,
     early_stopping_patience: int = 1,
     online_mining: bool = False,
@@ -852,6 +856,12 @@ def get_trainer_config(
     prefetch_factor: Optional[int] = 2,
     pin_memory: Optional[bool] = None,
     drop_last: Optional[bool] = None,
+    weight_decay: Optional[float] = None,
+    encoder_lr_scale: Optional[float] = None,
+    layer_decay: Optional[float] = None,
+    ema: bool = False,
+    ema_decay: float = 0.9998,
+    ema_warmup_steps: int = 2000,
 ):
     """Train a pose-estimation model with SLEAP-NN framework.
 
@@ -916,8 +926,10 @@ def get_trainer_config(
         optimizer: Optimizer to be used. One of ["Adam", "AdamW"]. Default: "Adam".
         learning_rate: Learning rate of type float. Default: 1e-3.
         amsgrad: Enable AMSGrad with the optimizer. Default: False.
-        lr_scheduler: One of ["step_lr", "reduce_lr_on_plateau"] (the default values in
-            `sleap_nn.config.trainer_config` are used). To use custom values, pass a
+        lr_scheduler: One of ["step_lr", "reduce_lr_on_plateau",
+            "cosine_annealing_warmup", "linear_warmup_linear_decay"] (the default
+            values in `sleap_nn.config.trainer_config` are used). To use custom
+            values (required for "multi_step_lr", which needs `milestones`), pass a
             dictionary with the structure in `sleap_nn.config.trainer_config.LRSchedulerConfig`.
             For eg, {
                         "step_lr":
@@ -925,7 +937,9 @@ def get_trainer_config(
                                 (params in `sleap_nn.config.trainer_config.StepLRConfig`)
                             }
                     }
-        early_stopping: True if early stopping should be enabled. Default: False.
+        early_stopping: True if early stopping should be enabled. `None` = on, except
+            with a fixed-length schedule (cosine_annealing_warmup,
+            linear_warmup_linear_decay, multi_step_lr). Default: False.
         early_stopping_min_delta: Minimum change in the monitored quantity to qualify as
             an improvement, i.e. an absolute change of less than or equal to min_delta,
             will count as no improvement. Default: 0.0.
@@ -985,6 +999,19 @@ def get_trainer_config(
             Default: `None`.
         drop_last: Drop the partial batch at the end of each pass over the training
             data. `None` = only when `compile` is enabled. Default: `None`.
+        weight_decay: Weight decay for weight matrices / kernels only (biases, norms,
+            other 1-D params, position embeddings and special tokens get none).
+            `None` keeps the optimizer's torch default on every parameter.
+            Default: `None`.
+        encoder_lr_scale: Learning-rate multiplier for a `pretrained` backbone's
+            encoder. `None` = 1.0. Default: `None`.
+        layer_decay: Layer-wise learning-rate decay for a plain-ViT `pretrained`
+            encoder. `None` disables it. Default: `None`.
+        ema: Keep an exponential moving average of the weights, used for
+            validation and saved in the checkpoints. Default: False.
+        ema_decay: EMA decay after warmup. Default: 0.9998.
+        ema_warmup_steps: Time constant (optimizer steps) of the EMA decay warmup;
+            0 disables it. Default: 2000.
     """
     # constrict trainer config
     train_dataloader_cfg = TrainDataLoaderConfig(
@@ -1003,30 +1030,31 @@ def get_trainer_config(
         pin_memory=pin_memory,
     )
 
+    scheduler_classes = {
+        "step_lr": StepLRConfig,
+        "reduce_lr_on_plateau": ReduceLROnPlateauConfig,
+        "cosine_annealing_warmup": CosineAnnealingWarmupConfig,
+        "linear_warmup_linear_decay": LinearWarmupLinearDecayConfig,
+        "multi_step_lr": MultiStepLRConfig,
+    }
     lr_scheduler_cfg = LRSchedulerConfig()
     if isinstance(lr_scheduler, str):
-        if lr_scheduler == "step_lr":
-            lr_scheduler_cfg.step_lr = StepLRConfig()
-        elif lr_scheduler == "reduce_lr_on_plateau":
-            lr_scheduler_cfg.reduce_lr_on_plateau = ReduceLROnPlateauConfig()
+        if lr_scheduler in scheduler_classes and lr_scheduler != "multi_step_lr":
+            setattr(lr_scheduler_cfg, lr_scheduler, scheduler_classes[lr_scheduler]())
         else:
-            message = f"{lr_scheduler} is not a valid scheduler. Please choose one of ['step_lr', 'reduce_lr_on_plateau']"
+            message = (
+                f"{lr_scheduler} is not a valid scheduler. Please choose one of "
+                "['step_lr', 'reduce_lr_on_plateau', 'cosine_annealing_warmup', "
+                "'linear_warmup_linear_decay'] (multi_step_lr needs a dict with its "
+                "milestones)."
+            )
             logger.error(message)
             raise ValueError(message)
     elif isinstance(lr_scheduler, dict):
-        if lr_scheduler is None:
-            lr_scheduler = {
-                "step_lr": None,
-                "reduce_lr_on_plateau": None,
-            }
         for k, v in lr_scheduler.items():
-            if v is not None:
-                if k == "step_lr":
-                    lr_scheduler_cfg.step_lr = StepLRConfig(**v)
-                    break
-                elif k == "reduce_lr_on_plateau":
-                    lr_scheduler_cfg.reduce_lr_on_plateau = ReduceLROnPlateauConfig(**v)
-                    break
+            if v is not None and k in scheduler_classes:
+                setattr(lr_scheduler_cfg, k, scheduler_classes[k](**v))
+                break
 
     trainer_config = TrainerConfig(
         train_data_loader=train_dataloader_cfg,
@@ -1061,13 +1089,20 @@ def get_trainer_config(
         run_name=run_name,
         resume_ckpt_path=resume_ckpt_path,
         optimizer_name=optimizer,
-        optimizer=OptimizerConfig(lr=learning_rate, amsgrad=amsgrad),
+        optimizer=OptimizerConfig(
+            lr=learning_rate,
+            amsgrad=amsgrad,
+            weight_decay=weight_decay,
+            encoder_lr_scale=encoder_lr_scale,
+            layer_decay=layer_decay,
+        ),
         lr_scheduler=lr_scheduler_cfg,
         early_stopping=EarlyStoppingConfig(
             min_delta=early_stopping_min_delta,
             patience=early_stopping_patience,
             stop_training_on_plateau=early_stopping,
         ),
+        ema=EMAConfig(enabled=ema, decay=ema_decay, warmup_steps=ema_warmup_steps),
         online_hard_keypoint_mining=HardKeypointMiningConfig(
             online_mining=online_mining,
             hard_to_easy_ratio=hard_to_easy_ratio,
