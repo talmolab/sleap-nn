@@ -42,6 +42,17 @@ def _oks_run_evaluation_overrides(config: DictConfig) -> Dict[str, Any]:
     oks_scale = OmegaConf.select(config, "trainer_config.eval.oks_scale", default=None)
     if oks_scale is not None:
         overrides["oks_scale"] = oks_scale
+    oks_sigmas = OmegaConf.select(
+        config, "trainer_config.eval.oks_sigmas", default=None
+    )
+    if oks_sigmas is not None:
+        overrides["oks_sigmas"] = (
+            OmegaConf.to_container(oks_sigmas)
+            if OmegaConf.is_config(oks_sigmas)
+            else oks_sigmas
+        )
+    if OmegaConf.select(config, "trainer_config.eval.coco_metrics", default=False):
+        overrides["coco_metrics"] = True
     return overrides
 
 

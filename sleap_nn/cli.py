@@ -4288,11 +4288,74 @@ def infer(**kwargs):
         "Default: center_of_mass."
     ),
 )
+@click.option(
+    "--oks_sigmas",
+    type=str,
+    default=None,
+    help=(
+        "Per-node OKS sigmas: a preset ('coco', 'crowdpose', 'ochuman'), "
+        "'provenance' (the GT file's provenance node_sigmas), 'auto', or a "
+        "comma-separated list (one per node). Overrides --oks_stddev."
+    ),
+)
+@click.option(
+    "--coco/--no-coco",
+    "coco_metrics",
+    default=False,
+    help="Also report COCOeval-faithful keypoint AP/AR (coco.AP, AP50, AP75, AR).",
+)
+@click.option(
+    "--coco_protocol",
+    type=click.Choice(["auto", "coco", "ochuman", "crowdpose", "none"]),
+    default="auto",
+    help=(
+        "Dataset evaluation protocol for --coco: 'auto' picks it from the GT "
+        "file's provenance dataset; 'none' applies plain COCOeval rules."
+    ),
+)
+@click.option(
+    "--coco_area_source",
+    type=click.Choice(["auto", "meta", "bbox", "keypoints"]),
+    default=None,
+    help=(
+        "GT object area for --coco: source segmentation area (meta), GT box "
+        "area * 0.53 (bbox), visible-keypoint box (keypoints), or auto (meta, "
+        "then bbox, then keypoints). Default: the protocol's."
+    ),
+)
+@click.option(
+    "--count_unmatched_as_fp/--no-count_unmatched_as_fp",
+    default=False,
+    help=(
+        "Count unmatched predictions as false positives in the legacy oks_voc "
+        "metrics (default off for back-compat; --coco always counts them)."
+    ),
+)
 def eval(**kwargs):
     """Run evaluation workflow."""
     from sleap_nn.evaluation import run_evaluation
 
+    kwargs["oks_sigmas"] = parse_oks_sigmas(kwargs.get("oks_sigmas"))
+    if kwargs.get("coco_protocol") == "none":
+        kwargs["coco_protocol"] = None
     run_evaluation(**kwargs)
+
+
+def parse_oks_sigmas(value: Optional[str]):
+    """``--oks_sigmas``: a preset/keyword, one float, or comma-separated floats."""
+    if not value:
+        return None
+    if value in ("coco", "crowdpose", "ochuman", "provenance", "auto"):
+        return value
+    try:
+        floats = [float(x) for x in value.split(",")]
+    except ValueError:
+        raise click.BadParameter(
+            "expected 'coco', 'crowdpose', 'ochuman', 'provenance', 'auto', a "
+            f"float or comma-separated floats, got {value!r}",
+            param_hint="--oks_sigmas",
+        )
+    return floats[0] if len(floats) == 1 else floats
 
 
 @cli.command(context_settings=CONTEXT_SETTINGS)
