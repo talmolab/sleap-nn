@@ -23,7 +23,7 @@ from __future__ import annotations
 import queue
 import threading
 from copy import deepcopy
-from typing import TYPE_CHECKING, Any, Iterator, Optional, Protocol, Union
+from typing import TYPE_CHECKING, Any, Iterator, List, Optional, Protocol, Tuple, Union
 
 import attrs
 import numpy as np
@@ -92,6 +92,11 @@ class Batch:
         instance_boxes: Optional ``(B, max_instances, 4)`` GT box of each slot of
             ``instances`` (NaN for padding), populated by :class:`LabelsProvider`
             when given an ``instance_box_fn`` (the GT-box fallback).
+        frame_boxes: Optional ``(B, max_boxes, 4)`` xyxy boxes given for each
+            frame (NaN for padding), populated by :class:`LabelsProvider` when
+            given a ``frame_box_fn``: the stage 1 of a top-down model seeded from
+            given boxes (``sleap-nn predict --boxes``).
+        frame_box_scores: Optional ``(B, max_boxes)`` scores of ``frame_boxes``.
     """
 
     images: np.ndarray | torch.Tensor
@@ -99,6 +104,41 @@ class Batch:
     video_indices: Optional[np.ndarray] = None
     instances: Optional[np.ndarray] = None
     instance_boxes: Optional[np.ndarray] = None
+    frame_boxes: Optional[np.ndarray] = None
+    frame_box_scores: Optional[np.ndarray] = None
+
+
+def predicted_frame_boxes(lf: Any) -> Tuple[np.ndarray, np.ndarray]:
+    """``((K, 4) xyxy, (K,) scores)`` of a frame's ``PredictedBoundingBox``es.
+
+    The default ``frame_box_fn`` of a box-seeded top-down run
+    (``sleap-nn predict --boxes``): every predicted box on the frame, whatever
+    its category; user boxes are ground truth and are skipped.
+    """
+    boxes, scores = [], []
+    for box in getattr(lf, "bboxes", None) or []:
+        if not getattr(box, "is_predicted", False):
+            continue
+        boxes.append([box.x1, box.y1, box.x2, box.y2])
+        score = getattr(box, "score", None)
+        scores.append(1.0 if score is None else float(score))
+    return (
+        np.asarray(boxes, dtype=np.float32).reshape(-1, 4),
+        np.asarray(scores, dtype=np.float32),
+    )
+
+
+def _stack_frame_boxes(
+    per_frame: List[Tuple[np.ndarray, np.ndarray]],
+) -> Tuple[np.ndarray, np.ndarray]:
+    """NaN-pad per-frame ``(boxes, scores)`` to ``(B, K, 4)`` / ``(B, K)``."""
+    k = max([len(b) for b, _ in per_frame] + [1])
+    boxes = np.full((len(per_frame), k, 4), np.nan, dtype=np.float32)
+    scores = np.full((len(per_frame), k), np.nan, dtype=np.float32)
+    for i, (b, sc) in enumerate(per_frame):
+        boxes[i, : len(b)] = b
+        scores[i, : len(b)] = sc
+    return boxes, scores
 
 
 class Provider(Protocol):
@@ -394,6 +434,10 @@ class LabelsProvider:
             ``instance_boxes`` aligned with ``instances``. The GT-box fallback of
             a box-scaled centered-instance model uses it to derive boxes exactly
             as its training boxes were (linked user boxes / masks, or keypoints).
+        frame_box_fn: Optional ``(LabeledFrame) -> ((K, 4) xyxy, (K,) scores)``
+            giving the boxes that seed a top-down model's stage 1 on each frame;
+            when set, batches carry ``frame_boxes`` / ``frame_box_scores``. See
+            :func:`predicted_frame_boxes`.
     """
 
     labels: "Union[str, sio.Labels]"
@@ -407,6 +451,7 @@ class LabelsProvider:
     queue_maxsize: int = 4
     frames: Optional[list] = None
     instance_box_fn: Optional[Any] = None
+    frame_box_fn: Optional[Any] = None
 
     _sio_labels: "Optional[sio.Labels]" = attrs.field(
         default=None, init=False, repr=False
@@ -595,6 +640,12 @@ class LabelsProvider:
                             if box is not None:
                                 instance_boxes[i, j] = box
 
+            frame_boxes = frame_box_scores = None
+            if self.frame_box_fn is not None:
+                frame_boxes, frame_box_scores = _stack_frame_boxes(
+                    [self.frame_box_fn(lf) for lf in chunk]
+                )
+
             frame_idxs = np.array([lf.frame_idx for lf in chunk], dtype=np.int64)
             # Attribute each frame to the index of ITS video in the Labels'
             # video list so multi-video .slp predictions land on the correct
@@ -610,6 +661,8 @@ class LabelsProvider:
                 video_indices=video_idxs,
                 instances=instances,
                 instance_boxes=instance_boxes,
+                frame_boxes=frame_boxes,
+                frame_box_scores=frame_box_scores,
             )
 
         if unreadable:

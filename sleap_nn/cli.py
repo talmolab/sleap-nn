@@ -1314,6 +1314,9 @@ def _run_inference_impl(**kwargs):
             "Run without --stream-to-file, or use a trained checkpoint directory."
         )
 
+    if kwargs.get("boxes") is not None:
+        _check_box_seeding_flags(kwargs, stream_to_file)
+
     # ── Stream-to-file path: new Predictor + IncrementalLabelsWriter ───
     if stream_to_file is not None:
         return _run_stream_to_file(
@@ -1324,6 +1327,24 @@ def _run_inference_impl(**kwargs):
         )
 
     return _run_in_memory_new_flow(kwargs, paf_workers=paf_workers)
+
+
+def _check_box_seeding_flags(kwargs: dict, stream_to_file) -> None:
+    """Refuse ``--boxes`` combinations its route cannot honor, before loading."""
+    if stream_to_file is not None:
+        raise click.UsageError(
+            "--boxes is not supported with --stream-to-file; run without it."
+        )
+    if not kwargs.get("model_paths"):
+        raise click.UsageError("--boxes needs a top-down crop model (-m).")
+    _, src_suffix, _ = _resolve_data_path(kwargs.get("data_path") or "")
+    if src_suffix != ".slp":
+        raise click.UsageError(
+            "--boxes needs a .slp input: the boxes are read from (or attached to) "
+            "its frames."
+        )
+    if kwargs.get("video_index") is not None:
+        raise click.UsageError("--boxes is not supported with --video_index.")
 
 
 def _resolve_device(value: object) -> str:
@@ -1381,6 +1402,13 @@ def _build_filter_config(kwargs: dict) -> "object":
     min_mean_node_score = float(kwargs.get("filter_min_mean_node_score") or 0.0)
     min_instance_score = float(kwargs.get("filter_min_instance_score") or 0.0)
     min_centroid_distance = float(kwargs.get("filter_min_centroid_distance") or 0.0)
+    rescore = kwargs.get("rescore")
+    if rescore is None:
+        # COCO protocol for box-seeded runs: score = box score x keypoint score.
+        rescore = kwargs.get("boxes") is not None
+    rescore_threshold = float(kwargs.get("rescore_threshold", 0.2)) if rescore else None
+    oks_nms = float(kwargs.get("oks_nms") or 0.0)
+    oks_sigmas = parse_oks_sigmas(kwargs.get("oks_sigmas"))
     if not (
         overlapping
         or min_visible_nodes
@@ -1388,6 +1416,8 @@ def _build_filter_config(kwargs: dict) -> "object":
         or min_mean_node_score
         or min_instance_score
         or min_centroid_distance
+        or rescore_threshold is not None
+        or oks_nms
     ):
         return None
     return FilterConfig(
@@ -1401,6 +1431,9 @@ def _build_filter_config(kwargs: dict) -> "object":
         min_mean_node_score=min_mean_node_score,
         min_instance_score=min_instance_score,
         min_centroid_distance=min_centroid_distance,
+        rescore_keypoint_threshold=rescore_threshold,
+        oks_nms_threshold=oks_nms,
+        oks_sigmas=oks_sigmas,
     )
 
 
@@ -2775,7 +2808,7 @@ def _run_in_memory_new_flow(
         "peak_threshold": peak_thresh,
         "centroid_threshold": centroid_thresh,
         "keypoint_threshold": peak_thresh,
-        "integral_refinement": kwargs.get("integral_refinement", "integral"),
+        "integral_refinement": kwargs.get("integral_refinement", "auto"),
         "integral_patch_size": kwargs.get("integral_patch_size", 5),
         "max_instances": kwargs.get("max_instances"),
         "anchor_part": kwargs.get("anchor_part"),
@@ -2802,6 +2835,9 @@ def _run_in_memory_new_flow(
         # Bottom-up segmentation knobs (inert for non-segmentation models).
         "fg_threshold": kwargs.get("fg_threshold", 0.5),
         "bbox_nms_iou": kwargs.get("bbox_nms_iou"),
+        "flip_test": kwargs.get("flip_test", False),
+        "boxes": kwargs.get("boxes"),
+        "box_score_threshold": kwargs.get("box_score_threshold") or 0.0,
         "min_mask_area": kwargs.get("min_mask_area", 0),
         "center_nms_kernel": kwargs.get("center_nms_kernel", 3),
         "mask_cleanup": kwargs.get("mask_cleanup", False),
@@ -2873,6 +2909,12 @@ def _run_in_memory_new_flow(
         predict_kwargs["filter_config"] = filter_config
 
     if export_dir is not None:
+        if kwargs.get("flip_test"):
+            raise click.UsageError(
+                "--flip_test is not supported for exported ONNX/TensorRT models "
+                "(their peak finding is baked into the graph). Use the trained "
+                "checkpoint directory instead."
+            )
         # Route to the exported ONNX/TRT runtime. Exported graphs bake peak
         # finding and refinement at export time, so the checkpoint-oriented
         # construction/prediction-time knobs are dropped (the baked values are
@@ -3295,7 +3337,7 @@ def _run_stream_to_file(
     factory_kwargs = {
         "device": _resolve_device(kwargs.get("device")),
         "peak_threshold": kwargs.get("peak_threshold", 0.2),
-        "integral_refinement": kwargs.get("integral_refinement", "integral"),
+        "integral_refinement": kwargs.get("integral_refinement", "auto"),
         "integral_patch_size": kwargs.get("integral_patch_size", 5),
         "batch_size": kwargs.get("batch_size", 4),
         "max_instances": kwargs.get("max_instances"),
@@ -3311,6 +3353,7 @@ def _run_stream_to_file(
         # Bottom-up segmentation knobs (inert for non-segmentation models).
         "fg_threshold": kwargs.get("fg_threshold", 0.5),
         "bbox_nms_iou": kwargs.get("bbox_nms_iou"),
+        "flip_test": kwargs.get("flip_test", False),
         "min_mask_area": kwargs.get("min_mask_area", 0),
         "center_nms_kernel": kwargs.get("center_nms_kernel", 3),
         "mask_cleanup": kwargs.get("mask_cleanup", False),
@@ -3930,7 +3973,94 @@ def _common_inference_options(f):
                 "single points."
             ),
         ),
-        click.option("--integral_refinement", type=str, default="integral"),
+        click.option(
+            "--integral_refinement",
+            # Mirrors sleap_nn.inference.ops.peaks.REFINEMENT_METHODS (not
+            # imported here to keep CLI startup torch-free).
+            type=click.Choice(
+                ["auto", "dark", "integral", "local", "none"], case_sensitive=False
+            ),
+            default="auto",
+            help=(
+                "Sub-pixel peak refinement. 'auto' (default): DARK for top-down "
+                "keypoints (centered_instance / multi_class_topdown, blurred with "
+                "the head's training sigma), integral regression for every other "
+                "model. 'dark' and 'local' (quarter-pixel offset) need one peak "
+                "per channel: the centroid stage uses 'integral' for them and "
+                "bottom-up models reject them. 'integral' restores the pre-0.4 "
+                "top-down decoding; 'none' returns grid-aligned peaks. Exported "
+                "(ONNX/TensorRT) models do no sub-pixel refinement."
+            ),
+        ),
+        click.option(
+            "--flip_test",
+            "--flip-test",
+            "flip_test",
+            is_flag=True,
+            default=False,
+            help=(
+                "Top-down centered_instance models only: also run the "
+                "centered-instance model on the horizontally mirrored crops and "
+                "average the two confidence maps (left/right nodes swapped using "
+                "the skeleton symmetries) before peak finding. Doubles the "
+                "centered-instance compute. Not available for exported models."
+            ),
+        ),
+        click.option(
+            "--boxes",
+            type=str,
+            default=None,
+            help=(
+                "Seed a top-down crop model (pass it alone) from boxes instead of "
+                "a centroid model or detector: 'gt' (the input .slp's GT boxes), a "
+                "COCO detection results .json (matched to frames by image id), or "
+                "a .slp whose frames carry predicted boxes (e.g. a bbox detector's "
+                "output, or the input itself). Needs a .slp input. Turns on "
+                "--rescore unless --no-rescore is given."
+            ),
+        ),
+        click.option(
+            "--box_score_threshold",
+            type=float,
+            default=0.0,
+            help="With --boxes <file>, drop boxes scoring below this. Default: 0.",
+        ),
+        click.option(
+            "--rescore/--no-rescore",
+            "rescore",
+            default=None,
+            help=(
+                "COCO/mmpose instance rescoring: score = stage-1 score (box score / "
+                "centroid value) x mean of keypoint scores above "
+                "--rescore_threshold. Default: on with --boxes, else off."
+            ),
+        ),
+        click.option(
+            "--rescore_threshold",
+            type=float,
+            default=0.2,
+            help="Keypoint-score threshold for --rescore. Default: 0.2 (mmpose).",
+        ),
+        click.option(
+            "--oks_nms",
+            type=float,
+            default=0.0,
+            help=(
+                "COCO OKS-NMS threshold (mmpose oks_nms): drop an instance whose "
+                "OKS with a higher-scoring one in its frame exceeds this. 0 "
+                "disables (default); top-down papers use 0.9 with detected boxes."
+            ),
+        ),
+        click.option(
+            "--oks_sigmas",
+            type=str,
+            default=None,
+            help=(
+                "Per-node sigmas for --oks_nms: 'coco', 'crowdpose', 'ochuman', a "
+                "float, or a comma-separated list (one per node). Default: by node "
+                "name (COCO-17 names get the COCO sigmas, others 0.025)."
+            ),
+        ),
         click.option("--tracking_window_size", type=int, default=5),
         click.option("--min_new_track_points", type=int, default=0),
         # Default None (not "fixed_window") so _build_tracker_config can tell
@@ -4288,11 +4418,74 @@ def infer(**kwargs):
         "Default: center_of_mass."
     ),
 )
+@click.option(
+    "--oks_sigmas",
+    type=str,
+    default=None,
+    help=(
+        "Per-node OKS sigmas: a preset ('coco', 'crowdpose', 'ochuman'), "
+        "'provenance' (the GT file's provenance node_sigmas), 'auto', or a "
+        "comma-separated list (one per node). Overrides --oks_stddev."
+    ),
+)
+@click.option(
+    "--coco/--no-coco",
+    "coco_metrics",
+    default=False,
+    help="Also report COCOeval-faithful keypoint AP/AR (coco.AP, AP50, AP75, AR).",
+)
+@click.option(
+    "--coco_protocol",
+    type=click.Choice(["auto", "coco", "ochuman", "crowdpose", "none"]),
+    default="auto",
+    help=(
+        "Dataset evaluation protocol for --coco: 'auto' picks it from the GT "
+        "file's provenance dataset; 'none' applies plain COCOeval rules."
+    ),
+)
+@click.option(
+    "--coco_area_source",
+    type=click.Choice(["auto", "meta", "bbox", "keypoints"]),
+    default=None,
+    help=(
+        "GT object area for --coco: source segmentation area (meta), GT box "
+        "area * 0.53 (bbox), visible-keypoint box (keypoints), or auto (meta, "
+        "then bbox, then keypoints). Default: the protocol's."
+    ),
+)
+@click.option(
+    "--count_unmatched_as_fp/--no-count_unmatched_as_fp",
+    default=False,
+    help=(
+        "Count unmatched predictions as false positives in the legacy oks_voc "
+        "metrics (default off for back-compat; --coco always counts them)."
+    ),
+)
 def eval(**kwargs):
     """Run evaluation workflow."""
     from sleap_nn.evaluation import run_evaluation
 
+    kwargs["oks_sigmas"] = parse_oks_sigmas(kwargs.get("oks_sigmas"))
+    if kwargs.get("coco_protocol") == "none":
+        kwargs["coco_protocol"] = None
     run_evaluation(**kwargs)
+
+
+def parse_oks_sigmas(value: Optional[str]):
+    """``--oks_sigmas``: a preset/keyword, one float, or comma-separated floats."""
+    if not value:
+        return None
+    if value in ("coco", "crowdpose", "ochuman", "provenance", "auto"):
+        return value
+    try:
+        floats = [float(x) for x in value.split(",")]
+    except ValueError:
+        raise click.BadParameter(
+            "expected 'coco', 'crowdpose', 'ochuman', 'provenance', 'auto', a "
+            f"float or comma-separated floats, got {value!r}",
+            param_hint="--oks_sigmas",
+        )
+    return floats[0] if len(floats) == 1 else floats
 
 
 @cli.command(context_settings=CONTEXT_SETTINGS)

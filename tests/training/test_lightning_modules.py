@@ -67,6 +67,25 @@ def cleanup_wandb():
         os.environ.pop("WANDB_MODE", None)
 
 
+def test_topdown_centered_instance_eval_decodes_with_dark(config):
+    """Epoch-end eval decodes like `predict`: DARK blurred with the training sigma."""
+    model = TopDownCenteredInstanceLightningModule(
+        model_type="centered_instance",
+        backbone_config=config.model_config.backbone_config,
+        backbone_type="unet",
+        head_configs=config.model_config.head_configs,
+        pretrained_backbone_weights=None,
+        pretrained_head_weights=None,
+        init_weights=config.model_config.init_weights,
+        lr_scheduler=config.trainer_config.lr_scheduler,
+        optimizer="AdamW",
+    )
+    layer = model.instance_peaks_inf_layer
+    assert layer.refinement == "dark"
+    assert layer.dark_blur_sigma == 1.5
+    assert layer.flip_test is False
+
+
 def test_topdown_centered_instance_model(
     config, tmp_path: str, minimal_instance_centered_instance_ckpt
 ):
@@ -1197,3 +1216,351 @@ class TestSchedulerResolution:
         out = self._module(None).configure_optimizers()
 
         assert "lr_scheduler" not in out
+
+
+# ── Training recipe knobs: weight decay groups + per-step LR schedules ──────────
+
+
+def _recipe_module(lr_scheduler=None, optimizer="AdamW", weight_decay=None, lr=1e-3):
+    """A small UNet centroid module with the recipe knobs set."""
+    backbone = OmegaConf.create(
+        {
+            "unet": {
+                "in_channels": 1,
+                "kernel_size": 3,
+                "filters": 8,
+                "filters_rate": 1.5,
+                "max_stride": 16,
+                "stem_stride": None,
+                "middle_block": True,
+                "up_interpolate": True,
+                "stacks": 1,
+                "convs_per_block": 2,
+                "output_stride": 2,
+            }
+        }
+    )
+    heads = OmegaConf.create(
+        {
+            "centroid": {
+                "confmaps": {"anchor_part": None, "sigma": 1.5, "output_stride": 2}
+            }
+        }
+    )
+    module = CentroidLightningModule(
+        model_type="centroid",
+        backbone_type="unet",
+        backbone_config=backbone,
+        head_configs=heads,
+        init_weights="xavier",
+        lr_scheduler=lr_scheduler,
+        optimizer=optimizer,
+        learning_rate=lr,
+    )
+    module.weight_decay = weight_decay
+    return module
+
+
+def _with_fake_trainer(
+    module, monkeypatch, max_epochs=10, steps_per_epoch=50, max_steps=-1
+):
+    """Attach the trainer facts per-step schedules read."""
+    from types import SimpleNamespace
+
+    fake = SimpleNamespace(
+        max_epochs=max_epochs,
+        max_steps=max_steps,
+        train_dataloader=object(),
+        num_training_batches=steps_per_epoch,
+        accumulate_grad_batches=1,
+    )
+    monkeypatch.setattr(type(module), "trainer", property(lambda self: fake))
+    return module
+
+
+def test_weight_decay_unset_keeps_one_group_with_torch_default():
+    """Backward compatible: no `weight_decay` -> one group, AdamW's 0.01 on all."""
+    opt = _recipe_module().configure_optimizers()["optimizer"]
+    assert len(opt.param_groups) == 1
+    assert opt.param_groups[0]["weight_decay"] == 0.01
+
+
+@pytest.mark.parametrize("optimizer", ["Adam", "AdamW"])
+def test_weight_decay_splits_weights_from_biases_and_norms(optimizer):
+    module = _recipe_module(optimizer=optimizer, weight_decay=0.1)
+    opt = module.configure_optimizers()["optimizer"]
+    assert [g["name"] for g in opt.param_groups] == [
+        "base/decay",
+        "base/no_decay",
+    ]
+    decay, no_decay = opt.param_groups
+    assert decay["weight_decay"] == 0.1 and no_decay["weight_decay"] == 0.0
+    assert all(p.ndim > 1 for p in decay["params"])
+    assert all(p.ndim <= 1 for p in no_decay["params"])
+    covered = [id(p) for g in opt.param_groups for p in g["params"]]
+    assert sorted(covered) == sorted(id(p) for p in module.parameters())
+
+
+def test_weight_decay_is_read_from_the_config(config):
+    """`trainer_config.optimizer.weight_decay` reaches the module."""
+    cfg = config.copy()
+    OmegaConf.update(cfg, "trainer_config.optimizer.weight_decay", 0.05)
+    OmegaConf.update(cfg, "model_config.head_configs.centered_instance", None)
+    OmegaConf.update(
+        cfg,
+        "model_config.head_configs.centroid",
+        {"confmaps": {"anchor_part": None, "sigma": 1.5, "output_stride": 2}},
+        force_add=True,
+    )
+    module = LightningModel.get_lightning_model_from_config(cfg)
+    assert module.weight_decay == 0.05
+
+
+def test_cosine_with_warmup_steps_is_stepped_per_iteration(monkeypatch):
+    sched_cfg = OmegaConf.create(
+        {
+            "cosine_annealing_warmup": {
+                "warmup_epochs": 5,
+                "max_epochs": None,
+                "warmup_start_lr": 0.0,
+                "eta_min": 0.0,
+                "warmup_steps": 20,
+                "max_steps": None,
+            },
+            "reduce_lr_on_plateau": {"patience": 5},
+        }
+    )
+    module = _with_fake_trainer(_recipe_module(sched_cfg), monkeypatch)
+    out = module.configure_optimizers()
+    sched = out["lr_scheduler"]
+    assert sched["interval"] == "step"
+    assert sched["scheduler"].warmup_epochs == 20
+    assert sched["scheduler"].max_epochs == 10 * 50  # max_epochs x steps/epoch
+
+
+def test_cosine_without_warmup_steps_stays_per_epoch():
+    """Configs that predate `warmup_steps` (no key at all) behave as before."""
+    sched_cfg = OmegaConf.create(
+        {
+            "cosine_annealing_warmup": {
+                "warmup_epochs": 2,
+                "max_epochs": 10,
+                "warmup_start_lr": 0.0,
+                "eta_min": 0.0,
+            }
+        }
+    )
+    out = _recipe_module(sched_cfg).configure_optimizers()
+    assert out["lr_scheduler"]["interval"] == "epoch"
+    assert out["lr_scheduler"]["scheduler"].max_epochs == 10
+
+
+@pytest.mark.parametrize(
+    "unit, milestones, expected",
+    [("epoch", [7, 9], [350, 450]), ("step", [100, 300], [100, 300])],
+)
+def test_multi_step_lr_milestones(monkeypatch, unit, milestones, expected):
+    """Epoch milestones are converted to optimizer steps; step ones are kept."""
+    from sleap_nn.config.trainer_config import LRSchedulerConfig, MultiStepLRConfig
+    from sleap_nn.training.schedulers import LinearWarmupMultiStepLR
+
+    sched_cfg = OmegaConf.structured(
+        LRSchedulerConfig(
+            multi_step_lr=MultiStepLRConfig(
+                milestones=milestones, milestone_unit=unit, warmup_steps=25
+            )
+        )
+    )
+    module = _with_fake_trainer(_recipe_module(sched_cfg), monkeypatch)
+    sched = module.configure_optimizers()["lr_scheduler"]
+    assert isinstance(sched["scheduler"], LinearWarmupMultiStepLR)
+    assert sched["interval"] == "step"
+    assert sched["scheduler"].milestones == expected
+    assert sched["scheduler"].warmup_steps == 25
+
+
+def test_multi_step_lr_requires_milestones():
+    sched_cfg = OmegaConf.create({"multi_step_lr": {"milestones": []}})
+    with pytest.raises(ValueError, match="milestones"):
+        _recipe_module(sched_cfg).configure_optimizers()
+
+
+def test_multi_step_lr_outranks_step_lr_and_plateau(monkeypatch):
+    """Priority: ... > multi_step_lr > step_lr > reduce_lr_on_plateau (no stacking)."""
+    from sleap_nn.training.schedulers import LinearWarmupMultiStepLR
+
+    sched_cfg = OmegaConf.create(
+        {
+            "multi_step_lr": {"milestones": [5]},
+            "step_lr": {"step_size": 2, "gamma": 0.5},
+            "reduce_lr_on_plateau": {"patience": 5},
+        }
+    )
+    module = _with_fake_trainer(_recipe_module(sched_cfg), monkeypatch)
+    out = module.configure_optimizers()
+    assert isinstance(out["lr_scheduler"]["scheduler"], LinearWarmupMultiStepLR)
+
+
+_COSINE = {
+    "warmup_epochs": 5,
+    "max_epochs": None,
+    "warmup_start_lr": 0.0,
+    "eta_min": 0.0,
+}
+
+
+def test_cosine_warmup_steps_total_is_capped_by_trainer_max_steps(monkeypatch):
+    """No schedule max_steps/max_epochs: the run's own length (max_steps caps it)."""
+    sched_cfg = OmegaConf.create(
+        {"cosine_annealing_warmup": {**_COSINE, "warmup_steps": 10}}
+    )
+    module = _with_fake_trainer(_recipe_module(sched_cfg), monkeypatch, max_steps=120)
+    sched = module.configure_optimizers()["lr_scheduler"]["scheduler"]
+    assert sched.max_epochs == 120
+
+
+def test_cosine_warmup_steps_with_step_only_training(monkeypatch):
+    """`max_epochs: -1` + `max_steps` (train by steps) gives a finite schedule."""
+    sched_cfg = OmegaConf.create(
+        {
+            "linear_warmup_linear_decay": {
+                "warmup_epochs": 5,
+                "max_epochs": None,
+                "warmup_start_lr": 0.0,
+                "end_lr": 0.0,
+                "warmup_steps": 10,
+            }
+        }
+    )
+    module = _with_fake_trainer(
+        _recipe_module(sched_cfg), monkeypatch, max_epochs=-1, max_steps=300
+    )
+    sched = module.configure_optimizers()["lr_scheduler"]["scheduler"]
+    assert sched.max_epochs == 300
+
+    module = _with_fake_trainer(
+        _recipe_module(sched_cfg), monkeypatch, max_epochs=-1, max_steps=-1
+    )
+    with pytest.raises(ValueError, match="finite run length"):
+        module.configure_optimizers()
+
+
+def test_cosine_warmup_steps_schedule_max_epochs_wins(monkeypatch):
+    sched_cfg = OmegaConf.create(
+        {"cosine_annealing_warmup": {**_COSINE, "warmup_steps": 10, "max_epochs": 4}}
+    )
+    module = _with_fake_trainer(_recipe_module(sched_cfg), monkeypatch, max_steps=50)
+    sched = module.configure_optimizers()["lr_scheduler"]["scheduler"]
+    assert sched.max_epochs == 4 * 50
+
+
+@pytest.mark.parametrize(
+    "trainer_kwargs, steps_per_epoch, total",
+    [
+        # 6 batches/epoch, 3 epochs.
+        ({}, 6, 18),
+        # max_steps caps the run but not the epoch length (the prototype divided
+        # the capped total by max_epochs and got 2 steps per epoch here).
+        ({"max_steps": 7}, 6, 7),
+        # Accumulation: ceil(6 / 4) optimizer steps per epoch, as Lightning counts.
+        ({"accumulate_grad_batches": 4}, 2, 6),
+        # limit_train_batches shortens the epoch.
+        ({"limit_train_batches": 4}, 4, 12),
+    ],
+)
+def test_optimizer_step_counts_match_lightning(
+    tmp_path, trainer_kwargs, steps_per_epoch, total
+):
+    """`_optimizer_steps_per_epoch` / `_total_optimizer_steps` on a real Trainer.
+
+    They run inside `configure_optimizers`, before the fit loop loads the data,
+    and must agree with the optimizer steps Lightning actually takes.
+    """
+    import lightning as L
+    from torch.utils.data import DataLoader, TensorDataset
+
+    seen = {}
+
+    class Probe(L.LightningModule):
+        _optimizer_steps_per_epoch = LightningModel._optimizer_steps_per_epoch
+        _total_optimizer_steps = LightningModel._total_optimizer_steps
+
+        def __init__(self):
+            super().__init__()
+            self.layer = torch.nn.Linear(2, 1)
+
+        def training_step(self, batch, batch_idx):
+            return self.layer(batch[0]).pow(2).mean()
+
+        def configure_optimizers(self):
+            seen["per_epoch"] = self._optimizer_steps_per_epoch()
+            seen["total"] = self._total_optimizer_steps()
+            return torch.optim.SGD(self.parameters(), lr=0.1)
+
+    loader = DataLoader(TensorDataset(torch.randn(12, 2)), batch_size=2)
+    trainer = L.Trainer(
+        default_root_dir=tmp_path,
+        max_epochs=3,
+        accelerator="cpu",
+        devices=1,
+        logger=False,
+        enable_checkpointing=False,
+        enable_progress_bar=False,
+        enable_model_summary=False,
+        **trainer_kwargs,
+    )
+    trainer.fit(Probe(), loader)
+    assert seen == {"per_epoch": steps_per_epoch, "total": total}
+    assert trainer.global_step == total
+
+
+def test_encoder_lr_options_warn_on_a_backbone_without_an_encoder(caplog_loguru):
+    module = _recipe_module()
+    module.encoder_lr_scale = 0.1
+    opt = module.configure_optimizers()["optimizer"]
+    assert len(opt.param_groups) == 1 and opt.param_groups[0]["lr"] == module.lr
+    assert any("pretrained` backbones only" in m for m in caplog_loguru)
+
+
+@pytest.fixture
+def caplog_loguru():
+    from loguru import logger
+
+    messages = []
+    handler = logger.add(lambda m: messages.append(str(m)), level="WARNING")
+    yield messages
+    logger.remove(handler)
+
+
+def test_resuming_an_ema_checkpoint_without_ema_uses_the_online_weights():
+    """`state_dict` holds the EMA; a resume with EMA off continues from online."""
+    from types import SimpleNamespace
+
+    from sleap_nn.training.callbacks import WeightEMA
+
+    module = _recipe_module()
+    name = next(iter(module.state_dict()))
+    ema_w, online_w = torch.zeros(1), torch.ones(1)
+
+    def ckpt():
+        return {
+            "state_dict": {name: ema_w.clone()},
+            "ema": {"online_state_dict": {name: online_w.clone()}},
+        }
+
+    # Inference / `load_from_checkpoint`: no trainer -> EMA weights kept.
+    c = ckpt()
+    module.on_load_checkpoint(c)
+    assert torch.equal(c["state_dict"][name], ema_w)
+
+    # Resume with the EMA callback: it restores both itself.
+    module._trainer = SimpleNamespace(callbacks=[WeightEMA()])
+    c = ckpt()
+    module.on_load_checkpoint(c)
+    assert torch.equal(c["state_dict"][name], ema_w)
+
+    # Resume without it: train on from the online weights.
+    module._trainer = SimpleNamespace(callbacks=[])
+    c = ckpt()
+    module.on_load_checkpoint(c)
+    assert torch.equal(c["state_dict"][name], online_w)

@@ -132,6 +132,7 @@ nav:
       - Config Generator: guides/config-generator.md
       - Pretrained Backbones: guides/pretrained-backbones.md
       - Negative Frames: guides/negative-frames.md
+      - Partially Labeled Skeletons: guides/partial-labels.md
       - Centroid Focal Loss: guides/centroid-focal-loss.md
       - Monitoring: guides/monitoring.md
       - Multi-GPU: guides/multi-gpu.md
@@ -151,7 +152,9 @@ nav:
       - Top-Down with a Box Detector: guides/bbox-topdown.md
       - SAM-Prompted Segmentation: guides/sam-inference-segmentation.md
       - Performance: guides/inference-performance.md
-    - Evaluation: guides/evaluation.md
+    - Evaluation:
+      - Overview: guides/evaluation.md
+      - COCO-Style Evaluation: guides/coco-evaluation.md
     - Tracking: guides/tracking.md
     - Embedding (re-ID) Tracking: guides/embedding-tracking.md
     - Export: guides/export.md

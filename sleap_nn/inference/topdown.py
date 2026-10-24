@@ -15,6 +15,7 @@ from sleap_nn.data.instance_centroids import (
 )
 from sleap_nn.data.instance_cropping import make_centered_bboxes
 from sleap_nn.inference.peak_finding import find_global_peaks, find_local_peaks
+from sleap_nn.inference.ops.peaks import fuse_flip_confmaps
 from sleap_nn.inference.identity import get_class_inds_from_vectors
 from loguru import logger
 from collections import defaultdict
@@ -508,7 +509,8 @@ class FindInstancePeaks(L.LightningModule):
         peak_threshold: Minimum confidence map value to consider a global peak as valid.
         refinement: If `None`, returns the grid-aligned peaks with no refinement. If
             `"integral"`, peaks will be refined with integral regression. If `"local"`,
-            peaks will be refined with quarter pixel local gradient offset. This has no
+            peaks will be refined with quarter pixel local gradient offset. If `"dark"`,
+            peaks will be refined with DARK (see `dark_blur_sigma`). This has no
             effect if the model has an offset regression head.
         integral_patch_size: Size of patches to crop around each rough peak for integral
             refinement as an integer scalar.
@@ -520,6 +522,13 @@ class FindInstancePeaks(L.LightningModule):
             If > 1, this will pad the bottom and right of the images to ensure they meet
             this divisibility criteria. Padding is applied after the scaling specified
             in the `scale` attribute.
+        dark_blur_sigma: Std (confmap pixels) of the modulation blur for
+            `refinement="dark"`; set it to the head's training `sigma`.
+        flip_test: If `True`, also run the model on the horizontally mirrored crops
+            and average the two confmaps (`fuse_flip_confmaps`) before peak finding.
+        flip_idx: `(n_nodes,)` channel permutation swapping left/right nodes for the
+            mirrored pass (`flip_idx_from_symmetries`). `None` keeps the channel
+            order.
 
     """
 
@@ -533,6 +542,9 @@ class FindInstancePeaks(L.LightningModule):
         return_confmaps: Optional[bool] = False,
         input_scale: float = 1.0,
         max_stride: int = 1,
+        dark_blur_sigma: float = 1.0,
+        flip_test: bool = False,
+        flip_idx: Optional[torch.Tensor] = None,
         **kwargs,
     ):
         """Initialise the model attributes."""
@@ -545,6 +557,9 @@ class FindInstancePeaks(L.LightningModule):
         self.return_confmaps = return_confmaps
         self.input_scale = input_scale
         self.max_stride = max_stride
+        self.dark_blur_sigma = dark_blur_sigma
+        self.flip_test = flip_test
+        self.flip_idx = flip_idx
 
     def forward(
         self,
@@ -583,12 +598,21 @@ class FindInstancePeaks(L.LightningModule):
             input_image = apply_pad_to_stride(input_image, self.max_stride)
 
         cms = self.torch_model(input_image)
+        if self.flip_test:
+            cms = fuse_flip_confmaps(
+                cms,
+                self.torch_model(torch.flip(input_image, dims=[-1])),
+                flip_idx=self.flip_idx,
+                output_stride=self.output_stride,
+                input_width=input_image.shape[-1],
+            )
 
         peak_points, peak_vals = find_global_peaks(
             cms.detach(),
             threshold=self.peak_threshold,
             refinement=self.refinement,
             integral_patch_size=self.integral_patch_size,
+            dark_blur_sigma=self.dark_blur_sigma,
         )
 
         # Adjust for stride and scale.
@@ -633,7 +657,8 @@ class TopDownMultiClassFindInstancePeaks(L.LightningModule):
         peak_threshold: Minimum confidence map value to consider a global peak as valid.
         refinement: If `None`, returns the grid-aligned peaks with no refinement. If
             `"integral"`, peaks will be refined with integral regression. If `"local"`,
-            peaks will be refined with quarter pixel local gradient offset. This has no
+            peaks will be refined with quarter pixel local gradient offset. If `"dark"`,
+            peaks will be refined with DARK (see `dark_blur_sigma`). This has no
             effect if the model has an offset regression head.
         integral_patch_size: Size of patches to crop around each rough peak for integral
             refinement as an integer scalar.
@@ -649,6 +674,8 @@ class TopDownMultiClassFindInstancePeaks(L.LightningModule):
             If > 1, this will pad the bottom and right of the images to ensure they meet
             this divisibility criteria. Padding is applied after the scaling specified
             in the `scale` attribute.
+        dark_blur_sigma: Std (confmap pixels) of the modulation blur for
+            `refinement="dark"`; set it to the head's training `sigma`.
 
     """
 
@@ -663,6 +690,7 @@ class TopDownMultiClassFindInstancePeaks(L.LightningModule):
         return_class_vectors: bool = False,
         input_scale: float = 1.0,
         max_stride: int = 1,
+        dark_blur_sigma: float = 1.0,
         **kwargs,
     ):
         """Initialise the model attributes."""
@@ -676,6 +704,7 @@ class TopDownMultiClassFindInstancePeaks(L.LightningModule):
         self.return_class_vectors = return_class_vectors
         self.input_scale = input_scale
         self.max_stride = max_stride
+        self.dark_blur_sigma = dark_blur_sigma
 
     def forward(
         self,
@@ -722,6 +751,7 @@ class TopDownMultiClassFindInstancePeaks(L.LightningModule):
             threshold=self.peak_threshold,
             refinement=self.refinement,
             integral_patch_size=self.integral_patch_size,
+            dark_blur_sigma=self.dark_blur_sigma,
         )
 
         # Adjust for stride and scale.

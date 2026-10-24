@@ -49,6 +49,7 @@ from sleap_nn.inference.layers.bottomup_multiclass import BottomUpMultiClassLaye
 from sleap_nn.inference.layers.centered_instance import CenteredInstanceLayer
 from sleap_nn.inference.layers.centroid import CentroidLayer
 from sleap_nn.inference.layers.configs import PostprocessConfig, PreprocessConfig
+from sleap_nn.inference.ops.peaks import resolve_refinement
 from sleap_nn.inference.layers.segmentation import (
     SegmentationLayer,
     SemanticSegmentationLayer,
@@ -242,6 +243,7 @@ def _build_single_instance_layer(predictor: Any, device: str) -> SingleInstanceL
             peak_threshold=inf.peak_threshold,
             refinement=inf.refinement or "none",
             integral_patch_size=inf.integral_patch_size,
+            dark_blur_sigma=getattr(inf, "dark_blur_sigma", 1.0),
             return_confmaps=getattr(inf, "return_confmaps", False),
         ),
     )
@@ -550,19 +552,26 @@ def _crop_stage_knobs(assets: Any) -> tuple:
     return BBoxCropSpec.from_config(cfg), max_hw
 
 
-def _attach_bbox_stage(layer: TopDownLayer, assets: Any, device: str) -> TopDownLayer:
+def _attach_bbox_stage(
+    layer: TopDownLayer,
+    assets: Any,
+    device: str,
+    box_source: Optional[str] = None,
+    box_score_threshold: float = 0.0,
+) -> TopDownLayer:
     """Seed a top-down layer with boxes: put the detector (or GT boxes) in front.
 
     Stage 2 stays as built; stage 1 becomes a :class:`BBoxStageLayer` -- the
     loaded detector, or, without one, boxes read from the GT instances (the
     box-scaled analog of the GT-centroid fallback, padded like the crop model's
-    training boxes). The frame is size-matched to the crop model's own training
-    target before cropping, and a box-scaled crop model (``crop_mode="bbox"``)
-    gets its crop rule.
+    training boxes), or with ``box_source="given"`` the boxes handed to each batch
+    (``Batch.frame_boxes``). The frame is size-matched to the crop model's own
+    training target before cropping, and a box-scaled crop model
+    (``crop_mode="bbox"``) gets its crop rule.
     """
     spec, max_hw = _crop_stage_knobs(assets)
     detector = getattr(assets, "detector_assets", None)
-    if detector is not None:
+    if detector is not None and box_source is None:
         layer.centroid_layer = _build_bbox_stage_layer(detector, device)
     else:
         from omegaconf import OmegaConf
@@ -573,8 +582,10 @@ def _attach_bbox_stage(layer: TopDownLayer, assets: Any, device: str) -> TopDown
         layer.centroid_layer = BBoxStageLayer(
             backend=layer.centered_instance_layer.backend,
             decoder=None,
-            use_gt_boxes=True,
+            use_gt_boxes=box_source != "given",
             gt_bbox_padding=float(padding or 0.0),
+            use_given_boxes=box_source == "given",
+            box_score_threshold=box_score_threshold,
             preprocess_config=PreprocessConfig(
                 scale=1.0,
                 max_height=_pp_field(assets, "max_height"),
@@ -587,6 +598,47 @@ def _attach_bbox_stage(layer: TopDownLayer, assets: Any, device: str) -> TopDown
     layer.bbox_crop = spec
     layer.crop_max_hw = max_hw
     return layer
+
+
+def _seed_from_boxes(
+    layer: Any,
+    assets: Any,
+    model_types: List[str],
+    device: str,
+    boxes: str,
+    box_score_threshold: float = 0.0,
+) -> TopDownLayer:
+    """Replace a top-down model's stage 1 with GT (``"gt"``) or given boxes.
+
+    The ``sleap-nn predict --boxes`` route: the crop model runs on externally
+    supplied boxes (COCO detection files, ``PredictedBoundingBox``es in the input
+    ``.slp``) or on the GT boxes, instead of a centroid model or detector.
+    """
+    if boxes not in ("gt", "given"):
+        raise ValueError(f"boxes must be 'gt' or 'given'; got {boxes!r}.")
+    from sleap_nn.inference.layers.embedding import TopDownEmbeddingLayer
+
+    if not isinstance(layer, TopDownLayer) or isinstance(layer, TopDownEmbeddingLayer):
+        raise ValueError(
+            "Seeding from boxes needs a top-down crop model (centered_instance, "
+            "multi_class_topdown or centered_instance_segmentation); got model "
+            f"types {model_types}."
+        )
+    stage_1 = [
+        t for t in model_types if t in ("centroid", "bbox_centernet", "bbox_ssd")
+    ]
+    if stage_1:
+        raise ValueError(
+            f"Seeding from {boxes!r} boxes replaces the top-down stage 1; pass only "
+            f"the crop model, not the {'/'.join(stage_1)} model too."
+        )
+    return _attach_bbox_stage(
+        layer,
+        assets,
+        device,
+        box_source=boxes,
+        box_score_threshold=box_score_threshold,
+    )
 
 
 def _maybe_gt_bbox_stage(layer: TopDownLayer, assets: Any, device: str):
@@ -639,11 +691,14 @@ def _build_centered_instance_layer(
         backend=TorchBackend(model=instance_model.torch_model, device=device),
         output_stride=instance_model.output_stride,
         max_stride=instance_model.max_stride,
+        flip_test=getattr(instance_model, "flip_test", False),
+        flip_idx=getattr(instance_model, "flip_idx", None),
         preprocess_config=PreprocessConfig(scale=instance_model.input_scale),
         postprocess_config=PostprocessConfig(
             peak_threshold=instance_model.peak_threshold,
             refinement=instance_model.refinement or "none",
             integral_patch_size=instance_model.integral_patch_size,
+            dark_blur_sigma=getattr(instance_model, "dark_blur_sigma", 1.0),
             return_confmaps=getattr(instance_model, "return_confmaps", False),
         ),
     )
@@ -702,6 +757,7 @@ def _build_centered_instance_multiclass_layer(
             peak_threshold=instance_model.peak_threshold,
             refinement=instance_model.refinement or "none",
             integral_patch_size=instance_model.integral_patch_size,
+            dark_blur_sigma=getattr(instance_model, "dark_blur_sigma", 1.0),
             return_confmaps=getattr(instance_model, "return_confmaps", False),
         ),
     )
@@ -1223,7 +1279,7 @@ class Predictor:
     emit_centroid: str = "instance"
 
     def __attrs_post_init__(self) -> None:
-        """Warn (once) if ``paf_workers`` was set on a layer that can't use it.
+        """Resolve OKS-NMS sigmas; warn if ``paf_workers`` can't be used.
 
         ``paf_workers > 0`` only pipelines the CPU-bound grouping stage for
         plain bottom-up (:class:`BottomUpLayer`); every other layer type
@@ -1232,6 +1288,20 @@ class Predictor:
         setting today. Without this, that's an easy-to-miss no-op — a user
         expecting a speedup gets none, with no signal why.
         """
+        cfg = self.filter_config
+        if cfg.oks_nms_threshold > 0 and not isinstance(cfg.oks_sigmas, tuple):
+            # COCO OKS-NMS needs one sigma per node: resolve the spec against the
+            # skeleton (by node name when None; COCO-17 names get COCO's).
+            if self.skeleton is None:
+                raise ValueError(
+                    "FilterConfig.oks_nms_threshold needs per-node oks_sigmas or a "
+                    "skeleton to resolve them from."
+                )
+            from sleap_nn.evaluation_coco import resolve_node_sigmas
+
+            self.filter_config = attrs.evolve(
+                cfg, oks_sigmas=resolve_node_sigmas(self.skeleton, cfg.oks_sigmas)
+            )
         if self.paf_workers > 0 and not self._can_pipeline():
             logger.warning(
                 f"paf_workers={self.paf_workers} was set, but pipelined CPU "
@@ -1259,7 +1329,7 @@ class Predictor:
         backbone_ckpt_path: Optional[str] = None,
         head_ckpt_path: Optional[str] = None,
         peak_threshold: Union[float, List[float]] = 0.2,
-        integral_refinement: str = "integral",
+        integral_refinement: str = "auto",
         integral_patch_size: int = 5,
         max_instances: Optional[int] = None,
         return_confmaps: bool = False,
@@ -1291,6 +1361,9 @@ class Predictor:
         mask_output: str = "mask",
         polygon_epsilon: float = 0.01,
         bbox_nms_iou: Optional[float] = None,
+        flip_test: bool = False,
+        boxes: Optional[str] = None,
+        box_score_threshold: float = 0.0,
     ) -> "Predictor":
         """Build a :class:`Predictor` from one or more checkpoint paths.
 
@@ -1308,7 +1381,12 @@ class Predictor:
             peak_threshold: Default peak threshold. ``List[float]`` for
                 top-down (``[centroid_thresh, keypoint_thresh]``). Can be
                 overridden per-call via ``predict(peak_threshold=...)``.
-            integral_refinement: ``"integral"`` or ``"none"``.
+            integral_refinement: Sub-pixel peak refinement: ``"auto"``
+                (default; DARK for the top-down keypoint stage, integral
+                regression elsewhere), ``"dark"``, ``"integral"``, ``"local"``
+                or ``"none"``. ``"dark"`` / ``"local"`` need global peaks: the
+                centroid stage uses ``"integral"`` for them and bottom-up models
+                raise. See :func:`~sleap_nn.inference.ops.peaks.resolve_refinement`.
             integral_patch_size: Refinement patch size.
             max_instances: Cap on instances per frame.
             return_confmaps: Return confidence maps on Outputs.
@@ -1369,6 +1447,20 @@ class Predictor:
             bbox_nms_iou: Class-wise IoU-NMS threshold for ``bbox_*`` detectors.
                 ``None`` (default) uses the style's default (0.45 for SSD, off for
                 CenterNet, whose peak NMS already dedupes); ``1.0`` disables it.
+            flip_test: Top-down ``centered_instance`` models only: also run the
+                centered-instance model on the horizontally mirrored crops and
+                average the confmaps (symmetric nodes swapped using the skeleton
+                symmetries) before peak finding. Doubles the centered-instance
+                compute.
+            boxes: Seed a top-down crop model's stage 1 from boxes instead of a
+                centroid model or detector: ``"gt"`` (the GT boxes of a ``.slp``
+                source, scored 1) or ``"given"`` (each frame's
+                ``PredictedBoundingBox``es in the ``.slp`` / ``sio.Labels`` source,
+                e.g. attached by
+                :func:`~sleap_nn.evaluation_coco.attach_coco_detections`). Pass
+                only the crop model. ``None`` (default) keeps the usual stage 1.
+            box_score_threshold: With ``boxes="given"``, drop boxes scoring below
+                this.
         """
         from sleap_nn.inference.loaders import load_model_assets
         from sleap_nn.system_info import get_startup_info_string
@@ -1408,6 +1500,7 @@ class Predictor:
             mask_output=mask_output,
             polygon_epsilon=polygon_epsilon,
             bbox_nms_iou=bbox_nms_iou,
+            flip_test=flip_test,
         )
 
         if centroid_only:
@@ -1423,6 +1516,10 @@ class Predictor:
             )
         else:
             layer = _select_layer(loaded, model_types, device)
+        if boxes is not None:
+            layer = _seed_from_boxes(
+                layer, loaded, model_types, device, boxes, box_score_threshold
+            )
 
         skeleton = loaded.skeletons[0] if loaded.skeletons else None
         kwargs: dict = {
@@ -1453,6 +1550,8 @@ class Predictor:
             f"integral_refinement={integral_refinement}",
             f"paf_workers={paf_workers}",
         ]
+        if flip_test:
+            spec.append("flip_test=True")
         if "bottomup_segmentation" in model_types:
             spec.append(f"fg_threshold={fg_threshold}")
             spec.append(f"min_mask_area={min_mask_area}")
@@ -1613,17 +1712,37 @@ class Predictor:
         """
         stage_1 = getattr(self.layer, "centroid_layer", None)
         spec = getattr(self.layer, "bbox_crop", None)
-        if not getattr(stage_1, "use_gt_boxes", False) or spec is None:
+        if not getattr(stage_1, "use_gt_boxes", False):
             return None
         from sleap_nn.data.bboxes import instance_crop_bbox, resolve_bbox_source
 
-        source = resolve_bbox_source(labels, spec.bbox_source)
-        padding = spec.bbox_padding
+        if spec is not None:
+            source = resolve_bbox_source(labels, spec.bbox_source)
+            padding = spec.bbox_padding
+        else:
+            # A fixed-crop model seeded with GT boxes (`boxes="gt"`): its crops
+            # center on the boxes, so take the labels' own boxes when they have
+            # them.
+            source = resolve_bbox_source(labels, "auto")
+            padding = stage_1.gt_bbox_padding
 
         def box_fn(lf, inst):
             return instance_crop_bbox(lf, inst, source, padding)
 
         return box_fn
+
+    def _uses_given_boxes(self) -> bool:
+        """Whether stage 1 reads each frame's given boxes (``boxes="given"``)."""
+        stage_1 = getattr(self.layer, "centroid_layer", None)
+        return bool(getattr(stage_1, "use_given_boxes", False))
+
+    def _frame_box_fn(self) -> Optional[Any]:
+        """Per-frame box source of a given-box stage 1, else ``None``."""
+        if not self._uses_given_boxes():
+            return None
+        from sleap_nn.inference.providers import predicted_frame_boxes
+
+        return predicted_frame_boxes
 
     def _preprocess_provenance_params(self) -> dict:
         """The scale/crop_size actually used for this run, for provenance.
@@ -1802,6 +1921,21 @@ class Predictor:
             VideoSelection,
         )
 
+        if self._uses_given_boxes():
+            # Given boxes ride on the frames of a labels source.
+            if isinstance(source, LabelsProvider):
+                if source.frame_box_fn is None:
+                    source.frame_box_fn = self._frame_box_fn()
+            elif not (
+                isinstance(source, sio.Labels)
+                or (isinstance(source, str) and source.endswith(".slp"))
+            ):
+                raise ValueError(
+                    "A top-down model seeded from given boxes reads them from the "
+                    "frames of a .slp / sio.Labels source (PredictedBoundingBox); "
+                    f"got a {type(source).__name__} source."
+                )
+
         if isinstance(source, VideoSelection):
             # Resolved here, not by the caller, because only the Predictor knows
             # whether its layer needs GT instances (which restricts the
@@ -1840,6 +1974,7 @@ class Predictor:
                     "only_labeled_frames", self._needs_gt_instances()
                 )
                 provider_kwargs.setdefault("instance_box_fn", self._gt_box_fn(labels))
+                provider_kwargs.setdefault("frame_box_fn", self._frame_box_fn())
                 provider = LabelsProvider(
                     labels=labels,
                     batch_size=self.batch_size,
@@ -1870,6 +2005,7 @@ class Predictor:
                 "only_labeled_frames", self._needs_gt_instances()
             )
             provider_kwargs.setdefault("instance_box_fn", self._gt_box_fn(source))
+            provider_kwargs.setdefault("frame_box_fn", self._frame_box_fn())
             provider = LabelsProvider(
                 labels=source,
                 batch_size=self.batch_size,
@@ -2025,7 +2161,10 @@ class Predictor:
             keypoint_threshold: Override peak threshold for the centered-
                 instance stage only (top-down models).
             max_instances: Override max instances per frame.
-            integral_refinement: ``"integral"`` or ``"none"``.
+            integral_refinement: Override the refinement (``"auto"``,
+                ``"dark"``, ``"integral"``, ``"local"`` or ``"none"``; see
+                :meth:`from_model_paths`). ``None`` keeps the construction-time
+                value.
             integral_patch_size: Override integral refinement patch size.
             return_confmaps: Override whether to return confidence maps.
             return_crops: Override whether to return per-instance crops
@@ -2221,7 +2360,10 @@ class Predictor:
             centroid_threshold: Override centroid stage threshold (top-down).
             keypoint_threshold: Override centered-instance threshold (top-down).
             max_instances: Override max instances per frame.
-            integral_refinement: ``"integral"`` or ``"none"``.
+            integral_refinement: Override the refinement (``"auto"``,
+                ``"dark"``, ``"integral"``, ``"local"`` or ``"none"``; see
+                :meth:`from_model_paths`). ``None`` keeps the construction-time
+                value.
             integral_patch_size: Override integral refinement patch size.
             return_confmaps: Override whether to return confidence maps.
             return_crops: Override whether to return per-instance crops
@@ -2413,9 +2555,11 @@ class Predictor:
             sig = inspect.signature(layer.predict)
             layer_accepts_instances = "instances" in sig.parameters
             layer_accepts_boxes = "instance_boxes" in sig.parameters
+            layer_accepts_frame_boxes = "frame_boxes" in sig.parameters
         except (TypeError, ValueError):  # pragma: no cover — non-introspectable
             layer_accepts_instances = False
             layer_accepts_boxes = False
+            layer_accepts_frame_boxes = False
 
         pipeline = self.filter_pipeline
         total = _safe_num_frames(provider)
@@ -2435,6 +2579,10 @@ class Predictor:
                     if isinstance(boxes, torch.Tensor)
                     else torch.from_numpy(boxes)
                 )
+            frame_boxes = getattr(batch, "frame_boxes", None)
+            if frame_boxes is not None and layer_accepts_frame_boxes:
+                kwargs["frame_boxes"] = torch.as_tensor(frame_boxes)
+                kwargs["frame_box_scores"] = torch.as_tensor(batch.frame_box_scores)
             outputs = layer.predict(batch.images, **kwargs)
             outputs = pipeline(outputs)
             outputs = self._stamp_metadata(outputs, batch)
@@ -2878,6 +3026,14 @@ class Predictor:
         )
         if not has_any:
             return self.layer
+        if integral_refinement is not None:
+            # Fail before any frame is read: unknown names, and dark/local for
+            # bottom-up (local-peak) keypoints.
+            bottomup = (BottomUpLayer, BottomUpMultiClassLayer)
+            resolve_refinement(
+                integral_refinement,
+                peaks="local" if isinstance(self.layer, bottomup) else "global",
+            )
 
         is_topdown = isinstance(self.layer, TopDownLayer)
 

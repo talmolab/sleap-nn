@@ -27,6 +27,15 @@ sleap-nn eval \
 | `--centroid_method` | How centroid-mode GT centroids are derived: `center_of_mass`, `bbox_center`, `geometric_median`, `anchor`. Pass the value the model was **trained** with (`head_configs.centroid.confmaps.centroid_method`) so the metric compares like with like | infer from `--anchor_part` |
 | `--centroid_fallback` | Reduce method used when the `--anchor_part` node is not visible | `center_of_mass` |
 | `--user_labels_only` / `--no-user_labels_only` | Only evaluate user-labeled frames | `True` |
+| `--coco` | Also report COCOeval-faithful keypoint AP/AR (`coco.*`); see [COCO-Style Evaluation](coco-evaluation.md) | off |
+| `--oks_sigmas` | Per-node OKS sigmas (`coco`, `crowdpose`, `ochuman`, `provenance`, `auto`, a float or a comma-separated list); replaces `--oks_stddev` | None |
+| `--coco_protocol` / `--coco_area_source` | Dataset protocol preset and GT area source for `--coco` | `auto` / the protocol's |
+| `--count_unmatched_as_fp` | Count unmatched predictions as false positives in `oks_voc.*` | off |
+
+!!! warning "Comparing with papers"
+    `oks_voc.mAP` / `oks_voc.mAR` are sleap-nn's original (legacy) OKS metrics and do
+    not follow COCOeval. To compare with published human pose numbers, use `--coco`
+    and see [COCO-Style Evaluation](coco-evaluation.md).
 
 ---
 
@@ -71,8 +80,9 @@ Measures pose similarity accounting for keypoint visibility and scale:
 | Metric | Description | Range |
 |--------|-------------|-------|
 | `mOKS` | Mean OKS across all instances (access via `metrics['mOKS']['mOKS']`) | 0-1 |
-| `oks_voc.mAP` | COCO-style mean Average Precision (mean over OKS thresholds) | 0-1 |
-| `oks_voc.mAR` | COCO-style mean Average Recall | 0-1 |
+| `oks_voc.mAP` | Legacy COCO-style mean Average Precision (mean over OKS thresholds) | 0-1 |
+| `oks_voc.mAR` | Legacy COCO-style mean Average Recall | 0-1 |
+| `coco.AP`, `coco.AR`, ... | COCOeval-faithful AP/AR, with `--coco` (under `metrics['coco_metrics']`) | 0-1 |
 | `oks_voc.AP` / `oks_voc.AR` | Per-OKS-threshold AP / AR arrays | 0-1 |
 
 Higher is better. mAP > 0.7 is generally good.
@@ -110,6 +120,7 @@ print(metrics.keys())
 
 ## Next Steps
 
+- [:octicons-arrow-right-24: COCO-Style Evaluation](coco-evaluation.md) - Paper-comparable keypoint AP and box-seeded top-down inference
 - [:octicons-arrow-right-24: Evaluation Metrics Reference](../reference/evaluation_metrics.md) - Deep dive into OKS, PCK, and other metrics
 - [:octicons-arrow-right-24: Tracking](tracking.md) - Assign IDs across frames
 - [:octicons-arrow-right-24: Export](export.md) - Deploy models

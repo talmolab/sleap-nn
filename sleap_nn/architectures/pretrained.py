@@ -37,7 +37,11 @@ force via ``mode``):
   power-of-two stride ``s`` (a patch-14 DINOv2 runs at an effective stride of
   16), so the rest of sleap-nn's stride bookkeeping is unchanged. Models that
   ship no ``*Backbone`` class (CLIP, SigLIP, ...) also use this extractor for
-  Case B.
+  Case B. With ``vit_decoder="classic"`` / ``"simple"`` the neck and decoder
+  are replaced by a ViTPose-style head
+  (:class:`~sleap_nn.architectures.vit_neck.ViTPoseDecoder`) that upsamples the
+  last token map (by default through the encoder's own pretrained final norm)
+  straight to the output stride.
 
 Key behaviors baked in here (rather than in the data pipeline, which is uint8 /
 [0, 1] only): model-specific mean/std normalization (read from the matching
@@ -64,7 +68,9 @@ from sleap_nn.architectures.common import FreezableEncoderMixin
 from sleap_nn.architectures.encoder_decoder import Decoder
 from sleap_nn.architectures.vit_neck import (
     PYRAMID_SCALES,
+    VIT_DIRECT_DECODERS,
     DetailStem,
+    ViTPoseDecoder,
     ViTPyramidNeck,
 )
 
@@ -91,6 +97,11 @@ _ISOTROPIC_MODEL_TYPES = {
     "vit_mae",
     "vit_msn",
 }
+
+
+# Leaf names of the final (post-encoder) norm of HF/timm vision transformers:
+# DINOv2/ViT/MAE `layernorm`, DINOv3/timm `norm`, CLIP/SigLIP `post_layernorm`.
+_FINAL_NORM_NAMES = ("layernorm", "norm", "post_layernorm", "final_layernorm")
 
 
 def _import_transformers():
@@ -291,14 +302,78 @@ def _vision_model_class(vision_config: Any):
         return AutoModel
 
 
+def _set_hf_drop_path_rate(
+    hf_config: Any, drop_path_rate: Optional[float], model_name: str
+) -> None:
+    """Set stochastic depth on an HF config (and its vision tower) that has it.
+
+    Args:
+        hf_config: The loaded HF config; modified in place before the model is
+            built from it.
+        drop_path_rate: The rate, or ``None`` to keep the checkpoint's own.
+        model_name: For the warning when the family has no drop-path field.
+    """
+    if drop_path_rate is None:
+        return
+    targets = {id(c): c for c in (hf_config, _vision_config(hf_config))}.values()
+    found = [c for c in targets if hasattr(c, "drop_path_rate")]
+    for c in found:
+        c.drop_path_rate = float(drop_path_rate)
+    if not found:
+        logger.warning(
+            f"drop_path_rate={drop_path_rate}: the HF config of '{model_name}' has "
+            "no `drop_path_rate` (no stochastic depth in this family); ignored."
+        )
+
+
+_BLOCK_RE = re.compile(r"(?:^|\.)(?:layer|layers|blocks|block)\.(\d+)\.")
+
+
+def _linearize_drop_path(enc: nn.Module, drop_path_rate: float) -> None:
+    """Make a uniform per-block stochastic depth increase linearly with depth.
+
+    Some HF ViTs (DINOv2, DINOv2-with-registers, DINOv3 ViT) give EVERY block
+    ``config.drop_path_rate``, while timm and the ViTPose/MAE fine-tuning recipes
+    ramp it linearly from 0 at the first block to the rate at the last. Rewrites
+    the drop probabilities to that ramp (``linspace(0, rate, num_blocks)``), but
+    only when they are all equal to the rate; families that already ramp
+    (ConvNeXtV2, Swinv2, timm) are left alone.
+    """
+    by_block: Dict[int, List[nn.Module]] = {}
+    for name, m in enc.named_modules():
+        if not hasattr(m, "drop_prob") or "droppath" not in type(m).__name__.lower():
+            continue
+        match = _BLOCK_RE.search(name + ".")
+        if match:
+            by_block.setdefault(int(match.group(1)), []).append(m)
+    mods = [m for ms in by_block.values() for m in ms]
+    if len(by_block) < 2 or any(
+        not math.isclose(float(m.drop_prob), drop_path_rate) for m in mods
+    ):
+        return
+    blocks = sorted(by_block)
+    for rank, idx in enumerate(blocks):
+        for m in by_block[idx]:
+            m.drop_prob = drop_path_rate * rank / (len(blocks) - 1)
+    logger.info(
+        f"drop_path_rate={drop_path_rate}: stochastic depth ramps linearly over "
+        f"{len(blocks)} blocks (0 -> {drop_path_rate})."
+    )
+
+
 def _build_timm_wrapper(
-    model_name: str, hf_config: Any, weights: bool, revision: Optional[str]
+    model_name: str,
+    hf_config: Any,
+    weights: bool,
+    revision: Optional[str],
+    drop_path_rate: Optional[float] = None,
 ) -> nn.Module:
     """Build a ``timm/...`` Hub checkpoint through transformers' TimmWrapperModel.
 
     ViT-family timm models are created with ``dynamic_img_size=True`` so they run
     at any input size (positional embeddings are resampled per call); families
     that do not take the flag (ConvNeXt, ...) are retried without it.
+    ``drop_path_rate`` (when not ``None``) is passed to ``timm.create_model``.
     """
     from transformers import TimmWrapperModel
 
@@ -314,6 +389,8 @@ def _build_timm_wrapper(
         raise ImportError(message) from e
 
     base_args = dict(getattr(hf_config, "model_args", None) or {})
+    if drop_path_rate is not None:
+        base_args["drop_path_rate"] = float(drop_path_rate)
 
     def build(model_args):
         hf_config.model_args = model_args
@@ -418,11 +495,27 @@ class PretrainedBackbone(FreezableEncoderMixin, nn.Module):
         layer_decay: Optional layer-wise LR decay for a plain ViT encoder: block
             ``i`` of ``L`` trains at ``encoder_lr_scale * layer_decay**(L + 1 - i)``
             times the base LR (embeddings decay the most). ``None`` disables it.
+        drop_path_rate: Optional stochastic-depth rate for the encoder: passed to
+            ``timm.create_model`` for ``timm/...`` checkpoints, set on HF configs
+            that declare ``drop_path_rate`` (warned and ignored otherwise).
+            ``None`` keeps the checkpoint's setting.
         detail_stem: If ``True`` (Case C), add a light conv stream on the image
             whose stride-2/4/8 features join the pyramid as decoder skips, so a
             plain ViT's decoder sees real high-resolution detail.
         detail_channels: Channels of the detail stem at strides 2, 4, 8 (exactly
             three).
+        vit_decoder: How a plain ViT's tokens reach the output stride (Case C):
+            ``"unet"`` (the pyramid neck + sleap UNet decoder, the default),
+            ``"classic"`` (ViTPose: deconv 4x4/s2 + BN + ReLU blocks on the last
+            tapped layer) or ``"simple"`` (ViTPose: ReLU + bilinear upsampling,
+            with a 3x3 head conv instead of the usual 1x1).
+            The direct decoders bypass the neck, so ``vit_neck``,
+            ``neck_channels`` and ``detail_stem`` do not apply.
+        vit_decoder_channels: Channels of the ``"classic"`` deconv blocks.
+        vit_final_norm: Normalize a tap of the encoder's last layer with the
+            encoder's own (pretrained) final norm instead of a fresh LayerNorm.
+            ``None`` turns it on for the direct decoders (as ViTPose does) and
+            off for ``"unet"`` (unchanged behavior).
         spatial_heads: Whether the model has a spatial head; decides what
             ``mode="auto"`` means for a plain ViT (see ``_resolve_mode``). Set by
             `Model`, not by the config.
@@ -460,7 +553,11 @@ class PretrainedBackbone(FreezableEncoderMixin, nn.Module):
         layer_decay: Optional[float] = None,
         detail_stem: bool = False,
         detail_channels: Optional[List[int]] = None,
+        vit_decoder: str = "unet",
+        vit_decoder_channels: int = 256,
+        vit_final_norm: Optional[bool] = None,
         spatial_heads: bool = False,
+        drop_path_rate: Optional[float] = None,
     ) -> None:
         """Build the wrapped backbone and (Case A/C) decoder."""
         super().__init__()
@@ -489,6 +586,16 @@ class PretrainedBackbone(FreezableEncoderMixin, nn.Module):
         self.layer_decay = layer_decay
         self.detail_stem = detail_stem
         self.detail_channels = list(detail_channels or [32, 64, 128])
+        self.drop_path_rate = drop_path_rate
+        if vit_decoder not in ("unet",) + VIT_DIRECT_DECODERS:
+            message = (
+                f"Unknown vit_decoder {vit_decoder!r}; use 'unet' or one of "
+                f"{list(VIT_DIRECT_DECODERS)}."
+            )
+            logger.error(message)
+            raise ValueError(message)
+        self.vit_decoder = vit_decoder
+        self.vit_decoder_channels = int(vit_decoder_channels)
 
         _import_transformers()  # actionable error if the extra is missing
         from transformers import AutoBackbone, AutoConfig
@@ -500,7 +607,9 @@ class PretrainedBackbone(FreezableEncoderMixin, nn.Module):
         # is read off the built model, since the wrapper config does not say.
         self.is_timm = getattr(hf_config, "model_type", "") == "timm_wrapper"
         if self.is_timm:
-            self.enc = _build_timm_wrapper(model_name, hf_config, weights, revision)
+            self.enc = _build_timm_wrapper(
+                model_name, hf_config, weights, revision, drop_path_rate
+            )
             isotropic = _timm_is_isotropic(self.enc.timm_model)
             # Skip the blocks/stages after the last requested one.
             params = inspect.signature(
@@ -508,6 +617,7 @@ class PretrainedBackbone(FreezableEncoderMixin, nn.Module):
             ).parameters
             self._timm_kwargs = {"stop_early": True} if "stop_early" in params else {}
         else:
+            _set_hf_drop_path_rate(hf_config, drop_path_rate, model_name)
             isotropic = _is_isotropic(hf_config)
         self.isotropic = isotropic
         self.mode = _resolve_mode(
@@ -524,6 +634,14 @@ class PretrainedBackbone(FreezableEncoderMixin, nn.Module):
             or self.is_timm
             or _backbone_class_or_none(hf_config) is None
         )
+        self.direct_decoder = (
+            self.token_path and self.mode == "decoder" and vit_decoder != "unet"
+        )
+        # Unset: the pretrained final norm for the direct decoders (as ViTPose),
+        # a fresh tap LayerNorm otherwise (unchanged behavior).
+        self.vit_final_norm = (
+            self.direct_decoder if vit_final_norm is None else bool(vit_final_norm)
+        )
         if self.token_path:
             knobs = {"out_indices": out_indices}
             if self.mode == "encoder":
@@ -532,8 +650,23 @@ class PretrainedBackbone(FreezableEncoderMixin, nn.Module):
                     neck_channels=neck_channels,
                     detail_stem=detail_stem or None,
                     vit_neck=None if vit_neck == "dpt" else vit_neck,
+                    vit_decoder=None if vit_decoder == "unet" else vit_decoder,
                 )
-            path = "encoder-only" if self.mode == "encoder" else "pyramid-neck"
+                path = "encoder-only"
+            elif self.direct_decoder:
+                # The ViTPose-style decoder reads the last token map directly.
+                knobs.update(
+                    neck_channels=neck_channels,
+                    detail_stem=detail_stem or None,
+                    vit_neck=None if vit_neck == "dpt" else vit_neck,
+                )
+                path = f"direct '{vit_decoder}' decoder"
+            else:
+                path = "pyramid-neck"
+            if not (self.direct_decoder and vit_decoder == "classic"):
+                knobs["vit_decoder_channels"] = (
+                    None if vit_decoder_channels == 256 else vit_decoder_channels
+                )
             _warn_ignored(
                 knobs,
                 f"do not apply to the plain-ViT {path} path '{model_name}' takes in "
@@ -552,6 +685,8 @@ class PretrainedBackbone(FreezableEncoderMixin, nn.Module):
             if self.mode == "encoder":
                 self._probe_tokens()
                 self._build_encoder_only([self.token_stride], [self.hidden_size])
+            elif self.direct_decoder:
+                self._build_direct_decoder(max_stride)
             else:
                 strides, channels = self._build_vit_neck(neck_channels, max_stride)
                 # Detail-stem outputs the decoder reads (none finer than the
@@ -593,6 +728,11 @@ class PretrainedBackbone(FreezableEncoderMixin, nn.Module):
                 "neck_channels": neck_channels,
                 "detail_stem": detail_stem or None,
                 "vit_neck": None if vit_neck == "dpt" else vit_neck,
+                "vit_decoder": None if vit_decoder == "unet" else vit_decoder,
+                "vit_decoder_channels": (
+                    None if vit_decoder_channels == 256 else vit_decoder_channels
+                ),
+                "vit_final_norm": vit_final_norm,
             },
             "only apply to plain-ViT backbones on the hidden-state path (Case C, or "
             f"encoder-only without a `*Backbone` class), not to '{model_name}' in "
@@ -662,6 +802,8 @@ class PretrainedBackbone(FreezableEncoderMixin, nn.Module):
                 self.enc = AutoBackbone.from_config(hf_config)
         if gradient_checkpointing:
             self._enable_gradient_checkpointing()
+        if self.drop_path_rate and not self.is_timm:
+            _linearize_drop_path(self.enc, float(self.drop_path_rate))
 
         self._snapshot_weights()
 
@@ -769,18 +911,22 @@ class PretrainedBackbone(FreezableEncoderMixin, nn.Module):
         self._neck_scales = [
             sc for sc in PYRAMID_SCALES if self.token_stride / sc >= self.output_stride
         ]
+        direct = getattr(self, "direct_decoder", False)
         if layers is None:
-            dpt = self.mode == "decoder" and self.vit_neck == "dpt"
+            dpt = self.mode == "decoder" and self.vit_neck == "dpt" and not direct
             num_taps = max(len(self._neck_scales), 1) if dpt else 1
             layers = _default_layers(self.num_layers, num_taps)
-        elif len(layers) != 1 and (self.mode == "encoder" or self.vit_neck == "sfp"):
-            # One tap feeds every level (sfp) / the pooled head (encoder); more
-            # would build tap norms that never run.
-            what = (
-                "encoder mode pools"
-                if self.mode == "encoder"
-                else "vit_neck='sfp' builds every pyramid level from"
-            )
+        elif len(layers) != 1 and (
+            self.mode == "encoder" or self.vit_neck == "sfp" or direct
+        ):
+            # One tap feeds every level (sfp) / the pooled head (encoder) / the
+            # direct decoder; more would build tap norms that never run.
+            if self.mode == "encoder":
+                what = "encoder mode pools"
+            elif direct:
+                what = f"vit_decoder='{self.vit_decoder}' decodes"
+            else:
+                what = "vit_neck='sfp' builds every pyramid level from"
             message = (
                 f"layers={list(layers)}: {what} exactly one tapped layer. Give one "
                 "(e.g. [-1]) or leave `layers` unset."
@@ -816,6 +962,8 @@ class PretrainedBackbone(FreezableEncoderMixin, nn.Module):
             self.enc = AutoModel.from_config(vision_config)
         if gradient_checkpointing:
             self._enable_gradient_checkpointing()
+        if self.drop_path_rate and not self.is_timm:
+            _linearize_drop_path(self.enc, float(self.drop_path_rate))
 
         # Forward kwargs: always hidden states; turn on positional-embedding
         # interpolation where the model gates it behind a flag (CLIP, SigLIP, ViT,
@@ -828,11 +976,54 @@ class PretrainedBackbone(FreezableEncoderMixin, nn.Module):
         # One fresh LayerNorm per tap: intermediate ViT layers are not normalized
         # (and carry large outlier channels), and families disagree on whether
         # the final norm is part of `hidden_states[-1]`. Trainable, part of the
-        # neck -- NOT the frozen encoder.
+        # neck -- NOT the frozen encoder. With `vit_final_norm`, a tap of the last
+        # layer instead goes through the encoder's own pretrained final norm (an
+        # encoder parameter: it freezes and reloads with the encoder); its slot
+        # holds a parameter-free Identity so tap indices stay stable.
+        self._final_norm_name = self._find_final_norm() if self.vit_final_norm else None
+        if self.vit_final_norm and self._final_norm_name is None:
+            logger.warning(
+                f"vit_final_norm: no final norm found in '{self.model_name}'; using "
+                "a fresh LayerNorm on the last layer instead."
+            )
+        elif self.vit_final_norm and self.num_layers not in self.layers:
+            logger.warning(
+                f"vit_final_norm applies only to a tap of the last layer "
+                f"({self.num_layers}); taps {self.layers} use fresh LayerNorms."
+            )
+        self._final_norm_taps = [
+            self._final_norm_name is not None and layer == self.num_layers
+            for layer in self.layers
+        ]
         self.tap_norms = nn.ModuleList(
-            [nn.LayerNorm(self.hidden_size, eps=1e-6) for _ in self.layers]
+            [
+                nn.Identity() if final else nn.LayerNorm(self.hidden_size, eps=1e-6)
+                for final in self._final_norm_taps
+            ]
         )
         self._skip_blocks_after_last_tap()
+
+    def _find_final_norm(self) -> Optional[str]:
+        """Name (within ``self.enc``) of the encoder's final norm, or ``None``.
+
+        timm ViTs keep it at ``timm_model.norm``; HF vision models name it
+        ``layernorm`` (DINOv2, ViT, MAE), ``norm`` (DINOv3) or ``post_layernorm``
+        (CLIP, SigLIP). Norms inside the transformer blocks (``...layer.3.norm1``)
+        and parameter-free stand-ins (``nn.Identity``, e.g. timm models that pool
+        with ``fc_norm``) do not count.
+        """
+        candidates = []
+        for name, module in self.enc.named_modules():
+            leaf = name.rpartition(".")[2]
+            if leaf not in _FINAL_NORM_NAMES or re.search(r"\.\d+\.", f".{name}."):
+                continue
+            weight = getattr(module, "weight", None)
+            if isinstance(weight, torch.Tensor) and weight.shape == (self.hidden_size,):
+                candidates.append(name)
+        if not candidates:
+            return None
+        # The outermost one: pooling heads (SigLIP's MAP head) nest their own norm.
+        return min(candidates, key=lambda name: name.count("."))
 
     def _skip_blocks_after_last_tap(self) -> None:
         """Stop the encoder after the last tapped layer instead of running them all.
@@ -1151,6 +1342,49 @@ class PretrainedBackbone(FreezableEncoderMixin, nn.Module):
         # Class-vectors head reads middle_blocks[-1].filters (bottleneck channels).
         self.middle_blocks = nn.ModuleList([_FiltersHolder(x_in_shape)])
 
+    def _build_direct_decoder(self, max_stride: int) -> None:
+        """Case C with ``vit_decoder`` classic/simple: ViTPose-style decoder.
+
+        The last tapped token map (stride ``token_stride``) is upsampled straight
+        to ``output_stride`` by a :class:`ViTPoseDecoder`; no pyramid neck and no
+        UNet decoder are built. The head reads the single output at
+        ``output_stride``; pooled heads (class vectors) read the token map.
+        """
+        if self.output_stride > self.token_stride:
+            message = (
+                f"output_stride={self.output_stride} is coarser than the token "
+                f"stride {self.token_stride} of '{self.model_name}'; the "
+                f"'{self.vit_decoder}' decoder only upsamples. Use output_stride <= "
+                f"{self.token_stride}."
+            )
+            logger.error(message)
+            raise ValueError(message)
+        if max_stride % self.token_stride != 0:
+            message = (
+                f"max_stride={max_stride} must be a multiple of the token stride "
+                f"{self.token_stride} so padded inputs tile the '{self.model_name}' "
+                "token grid exactly."
+            )
+            logger.error(message)
+            raise ValueError(message)
+        self._probe_tokens()
+        try:
+            self.vit_dec = ViTPoseDecoder(
+                in_channels=self.hidden_size,
+                kind=self.vit_decoder,
+                upsample=self.token_stride // self.output_stride,
+                channels=self.vit_decoder_channels,
+            )
+        except ValueError as e:
+            logger.error(str(e))
+            raise
+        self.max_stride = self.token_stride
+        self.decoder_stride_to_filters = {self.output_stride: self.vit_dec.out_channels}
+        # `simple` ends in ViTPose's 3x3 conv, which is the head's (see `Model`).
+        self.head_kernel_size = self.vit_dec.head_kernel_size
+        # Class-vectors head reads middle_blocks[-1].filters (the token map).
+        self.middle_blocks = nn.ModuleList([_FiltersHolder(self.hidden_size)])
+
     def _build_encoder_only(self, strides: List[int], channels: List[int]) -> None:
         """Case B: expose a pooled bottleneck for a class-vectors/embedding head."""
         self.max_stride = strides[-1]
@@ -1183,27 +1417,41 @@ class PretrainedBackbone(FreezableEncoderMixin, nn.Module):
         super().freeze_encoder()
         logger.info(f"Froze pretrained encoder '{self.model_name}'.")
 
-    def encoder_param_groups(self, base_lr: float) -> Optional[List[Dict[str, Any]]]:
+    def encoder_param_groups(
+        self,
+        base_lr: float,
+        encoder_lr_scale: Optional[float] = None,
+        layer_decay: Optional[float] = None,
+    ) -> Optional[List[Dict[str, Any]]]:
         """Optimizer parameter groups for the encoder's trainable parameters.
 
         Args:
             base_lr: The base learning rate (used as-is by every non-encoder
                 parameter).
+            encoder_lr_scale: Overrides the backbone's own ``encoder_lr_scale``
+                (``trainer_config.optimizer.encoder_lr_scale``); ``None`` keeps it.
+            layer_decay: Overrides the backbone's own ``layer_decay``
+                (``trainer_config.optimizer.layer_decay``); ``None`` keeps it.
 
         Returns:
             ``None`` when the encoder trains at the base LR (``encoder_lr_scale ==
             1`` and no ``layer_decay``) so the optimizer keeps a single group;
-            otherwise a list of ``{"params", "lr"}`` groups covering exactly the
-            encoder parameters that require grad.
+            otherwise a list of ``{"params", "lr", "name"}`` groups covering
+            exactly the encoder parameters that require grad (named ``"encoder"``,
+            or ``"encoder/depth<k>"`` per layer-decay depth).
         """
-        if self.encoder_lr_scale == 1.0 and not self.layer_decay:
+        scale = self.encoder_lr_scale if encoder_lr_scale is None else encoder_lr_scale
+        decay = self.layer_decay if layer_decay is None else layer_decay
+        if scale == 1.0 and not decay:
             return None
         named = [(n, p) for n, p in self.enc.named_parameters() if p.requires_grad]
         if not named:
             return None
-        scale = self.encoder_lr_scale
-        if not self.layer_decay:
-            return [{"params": [p for _, p in named], "lr": base_lr * scale}]
+        single = [
+            {"params": [p for _, p in named], "lr": base_lr * scale, "name": "encoder"}
+        ]
+        if not decay:
+            return single
 
         num_layers = getattr(self, "num_layers", None) or getattr(
             getattr(self.enc, "config", None), "num_hidden_layers", None
@@ -1213,7 +1461,7 @@ class PretrainedBackbone(FreezableEncoderMixin, nn.Module):
                 f"layer_decay applies to plain-ViT encoders; '{self.model_name}' is "
                 "hierarchical, so only encoder_lr_scale is used."
             )
-            return [{"params": [p for _, p in named], "lr": base_lr * scale}]
+            return single
 
         # Block i (0-indexed in its parameter name) -> depth i + 1. Parameters
         # registered before the first block (patch/position embeddings, CLS and
@@ -1234,7 +1482,8 @@ class PretrainedBackbone(FreezableEncoderMixin, nn.Module):
         return [
             {
                 "params": params,
-                "lr": base_lr * scale * self.layer_decay ** (num_layers + 1 - depth),
+                "lr": base_lr * scale * decay ** (num_layers + 1 - depth),
+                "name": f"encoder/depth{depth:02d}",
             }
             for depth, params in sorted(groups.items())
         ]
@@ -1283,7 +1532,11 @@ class PretrainedBackbone(FreezableEncoderMixin, nn.Module):
             layer_decay=get("layer_decay", None),
             detail_stem=get("detail_stem", False),
             detail_channels=get("detail_channels", None),
+            vit_decoder=get("vit_decoder", "unet"),
+            vit_decoder_channels=get("vit_decoder_channels", 256),
+            vit_final_norm=get("vit_final_norm", None),
             spatial_heads=spatial_heads,
+            drop_path_rate=get("drop_path_rate", None),
         )
 
     # ------------------------------------------------------------------ forward
@@ -1344,6 +1597,16 @@ class PretrainedBackbone(FreezableEncoderMixin, nn.Module):
             return self._timm_intermediates(x, self._timm_stage_indices)
         return self.enc(x).feature_maps
 
+    def _tap_norm_fns(self) -> List[nn.Module]:
+        """The norm applied to each tap: a fresh `tap_norms` entry or the final norm."""
+        final_taps = getattr(self, "_final_norm_taps", None) or [False] * len(
+            self.tap_norms
+        )
+        return [
+            self.enc.get_submodule(self._final_norm_name) if final else norm
+            for norm, final in zip(self.tap_norms, final_taps)
+        ]
+
     def _tap_tokens(self, x: torch.Tensor) -> List[torch.Tensor]:
         """Run a plain ViT and return the tapped layers as NCHW token maps.
 
@@ -1364,7 +1627,7 @@ class PretrainedBackbone(FreezableEncoderMixin, nn.Module):
             by_layer = dict(zip(unique, maps))
             return [
                 norm(by_layer[layer].permute(0, 2, 3, 1)).permute(0, 3, 1, 2)
-                for norm, layer in zip(self.tap_norms, self.layers)
+                for norm, layer in zip(self._tap_norm_fns(), self.layers)
             ]
         kwargs = dict(self._call_kwargs)
         if self._identity_noise:
@@ -1374,7 +1637,7 @@ class PretrainedBackbone(FreezableEncoderMixin, nn.Module):
         hidden_states = self.enc(pixel_values=x, **kwargs).hidden_states
 
         maps = []
-        for norm, layer in zip(self.tap_norms, self.layers):
+        for norm, layer in zip(self._tap_norm_fns(), self.layers):
             tokens = hidden_states[layer]
             if tokens.dim() == 4:  # (B, h, w, C) grids, e.g. SAM's ViT
                 tokens = tokens.flatten(1, 2)
@@ -1410,6 +1673,15 @@ class PretrainedBackbone(FreezableEncoderMixin, nn.Module):
                 "strides": [],
                 "middle_output": bottleneck,
                 "intermediate_feat": bottleneck,
+            }
+
+        if self.direct_decoder:
+            tokens = feats[-1]
+            return {
+                "outputs": [self.vit_dec(tokens)],
+                "strides": [self.output_stride],
+                "middle_output": tokens,
+                "intermediate_feat": tokens,
             }
 
         if self.token_path:

@@ -29,7 +29,16 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, List, Optional, Sequence, Union
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Callable,
+    List,
+    Optional,
+    Sequence,
+    Tuple,
+    Union,
+)
 
 import sleap_io as sio
 from loguru import logger
@@ -372,6 +381,64 @@ def save_predictions(
     return h5_paths
 
 
+def _attach_box_source(
+    source: Any, boxes: str, score_threshold: float = 0.0
+) -> Tuple[Any, str]:
+    """Resolve ``predict(boxes=...)``: ``(source, "gt" | "given")``.
+
+    For a detection file or boxes ``.slp``, the boxes are attached to the source
+    labels as ``PredictedBoundingBox``es (a ``.slp`` path is loaded; a
+    ``sio.Labels`` is copied; a ``LabelsProvider``'s labels are used in place),
+    and that labels source is returned.
+    """
+    from sleap_nn.evaluation_coco import (
+        attach_coco_detections,
+        transfer_predicted_boxes,
+    )
+    from sleap_nn.inference.providers import LabelsProvider
+
+    if boxes == "gt":
+        return source, "gt"
+    suffix = Path(str(boxes)).suffix.lower()
+    if suffix not in (".json", ".slp"):
+        raise ValueError(
+            f"boxes must be 'gt', a COCO detection .json or a .slp; got {boxes!r}."
+        )
+    if isinstance(source, (str, Path)) and str(source).endswith(".slp"):
+        source_path = Path(str(source))
+        source = sio.load_slp(str(source))
+    elif isinstance(source, sio.Labels):
+        source_path = None
+        source = source.copy()
+    elif isinstance(source, LabelsProvider):
+        source_path = (
+            Path(source.labels) if isinstance(source.labels, (str, Path)) else None
+        )
+    else:
+        raise ValueError(
+            "boxes from a file need a .slp / sio.Labels source (the boxes are "
+            f"attached to its frames); got {type(source).__name__}."
+        )
+    labels = source._sio_labels if isinstance(source, LabelsProvider) else source
+    if suffix == ".json":
+        counts = attach_coco_detections(labels, boxes, score_threshold=score_threshold)
+        logger.info(
+            f"Attached {counts['n_boxes']} detections from {boxes} to "
+            f"{counts['n_frames']} frames ({counts['n_unmatched']} on images not "
+            "in the source)."
+        )
+    elif source_path is None or Path(boxes).resolve() != source_path.resolve():
+        counts = transfer_predicted_boxes(
+            labels, sio.load_slp(str(boxes)), score_threshold=score_threshold
+        )
+        logger.info(
+            f"Copied {counts['n_boxes']} boxes from {boxes} to {counts['n_frames']} "
+            f"frames ({counts['n_new_frames']} added; {counts['n_unmatched']} on "
+            "unmatched videos)."
+        )
+    return source, "given"
+
+
 def predict(
     source: Any,
     *,
@@ -412,6 +479,11 @@ def predict(
     polygon_epsilon: float = 0.01,
     # Bounding-box detector knob (construction-time; bbox_* models only)
     bbox_nms_iou: Optional[float] = None,
+    # Flip-test (construction-time; centered_instance top-down models only)
+    flip_test: bool = False,
+    # Top-down stage 1 from given boxes (construction-time; crop models only)
+    boxes: Optional[str] = None,
+    box_score_threshold: float = 0.0,
     # SAM prompted-mask producer (explicit, no default; PLAN L2). When set, masks
     # are produced from the existing poses in ``source`` (no trained seg model).
     mask_backend: Optional[str] = None,
@@ -525,6 +597,21 @@ def predict(
             (``None``: the style default, 0.45 for SSD / off for CenterNet; ``1.0``
             disables it). ``peak_threshold`` is their score threshold and
             ``max_instances`` their per-frame detection cap.
+        flip_test: Top-down ``centered_instance`` models only: also run the
+            centered-instance model on the mirrored crops and average the
+            confmaps (symmetric nodes swapped) before peak finding. Not
+            available for exported models (``export_dir``).
+        boxes: Seed a top-down crop model's stage 1 from boxes instead of a
+            centroid model or detector (pass only the crop model). ``"gt"``: the
+            GT boxes of the ``.slp`` / ``sio.Labels`` source (score 1). A path to
+            a COCO detection results ``.json`` (``[{"image_id", "bbox", "score",
+            "category_id"}]``, matched to frames by image id; see
+            :func:`~sleap_nn.evaluation_coco.attach_coco_detections`) or to a
+            ``.slp`` whose frames carry ``PredictedBoundingBox``es (e.g. a
+            ``bbox_*`` detector's output, or the source itself): one crop per box,
+            scored by the box. A ``sio.Labels`` source is copied first, so the
+            boxes are not attached to the caller's object.
+        box_score_threshold: Drop given boxes scoring below this.
         mask_backend: **Explicit** SAM mask backend (PLAN L2): ``"sam"`` (SAM1) /
             ``"sam3"`` (PR-B). When set, ``source`` is treated as a pose ``.slp``
             and masks are predicted from its existing instances (no trained seg
@@ -543,7 +630,11 @@ def predict(
         centroid_threshold: Override centroid-stage threshold (top-down).
         keypoint_threshold: Override centered-instance threshold (top-down).
         max_instances: Cap on instances per frame.
-        integral_refinement: ``"integral"`` or ``"none"``.
+        integral_refinement: Override the sub-pixel peak refinement:
+            ``"auto"`` (DARK for the top-down keypoint stage, integral regression
+            elsewhere; the construction-time default), ``"dark"``,
+            ``"integral"``, ``"local"`` or ``"none"``. ``None`` keeps the
+            default. Exported models do no sub-pixel refinement.
         integral_patch_size: Refinement patch size.
         return_confmaps: Keep confidence maps on Outputs.
         return_crops: Keep per-instance crops on Outputs (top-down).
@@ -655,6 +746,10 @@ def predict(
     if not model_paths and not export_dir:
         raise ValueError("Either model_paths or export_dir is required.")
 
+    box_mode = None
+    if boxes is not None:
+        source, box_mode = _attach_box_source(source, boxes, box_score_threshold)
+
     if tracker_config is not None and emit_centroid != "instance":
         raise ValueError(
             "Tracking is incompatible with emit_centroid="
@@ -744,8 +839,22 @@ def predict(
         build_kwargs["full_res_masks"] = full_res_masks
         build_kwargs["mask_output"] = mask_output
         build_kwargs["polygon_epsilon"] = polygon_epsilon
+        build_kwargs["flip_test"] = flip_test
+        if box_mode is not None:
+            build_kwargs["boxes"] = box_mode
+            build_kwargs["box_score_threshold"] = box_score_threshold
         predictor = Predictor.from_model_paths(model_paths, **build_kwargs)
     else:
+        if flip_test:
+            raise ValueError(
+                "flip_test is not available for exported (ONNX/TensorRT) models, "
+                "whose peak finding is baked into the graph; run the checkpoint "
+                "directory instead."
+            )
+        if box_mode is not None:
+            raise ValueError(
+                "boxes is not supported for exported models; use the checkpoint."
+            )
         # Exported ONNX/TRT models bake most post-processing into the graph at
         # export time; only these construction-time knobs still apply.
         build_kwargs["runtime"] = runtime

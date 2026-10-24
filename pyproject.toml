@@ -96,6 +96,10 @@ torch-cpu = ["torch", "torchvision>=0.20.0"]
 torch-cuda118 = ["torch", "torchvision>=0.20.0"]
 torch-cuda128 = ["torch", "torchvision>=0.20.0"]
 torch-cuda130 = ["torch", "torchvision>=0.20.0"]
+# Reference COCOeval, only for cross-checking `sleap_nn.evaluation_coco`
+# (`coco_keypoint_metrics(backend="pycocotools")`). The default numpy port needs
+# nothing extra.
+coco = ["pycocotools>=2.0.7"]
 export = ["onnx>=1.15.0", "onnxruntime>=1.16.0", "onnxscript>=0.1.0"]
 export-gpu = [
     "onnx>=1.15.0",
@@ -149,6 +153,8 @@ dev = [
     "build",
     "ipython",
     "ruff",
+    # Cross-checks the COCOeval port in tests/test_evaluation_coco.py.
+    "pycocotools>=2.0.7",
 ]
 docs = [
     "mkdocs",
