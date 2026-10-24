@@ -82,7 +82,8 @@ class SingleInstanceLayer(InferenceLayer):
         peaks, vals = find_global_peaks(
             confmaps.detach(),
             threshold=self.postprocess_config.peak_threshold,
-            refinement=self.postprocess_config.effective_refinement,
+            refinement=self.postprocess_config.resolve_refinement(),
+            dark_blur_sigma=self.postprocess_config.dark_blur_sigma,
             integral_patch_size=self.postprocess_config.integral_patch_size,
         )
 

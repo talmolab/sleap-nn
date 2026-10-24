@@ -229,6 +229,17 @@ sleap-nn predict --data_path INPUT --model_paths MODEL [OPTIONS]
 
 `--runtime auto` prefers TensorRT and falls back to ONNX.
 
+### Peak Decoding
+
+| Option | Description | Values | Default |
+|--------|-------------|--------|---------|
+| `--integral_refinement` | Sub-pixel peak refinement. `auto` = `dark` for top-down keypoints, `integral` otherwise. `dark`/`local` need one peak per channel: the centroid stage keeps `integral`, bottom-up rejects them | `auto`, `dark`, `integral`, `local`, `none` | `auto` |
+| `--integral_patch_size` | Patch size for `integral` refinement | `INT` | `5` |
+| `--flip_test` | Top-down `centered_instance` only: average the confidence maps of the crops and their mirror (left/right nodes swapped from the skeleton symmetries) | Flag | `false` |
+
+Exported models do no sub-pixel refinement and refuse `--flip_test`. See
+[Sub-pixel refinement and flip-test](../guides/inference-guide.md#sub-pixel-refinement-and-flip-test).
+
 ### Examples
 
 ```bash

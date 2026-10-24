@@ -62,9 +62,20 @@ class PostprocessConfig:
 
     Attributes:
         peak_threshold: Minimum confmap activation to consider a peak.
-        refinement: ``"integral"`` runs sub-pixel integral regression around
-            each rough peak. ``"none"`` returns grid-aligned peaks.
+        refinement: Sub-pixel peak refinement. ``"auto"`` (default) is
+            ``"dark"`` for the top-down keypoint stage (centered-instance and
+            multi-class top-down layers) and ``"integral"`` for every other
+            layer. ``"dark"`` runs DARK (a Newton step on the blurred log
+            confmap); ``"local"`` moves each peak a quarter pixel towards its
+            higher neighbor; ``"integral"`` runs integral regression over an
+            ``integral_patch_size`` patch; ``"none"`` returns grid-aligned
+            peaks. ``"dark"`` / ``"local"`` need one global peak per channel:
+            the centroid layer falls back to ``"integral"`` for them and the
+            bottom-up layers raise. See
+            :func:`sleap_nn.inference.ops.peaks.resolve_refinement`.
         integral_patch_size: Side length of the refinement patch.
+        dark_blur_sigma: Std (confmap pixels) of the DARK modulation blur. The
+            loaders set it to the head's training ``sigma``.
         max_instances: Cap on instances per frame (centroid layer only).
         return_confmaps: Keep ``(B, N, H, W)`` confmaps on the ``Outputs``
             (heavy — opt-in for visualization / debugging).
@@ -77,8 +88,9 @@ class PostprocessConfig:
     """
 
     peak_threshold: float = 0.2
-    refinement: Literal["integral", "none"] = "integral"
+    refinement: Literal["auto", "dark", "integral", "local", "none"] = "auto"
     integral_patch_size: int = 5
+    dark_blur_sigma: float = 1.0
     max_instances: Optional[int] = None
 
     return_confmaps: bool = False
@@ -87,12 +99,15 @@ class PostprocessConfig:
     return_class_maps: bool = False
     return_class_vectors: bool = False
 
-    @property
-    def effective_refinement(self) -> Optional[str]:
-        """Return the refinement string or ``None`` when ``"none"``.
+    def resolve_refinement(
+        self, auto: str = "integral", peaks: str = "global"
+    ) -> Optional[str]:
+        """Return the refinement a peak finder runs (``None`` to disable).
 
-        Every postprocess site needs ``refinement=None`` (not the string
-        ``"none"``) to disable refinement. This property centralises that
-        coercion.
+        Resolves ``"auto"`` to ``auto`` and ``"none"`` to ``None``, and
+        applies the global-peak-only rule for ``"dark"`` / ``"local"``; see
+        :func:`sleap_nn.inference.ops.peaks.resolve_refinement`.
         """
-        return self.refinement if self.refinement != "none" else None
+        from sleap_nn.inference.ops.peaks import resolve_refinement
+
+        return resolve_refinement(self.refinement, auto=auto, peaks=peaks)

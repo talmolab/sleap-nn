@@ -95,7 +95,8 @@ Selected keyword arguments (all keyword-only):
 | `device` | `"cpu"`, `"cuda"`, `"mps"`, `"cuda:N"` | `"cpu"` |
 | `batch_size` | Default batch size for auto-built providers | `4` |
 | `peak_threshold` | `float`, or `[centroid_thresh, keypoint_thresh]` for top-down | `0.2` |
-| `integral_refinement` | `"integral"` or `"none"` | `"integral"` |
+| `integral_refinement` | `"auto"` (DARK for top-down keypoints, integral elsewhere), `"dark"`, `"integral"`, `"local"` or `"none"` | `"auto"` |
+| `flip_test` | Top-down `centered_instance` only: average confmaps with those of the mirrored crops | `False` |
 | `integral_patch_size` | Refinement patch size | `5` |
 | `max_instances` | Cap on instances per frame | `None` |
 | `return_confmaps` | Keep confidence maps on `Outputs` | `False` |
