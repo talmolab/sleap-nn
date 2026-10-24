@@ -401,3 +401,94 @@ def test_from_model_paths_upload_batches_is_set_and_logged():
     assert len(loaded) == 2
     assert "upload_batches=True" in loaded[0]
     assert "upload_batches" not in loaded[1]
+
+
+class _InlinePafPool:
+    """In-process stand-in for ``PafGroupingPool``: no worker processes."""
+
+    def __init__(self, n_workers, grouping_params):
+        self._done = []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def submit(self, ordinal, scored):
+        b = scored
+        self._done.append(
+            (
+                ordinal,
+                Outputs(
+                    pred_keypoints=torch.zeros(b, 1, 4, 2),
+                    pred_peak_values=torch.ones(b, 1, 4),
+                ),
+            )
+        )
+
+    def __len__(self):
+        return len(self._done)
+
+    def drain_one(self):
+        return self._done.pop(0) if self._done else None
+
+
+class _PipelinedStubLayer:
+    """The parts of ``BottomUpLayer`` the pipelined path calls."""
+
+    def __init__(self):
+        self.seen = []
+
+    def grouping_params(self):
+        return None
+
+    def preprocess(self, images):
+        self.seen.append(images)
+        return images, None
+
+    def backend(self, x):
+        return x
+
+    def _score_pafs_on_gpu(self, raw, info):
+        return int(raw.shape[0])
+
+
+@pytest.mark.parametrize("upload", [False, True])
+def test_pipelined_bottomup_path_uploads_like_inline_path(monkeypatch, upload):
+    """The ``paf_workers > 0`` path hands ``preprocess`` the same batch as inline.
+
+    Uses an in-process pool (real worker pools hang in CI; see
+    ``test_paf_worker_pool.py``) and a stand-in for ``Tensor.to``.
+    """
+    import sleap_nn.inference.streaming as streaming
+
+    monkeypatch.setattr(streaming, "PafGroupingPool", _InlinePafPool)
+    calls = []
+    real_to = torch.Tensor.to
+
+    def fake_to(self, *args, **kwargs):
+        if args and args[0] == "cuda":
+            calls.append(self.dtype)
+            return self
+        return real_to(self, *args, **kwargs)
+
+    monkeypatch.setattr(torch.Tensor, "to", fake_to)
+    layer = _PipelinedStubLayer()
+    predictor = Predictor(
+        layer=layer, paf_workers=2, device="cuda", upload_batches=upload
+    )
+    images = np.zeros((6, 8, 8, 1), dtype=np.uint8)
+    outputs = list(
+        predictor._predict_streaming_pipelined(
+            NumpyProvider(images=images, batch_size=2)
+        )
+    )
+
+    assert len(outputs) == 3 and len(layer.seen) == 3
+    if upload:
+        assert calls == [torch.uint8] * 3
+        assert all(isinstance(x, torch.Tensor) for x in layer.seen)
+    else:
+        assert calls == []
+        assert all(isinstance(x, np.ndarray) for x in layer.seen)
