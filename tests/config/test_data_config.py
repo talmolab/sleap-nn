@@ -561,3 +561,26 @@ def test_data_config_augmentation_unique_per_instance():
     # Modifying one should not affect the other
     config1.augmentation_config.geometric.rotation_p = 0.5
     assert config2.augmentation_config.geometric.rotation_p == 1.0
+
+
+def test_node_loss_mask_keys(minimal_instance_centered_instance_ckpt):
+    """Per-node loss weighting keys: defaults, validation, old configs load."""
+    config = DataConfig(train_labels_path="train.slp", val_labels_path="val.slp")
+    assert config.node_loss_mask is True
+    assert config.unlabeled_points == "absent"
+    assert config.supervise_occluded is True
+    assert DataConfig(unlabeled_points="ignore").unlabeled_points == "ignore"
+    with pytest.raises(ValueError):
+        DataConfig(unlabeled_points="drop")
+
+    # A config saved before these keys existed loads with the defaults.
+    from sleap_nn.config.training_job_config import verify_training_cfg
+
+    old = OmegaConf.load(
+        (Path(minimal_instance_centered_instance_ckpt) / "training_config.yaml")
+    )
+    assert "node_loss_mask" not in old.data_config
+    cfg = verify_training_cfg(old)
+    assert cfg.data_config.node_loss_mask is True
+    assert cfg.data_config.unlabeled_points == "absent"
+    assert cfg.trainer_config.online_hard_keypoint_mining.per_sample is True

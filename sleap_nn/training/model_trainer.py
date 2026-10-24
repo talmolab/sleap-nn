@@ -49,6 +49,7 @@ from sleap_nn.data.instance_centroids import (
     degrade_anchor_if_unresolved,
 )
 from sleap_nn.data.providers import get_max_height_width
+from sleap_nn.data.node_weights import carry_labeled_nodes
 from sleap_nn.data.utils import embedding_detections
 from sleap_nn.data.custom_datasets import (
     EMBEDDING_MIN_MASK_AREA,
@@ -613,6 +614,10 @@ class ModelTrainer:
             self.train_labels, self.val_labels = split_labels_list_train_val(
                 labels, split_cfg
             )
+            for source, train_split, val_split in zip(
+                labels, self.train_labels, self.val_labels
+            ):
+                carry_labeled_nodes(source, train_split, val_split)
             total_train_lfs = self._count_labeled_frames(
                 self.train_labels, user_instances_only
             )
@@ -681,6 +686,9 @@ class ModelTrainer:
                     train_split, val_split = label.make_training_splits(
                         n_train=1 - val_fraction, n_val=val_fraction, seed=seed
                     )
+                # sleap-io's splits drop `provenance`, which would silently turn
+                # the file's per-node loss mask off.
+                carry_labeled_nodes(label, train_split, val_split)
                 self.train_labels.append(train_split)
                 self.val_labels.append(val_split)
                 total_train_lfs += len(train_split)

@@ -75,6 +75,12 @@ from sleap_nn.data.utils import (
     superseded_predictions,
 )
 from sleap_nn.data.confidence_maps import generate_confmaps, generate_multiconfmaps
+from sleap_nn.data.node_weights import (
+    finite_point_weights,
+    get_labeled_nodes_weights,
+    instance_node_weights,
+    node_weights_active,
+)
 from sleap_nn.data.bboxes import (
     bboxes_to_corners,
     clip_bboxes,
@@ -442,6 +448,15 @@ class BaseDataset(Dataset):
             disk occurs only once across all workers.
         parallel_caching: If True, use parallel processing for caching (faster for large datasets). Default: True.
         cache_workers: Number of worker threads for parallel caching. If 0, uses min(4, cpu_count). Default: 0.
+        node_loss_mask: Emit per-node loss weights (`node_weights`, shape `(1, n_nodes)`)
+            when they can differ from 1 (see `sleap_nn.data.node_weights`). Only the
+            single-instance, centered-instance and bottom-up datasets use it (and
+            default it to True). Default: False.
+        unlabeled_points: `"absent"` trains points with no location as absent (weight
+            1); `"ignore"` gives them weight 0. Default: `"absent"`.
+        supervise_occluded: Train labeled-but-occluded points at their estimated
+            coordinates (no-op until sleap-io exposes per-point `labeled` flags).
+            Default: True.
         labels_list: List of `sio.Labels` objects. Used to store the labels in the cache. (only used if `cache_img` is `None`)
     """
 
@@ -479,10 +494,35 @@ class BaseDataset(Dataset):
         tiling: Optional[Union[DictConfig, Any]] = None,
         output_stride: Optional[int] = None,
         base_seed: int = 0,
+        node_loss_mask: bool = False,
+        unlabeled_points: str = "absent",
+        supervise_occluded: bool = True,
     ) -> None:
         """Initialize class attributes."""
         super().__init__()
         self.user_instances_only = user_instances_only
+        # Per-node loss weights (see `sleap_nn.data.node_weights`). Only the
+        # confmap datasets that emit them turn `node_loss_mask` on, and they emit
+        # the `node_weights` sample key only when weights can differ from 1, so
+        # fully labeled datasets under the defaults keep their exact sample dicts.
+        self.unlabeled_points = unlabeled_points
+        self.supervise_occluded = supervise_occluded
+        self.emit_node_weights = node_weights_active(
+            labels, node_loss_mask=node_loss_mask, unlabeled_points=unlabeled_points
+        )
+        # One (n_nodes,) mask per labels file from provenance["labeled_nodes"].
+        self.file_node_weights = (
+            [
+                (
+                    get_labeled_nodes_weights(x)
+                    if x is not None and x.skeletons
+                    else None
+                )
+                for x in labels
+            ]
+            if self.emit_node_weights
+            else None
+        )
         self.use_negative_frames = use_negative_frames
         self.ensure_rgb = ensure_rgb
         self.ensure_grayscale = ensure_grayscale
@@ -684,6 +724,66 @@ class BaseDataset(Dataset):
                 continue
             xy.append([x, y])
         return xy if xy else None
+
+    def _instance_node_weights(
+        self,
+        labels_idx: int,
+        instance: Optional[sio.Instance] = None,
+        points: Optional[np.ndarray] = None,
+    ) -> Tuple[Optional[torch.Tensor], Optional[np.ndarray]]:
+        """Per-node loss weights ``(1, n_nodes)`` of a sample, before augmentation.
+
+        Returns ``(None, points)`` when the dataset emits no weights. Otherwise
+        starts from the file's ``provenance["labeled_nodes"]`` mask and, given an
+        ``instance`` and its ``points``, combines it with per-point ``labeled``
+        flags (when sleap-io exposes them) under the ``supervise_occluded``
+        policy, which may restore estimated coordinates of occluded points in the
+        returned ``points``. Frame-level datasets pass no instance (file mask only).
+        """
+        if not self.emit_node_weights:
+            return None, points
+        w = self.file_node_weights[labels_idx]
+        if w is None:
+            w = np.ones(self.num_nodes, dtype=np.float32)
+        if instance is not None:
+            w, points = instance_node_weights(
+                instance, w, points, supervise_occluded=self.supervise_occluded
+            )
+        return torch.from_numpy(np.asarray(w, dtype=np.float32))[None], points
+
+    def _finalize_node_weights(
+        self,
+        node_weights: Optional[torch.Tensor],
+        points: torch.Tensor,
+        img_hw: Tuple[int, int],
+        is_negative: bool = False,
+    ) -> Optional[torch.Tensor]:
+        """Apply ``unlabeled_points`` to a sample's (augmented) node weights.
+
+        Under ``"ignore"``, nodes without a location in the model input (NaN, or
+        outside the ``img_hw`` image/crop after augmentation) get weight 0. With
+        several instances a node keeps its weight if any instance locates it.
+        Negative frames keep weight 1 on every node (they are trained as absent).
+
+        Args:
+            node_weights: ``(1, n_nodes)`` weights, or ``None`` (not emitting).
+            points: ``(..., n_nodes, 2)`` final target points.
+            img_hw: Height and width of the model input the points live in.
+            is_negative: Whether the sample is a negative frame.
+
+        Returns:
+            The ``(1, n_nodes)`` weights, or ``None``.
+        """
+        if node_weights is None:
+            return None
+        if is_negative:
+            return torch.ones_like(node_weights)
+        if self.unlabeled_points == "ignore":
+            located = finite_point_weights(
+                filter_oob_points(points, int(img_hw[0]), int(img_hw[1]))
+            )
+            node_weights = node_weights * located[None]
+        return node_weights
 
     def _get_lf_idx_list(self, labels: List[sio.Labels]) -> List[Tuple[int]]:
         """Return list of indices of labelled frames (and optionally negative frames).
@@ -1172,12 +1272,19 @@ class BaseDataset(Dataset):
             # Under tiling, geometric augmentation is folded into `extract_tile`
             # (halo path); do NOT run it again here.
             if not self.tiling_enabled and self.geometric_aug is not None:
-                sample["image"], sample["instances"] = apply_geometric_augmentation(
+                # Per-node loss weights (if any) are swapped with the keypoints
+                # when the sample is flipped. (Tiled datasets emit none.)
+                node_weights = sample.get("node_weights")
+                out = apply_geometric_augmentation(
                     sample["image"],
                     sample["instances"],
                     symmetric_inds=self.symmetric_inds,
+                    node_weights=node_weights,
                     **self.geometric_aug,
                 )
+                sample["image"], sample["instances"] = out[0], out[1]
+                if node_weights is not None:
+                    sample["node_weights"] = out[-1]
 
         return sample
 
@@ -1296,9 +1403,15 @@ class BottomUpDataset(BaseDataset):
         parallel_caching: bool = True,
         cache_workers: int = 0,
         use_negative_frames: bool = False,
+        node_loss_mask: bool = True,
+        unlabeled_points: str = "absent",
+        supervise_occluded: bool = True,
     ) -> None:
         """Initialize class attributes."""
         super().__init__(
+            node_loss_mask=node_loss_mask,
+            unlabeled_points=unlabeled_points,
+            supervise_occluded=supervise_occluded,
             labels=labels,
             max_stride=max_stride,
             user_instances_only=user_instances_only,
@@ -1361,9 +1474,23 @@ class BottomUpDataset(BaseDataset):
                 user_instances_only=self.user_instances_only,
             )
 
+        # Per-node loss weights. Frame-level confmaps hold every instance, so only
+        # the per-file mask applies (per-point flags would need pixel masks).
+        node_weights, _ = self._instance_node_weights(labels_idx)
+        if node_weights is not None:
+            sample["node_weights"] = node_weights
+
         sample = self._apply_common_preprocessing(sample)
 
         img_hw = sample["image"].shape[-2:]
+
+        if node_weights is not None:
+            sample["node_weights"] = self._finalize_node_weights(
+                sample["node_weights"],
+                sample["instances"],
+                img_hw,
+                is_negative=bool(self.lf_idx_list[index].get("is_negative", False)),
+            )
 
         # Generate confidence maps
         confidence_maps = generate_multiconfmaps(
@@ -1651,9 +1778,15 @@ class CenteredInstanceDataset(BaseDataset):
         parallel_caching: bool = True,
         cache_workers: int = 0,
         bbox_crop: Optional[BBoxCropSpec] = None,
+        node_loss_mask: bool = True,
+        unlabeled_points: str = "absent",
+        supervise_occluded: bool = True,
     ) -> None:
         """Initialize class attributes."""
         super().__init__(
+            node_loss_mask=node_loss_mask,
+            unlabeled_points=unlabeled_points,
+            supervise_occluded=supervise_occluded,
             labels=labels,
             max_stride=max_stride,
             user_instances_only=user_instances_only,
@@ -1863,10 +1996,13 @@ class CenteredInstanceDataset(BaseDataset):
         image = np.transpose(img, (2, 0, 1))  # HWC -> CHW
 
         instances = []
-        for inst in instances_list:
-            instances.append(
-                inst.numpy()
-            )  # no need to filter empty instances; handled while creating instance_idx_list
+        node_weights = None
+        for i, inst in enumerate(instances_list):
+            # no need to filter empty instances; handled while creating instance_idx_list
+            pts = inst.numpy()
+            if i == inst_idx:
+                node_weights, pts = self._instance_node_weights(labels_idx, inst, pts)
+            instances.append(pts)
         instances = np.stack(instances, axis=0)
 
         # Add singleton time dimension for single frames.
@@ -1931,15 +2067,16 @@ class CenteredInstanceDataset(BaseDataset):
                 )
 
             if self.geometric_aug is not None:
-                (
-                    sample["instance_image"],
-                    sample["instance"],
-                ) = apply_geometric_augmentation(
+                out = apply_geometric_augmentation(
                     sample["instance_image"],
                     sample["instance"],
                     symmetric_inds=self.symmetric_inds,
+                    node_weights=node_weights,
                     **self.geometric_aug,
                 )
+                sample["instance_image"], sample["instance"] = out[0], out[1]
+                if node_weights is not None:
+                    node_weights = out[-1]
 
         # re-crop to original crop size
         sample = self._final_crop(sample)
@@ -1961,6 +2098,12 @@ class CenteredInstanceDataset(BaseDataset):
         # Drop keypoints pushed outside the crop by augmentation so their target
         # confidence map is empty rather than a partial blob at the crop edge.
         sample["instance"] = filter_oob_points(sample["instance"], img_hw[0], img_hw[1])
+
+        node_weights = self._finalize_node_weights(
+            node_weights, sample["instance"], img_hw
+        )
+        if node_weights is not None:
+            sample["node_weights"] = node_weights  # (n_samples=1, n_nodes)
 
         # Generate confidence maps
         confidence_maps = generate_confmaps(
@@ -4206,9 +4349,15 @@ class SingleInstanceDataset(BaseDataset):
         parallel_caching: bool = True,
         cache_workers: int = 0,
         use_negative_frames: bool = False,
+        node_loss_mask: bool = True,
+        unlabeled_points: str = "absent",
+        supervise_occluded: bool = True,
     ) -> None:
         """Initialize class attributes."""
         super().__init__(
+            node_loss_mask=node_loss_mask,
+            unlabeled_points=unlabeled_points,
+            supervise_occluded=supervise_occluded,
             labels=labels,
             max_stride=max_stride,
             user_instances_only=user_instances_only,
@@ -4267,6 +4416,12 @@ class SingleInstanceDataset(BaseDataset):
                 user_instances_only=self.user_instances_only,
             )
 
+        # Per-node loss weights (per-file mask; per-point `labeled` flags of the
+        # instance are not read on this frame-level path yet).
+        node_weights, _ = self._instance_node_weights(labels_idx)
+        if node_weights is not None:
+            sample["node_weights"] = node_weights
+
         sample = self._apply_common_preprocessing(sample)
 
         img_hw = sample["image"].shape[-2:]
@@ -4276,6 +4431,14 @@ class SingleInstanceDataset(BaseDataset):
         sample["instances"] = filter_oob_points(
             sample["instances"], img_hw[0], img_hw[1]
         )
+
+        if node_weights is not None:
+            sample["node_weights"] = self._finalize_node_weights(
+                sample["node_weights"],
+                sample["instances"],
+                img_hw,
+                is_negative=bool(self.lf_idx_list[index].get("is_negative", False)),
+            )
 
         # Generate confidence maps
         confidence_maps = generate_confmaps(
@@ -6483,6 +6646,13 @@ def get_train_val_datasets(
     cache_workers = getattr(config.data_config, "cache_workers", 0)
 
     use_negative_frames = getattr(config.data_config, "use_negative_frames", False)
+    # Per-node loss weights (`sleap_nn.data.node_weights`), used by the
+    # single-instance, centered-instance and bottom-up confmap datasets.
+    node_weight_kwargs = dict(
+        node_loss_mask=getattr(config.data_config, "node_loss_mask", True),
+        unlabeled_points=getattr(config.data_config, "unlabeled_points", "absent"),
+        supervise_occluded=getattr(config.data_config, "supervise_occluded", True),
+    )
 
     model_type = get_model_type_from_cfg(config=config)
     backbone_type = get_backbone_type_from_cfg(config=config)
@@ -6534,6 +6704,7 @@ def get_train_val_datasets(
 
     if model_type == "bottomup":
         train_dataset = BottomUpDataset(
+            **node_weight_kwargs,
             labels=train_labels,
             confmap_head_config=config.model_config.head_configs.bottomup.confmaps,
             pafs_head_config=config.model_config.head_configs.bottomup.pafs,
@@ -6568,6 +6739,7 @@ def get_train_val_datasets(
             use_negative_frames=use_negative_frames,
         )
         val_dataset = BottomUpDataset(
+            **node_weight_kwargs,
             labels=val_labels,
             confmap_head_config=config.model_config.head_configs.bottomup.confmaps,
             pafs_head_config=config.model_config.head_configs.bottomup.pafs,
@@ -6664,6 +6836,7 @@ def get_train_val_datasets(
         )
         anchor_ind = nodes.index(anchor_part) if anchor_part is not None else None
         train_dataset = CenteredInstanceDataset(
+            **node_weight_kwargs,
             labels=train_labels,
             confmap_head_config=config.model_config.head_configs.centered_instance.confmaps,
             max_stride=config.model_config.backbone_config[f"{backbone_type}"][
@@ -6699,6 +6872,7 @@ def get_train_val_datasets(
             bbox_crop=bbox_crop,
         )
         val_dataset = CenteredInstanceDataset(
+            **node_weight_kwargs,
             labels=val_labels,
             confmap_head_config=config.model_config.head_configs.centered_instance.confmaps,
             max_stride=config.model_config.backbone_config[f"{backbone_type}"][
@@ -7409,6 +7583,17 @@ def get_train_val_datasets(
         if tiling is not None and tiling.enabled:
             # Tiled single-instance training. Train draws foreground-aware tiles;
             # val always uses a deterministic full-coverage grid (no aug).
+            if node_weights_active(
+                train_labels,
+                node_loss_mask=node_weight_kwargs["node_loss_mask"],
+                unlabeled_points=node_weight_kwargs["unlabeled_points"],
+            ):
+                logger.warning(
+                    "Tiled single-instance training does not apply per-node loss "
+                    "weights yet: `provenance['labeled_nodes']` and "
+                    "`data_config.unlabeled_points` are ignored, so unlabeled "
+                    "nodes are trained as absent."
+                )
             base_seed = config.trainer_config.seed or 0
             train_dataset = SingleInstanceTiledDataset(
                 labels=train_labels,
@@ -7474,6 +7659,7 @@ def get_train_val_datasets(
             )
         else:
             train_dataset = SingleInstanceDataset(
+                **node_weight_kwargs,
                 labels=train_labels,
                 confmap_head_config=config.model_config.head_configs.single_instance.confmaps,
                 max_stride=config.model_config.backbone_config[f"{backbone_type}"][
@@ -7507,6 +7693,7 @@ def get_train_val_datasets(
                 use_negative_frames=use_negative_frames,
             )
             val_dataset = SingleInstanceDataset(
+                **node_weight_kwargs,
                 labels=val_labels,
                 confmap_head_config=config.model_config.head_configs.single_instance.confmaps,
                 max_stride=config.model_config.backbone_config[f"{backbone_type}"][
