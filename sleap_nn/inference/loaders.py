@@ -19,6 +19,7 @@ from omegaconf import DictConfig, OmegaConf
 if TYPE_CHECKING:
     import sleap_io as sio
 
+from sleap_nn.data.instance_cropping import crop_hw
 from sleap_nn.config.training_job_config import TrainingJobConfig
 from sleap_nn.config.utils import get_model_type_from_cfg, resolve_model_dir
 from sleap_nn.inference.bottomup import (
@@ -883,7 +884,7 @@ def _build_topdown_embedding(
     if centroid_config is None:
         centroid_crop = CentroidCrop(
             use_gt_centroids=True,
-            crop_hw=(preprocess_config.crop_size, preprocess_config.crop_size),
+            crop_hw=crop_hw(preprocess_config.crop_size),
             anchor_ind=anchor_ind,
             centroid_method=centroid_method,
             centroid_fallback=centroid_fallback,
@@ -904,7 +905,7 @@ def _build_topdown_embedding(
             max_instances=max_instances,
             max_stride=max_stride_centroid,
             input_scale=centroid_config.data_config.preprocessing.scale,
-            crop_hw=(preprocess_config.crop_size, preprocess_config.crop_size),
+            crop_hw=crop_hw(preprocess_config.crop_size),
             use_gt_centroids=False,
             anchor_ind=anchor_ind,
             centroid_method=centroid_method,
@@ -1096,7 +1097,7 @@ def _build_topdown(
     if centroid_config is None:
         centroid_crop = CentroidCrop(
             use_gt_centroids=True,
-            crop_hw=(preprocess_config.crop_size, preprocess_config.crop_size),
+            crop_hw=crop_hw(preprocess_config.crop_size),
             anchor_ind=anchor_ind,
             centroid_method=centroid_method,
             centroid_fallback=centroid_fallback,
@@ -1117,7 +1118,7 @@ def _build_topdown(
             max_instances=max_instances,
             max_stride=max_stride_centroid,
             input_scale=centroid_scale,
-            crop_hw=(preprocess_config.crop_size, preprocess_config.crop_size),
+            crop_hw=crop_hw(preprocess_config.crop_size),
             use_gt_centroids=False,
             anchor_ind=anchor_ind,
             centroid_method=centroid_method,
@@ -1281,7 +1282,7 @@ def _build_topdown_segmentation(
     if centroid_config is None:
         centroid_crop = CentroidCrop(
             use_gt_centroids=True,
-            crop_hw=(preprocess_config.crop_size, preprocess_config.crop_size),
+            crop_hw=crop_hw(preprocess_config.crop_size),
             anchor_ind=anchor_ind,
             centroid_method=centroid_method,
             centroid_fallback=centroid_fallback,
@@ -1302,7 +1303,7 @@ def _build_topdown_segmentation(
             max_instances=max_instances,
             max_stride=max_stride_centroid,
             input_scale=centroid_scale,
-            crop_hw=(preprocess_config.crop_size, preprocess_config.crop_size),
+            crop_hw=crop_hw(preprocess_config.crop_size),
             use_gt_centroids=False,
             anchor_ind=anchor_ind,
             centroid_method=centroid_method,
@@ -1452,7 +1453,7 @@ def _build_topdown_multiclass(
     if centroid_config is None:
         centroid_crop = CentroidCrop(
             use_gt_centroids=True,
-            crop_hw=(preprocess_config.crop_size, preprocess_config.crop_size),
+            crop_hw=crop_hw(preprocess_config.crop_size),
             anchor_ind=anchor_ind,
             centroid_method=centroid_method,
             centroid_fallback=centroid_fallback,
@@ -1473,7 +1474,7 @@ def _build_topdown_multiclass(
             max_instances=max_instances,
             max_stride=max_stride_centroid,
             input_scale=centroid_scale,
-            crop_hw=(preprocess_config.crop_size, preprocess_config.crop_size),
+            crop_hw=crop_hw(preprocess_config.crop_size),
             use_gt_centroids=False,
             anchor_ind=anchor_ind,
             centroid_method=centroid_method,

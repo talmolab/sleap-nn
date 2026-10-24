@@ -6661,6 +6661,61 @@ def resolve_centroid_source(
     return has_user
 
 
+def _get_warp_centered_instance_datasets(
+    train_labels: List[sio.Labels],
+    val_labels: List[sio.Labels],
+    config: DictConfig,
+    backbone_type: str,
+    node_weight_kwargs: Dict[str, Any],
+):
+    """Train/val datasets of ``preprocessing.crop_pipeline="warp"`` (centered instance).
+
+    Raises:
+        ValueError: If the config cannot use the warp pipeline (it needs
+            ``crop_mode="bbox"``, a resolved ``crop_size`` and ``scale=1.0``).
+    """
+    from sleap_nn.data.topdown_warp import InstanceFilter, WarpCenteredInstanceDataset
+
+    pre = config.data_config.preprocessing
+    bbox_crop = BBoxCropSpec.from_config(config)
+    if bbox_crop is None:
+        raise ValueError("crop_pipeline='warp' needs preprocessing.crop_mode='bbox'.")
+    if pre.crop_size is None:
+        raise ValueError("crop_pipeline='warp' needs preprocessing.crop_size.")
+    if float(pre.scale) != 1.0:
+        raise ValueError("crop_pipeline='warp' cuts crops at crop_size; set scale=1.0.")
+    aug = config.data_config.augmentation_config
+    common = dict(
+        crop_size=pre.crop_size,
+        confmap_head_config=config.model_config.head_configs.centered_instance.confmaps,
+        max_stride=config.model_config.backbone_config[f"{backbone_type}"][
+            "max_stride"
+        ],
+        bbox_crop=bbox_crop,
+        gpu_confmaps=bool(pre.get("gpu_confmaps", False)),
+        bbox_categories=pre.get("crop_bbox_categories"),
+        ensure_rgb=pre.ensure_rgb,
+        ensure_grayscale=pre.ensure_grayscale,
+        user_instances_only=config.data_config.user_instances_only,
+        **node_weight_kwargs,
+    )
+    train_dataset = WarpCenteredInstanceDataset(
+        labels=train_labels,
+        geometric_aug=aug.geometric if aug is not None else None,
+        intensity_aug=aug.intensity if aug is not None else None,
+        apply_aug=config.data_config.use_augmentations_train,
+        instance_filter=InstanceFilter.from_config(
+            OmegaConf.select(config, "data_config.instance_filter", default=None)
+        ),
+        base_seed=OmegaConf.select(config, "trainer_config.seed", default=0) or 0,
+        **common,
+    )
+    val_dataset = WarpCenteredInstanceDataset(
+        labels=val_labels, apply_aug=False, **common
+    )
+    return train_dataset, val_dataset
+
+
 def get_train_val_datasets(
     train_labels: List[sio.Labels],
     val_labels: List[sio.Labels],
@@ -6707,6 +6762,17 @@ def get_train_val_datasets(
 
     model_type = get_model_type_from_cfg(config=config)
     backbone_type = get_backbone_type_from_cfg(config=config)
+    if (
+        OmegaConf.select(
+            config, "data_config.preprocessing.crop_pipeline", default="legacy"
+        )
+        == "warp"
+        and model_type != "centered_instance"
+    ):
+        raise ValueError(
+            "preprocessing.crop_pipeline='warp' is implemented for the "
+            f"centered_instance model type only, not {model_type!r}."
+        )
 
     # Gate the lossy disk cache for the embedding (appearance / re-ID) model (SPEC §5.1):
     # `torch_dataset_cache_img_disk` writes source frames as JPEG, which silently
@@ -6877,6 +6943,17 @@ def get_train_val_datasets(
             parallel_caching=parallel_caching,
             cache_workers=cache_workers,
             use_negative_frames=use_negative_frames,
+        )
+
+    elif (
+        model_type == "centered_instance"
+        and OmegaConf.select(
+            config, "data_config.preprocessing.crop_pipeline", default="legacy"
+        )
+        == "warp"
+    ):
+        train_dataset, val_dataset = _get_warp_centered_instance_datasets(
+            train_labels, val_labels, config, backbone_type, node_weight_kwargs
         )
 
     elif model_type == "centered_instance":
@@ -7911,6 +7988,20 @@ def get_train_val_dataloaders(
         )
         return train_data_loader, val_data_loader
 
+    from sleap_nn.data.topdown_warp import WarpCenteredInstanceDataset
+
+    if isinstance(train_dataset, WarpCenteredInstanceDataset):
+        return _get_warp_dataloaders(
+            train_dataset,
+            val_dataset,
+            config,
+            train_steps_per_epoch,
+            rank,
+            trainer_devices,
+            pin_memory,
+            val_pin_memory,
+        )
+
     tiling = OmegaConf.select(config, "data_config.preprocessing.tiling", default=None)
     tiling_enabled = tiling is not None and tiling.enabled
 
@@ -8072,6 +8163,119 @@ def _train_worker_init_fn(config: DictConfig, rank: Optional[int], devices: int)
             "num_workers > 0 for per-rank augmentation streams."
         )
     return functools.partial(rank_worker_init_fn, rank=rank if rank is not None else 0)
+
+
+def _get_warp_dataloaders(
+    train_dataset,
+    val_dataset,
+    config: DictConfig,
+    train_steps_per_epoch: int,
+    rank: Optional[int],
+    trainer_devices: int,
+    pin_memory: bool,
+    val_pin_memory: bool,
+):
+    """Loaders for ``crop_pipeline="warp"``.
+
+    Training uses :class:`~sleap_nn.data.topdown_warp.BalancedBatchSampler` in a
+    resumable :class:`~sleap_nn.data.topdown_warp.BalancedDataLoader` when
+    ``trainer_config.balanced_sampler`` is set (per-rank streams, so Lightning must
+    not inject a DistributedSampler), else the usual (Distributed)sampler. Prefetch
+    depth and worker seeding are those of the stock loaders
+    (:func:`_get_prefetch_factor`, :func:`_train_worker_init_fn`); the dataset also
+    mixes the rank into its own augmentation generator.
+    """
+    from sleap_nn.data.topdown_warp import (
+        BalancedBatchSampler,
+        BalancedDataLoader,
+        resolve_batch_counts,
+    )
+
+    tl, vl = (
+        config.trainer_config.train_data_loader,
+        config.trainer_config.val_data_loader,
+    )
+    rank = rank if rank is not None else 0
+    bs = OmegaConf.select(config, "trainer_config.balanced_sampler", default=None)
+    batches = max(1, round(train_steps_per_epoch / trainer_devices))
+    train_nw, val_nw = int(tl.num_workers), int(vl.num_workers)
+    # Per-rank augmentation streams (workers are forked after this is set).
+    train_dataset.rank = rank
+    worker_init_fn = _train_worker_init_fn(config, rank, trainer_devices)
+    tl_prefetch = _get_prefetch_factor(config, "train_data_loader")
+    vl_prefetch = _get_prefetch_factor(config, "val_data_loader")
+    if bs is not None:
+        n_groups = train_dataset.num_files
+        counts = resolve_batch_counts(
+            bs.get("counts"), bs.get("weights"), tl.batch_size, n_groups
+        )
+        if rank == 0:
+            logger.info(
+                f"Balanced batches: {counts} samples per training file per batch."
+            )
+        sampler = BalancedBatchSampler(
+            train_dataset.labels_idx,
+            counts,
+            batches_per_epoch=batches,
+            seed=OmegaConf.select(config, "trainer_config.seed", default=0) or 0,
+            rank=rank,
+        )
+        train_loader = BalancedDataLoader(
+            train_dataset,
+            batch_sampler=sampler,
+            num_workers=train_nw,
+            pin_memory=pin_memory,
+            worker_init_fn=worker_init_fn,
+            persistent_workers=train_nw > 0,
+            prefetch_factor=tl_prefetch,
+        )
+    else:
+        sampler = (
+            DistributedSampler(
+                train_dataset,
+                shuffle=tl.shuffle,
+                rank=rank,
+                num_replicas=trainer_devices,
+            )
+            if trainer_devices > 1
+            else None
+        )
+        train_loader = InfiniteDataLoader(
+            dataset=train_dataset,
+            sampler=sampler,
+            drop_last=_get_train_drop_last(
+                config, train_dataset, trainer_devices, False
+            ),
+            len_dataloader=batches,
+            shuffle=tl.shuffle if sampler is None else None,
+            batch_size=tl.batch_size,
+            num_workers=train_nw,
+            pin_memory=pin_memory,
+            worker_init_fn=worker_init_fn,
+            persistent_workers=True if train_nw > 0 else None,
+            prefetch_factor=tl_prefetch,
+        )
+    val_sampler = (
+        DistributedSampler(
+            val_dataset,
+            shuffle=False,
+            rank=rank,
+            num_replicas=trainer_devices,
+        )
+        if trainer_devices > 1
+        else None
+    )
+    val_loader = DataLoader(
+        val_dataset,
+        sampler=val_sampler,
+        shuffle=False,
+        batch_size=vl.batch_size,
+        num_workers=val_nw,
+        pin_memory=val_pin_memory,
+        persistent_workers=val_nw > 0,
+        prefetch_factor=vl_prefetch,
+    )
+    return train_loader, val_loader
 
 
 def get_steps_per_epoch(dataset: BaseDataset, batch_size: int):

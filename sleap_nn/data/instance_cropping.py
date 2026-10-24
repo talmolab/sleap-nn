@@ -701,25 +701,39 @@ BBOX_CROP_ASPECTS = ("square", "letterbox", "stretch")
 BBOX_CROP_MODEL_TYPES = ("centered_instance", "multi_class_topdown")
 
 
+def crop_hw(crop_size) -> Tuple[int, int]:
+    """``(height, width)`` of a crop given as an int (square) or ``[h, w]``.
+
+    ``None`` (crop size not resolved yet) gives ``(None, None)``.
+    """
+    if crop_size is None:
+        return None, None
+    if isinstance(crop_size, (int, float, np.integer, np.floating)):
+        return int(crop_size), int(crop_size)
+    h, w = (int(v) for v in crop_size)
+    return h, w
+
+
 def bbox_crop_windows(
     boxes: torch.Tensor,
-    crop_size: int,
+    crop_size,
     aspect: str = "square",
     padding: float = 0.1,
     min_size: Optional[float] = None,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    """Crop windows that resize each box to a ``crop_size`` x ``crop_size`` crop.
+    """Crop windows that resize each box to a ``crop_h`` x ``crop_w`` crop.
 
     Each box is padded on every side by ``padding`` times its longest side. For
-    ``square`` and ``letterbox`` the window is the square on the padded box's longest
-    side (one scale for both axes); for ``stretch`` it is the padded box itself (one
-    scale per axis). Window sides are floored at ``min_size`` (and 1 px) so a tiny
-    or degenerate box is not magnified without bound. Windows are centered on the
-    box center.
+    ``square`` and ``letterbox`` the window is the smallest window of the crop's
+    aspect ratio that holds the padded box (one scale for both axes; for a square
+    crop, the square on the padded box's longest side); for ``stretch`` it is the
+    padded box itself (one scale per axis). The window's shorter side is floored at
+    ``min_size`` (and 1 px) so a tiny or degenerate box is not magnified without
+    bound. Windows are centered on the box center.
 
     Args:
         boxes: ``(N, 4)`` boxes ``(x1, y1, x2, y2)`` in keypoint coordinates.
-        crop_size: Output crop side in pixels.
+        crop_size: Output crop side in pixels, or ``(crop_h, crop_w)``.
         aspect: One of :data:`BBOX_CROP_ASPECTS`.
         padding: Margin per side as a fraction of the box's longest side.
         min_size: Smallest window side in frame pixels, or ``None``.
@@ -740,15 +754,23 @@ def bbox_crop_windows(
     h = (y2 - y1).clamp(min=0)
     margin = 2.0 * float(padding) * torch.maximum(w, h)
     padded = torch.stack([w + margin, h + margin], dim=-1)  # (N, 2)
-    if aspect == "stretch":
-        sides = padded.clone()
-    else:
-        sides = padded.max(dim=-1, keepdim=True).values.expand(-1, 2).clone()
+    ch, cw = crop_hw(crop_size)
+    out_wh = torch.tensor([float(cw), float(ch)])  # (x, y) order like `padded`
     floor = max(float(min_size or 0.0), 1.0)
-    sides = sides.clamp(min=floor)
+    if aspect == "stretch":
+        sides = padded.clamp(min=floor)
+    elif ch == cw:
+        sides = padded.max(dim=-1, keepdim=True).values.expand(-1, 2).clamp(min=floor)
+    else:
+        # One scale for both axes: the largest that keeps the padded box (and the
+        # short-side floor) inside the crop. For a square crop this is the square
+        # on the padded box's longest side, as before.
+        s = (out_wh / padded.clamp(min=1e-6)).min(dim=-1, keepdim=True).values
+        s = s.clamp(max=min(ch, cw) / floor)
+        sides = out_wh / s
     center = torch.stack([(x1 + x2) / 2, (y1 + y2) / 2], dim=-1) + 0.5
     windows = torch.cat([center - sides / 2, center + sides / 2], dim=-1)
-    scales = float(crop_size) / sides
+    scales = (float(cw) / sides) if ch == cw else (out_wh / sides)
     keep_half = torch.minimum(padded * scales, sides * scales) / 2
     return windows, scales, keep_half
 
@@ -801,9 +823,9 @@ def crop_windows(
     images: torch.Tensor,
     windows: torch.Tensor,
     sample_inds: torch.Tensor,
-    crop_size: int,
+    crop_size,
 ) -> torch.Tensor:
-    """Resample ``crop_size`` x ``crop_size`` crops of ``windows`` (inference path).
+    """Resample ``crop_h`` x ``crop_w`` crops of ``windows`` (inference path).
 
     Reproduces the training crops of ``crop_and_resize_skia`` for the same window:
     one bilinear sample per output pixel at its center, clamped to the frame's edge
@@ -824,36 +846,39 @@ def crop_windows(
 
     n, c = windows.shape[0], images.shape[1]
     h, w = images.shape[-2:]
-    out = torch.zeros(n, c, crop_size, crop_size, device=images.device)
+    ch, cw = crop_hw(crop_size)
+    out = torch.zeros(n, c, ch, cw, device=images.device)
     if n == 0:
         return out
     windows = windows.to(images.device, torch.float32)
     sample_inds = sample_inds.to(images.device, torch.long)
-    i = torch.arange(crop_size, device=images.device, dtype=torch.float32) + 0.5
-    step = (windows[:, 2:] - windows[:, :2]) / crop_size  # (N, 2)
-    xs = windows[:, 0:1] + i[None, :] * step[:, 0:1]  # (N, crop) edge coords
-    ys = windows[:, 1:2] + i[None, :] * step[:, 1:2]
+    ix = torch.arange(cw, device=images.device, dtype=torch.float32) + 0.5
+    iy = torch.arange(ch, device=images.device, dtype=torch.float32) + 0.5
+    step_x = (windows[:, 2:3] - windows[:, 0:1]) / cw  # (N, 1)
+    step_y = (windows[:, 3:4] - windows[:, 1:2]) / ch
+    xs = windows[:, 0:1] + ix[None, :] * step_x  # (N, crop_w) edge coords
+    ys = windows[:, 1:2] + iy[None, :] * step_y  # (N, crop_h)
     grid = torch.stack(
         [
-            (2 * xs / w - 1)[:, None, :].expand(n, crop_size, crop_size),
-            (2 * ys / h - 1)[:, :, None].expand(n, crop_size, crop_size),
+            (2 * xs / w - 1)[:, None, :].expand(n, ch, cw),
+            (2 * ys / h - 1)[:, :, None].expand(n, ch, cw),
         ],
         dim=-1,
-    )  # (N, crop, crop, 2)
+    )  # (N, crop_h, crop_w, 2)
     frames = images.float()
     for b in torch.unique(sample_inds).tolist():
         rows = (sample_inds == b).nonzero(as_tuple=False).flatten()
-        g = grid[rows].reshape(1, -1, crop_size, 2)  # stack this frame's crops
+        g = grid[rows].reshape(1, -1, cw, 2)  # stack this frame's crops
         sampled = F.grid_sample(
             frames[b : b + 1],
             g,
             mode="bilinear",
             padding_mode="border",
             align_corners=False,
-        )  # (1, C, k * crop, crop)
-        out[rows] = sampled.reshape(c, len(rows), crop_size, crop_size).transpose(0, 1)
-    cov_x = _frame_coverage(windows[:, 0], windows[:, 2], crop_size, w)
-    cov_y = _frame_coverage(windows[:, 1], windows[:, 3], crop_size, h)
+        )  # (1, C, k * crop_h, crop_w)
+        out[rows] = sampled.reshape(c, len(rows), ch, cw).transpose(0, 1)
+    cov_x = _frame_coverage(windows[:, 0], windows[:, 2], cw, w)
+    cov_y = _frame_coverage(windows[:, 1], windows[:, 3], ch, h)
     return out * (cov_y[:, None, :, None] * cov_x[:, None, None, :])
 
 
@@ -964,7 +989,7 @@ class BBoxCropSpec:
         )
 
     def windows(
-        self, boxes: torch.Tensor, crop_size: int
+        self, boxes: torch.Tensor, crop_size
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """:func:`bbox_crop_windows` with this spec's aspect, padding and floor."""
         return bbox_crop_windows(

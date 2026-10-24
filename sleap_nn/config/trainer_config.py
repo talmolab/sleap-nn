@@ -612,6 +612,28 @@ class FreezeScheduleConfig:
 
 
 @define
+class BalancedSamplerConfig:
+    """Per-file batch composition (`crop_pipeline="warp"` only).
+
+    Every training batch takes a fixed number of samples from each training file
+    (in `train_labels_path` order), so small datasets are oversampled. An epoch is
+    `train_steps_per_epoch` batches summed over ranks (default: one pass over the
+    training instances). Under DDP each rank draws its own stream (seed + rank)
+    instead of a shard, and the stream position is saved in checkpoints, so a
+    resumed run continues where it stopped.
+
+    Attributes:
+        counts: (list of int) Samples per file per batch (sum = per-GPU batch size).
+        weights: (list of float) Relative share per file, rounded to
+            `train_data_loader.batch_size`. Used when `counts` is `None`; equal
+            shares when both are `None`.
+    """
+
+    counts: Optional[List[int]] = None
+    weights: Optional[List[float]] = None
+
+
+@define
 class TrainerConfig:
     """Configuration for trainer.
 
@@ -627,6 +649,7 @@ class TrainerConfig:
         enable_progress_bar: (bool) When True, enables printing the logs during training. *Default*: `True`.
         min_train_steps_per_epoch: (int) Minimum number of iterations in a single epoch. (Useful if model is trained with very few data points). Refer limit_train_batches parameter of Torch Trainer. For ``embedding``, one iteration is a P x K batch (``objective.sampler``), not ``train_data_loader.batch_size`` samples. *Default*: `200`.
         train_steps_per_epoch: (int) Number of minibatches (steps) to train for in an epoch. If set to `None`, this is set to the number of batches in the training data (for ``embedding``, the number of P x K batches that covers it once) or `min_train_steps_per_epoch`, whichever is largest. *Default*: `None`. **Note**: With multiple devices this counts batches summed over ALL devices (so an epoch stays one pass over the data): each device runs `train_steps_per_epoch / trainer_devices` optimizer steps per epoch. `min_train_steps_per_epoch` is counted the same way.
+        balanced_sampler: (BalancedSamplerConfig) Fixed per-file batch composition for `crop_pipeline="warp"` training (`counts` or `weights` per training file). *Default*: `None` (plain shuffling).
         visualize_preds_during_training: (bool) If set to `True`, sample predictions (keypoints + confidence maps) are saved to `viz` folder in the ckpt dir and in wandb table. *Default*: `False`.
         keep_viz: (bool) If set to `True`, the `viz` folder will be kept after training. If `False`, the `viz` folder will be deleted after training. Only applies when `visualize_preds_during_training` is `True`. *Default*: `False`.
         viz_img_format: (str) Image format for the visualization figures saved to the local `viz` folder, one of `"png"` or `"jpg"`. `"jpg"` produces much smaller files, which helps when training a battery of models on the same dataset (#644). Only applies when `visualize_preds_during_training` is `True`. *Default*: `"png"`.
@@ -671,6 +694,7 @@ class TrainerConfig:
     enable_progress_bar: bool = True
     min_train_steps_per_epoch: int = 200
     train_steps_per_epoch: Optional[int] = None
+    balanced_sampler: Optional[BalancedSamplerConfig] = None
     visualize_preds_during_training: bool = False
     keep_viz: bool = False
     viz_img_format: str = "png"

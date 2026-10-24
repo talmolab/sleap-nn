@@ -38,6 +38,7 @@ from sleap_nn.data.instance_cropping import (
     BBOX_CROP_MODEL_TYPES,
     BBoxCropSpec,
     bbox_crop_window_sides,
+    crop_hw,
     count_clipped_instances,
     find_instance_crop_size,
     find_max_instance_bbox_size,
@@ -542,6 +543,16 @@ class ModelTrainer:
         train_sel = [frames[i] for i in order[n_val:]]
         return mk(train_sel), mk(val_sel)
 
+    def _uses_warp_pipeline(self) -> bool:
+        """Whether training uses ``preprocessing.crop_pipeline="warp"``."""
+        return (
+            self.model_type == "centered_instance"
+            and OmegaConf.select(
+                self.config, "data_config.preprocessing.crop_pipeline", default=None
+            )
+            == "warp"
+        )
+
     def _setup_train_val_labels(
         self,
         labels: Optional[List[sio.Labels]] = None,
@@ -569,9 +580,31 @@ class ModelTrainer:
             self.config, "data_config.user_instances_only", default=True
         )
 
+        if self._uses_warp_pipeline():
+            # The warp pipeline matches nodes by name across files, so files may
+            # carry different skeletons (COCO-17, AIC-14, a union skeleton): the
+            # model's skeleton is its `part_names` (default: every train file's
+            # nodes, first seen first) with every edge/symmetry the files have.
+            from sleap_nn.data.topdown_warp import merged_skeleton
+
+            node_names = OmegaConf.select(
+                self.config,
+                "model_config.head_configs.centered_instance.confmaps.part_names",
+                default=None,
+            )
+            if not node_names:
+                node_names = list(
+                    dict.fromkeys(
+                        n
+                        for lb in labels
+                        for sk in lb.skeletons[:1]
+                        for n in sk.node_names
+                    )
+                )
+            self.skeletons = [merged_skeleton(labels, list(node_names))]
         # check if all `.slp` file shave same skeleton structure (if multiple slp file paths are provided)
         # Mask-only labels (e.g. instance segmentation) may carry no skeleton.
-        if self.skeletons:
+        elif self.skeletons:
             skeleton = self.skeletons[0]
             for index, train_label in enumerate(labels):
                 if not train_label.skeletons:
@@ -1035,8 +1068,10 @@ class ModelTrainer:
         max_height = self.config.data_config.preprocessing.max_height
         max_width = self.config.data_config.preprocessing.max_width
 
-        # Pass 1: resolve the size-matcher target.
-        if max_height is None or max_width is None:
+        # Pass 1: resolve the size-matcher target. The warp pipeline crops every
+        # frame at its native size (no size matcher), so it leaves max_hw unset and
+        # box sizes / `crop_bbox_min_size` stay in native frame pixels.
+        if (max_height is None or max_width is None) and not self._uses_warp_pipeline():
             max_h, max_w = 0, 0
             for train_label in self.train_labels:
                 current_max_h, current_max_w = get_max_height_width(train_label)
@@ -1198,7 +1233,7 @@ class ModelTrainer:
             preprocessing.crop_size = max(
                 stride, int(math.ceil(float(median) / stride) * stride)
             )
-        crop_size = int(preprocessing.crop_size)
+        crop_size = min(crop_hw(preprocessing.crop_size))  # short side if [h, w]
         min_size = float(preprocessing.crop_bbox_min_size)
         logger.info(
             f"Box-scaled crops ({spec.aspect}, padding {spec.padding:g} of the longest "
@@ -2231,12 +2266,18 @@ class ModelTrainer:
         data_viz_config = self.config.copy()
         data_viz_config.data_config.data_pipeline_fw = "torch_dataset"
 
-        return get_train_val_datasets(
+        datasets = get_train_val_datasets(
             train_labels=self.train_labels,
             val_labels=self.val_labels,
             config=data_viz_config,
             rank=-1,
         )
+        if self._uses_warp_pipeline():
+            # Warp training samples leave out the crop geometry (a throughput
+            # saving); the visualization's inference layer needs it.
+            for dataset in datasets:
+                dataset.return_geometry = True
+        return datasets
 
     def _setup_datasets(self):
         """Setup dataloaders."""
@@ -3107,7 +3148,15 @@ class ModelTrainer:
         # inject a DistributedSampler into a custom batch_sampler (it raises), so disable
         # replacement for embedding; every other model type passes an explicit
         # DistributedSampler under DDP, so the default (True) is correct for them.
-        use_distributed_sampler = self.model_type != "embedding"
+        # The balanced per-file batch sampler (`crop_pipeline="warp"`) also draws
+        # its own per-rank stream.
+        use_distributed_sampler = self.model_type != "embedding" and not (
+            self._uses_warp_pipeline()
+            and OmegaConf.select(
+                self.config, "trainer_config.balanced_sampler", default=None
+            )
+            is not None
+        )
 
         self.trainer = L.Trainer(
             callbacks=callbacks,

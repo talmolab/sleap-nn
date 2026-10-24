@@ -1887,12 +1887,25 @@ class TopDownCenteredInstanceLightningModule(LightningModel):
         img = normalize_on_gpu(img)
         return self.model(img)["CenteredInstanceConfmapsHead"]
 
+    def _confmap_targets(self, batch, X):
+        """Batch confidence maps, rendered on the GPU when the loader skipped them.
+
+        ``crop_pipeline="warp"`` with ``gpu_confmaps`` ships only crop keypoints
+        (``instance``); the maps use the same ``make_confmaps`` math as the workers.
+        """
+        if "confidence_maps" in batch:
+            return torch.squeeze(batch["confidence_maps"], dim=1)
+        from sleap_nn.data.topdown_warp import render_confmaps
+
+        cfg = self.head_configs.centered_instance.confmaps
+        return render_confmaps(
+            batch["instance"], tuple(X.shape[-2:]), cfg.sigma, cfg.output_stride
+        )
+
     def training_step(self, batch, batch_idx):
         """Training step."""
-        X, y = (
-            torch.squeeze(batch["instance_image"], dim=1),
-            torch.squeeze(batch["confidence_maps"], dim=1),
-        )
+        X = torch.squeeze(batch["instance_image"], dim=1)
+        y = self._confmap_targets(batch, X)
         X = normalize_on_gpu(X)
 
         y_preds = self.model(X)["CenteredInstanceConfmapsHead"]
@@ -1926,10 +1939,8 @@ class TopDownCenteredInstanceLightningModule(LightningModel):
 
     def validation_step(self, batch, batch_idx):
         """Perform validation step."""
-        X, y = (
-            torch.squeeze(batch["instance_image"], dim=1),
-            torch.squeeze(batch["confidence_maps"], dim=1),
-        )
+        X = torch.squeeze(batch["instance_image"], dim=1)
+        y = self._confmap_targets(batch, X)
         X = normalize_on_gpu(X)
 
         y_preds = self.model(X)["CenteredInstanceConfmapsHead"]
