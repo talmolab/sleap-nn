@@ -283,6 +283,21 @@ data_config:
 | `brightness_min` | float | `0.9` | Minimum brightness factor |
 | `brightness_max` | float | `1.1` | Maximum brightness factor (max 2.0) |
 | `brightness_p` | float | `0.0` | Probability of applying brightness adjustment |
+| `hsv_p` | float | `0.0` | `crop_pipeline: warp` only: random HSV shift (mmdet `YOLOXHSVRandomAug`); `hsv_hue_delta` / `hsv_saturation_delta` / `hsv_value_delta` (`5` / `30` / `30`) bound the shifts |
+| `blur_p` | float | `0.0` | `crop_pipeline: warp` only: box blur, odd kernel in `[blur_kernel_min, blur_kernel_max]` (`3`-`7`) |
+| `median_blur_p` | float | `0.0` | `crop_pipeline: warp` only: median blur, kernel in `[median_blur_kernel_min, median_blur_kernel_max]` (`3`-`7`) |
+| `gaussian_blur_p` | float | `0.0` | `crop_pipeline: warp` only: Gaussian blur, sigma in `[gaussian_blur_sigma_min, gaussian_blur_sigma_max]` (`0.1`-`2.0`) crop px |
+
+### AugmentationStage2Config (augmentation_config.stage2)
+
+`crop_pipeline: warp` only: a second augmentation stage, see [Stage-2 switch](../guides/warp-data-path.md#stage-2-switch).
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `start_epoch` | int | `null` | First (0-based) epoch of stage 2 |
+| `start_step` | int | `null` | First global step of stage 2 (used when `start_epoch` is `null`) |
+| `geometric` | dict | `null` | Overrides merged over `augmentation_config.geometric` |
+| `intensity` | dict | `null` | Overrides merged over `augmentation_config.intensity` |
 
 ### GeometricConfig (augmentation_config.geometric)
 
@@ -294,8 +309,8 @@ data_config:
 | `scale_min` | float | `0.9` | Minimum scale factor |
 | `scale_max` | float | `1.1` | Maximum scale factor |
 | `scale_p` | float | `1.0` | Probability of scaling (independent). If `null`, uses `affine_p` |
-| `translate_width` | float | `0.0` | Maximum horizontal translation as fraction of width |
-| `translate_height` | float | `0.0` | Maximum vertical translation as fraction of height |
+| `translate_width` | float | `0.0` | Maximum horizontal translation as fraction of width (`crop_pipeline: warp`: of the padded box) |
+| `translate_height` | float | `0.0` | Maximum vertical translation as fraction of height (`crop_pipeline: warp`: of the padded box) |
 | `translate_p` | float | `null` | Probability of translation (independent). If `null`, uses `affine_p` |
 | `affine_p` | float | `0.0` | Probability of bundled affine transform (rotation + scale + translate) |
 | `erase_scale_min` | float | `0.0001` | Minimum erased area as proportion of image |
@@ -305,5 +320,8 @@ data_config:
 | `erase_p` | float | `0.0` | Probability of random erasing |
 | `mixup_lambda_min` | float | `0.01` | Minimum mixup strength |
 | `mixup_lambda_max` | float | `0.05` | Maximum mixup strength |
-| `mixup_p` | float | `0.0` | Probability of applying mixup |
+| `mixup_p` | float | `0.0` | Not implemented: a value > 0 warns (and raises with `crop_pipeline: warp`) |
 | `flip_p` | float | `0.0` | Probability of mirroring image + keypoints left/right (swaps symmetric node pairs) |
+| `affine_sampling` | str | `uniform` | `crop_pipeline: warp` only: `mmpose` draws rotation / scale / shift like mmpose's `RandomBBoxTransform` (truncated normal, `scale_*` = box scale, shift before rotation) |
+| `half_body_p` | float | `0.0` | `crop_pipeline: warp` only: mmpose `RandomHalfBody` (with `half_body_min_total_keypoints` `9`, `half_body_min_upper_keypoints` `2`, `half_body_min_lower_keypoints` `3`, `half_body_padding` `1.5`, `half_body_upper_prob` `0.7`, `half_body_lower_nodes` `null` = names with hip/knee/ankle/heel/toe/foot) |
+| `coarse_dropout_p` | float | `0.0` | `crop_pipeline: warp` only: black holes (`coarse_dropout_min_holes`/`_max_holes` `1`, sides `coarse_dropout_min_size`/`_max_size` `0.2`-`0.4` of the crop) |
