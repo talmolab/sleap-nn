@@ -45,16 +45,16 @@ dependencies = [
     # (unlabeled nodes get zero loss; see `sleap_nn.data.node_weights`). Fenced
     # below 0.11.0 so the next breaking bump is an explicit, audited upgrade.
     #
-    # TEMPORARY: sleap-io 0.10.0 is unreleased. Until it is, [tool.uv.sources]
-    # resolves sleap-io from its `release/0.10` branch on GitHub, which still
-    # reports version 0.9.4. Before releasing sleap-nn 0.4.0, raise this floor to
-    # >=0.10.0 and delete that source entry.
+    # The floor is 0.10.0 because older sleap-io can't read SLP 3.0 (PyPI's latest,
+    # 0.9.5, would otherwise satisfy it). TEMPORARY: until sleap-io 0.10.0 is on
+    # PyPI, [tool.uv.sources] resolves it from its `release/0.10` branch on GitHub
+    # (which reports 0.10.0). Delete that source entry once 0.10.0 is published.
     #
     # The `pyav` extra (PyAV, which ships libdav1d) is what sleap-io reads AV1 video
     # with: the opencv-python wheels for Linux before 4.14.0.94 (and 5.0.0.93)
     # cannot decode AV1, and the Windows wheels decode it 4-6x slower. 0.9.3 is the
     # first sleap-io that reads AV1 with PyAV by default (talmolab/sleap-io#561).
-    "sleap-io[pyav]>=0.9.4,<0.11.0",
+    "sleap-io[pyav]>=0.10.0,<0.11.0",
     "numpy",
     "torch",
     "torchvision>=0.20.0",
