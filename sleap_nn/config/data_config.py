@@ -441,13 +441,14 @@ class DataConfig:
             ``use_negative_frames`` is ``True``. *Default*: `1.0`.
         node_loss_mask: (bool) Per-node loss weighting for partially labeled
             skeletons (single-instance, centered-instance and bottom-up confmaps).
-            Nodes a source file does not annotate get zero loss (instead of being
-            trained as absent); the per-file mask comes from
+            Unlabeled points (sleap-io >= 0.10 ``labeled=False`` and
+            ``visible=False``, e.g. COCO ``v=0`` or nodes another dataset of a merged
+            skeleton annotates) get zero loss instead of being trained as absent, as
+            do nodes listed as unannotated by the per-file stopgap
             ``Labels.provenance["labeled_nodes"]`` (node names or indices; all nodes
-            when absent), combined with per-point ``labeled`` flags once sleap-io
-            provides them. Also the master switch for ``unlabeled_points``. Fully
-            labeled data with ``unlabeled_points: absent`` trains exactly as with
-            ``False``. *Default*: ``True``.
+            when absent). Also the master switch for ``unlabeled_points``. Fully
+            labeled data (every pre-SLP-3.0 file) with ``unlabeled_points: absent``
+            trains exactly as with ``False``. *Default*: ``True``.
         unlabeled_points: (str) What a point with no location in the model input
             (NaN, e.g. COCO ``v=0``, or pushed out of the image/crop by augmentation)
             trains as. ``"absent"`` keeps weight 1 and trains an all-zero confmap
@@ -455,9 +456,9 @@ class DataConfig:
             (as mmpose does). Negative frames always train as absent. Requires
             ``node_loss_mask``. *Default*: ``"absent"``.
         supervise_occluded: (bool) If ``True``, labeled-but-occluded points that carry
-            estimated coordinates are trained as Gaussians at those coordinates; if
-            ``False`` they get zero loss. Takes effect only once sleap-io exposes per-point
-            ``labeled`` flags. *Default*: ``True``.
+            estimated coordinates (sleap-io >= 0.10; COCO ``v=1``) are trained as
+            Gaussians at those coordinates; if ``False`` they get zero loss. Crop sizes,
+            crop boxes and centroids use them either way. *Default*: ``True``.
         skeletons: skeleton configuration for the `.slp` file. This will be pulled from the train dataset and saved to the `training_config.yaml`
         split: (Optional[SplitConfig]) Group-aware train/val split decided before training.
             When set and `val_labels_path` is not provided, the trainer

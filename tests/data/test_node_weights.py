@@ -10,19 +10,26 @@ from sleap_nn.data.augmentation import (
     apply_flip_augmentation,
     apply_geometric_augmentation,
 )
+from sleap_nn.data.bboxes import instance_crop_bbox
 from sleap_nn.data.custom_datasets import (
     BottomUpDataset,
+    BottomUpMultiClassDataset,
     CenteredInstanceDataset,
     SingleInstanceDataset,
 )
+from sleap_nn.data.edge_maps import generate_edge_weights
+from sleap_nn.data.instance_cropping import find_instance_crop_size
 from sleap_nn.data.node_weights import (
     carry_labeled_nodes,
     finite_point_weights,
+    frame_node_weights,
     get_labeled_nodes_weights,
     has_partial_labeling_info,
     instance_node_weights,
     node_weights_active,
+    point_weights,
 )
+from sleap_nn.data.providers import process_lf
 
 
 def _labels(path, labeled_nodes=None, symmetric=False):
@@ -353,18 +360,24 @@ def test_labeled_nodes_edge_cases(minimal_instance):
     assert has_partial_labeling_info([None, labels])
     assert not has_partial_labeling_info([None])
 
-    class _Inst:
-        points = np.zeros(2, dtype=[("xy", "<f8", (2,)), ("labeled", "?")])
 
-    class _LF:
-        instances = [_Inst()]
-
-    class _Labels:
-        provenance = {}
-        labeled_frames = [_LF()]
-
-    # sleap-io >= 0.10 per-point flags count as partial-labeling info.
-    assert has_partial_labeling_info([_Labels()])
+def test_partial_labeling_info_from_point_flags(minimal_instance):
+    """Only points whose flags give weight 0 turn weighting on (sleap-io >= 0.10)."""
+    labels = _labels(minimal_instance)
+    # Every point of a pre-SLP-3.0 file reads as labeled: no weights.
+    assert not has_partial_labeling_info([labels])
+    # A hidden point without coordinates is still labeled (trained as absent).
+    labels[0].instances[0].set_hidden(["A"])
+    assert not has_partial_labeling_info([labels])
+    # An occluded estimate matters only when it is not supervised.
+    labels[0].instances[1].set_hidden(["B"], keep_location=True)
+    assert not has_partial_labeling_info([labels])
+    assert has_partial_labeling_info([labels], supervise_occluded=False)
+    assert node_weights_active([labels], supervise_occluded=False)
+    # An unlabeled point always does.
+    labels[0].instances[1].set_unlabeled(["A"])
+    assert has_partial_labeling_info([labels])
+    assert node_weights_active([labels])
 
 
 def test_dataset_without_skeleton_file_mask_defaults_to_ones(minimal_instance):
@@ -373,3 +386,181 @@ def test_dataset_without_skeleton_file_mask_defaults_to_ones(minimal_instance):
     ds.file_node_weights = [None]  # e.g. a file without a skeleton
     w, _ = ds._instance_node_weights(0)
     assert torch.equal(w, torch.ones(1, 2))
+
+
+# --- sleap-io >= 0.10 per-point `labeled` / `visible` flags (SLP format 3.0) ---
+
+
+def _occluded(inst: sio.Instance) -> sio.Instance:
+    """Mark every node labeled, not visible, keeping its coordinates (COCO v=1)."""
+    inst.set_hidden(inst.skeleton.node_names, keep_location=True)
+    return inst
+
+
+def _sample_equal(a, b):
+    assert a.keys() == b.keys()
+    for k in a:
+        if isinstance(a[k], torch.Tensor):
+            assert torch.equal(a[k], b[k]) or (
+                torch.isnan(a[k]).any() and torch.allclose(a[k], b[k], equal_nan=True)
+            ), k
+        else:
+            assert a[k] == b[k], k
+
+
+def test_point_weights_labeled_or_visible(minimal_instance):
+    """Weights are `labeled | visible`; hidden-without-location nodes keep 1."""
+    inst = _labels(minimal_instance)[0].instances[0]
+    assert np.array_equal(point_weights(inst), [1, 1])
+    inst.set_unlabeled(["B"])
+    assert np.array_equal(point_weights(inst), [1, 0])
+    inst.set_hidden(["A"])  # labeled, not visible, NaN location: trained as absent
+    assert np.array_equal(point_weights(inst), [1, 0])
+
+
+def test_old_files_train_identically(minimal_instance):
+    """A fully labeled (pre-SLP-3.0) file: no weights, the same samples as before."""
+    labels = _labels(minimal_instance)
+    for ds_on, ds_off in zip(
+        _frame_datasets(labels) + (_ci_dataset(labels),),
+        _frame_datasets(labels, node_loss_mask=False)
+        + (_ci_dataset(labels, node_loss_mask=False),),
+    ):
+        assert not ds_on.emit_node_weights
+        for i in range(len(ds_on)):
+            on, off = ds_on[i], ds_off[i]
+            assert "node_weights" not in on and "edge_weights" not in on
+            _sample_equal(on, off)
+
+
+def test_unlabeled_node_gets_zero_weight_in_samples(minimal_instance):
+    """Single-instance, centered-instance and bottom-up samples read the flags."""
+    labels = _labels(minimal_instance)
+    labels.skeletons[0].add_edge("A", "B")
+    lf = labels[0]
+    lf.instances[0].set_unlabeled(["B"])
+
+    # Bottom-up: B is still labeled in instance 1, so the frame keeps it.
+    _, bu = _frame_datasets(labels)
+    s = bu[0]
+    assert torch.equal(s["node_weights"], torch.tensor([[1.0, 1.0]]))
+    assert torch.equal(s["edge_weights"], torch.tensor([[1.0]]))
+    lf.instances[1].set_unlabeled(["B"])
+    _, bu = _frame_datasets(labels)
+    s = bu[0]
+    assert torch.equal(s["node_weights"], torch.tensor([[1.0, 0.0]]))
+    # The A-B edge loses an endpoint, so its PAF is unsupervised.
+    assert torch.equal(s["edge_weights"], torch.tensor([[0.0]]))
+
+    ds = _ci_dataset(labels)
+    for i in range(len(ds)):
+        s = ds[i]
+        assert torch.equal(s["node_weights"], torch.tensor([[1.0, 0.0]]))
+        # The unlabeled node has no location, so its target map is empty.
+        assert s["confidence_maps"][0, 1].sum() == 0
+
+    lf.instances = [lf.instances[0]]
+    si, _ = _frame_datasets(labels)
+    assert torch.equal(si[0]["node_weights"], torch.tensor([[1.0, 0.0]]))
+
+
+def test_frame_weight_zero_only_when_every_instance_unlabeled(minimal_instance):
+    a, b = _labels(minimal_instance)[0].instances
+    a.set_unlabeled(["A"])
+    file_w = np.ones(2, np.float32)
+    assert np.array_equal(frame_node_weights(file_w, [a, b]), [1, 1])
+    b.set_unlabeled(["A"])
+    assert np.array_equal(frame_node_weights(file_w, [a, b]), [0, 1])
+    # The file mask still applies; no instances keeps it as is.
+    assert np.array_equal(frame_node_weights(np.array([1, 0]), [b]), [0, 0])
+    assert np.array_equal(frame_node_weights(file_w, []), [1, 1])
+
+
+def test_edge_weights_are_endpoint_products():
+    w = torch.tensor([[1.0, 0.0, 1.0], [1.0, 1.0, 1.0]])
+    edges = [(0, 1), (0, 2), (1, 2)]
+    assert torch.equal(
+        generate_edge_weights(w, edges), torch.tensor([[0.0, 1, 0], [1, 1, 1]])
+    )
+
+
+@pytest.mark.parametrize("supervise_occluded", [True, False])
+def test_all_occluded_instances_train(minimal_instance, supervise_occluded):
+    """An instance whose points are all occluded estimates is kept and trained."""
+    labels = _labels(minimal_instance)
+    lf = labels[0]
+    occluded = _occluded(lf.instances[1])
+    assert not occluded.is_empty
+    expected_xy = occluded.numpy(invisible_as_nan=False)
+
+    sample, kept = process_lf(
+        lf.instances,
+        lf.image,
+        0,
+        0,
+        max_instances=2,
+        supervise_occluded=supervise_occluded,
+        return_instances=True,
+    )
+    assert kept == lf.instances
+    if supervise_occluded:
+        np.testing.assert_allclose(sample["instances"][0, 1], expected_xy)
+    else:
+        assert torch.isnan(sample["instances"][0, 1]).all()
+
+    baseline = _ci_dataset(_labels(minimal_instance))[1]  # every point visible
+    ds = _ci_dataset(labels, supervise_occluded=supervise_occluded)
+    assert ds.emit_node_weights == (not supervise_occluded)
+    sample = ds[1]
+    # The crop is centered on the occluded estimates either way: same pixels.
+    torch.testing.assert_close(sample["instance_image"], baseline["instance_image"])
+    if supervise_occluded:
+        assert "node_weights" not in sample
+        torch.testing.assert_close(sample["instance"], baseline["instance"])
+        torch.testing.assert_close(
+            sample["confidence_maps"], baseline["confidence_maps"]
+        )
+    else:
+        # Not supervised: no target and no loss.
+        assert torch.equal(sample["node_weights"], torch.zeros(1, 2))
+        assert sample["confidence_maps"].abs().sum() == 0
+
+
+def test_crops_count_occluded_estimates(minimal_instance):
+    """Crop sizes and crop boxes come from labeled points with coordinates."""
+    labels = _labels(minimal_instance)
+    lf = labels[0]
+    size = find_instance_crop_size(labels, maximum_stride=16)
+    boxes = [instance_crop_bbox(lf, inst, "instances", 4.0) for inst in lf.instances]
+    for inst in lf.instances:
+        _occluded(inst)
+    assert find_instance_crop_size(labels, maximum_stride=16) == size
+    for inst, box in zip(lf.instances, boxes):
+        np.testing.assert_allclose(instance_crop_bbox(lf, inst, "instances", 4.0), box)
+
+
+def test_multiclass_track_lookup_stays_aligned(minimal_instance):
+    """Class-map track ids follow the instances `process_lf` kept."""
+    labels = _labels(minimal_instance)
+    lf = labels[0]
+    tracks = [sio.Track("a"), sio.Track("b")]
+    labels.tracks = tracks
+    for inst, track in zip(lf.instances, tracks):
+        inst.track = track
+    # Drop the first instance from training by unlabeling all of its nodes.
+    lf.instances[0].set_unlabeled(["A", "B"])
+    assert lf.instances[0].is_empty
+
+    ds = BottomUpMultiClassDataset(
+        labels=[labels],
+        confmap_head_config=DictConfig({"sigma": 1.5, "output_stride": 2}),
+        class_maps_head_config=DictConfig(
+            {"sigma": 1.5, "output_stride": 2, "classes": ["a", "b"]}
+        ),
+        max_stride=16,
+    )
+    sample = ds[0]
+    assert sample["num_instances"] == 1
+    # Only class "b" (index 1) has a class-map peak.
+    peaks = sample["class_maps"].reshape(2, -1).amax(dim=-1)
+    assert peaks[0] == 0 and peaks[1] > 0.9

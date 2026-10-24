@@ -32,6 +32,14 @@ non-NaN values *per axis* (``find_points_mean``, #584) or per point
 (``find_points_geometric_median``). The two agree whenever a node's coordinates are
 NaN together — which is what ``sleap_io`` itself writes — and differ only for a
 half-NaN point, where this module's answer is the better-defined one.
+
+**Which points count.** "Visible" above means "has coordinates in the array passed
+in". Training builds that array from each instance's labeled points that have
+coordinates (``inst.numpy(invisible_as_nan=False)``; see
+``sleap_nn.data.providers.located_points``), so occluded estimates (labeled, not
+visible, with coordinates; sleap-io >= 0.10) anchor centroids and crops, and
+unlabeled nodes never do. ``sleap_io``'s ``to_centroid`` uses visible points only;
+the two agree for files without occluded estimates.
 """
 
 from typing import Optional

@@ -316,3 +316,29 @@ def test_eval_cli_coco(tmp_path):
 
     with pytest.raises(click.BadParameter):
         parse_oks_sigmas("cocoo")
+
+
+def test_coco_images_score_occluded_estimates():
+    """GT occluded estimates (COCO v=1) are scored; unlabeled nodes are not."""
+    from sleap_nn.evaluation_coco import labels_to_coco_images
+
+    skel = sio.Skeleton(["a", "b", "c"])
+    video = sio.Video(filename="v.mp4")
+    xy = np.array([[10.0, 10.0], [50.0, 10.0], [50.0, 50.0]])
+    gt = sio.Instance.from_numpy(xy, skeleton=skel)
+    gt.set_hidden(["b"], keep_location=True)
+    gt.set_unlabeled(["c"])
+    pr = sio.PredictedInstance.from_numpy(xy, skeleton=skel, score=1.0)
+    labels_gt = sio.Labels(
+        [sio.LabeledFrame(video=video, frame_idx=0, instances=[gt])],
+        videos=[video],
+        skeletons=[skel],
+    )
+    labels_pr = sio.Labels(
+        [sio.LabeledFrame(video=video, frame_idx=0, instances=[pr])],
+        videos=[video],
+        skeletons=[skel],
+    )
+    (img,) = labels_to_coco_images(labels_gt, labels_pr)
+    np.testing.assert_allclose(img.gt_points[0, :2], xy[:2])
+    assert np.isnan(img.gt_points[0, 2]).all()

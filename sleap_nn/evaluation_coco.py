@@ -368,7 +368,9 @@ def labels_to_coco_images(
 
         pts, area, bbox, crowd, ignore = [], [], [], [], []
         for inst in insts:
-            p = inst.numpy()[:, :2].astype("float64")
+            # Labeled points with coordinates, occluded estimates (COCO v=1)
+            # included; NaN = unlabeled or no location.
+            p = inst.numpy(invisible_as_nan=False)[:, :2].astype("float64")
             linked = box_of_inst.get(id(inst))
             if np.isnan(p).any(axis=-1).all():
                 # A person with no labeled keypoint: COCO's num_keypoints == 0,

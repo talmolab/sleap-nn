@@ -452,3 +452,54 @@ def test_frame_level_modules_mask_unlabeled_nodes(config, minimal_instance, mode
         expected = compute_weighted_mse_loss(preds, y, batch["node_weights"], sw)
         got = model._compute_masked_confmap_loss(preds, y, batch, stage="train")
         assert torch.allclose(got, expected)
+
+
+def test_bottomup_pafs_masked_by_edge_weights(config, minimal_instance):
+    """A PAF edge with an unlabeled endpoint gets no loss (sleap-io >= 0.10 flags)."""
+    from sleap_nn.data.custom_datasets import BottomUpDataset
+    from sleap_nn.data.normalization import normalize_on_gpu
+
+    labels = _labels(minimal_instance)
+    labels.skeletons[0].add_edge("A", "B")
+    lf = labels[0]
+    for inst in lf.instances:
+        inst.set_unlabeled(["B"])
+    labels.append(sio.LabeledFrame(video=lf.video, frame_idx=0, is_negative=True))
+    ds = BottomUpDataset(
+        labels=[labels],
+        confmap_head_config=DictConfig({"sigma": 1.5, "output_stride": 2}),
+        pafs_head_config=DictConfig({"sigma": 4, "output_stride": 4}),
+        max_stride=8,
+        use_negative_frames=True,
+    )
+    samples = [ds[i] for i in range(len(ds))]
+    weights = {bool(s["is_negative"]): s["edge_weights"] for s in samples}
+    assert torch.equal(weights[False], torch.zeros(1, 1))
+    assert torch.equal(weights[True], torch.ones(1, 1))
+    batch = default_collate(samples)
+
+    model = LightningModel.get_lightning_model_from_config(
+        _frame_level_config(config, "bottomup")
+    )
+    model.log = lambda *a, **k: None
+    X = normalize_on_gpu(batch["image"].squeeze(1))
+    y_paf = batch["part_affinity_fields"]
+    with torch.no_grad():
+        pafs = model.model(X)["PartAffinityFieldsHead"]
+        got = model._compute_masked_confmap_loss(
+            pafs, y_paf, batch, weights_key="edge_weights"
+        )
+        # Only the negative frame's two PAF channels count (weight 0.5 on train).
+        neg = batch["is_negative"]
+        expected = 0.5 * F.mse_loss(pafs[neg], y_paf[neg])
+        assert torch.allclose(got, expected)
+        assert torch.isfinite(model.training_step(batch, 0))
+    # Without edge weights the PAF loss is the old one.
+    del batch["edge_weights"]
+    with torch.no_grad():
+        assert torch.equal(
+            model._compute_masked_confmap_loss(
+                pafs, y_paf, batch, weights_key="edge_weights"
+            ),
+            model._compute_negative_weighted_loss(pafs, y_paf, batch),
+        )

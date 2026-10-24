@@ -787,30 +787,44 @@ class LightningModel(L.LightningModule):
         return (per_sample * weights).mean()
 
     def _get_node_weights(
-        self, batch: Dict, n_channels: int, device: torch.device
+        self,
+        batch: Dict,
+        n_channels: int,
+        device: torch.device,
+        weights_key: str = "node_weights",
     ) -> Optional[torch.Tensor]:
-        """Return the batch's ``(B, n_channels)`` per-node loss weights, or ``None``.
+        """Return the batch's ``(B, n_channels)`` per-channel loss weights, or ``None``.
 
         The datasets emit ``node_weights`` (``(1, n_nodes)`` per sample) only when
         per-node weighting is active (``data_config.node_loss_mask``; see
-        :mod:`sleap_nn.data.node_weights`), so ``None`` means plain losses.
+        :mod:`sleap_nn.data.node_weights`), so ``None`` means plain losses. The
+        bottom-up dataset then also emits ``edge_weights`` (``(1, n_edges)``);
+        with ``weights_key="edge_weights"`` each is repeated over its edge's two
+        PAF channels (``2e`` and ``2e + 1``).
 
         Raises:
             ValueError: If the weights do not have one entry per head channel.
         """
-        node_weights = batch.get("node_weights", None)
+        node_weights = batch.get(weights_key, None)
         if node_weights is None:
             return None
         node_weights = node_weights.reshape(node_weights.shape[0], -1)
+        if weights_key == "edge_weights":
+            node_weights = node_weights.repeat_interleave(2, dim=1)
         if node_weights.shape[1] != n_channels:
             raise ValueError(
-                f"node_weights has {node_weights.shape[1]} entries per sample but "
-                f"the confmap head has {n_channels} channels."
+                f"{weights_key} has {node_weights.shape[1]} channel weights per "
+                f"sample but the head has {n_channels} channels."
             )
         return node_weights.to(device=device, dtype=torch.float32)
 
     def _compute_masked_confmap_loss(
-        self, y_preds: torch.Tensor, y: torch.Tensor, batch: Dict, stage: str = "train"
+        self,
+        y_preds: torch.Tensor,
+        y: torch.Tensor,
+        batch: Dict,
+        stage: str = "train",
+        weights_key: str = "node_weights",
     ) -> torch.Tensor:
         """Per-node weighted confmap MSE, normalized by the node-weight sum.
 
@@ -828,8 +842,11 @@ class LightningModel(L.LightningModule):
             batch: Batch dict, may contain ``node_weights`` ``(B, 1, C)`` and
                 ``is_negative`` ``(B,)``.
             stage: ``"train"`` applies the negative-frame weight.
+            weights_key: ``"node_weights"``, or ``"edge_weights"`` for PAFs.
         """
-        node_w = self._get_node_weights(batch, y_preds.shape[1], y_preds.device)
+        node_w = self._get_node_weights(
+            batch, y_preds.shape[1], y_preds.device, weights_key=weights_key
+        )
         if node_w is None:
             return self._compute_negative_weighted_loss(y_preds, y, batch, stage=stage)
         sample_w = None
@@ -848,15 +865,21 @@ class LightningModel(L.LightningModule):
         return compute_weighted_mse_loss(y_preds, y, node_w, sample_w)
 
     def _compute_ohkm(
-        self, y_preds: torch.Tensor, y: torch.Tensor, batch: Dict
+        self,
+        y_preds: torch.Tensor,
+        y: torch.Tensor,
+        batch: Dict,
+        weights_key: str = "node_weights",
     ) -> torch.Tensor:
-        """Online hard keypoint mining loss for a confmap head.
+        """Online hard keypoint mining loss for a confmap (or PAF) head.
 
         Per-sample and node-weight aware (:func:`compute_weighted_ohkm_loss`) by
         default; ``ohkm_per_sample = False`` uses the batch-level
         :func:`compute_ohkm_loss`, which cannot see ``node_weights``.
         """
-        node_w = self._get_node_weights(batch, y_preds.shape[1], y_preds.device)
+        node_w = self._get_node_weights(
+            batch, y_preds.shape[1], y_preds.device, weights_key=weights_key
+        )
         if self.ohkm_per_sample:
             return compute_weighted_ohkm_loss(
                 y_gt=y,
@@ -874,6 +897,26 @@ class LightningModel(L.LightningModule):
                 "with zero loss weight can be mined. Set per_sample: true."
             )
             self._warned_legacy_ohkm = True
+        return compute_ohkm_loss(
+            y_gt=y,
+            y_pr=y_preds,
+            hard_to_easy_ratio=self.hard_to_easy_ratio,
+            min_hard_keypoints=self.min_hard_keypoints,
+            max_hard_keypoints=self.max_hard_keypoints,
+            loss_scale=self.loss_scale,
+        )
+
+    def _compute_paf_ohkm(
+        self, y_preds: torch.Tensor, y: torch.Tensor, batch: Dict
+    ) -> torch.Tensor:
+        """OHKM loss for a PAF head.
+
+        Weighted by ``edge_weights`` (:meth:`_compute_ohkm`) when the batch
+        carries them, else the batch-level :func:`compute_ohkm_loss` PAFs always
+        used.
+        """
+        if batch.get("edge_weights", None) is not None:
+            return self._compute_ohkm(y_preds, y, batch, weights_key="edge_weights")
         return compute_ohkm_loss(
             y_gt=y,
             y_pr=y_preds,
@@ -2492,9 +2535,12 @@ class BottomUpLightningModule(LightningModel):
         pafs = preds["PartAffinityFieldsHead"]
         confmaps = preds["MultiInstanceConfmapsHead"]
 
-        # Confmaps: per-node (per-file) weighted MSE; PAFs stay unmasked for now.
+        # Per-node weighted confmap MSE; PAF edges weighted by the product of
+        # their endpoints' weights (`edge_weights`). Plain losses without them.
         confmap_loss = self._compute_masked_confmap_loss(confmaps, y_confmap, batch)
-        pafs_loss = self._compute_negative_weighted_loss(pafs, y_paf, batch)
+        pafs_loss = self._compute_masked_confmap_loss(
+            pafs, y_paf, batch, weights_key="edge_weights"
+        )
         self._log_negative_split_metrics(
             [
                 ("confmaps", confmaps, y_confmap, self.loss_weights[0]),
@@ -2506,14 +2552,7 @@ class BottomUpLightningModule(LightningModel):
 
         if self.online_mining is not None and self.online_mining:
             confmap_ohkm_loss = self._compute_ohkm(confmaps, y_confmap, batch)
-            pafs_ohkm_loss = compute_ohkm_loss(
-                y_gt=y_paf,
-                y_pr=pafs,
-                hard_to_easy_ratio=self.hard_to_easy_ratio,
-                min_hard_keypoints=self.min_hard_keypoints,
-                max_hard_keypoints=self.max_hard_keypoints,
-                loss_scale=self.loss_scale,
-            )
+            pafs_ohkm_loss = self._compute_paf_ohkm(pafs, y_paf, batch)
             confmap_loss += confmap_ohkm_loss
             pafs_loss += pafs_ohkm_loss
 
@@ -2564,8 +2603,8 @@ class BottomUpLightningModule(LightningModel):
         confmap_loss = self._compute_masked_confmap_loss(
             confmaps, y_confmap, batch, stage="val"
         )
-        pafs_loss = self._compute_negative_weighted_loss(
-            pafs, y_paf, batch, stage="val"
+        pafs_loss = self._compute_masked_confmap_loss(
+            pafs, y_paf, batch, stage="val", weights_key="edge_weights"
         )
         self._log_negative_split_metrics(
             [
@@ -2578,14 +2617,7 @@ class BottomUpLightningModule(LightningModel):
 
         if self.online_mining is not None and self.online_mining:
             confmap_ohkm_loss = self._compute_ohkm(confmaps, y_confmap, batch)
-            pafs_ohkm_loss = compute_ohkm_loss(
-                y_gt=y_paf,
-                y_pr=pafs,
-                hard_to_easy_ratio=self.hard_to_easy_ratio,
-                min_hard_keypoints=self.min_hard_keypoints,
-                max_hard_keypoints=self.max_hard_keypoints,
-                loss_scale=self.loss_scale,
-            )
+            pafs_ohkm_loss = self._compute_paf_ohkm(pafs, y_paf, batch)
             confmap_loss += confmap_ohkm_loss
             pafs_loss += pafs_ohkm_loss
 

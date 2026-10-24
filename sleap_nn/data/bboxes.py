@@ -24,6 +24,7 @@ from __future__ import annotations
 import math
 from typing import Dict, List, Optional, Sequence, Tuple
 
+import attrs
 import numpy as np
 import sleap_io as sio
 import torch
@@ -93,6 +94,26 @@ def resolve_bbox_source(labels: sio.Labels, source: str = "auto") -> str:
     return "masks"
 
 
+def instance_tight_bbox(inst: sio.Instance, padding: float) -> sio.BoundingBox:
+    """The tight box of an instance's labeled points that have coordinates, padded.
+
+    Like ``inst.to_bbox(mode="tight")`` (same box type and linked metadata), but
+    occluded estimates (labeled, not visible, with coordinates; sleap-io >= 0.10)
+    count too, so an occluded keypoint is not cropped away. Identical to
+    ``to_bbox`` when every located point is visible.
+    """
+    box = inst.to_bbox(mode="tight", padding=padding)
+    pts = inst.numpy(invisible_as_nan=False)
+    located = np.isfinite(pts).all(axis=-1)
+    if located.sum() == np.isfinite(inst.numpy()).all(axis=-1).sum():
+        return box
+    lo = pts[located].min(axis=0) - padding
+    hi = pts[located].max(axis=0) + padding
+    return attrs.evolve(
+        box, x1=float(lo[0]), y1=float(lo[1]), x2=float(hi[0]), y2=float(hi[1])
+    )
+
+
 def _derived_frame_bboxes(
     lf: sio.LabeledFrame, source: str, padding: float
 ) -> List[sio.UserBoundingBox]:
@@ -102,7 +123,7 @@ def _derived_frame_bboxes(
         for inst in lf.user_instances:
             if inst.is_empty:
                 continue
-            box = inst.to_bbox(mode="tight", padding=padding)
+            box = instance_tight_bbox(inst, padding)
             if not box.is_empty and box.width > 0 and box.height > 0:
                 boxes.append(box)
     elif source == "masks":
@@ -162,7 +183,7 @@ def instance_crop_bbox(
     * ``bboxes``: the frame's user box linked to ``inst`` (``box.instance``), as is;
     * ``masks``: the user mask linked to ``inst`` (``mask.instance``), padded;
     * ``instances`` -- or no linked box/mask -- the tight box of the instance's
-      visible keypoints, padded.
+      labeled keypoints that have coordinates, padded.
 
     Args:
         lf: The instance's frame.
@@ -172,7 +193,7 @@ def instance_crop_bbox(
 
     Returns:
         ``(4,)`` float32 ``(x1, y1, x2, y2)`` in original-frame pixels, or ``None``
-        when the instance has no visible keypoint.
+        when the instance has no labeled keypoint with coordinates.
     """
     box = None
     if source == "bboxes":
@@ -188,7 +209,7 @@ def instance_crop_bbox(
     if box is None or box.is_empty:
         if inst.is_empty:
             return None
-        box = inst.to_bbox(mode="tight", padding=padding)
+        box = instance_tight_bbox(inst, padding)
     xyxy = box.bounds if box.is_rotated else box.xyxy
     out = np.asarray(xyxy, dtype=np.float32)
     return out if np.isfinite(out).all() else None

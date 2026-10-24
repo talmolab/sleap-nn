@@ -144,6 +144,28 @@ def filter_oob_points(
     return points
 
 
+def instance_points(inst: sio.Instance, supervise_occluded: bool = True) -> np.ndarray:
+    """Return the keypoints an instance is supervised at, ``(n_nodes, 2)``.
+
+    With ``supervise_occluded`` (the default), labeled-but-not-visible nodes that
+    have coordinates (occluded estimates, COCO ``v=1``; sleap-io >= 0.10) keep
+    them; otherwise they are NaN like any other hidden node. Unlabeled nodes and
+    nodes without a location are always NaN. Files without occluded estimates
+    (every pre-SLP-3.0 file: sleap-io clears hidden points' coordinates on read)
+    give exactly ``inst.numpy()``.
+    """
+    return inst.numpy(invisible_as_nan=not supervise_occluded)
+
+
+def located_points(inst: sio.Instance) -> np.ndarray:
+    """Return an instance's labeled points that have coordinates, ``(n_nodes, 2)``.
+
+    Crop sizes, crop boxes and centroids come from these, whether or not occluded
+    estimates are supervised, so an occluded target is not cropped away.
+    """
+    return inst.numpy(invisible_as_nan=False)
+
+
 def process_lf(
     instances_list: List[sio.Instance],
     img: np.ndarray,
@@ -151,7 +173,9 @@ def process_lf(
     video_idx: int,
     max_instances: int,
     user_instances_only: bool = True,
-) -> Dict[str, Any]:
+    supervise_occluded: bool = True,
+    return_instances: bool = False,
+) -> Union[Optional[Dict[str, Any]], Tuple[Optional[Dict[str, Any]], List]]:
     """Get sample dict from `sio.LabeledFrame`.
 
     Args:
@@ -162,10 +186,17 @@ def process_lf(
         max_instances: Maximum number of instances that could occur in a single LabeledFrame.
         user_instances_only: True if filter labels only to user instances else False.
             Default: True.
+        supervise_occluded: If True, labeled-but-not-visible nodes with coordinates
+            are supervised at those coordinates (see `instance_points`).
+        return_instances: If True, also return the `sio.Instance`s that survived
+            filtering, in the order of the sample's ``instances`` rows, so callers
+            that look up per-instance attributes (tracks, node weights) stay
+            aligned.
 
     Returns:
         Dict with image, instancs, frame index, video index, original image size and
-        number of instances.
+        number of instances, or `None` when no instance survives. With
+        ``return_instances``, a tuple of that and the list of surviving instances.
 
     """
     # Filter to user instances
@@ -178,17 +209,25 @@ def process_lf(
     img_height, img_width = image.shape[-2:]
 
     instances = []
+    kept = []
     for inst in instances_list:
+        # Skip instances with no labeled point that has coordinates.
         if inst.is_empty:
             continue
-        # Sanity check: set out-of-bounds keypoints (annotation errors) to NaN and
-        # drop instances that fall entirely outside the original image frame.
-        pts = filter_oob_points(inst.numpy(), img_height, img_width)
-        if np.isnan(pts).all():
+        # Sanity check: drop instances whose located points all fall outside the
+        # original image frame (annotation errors), and set out-of-bounds
+        # keypoints to NaN.
+        if np.isnan(
+            filter_oob_points(located_points(inst), img_height, img_width)
+        ).all():
             continue
+        pts = filter_oob_points(
+            instance_points(inst, supervise_occluded), img_height, img_width
+        )
         instances.append(pts)
+        kept.append(inst)
     if len(instances) == 0:
-        return None
+        return (None, []) if return_instances else None
     instances = np.stack(instances, axis=0)
 
     # Add singleton time dimension for single frames.
@@ -219,7 +258,7 @@ def process_lf(
         "num_instances": num_instances,
     }
 
-    return ex
+    return (ex, kept) if return_instances else ex
 
 
 def process_negative_lf(
@@ -541,7 +580,7 @@ class LabelsReader(Thread):
                     instances = []
                     for inst in lf:
                         if not inst.is_empty:
-                            instances.append(inst.numpy())
+                            instances.append(located_points(inst))
                     if len(instances) == 0:
                         continue
                     instances = np.stack(instances, axis=0)
