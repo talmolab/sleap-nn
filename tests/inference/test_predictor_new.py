@@ -345,3 +345,59 @@ def test_batches_stay_numpy_unless_uploading_to_cuda(device, upload_batches):
 def test_upload_batches_default_off():
     """``upload_batches`` is opt-in: results stay as before unless asked."""
     assert Predictor(layer=_StubLayer()).upload_batches is False
+
+
+def test_upload_batches_copies_uint8_batch_to_cuda_device(monkeypatch):
+    """With a CUDA device the numpy batch is copied there, still uint8.
+
+    Runs without a GPU: ``Tensor.to`` is stood in for so the copy is recorded
+    (and the tensor stays on the CPU). ``tests/inference/test_cuda.py`` does
+    the real copy on a CUDA host.
+    """
+    calls = []
+    real_to = torch.Tensor.to
+
+    def fake_to(self, *args, **kwargs):
+        if args and args[0] == "cuda":
+            calls.append((self.dtype, tuple(self.shape), kwargs))
+            return self
+        return real_to(self, *args, **kwargs)
+
+    monkeypatch.setattr(torch.Tensor, "to", fake_to)
+    layer = _RecordingLayer()
+    predictor = Predictor(layer=layer, batch_size=2, device="cuda", upload_batches=True)
+    images = np.arange(4 * 8 * 8, dtype=np.uint8).reshape(4, 8, 8, 1)
+    predictor.predict(NumpyProvider(images=images, batch_size=2), make_labels=False)
+
+    assert calls == [(torch.uint8, (2, 8, 8, 1), {"non_blocking": True})] * 2
+    for i, seen in enumerate(layer.seen):
+        assert isinstance(seen, torch.Tensor)
+        np.testing.assert_array_equal(seen.numpy(), images[2 * i : 2 * i + 2])
+
+
+def test_from_model_paths_upload_batches_is_set_and_logged():
+    """``from_model_paths(upload_batches=True)`` sets it and names it in its log line."""
+    from pathlib import Path
+
+    from loguru import logger
+
+    ckpt = (
+        Path(__file__).resolve().parents[1]
+        / "assets"
+        / "model_ckpts"
+        / "minimal_instance_single_instance"
+    )
+    if not ckpt.exists():
+        pytest.skip("single-instance checkpoint not present")
+    messages = []
+    sink = logger.add(messages.append, format="{message}", level="INFO")
+    try:
+        on = Predictor.from_model_paths([str(ckpt)], device="cpu", upload_batches=True)
+        off = Predictor.from_model_paths([str(ckpt)], device="cpu")
+    finally:
+        logger.remove(sink)
+    assert on.upload_batches is True and off.upload_batches is False
+    loaded = [m for m in messages if "Loaded inference model" in m]
+    assert len(loaded) == 2
+    assert "upload_batches=True" in loaded[0]
+    assert "upload_batches" not in loaded[1]

@@ -592,3 +592,29 @@ def test_memory_format_rejects_unknown_value():
     backend = TorchBackend(model=_TinyConvModel(), device="cpu")
     with pytest.raises(ValueError):
         backend.memory_format = "nhwc"
+
+
+def test_memory_format_change_rebuilds_compiled_model(monkeypatch):
+    """Changing the layout of a compiled backend compiles the converted model again.
+
+    ``torch.compile`` is stood in for: this checks the wiring, not inductor.
+    """
+    compiled = []
+
+    def fake_compile(model, **kwargs):
+        compiled.append((model, kwargs))
+        return model
+
+    monkeypatch.setattr(torch, "compile", fake_compile)
+    backend = TorchBackend(
+        model=_TinyConvModel(in_ch=3), device="cpu", use_compile=True
+    )
+    assert len(compiled) == 1
+
+    backend.memory_format = "channels_last"
+    backend(torch.randn(1, 3, 8, 8))
+    assert len(compiled) == 2
+    model, kwargs = compiled[1]
+    assert model is backend.model
+    assert kwargs == {"mode": backend.compile_mode, "dynamic": False}
+    assert _weight_is_channels_last(backend)
