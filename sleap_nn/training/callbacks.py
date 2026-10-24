@@ -48,6 +48,17 @@ class SleapProgressBar(TQDMProgressBar):
 class CSVLoggerCallback(Callback):
     """Callback for logging metrics to csv.
 
+    One row is written per training epoch that ran validation, holding that
+    epoch's train loss/LR (logged in ``LightningModule.on_train_epoch_end``)
+    and its latest validation and eval metrics.
+
+    Lightning runs the epoch-end validation loop *before*
+    ``on_train_epoch_end``, so a row written at the end of validation would
+    carry the previous epoch's ``train/loss`` and ``train/lr``. The row is
+    therefore marked pending when validation ends and written once the epoch's
+    train metrics have been logged: at the start of the next train epoch, or
+    at the end of training for the last one.
+
     Attributes:
         filepath: Path to save the csv file.
         keys: List of field names to be logged in the csv.
@@ -63,6 +74,8 @@ class CSVLoggerCallback(Callback):
         self.filepath = filepath
         self.keys = keys
         self.initialized = False
+        # Epoch whose row is waiting for its train metrics (see class docstring).
+        self._pending_epoch = None
 
     def _init_file(self):
         """Create the .csv file."""
@@ -93,16 +106,31 @@ class CSVLoggerCallback(Callback):
                 trainer.callback_metrics[key] = torch.tensor(float("nan"))
 
     def on_validation_end(self, trainer, pl_module):
-        """Log metrics to csv at the end of validation.
+        """Mark this epoch's row as pending.
 
-        Runs on ``on_validation_end`` (not ``on_validation_epoch_end``) so
-        that it reads ``trainer.callback_metrics`` *after* every callback's
-        ``on_validation_epoch_end`` hook -- including the eval callbacks --
-        has already run this epoch, regardless of callback registration
-        order.
+        Runs on ``on_validation_end`` (not ``on_validation_epoch_end``) so it
+        comes *after* every callback's ``on_validation_epoch_end`` hook --
+        including the eval callbacks -- regardless of callback registration
+        order. The row itself is written by :meth:`_write_pending_row` once the
+        epoch's train metrics exist.
         """
         if trainer.sanity_checking:
             return
+        self._pending_epoch = trainer.current_epoch
+
+    def on_train_epoch_start(self, trainer, pl_module):
+        """Write the previous epoch's row (its train metrics are logged now)."""
+        self._write_pending_row(trainer)
+
+    def on_train_end(self, trainer, pl_module):
+        """Write the last epoch's row."""
+        self._write_pending_row(trainer)
+
+    def _write_pending_row(self, trainer):
+        """Append the pending epoch's row, if any, to the csv."""
+        if self._pending_epoch is None:
+            return
+        epoch, self._pending_epoch = self._pending_epoch, None
         # Access callback_metrics BEFORE the is_global_zero guard so all
         # ranks participate in the implicit all_reduce that fires when
         # sync_dist=True metrics are first read.  Only rank 0 does I/O.
@@ -113,7 +141,7 @@ class CSVLoggerCallback(Callback):
             log_data = {}
             for key in self.keys:
                 if key == "epoch":
-                    log_data["epoch"] = trainer.current_epoch
+                    log_data["epoch"] = epoch
                 elif key == "learning_rate":
                     # Handle multiple formats:
                     # 1. Direct "learning_rate" key

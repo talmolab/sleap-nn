@@ -162,6 +162,57 @@ def test_predict_streaming_interleaved_calls_do_not_clobber_overrides():
     assert predictor.layer.postprocess_config.peak_threshold == 0.2
 
 
+class _EchoRefinementLayer:
+    """Layer that records the refinement each ``predict`` call decodes with."""
+
+    def __init__(self):
+        from sleap_nn.inference.layers.configs import PostprocessConfig
+
+        self.postprocess_config = PostprocessConfig()
+        self.seen = []
+
+    def predict(self, image, **kwargs) -> Outputs:
+        self.seen.append(self.postprocess_config.effective_refinement)
+        b = image.shape[0]
+        return Outputs(
+            pred_keypoints=torch.zeros(b, 1, 4, 2),
+            pred_peak_values=torch.ones(b, 1, 4),
+            instance_scores=torch.ones(b, 1),
+        )
+
+
+@pytest.mark.parametrize(
+    "kwargs, expected",
+    [
+        ({}, "integral"),  # no override keeps the predictor's refinement
+        ({"integral_refinement": None}, None),
+        ({"integral_refinement": "none"}, None),
+        ({"integral_refinement": "local"}, "local"),
+    ],
+)
+def test_predict_integral_refinement_none_turns_refinement_off(kwargs, expected):
+    """``predict(integral_refinement=None)`` disables refinement for the call.
+
+    ``None`` used to mean "no override", so it silently kept ``"integral"``,
+    while ``from_model_paths(integral_refinement=None)`` turned it off.
+    """
+    layer = _EchoRefinementLayer()
+    predictor = Predictor(layer=layer)
+    images = np.zeros((2, 1, 8, 8), dtype=np.float32)
+    predictor.predict(
+        NumpyProvider(images=images, batch_size=2), make_labels=False, **kwargs
+    )
+    list(
+        predictor.predict_streaming(
+            NumpyProvider(images=images, batch_size=2), **kwargs
+        )
+    )
+    # Both calls decode with the override (the scoped copy shares `seen`)...
+    assert layer.seen == [expected] * 2
+    # ...and the shared layer keeps its own setting.
+    assert predictor.layer.postprocess_config.refinement == "integral"
+
+
 # ─────────────────────────────────────────────────────────────────────────
 # 4. FilterPipeline propagation
 # ─────────────────────────────────────────────────────────────────────────

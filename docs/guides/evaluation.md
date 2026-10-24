@@ -27,6 +27,7 @@ sleap-nn eval \
 | `--centroid_method` | How centroid-mode GT centroids are derived: `center_of_mass`, `bbox_center`, `geometric_median`, `anchor`. Pass the value the model was **trained** with (`head_configs.centroid.confmaps.centroid_method`) so the metric compares like with like | infer from `--anchor_part` |
 | `--centroid_fallback` | Reduce method used when the `--anchor_part` node is not visible | `center_of_mass` |
 | `--user_labels_only` / `--no-user_labels_only` | Only evaluate user-labeled frames | `True` |
+| `--count_unmatched_as_fp` / `--no-count_unmatched_as_fp` | Count predictions that match no ground-truth instance as false positives in `oks_voc.*` (see the note below) | off |
 
 ---
 
@@ -76,6 +77,14 @@ Measures pose similarity accounting for keypoint visibility and scale:
 | `oks_voc.AP` / `oks_voc.AR` | Per-OKS-threshold AP / AR arrays | 0-1 |
 
 Higher is better. mAP > 0.7 is generally good.
+
+!!! note "Unmatched predictions"
+    By default `oks_voc.*` scores only the predictions matched to a
+    ground-truth instance: extra detections (duplicates, false alarms) are not
+    counted as false positives, so precision and AP are overstated for models
+    that produce them. Pass `--count_unmatched_as_fp` (or
+    `run_evaluation(..., count_unmatched_as_fp=True)`) to count them. It is off
+    by default so existing numbers stay comparable.
 
 ### Distance Metrics
 

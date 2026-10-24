@@ -77,6 +77,12 @@ from sleap_nn.inference.tracking import (
     tracker_config_params,
 )
 
+#: Default of the per-call ``integral_refinement`` override on
+#: :meth:`Predictor.predict` / :meth:`Predictor.predict_streaming`: keep the
+#: predictor's refinement. ``None`` is a real value there (turn refinement
+#: off), as it is for :meth:`Predictor.from_model_paths`.
+KEEP_REFINEMENT = "keep"
+
 
 class _CentroidPackaging(NamedTuple):
     """Single-source centroid output-packaging decision.
@@ -1308,7 +1314,8 @@ class Predictor:
             peak_threshold: Default peak threshold. ``List[float]`` for
                 top-down (``[centroid_thresh, keypoint_thresh]``). Can be
                 overridden per-call via ``predict(peak_threshold=...)``.
-            integral_refinement: ``"integral"`` or ``"none"``.
+            integral_refinement: ``"integral"``, ``"local"``, or ``"none"`` /
+                ``None`` (no refinement).
             integral_patch_size: Refinement patch size.
             max_instances: Cap on instances per frame.
             return_confmaps: Return confidence maps on Outputs.
@@ -1981,7 +1988,7 @@ class Predictor:
         centroid_threshold: Optional[float] = None,
         keypoint_threshold: Optional[float] = None,
         max_instances: Optional[int] = None,
-        integral_refinement: Optional[str] = None,
+        integral_refinement: Optional[str] = KEEP_REFINEMENT,
         integral_patch_size: Optional[int] = None,
         return_confmaps: Optional[bool] = None,
         return_crops: Optional[bool] = None,
@@ -2025,7 +2032,9 @@ class Predictor:
             keypoint_threshold: Override peak threshold for the centered-
                 instance stage only (top-down models).
             max_instances: Override max instances per frame.
-            integral_refinement: ``"integral"`` or ``"none"``.
+            integral_refinement: Override the refinement: ``"integral"``,
+                ``"local"``, or ``"none"`` / ``None`` (no refinement). The
+                default, ``"keep"``, keeps the predictor's refinement.
             integral_patch_size: Override integral refinement patch size.
             return_confmaps: Override whether to return confidence maps.
             return_crops: Override whether to return per-instance crops
@@ -2151,7 +2160,11 @@ class Predictor:
                 "centroid_threshold": centroid_threshold,
                 "keypoint_threshold": keypoint_threshold,
                 "max_instances": max_instances,
-                "integral_refinement": integral_refinement,
+                "integral_refinement": (
+                    None
+                    if integral_refinement == KEEP_REFINEMENT
+                    else integral_refinement or "none"
+                ),
                 "integral_patch_size": integral_patch_size,
                 "batch_size": self.batch_size,
                 **self._preprocess_provenance_params(),
@@ -2200,7 +2213,7 @@ class Predictor:
         centroid_threshold: Optional[float] = None,
         keypoint_threshold: Optional[float] = None,
         max_instances: Optional[int] = None,
-        integral_refinement: Optional[str] = None,
+        integral_refinement: Optional[str] = KEEP_REFINEMENT,
         integral_patch_size: Optional[int] = None,
         return_confmaps: Optional[bool] = None,
         return_crops: Optional[bool] = None,
@@ -2221,7 +2234,9 @@ class Predictor:
             centroid_threshold: Override centroid stage threshold (top-down).
             keypoint_threshold: Override centered-instance threshold (top-down).
             max_instances: Override max instances per frame.
-            integral_refinement: ``"integral"`` or ``"none"``.
+            integral_refinement: Override the refinement: ``"integral"``,
+                ``"local"``, or ``"none"`` / ``None`` (no refinement). The
+                default, ``"keep"``, keeps the predictor's refinement.
             integral_patch_size: Override integral refinement patch size.
             return_confmaps: Override whether to return confidence maps.
             return_crops: Override whether to return per-instance crops
@@ -2826,7 +2841,7 @@ class Predictor:
         centroid_threshold: Optional[float] = None,
         keypoint_threshold: Optional[float] = None,
         max_instances: Optional[int] = None,
-        integral_refinement: Optional[str] = None,
+        integral_refinement: Optional[str] = KEEP_REFINEMENT,
         integral_patch_size: Optional[int] = None,
         return_confmaps: Optional[bool] = None,
         return_crops: Optional[bool] = None,
@@ -2859,14 +2874,14 @@ class Predictor:
         """
         from sleap_nn.inference.layers.topdown import TopDownLayer
 
-        has_any = any(
+        keep_refinement = integral_refinement == KEEP_REFINEMENT
+        has_any = not keep_refinement or any(
             v is not None
             for v in (
                 peak_threshold,
                 centroid_threshold,
                 keypoint_threshold,
                 max_instances,
-                integral_refinement,
                 integral_patch_size,
                 return_confmaps,
                 return_crops,
@@ -2909,8 +2924,9 @@ class Predictor:
                 overrides["peak_threshold"] = t
             if max_instances is not None and hasattr(old_cfg, "max_instances"):
                 overrides["max_instances"] = max_instances
-            if integral_refinement is not None:
-                overrides["refinement"] = integral_refinement
+            if not keep_refinement:
+                # `None` turns refinement off, like `from_model_paths(None)`.
+                overrides["refinement"] = integral_refinement or "none"
             if integral_patch_size is not None:
                 overrides["integral_patch_size"] = integral_patch_size
             if return_confmaps is not None:

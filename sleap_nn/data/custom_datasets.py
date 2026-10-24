@@ -7680,11 +7680,7 @@ def get_train_val_dataloaders(
         persistent_workers=(
             True if config.trainer_config.train_data_loader.num_workers > 0 else None
         ),
-        prefetch_factor=(
-            config.trainer_config.train_data_loader.batch_size
-            if config.trainer_config.train_data_loader.num_workers > 0
-            else None
-        ),
+        prefetch_factor=_get_prefetch_factor(config, "train_data_loader"),
     )
 
     if tiling_enabled:
@@ -7723,14 +7719,26 @@ def get_train_val_dataloaders(
         persistent_workers=(
             True if config.trainer_config.val_data_loader.num_workers > 0 else None
         ),
-        prefetch_factor=(
-            config.trainer_config.val_data_loader.batch_size
-            if config.trainer_config.val_data_loader.num_workers > 0
-            else None
-        ),
+        prefetch_factor=_get_prefetch_factor(config, "val_data_loader"),
     )
 
     return train_data_loader, val_data_loader
+
+
+#: Batches each dataloader worker loads ahead of the training loop.
+DEFAULT_PREFETCH_FACTOR = 2
+
+
+def _get_prefetch_factor(config: DictConfig, loader: str) -> Optional[int]:
+    """Prefetch depth of ``trainer_config.<loader>`` (``None`` without workers).
+
+    This used to be ``batch_size``, so ``num_workers x batch_size`` batches could be
+    queued (e.g. 16 workers x 128 = 2048 batches of crops + confmaps), which only
+    costs host/shared memory: two batches per worker already hide the latency.
+    """
+    if OmegaConf.select(config, f"trainer_config.{loader}.num_workers", default=0) <= 0:
+        return None
+    return DEFAULT_PREFETCH_FACTOR
 
 
 def get_steps_per_epoch(dataset: BaseDataset, batch_size: int):

@@ -95,7 +95,7 @@ Selected keyword arguments (all keyword-only):
 | `device` | `"cpu"`, `"cuda"`, `"mps"`, `"cuda:N"` | `"cpu"` |
 | `batch_size` | Default batch size for auto-built providers | `4` |
 | `peak_threshold` | `float`, or `[centroid_thresh, keypoint_thresh]` for top-down | `0.2` |
-| `integral_refinement` | `"integral"` or `"none"` | `"integral"` |
+| `integral_refinement` | `"integral"`, `"local"`, or `"none"` / `None` | `"integral"` |
 | `integral_patch_size` | Refinement patch size | `5` |
 | `max_instances` | Cap on instances per frame | `None` |
 | `return_confmaps` | Keep confidence maps on `Outputs` | `False` |
@@ -133,7 +133,8 @@ Common `predict` keyword arguments: `make_labels`, `frames`, `skeleton`,
 `videos`, `clean_empty_frames`, `progress_callback`, `peak_threshold`,
 `centroid_threshold`, `keypoint_threshold`, `max_instances`,
 `integral_refinement`, `integral_patch_size`, `return_confmaps`,
-`return_crops`.
+`return_crops`. Each override defaults to keeping the predictor's setting;
+`integral_refinement=None` turns refinement off for that call.
 
 !!! note "Per-stage thresholds (top-down)"
     For top-down models, `peak_threshold` sets *both* stages; use

@@ -1773,3 +1773,79 @@ class TestEmbeddingRetrievalMetrics:
         # (optimistic) AUC for non-trivially-separable embeddings.
         assert without_diag["auc"] <= with_diag["auc"]
         assert without_diag["auc"] != with_diag["auc"]
+
+
+def _labels_with_spurious_predictions():
+    """GT: one instance on frame 0, none on frame 1 (a labeled empty frame).
+
+    Predictions: a perfect match (score 0.5) and a far-away false alarm (score
+    0.9) on frame 0, plus a false alarm on frame 1.
+    """
+    skel = sio.Skeleton(["a", "b", "c"])
+    video = sio.Video(filename="fake.mp4", open_backend=False)
+    pts = np.array([[10.0, 10.0], [20.0, 12.0], [30.0, 14.0]])
+    gt = sio.Labels(
+        labeled_frames=[
+            sio.LabeledFrame(
+                video=video,
+                frame_idx=0,
+                instances=[sio.Instance.from_numpy(pts, skeleton=skel)],
+            ),
+            sio.LabeledFrame(video=video, frame_idx=1, instances=[]),
+        ],
+        videos=[video],
+        skeletons=[skel],
+    )
+
+    def pred(p, score):
+        return sio.PredictedInstance.from_numpy(
+            p, skeleton=skel, point_scores=np.ones(3), score=score
+        )
+
+    pr = sio.Labels(
+        labeled_frames=[
+            sio.LabeledFrame(
+                video=video,
+                frame_idx=0,
+                instances=[pred(pts, 0.5), pred(pts + 300.0, 0.9)],
+            ),
+            sio.LabeledFrame(video=video, frame_idx=1, instances=[pred(pts, 0.8)]),
+        ],
+        videos=[video],
+        skeletons=[skel],
+    )
+    return gt, pr
+
+
+def test_evaluator_count_unmatched_as_fp():
+    """Unmatched predictions are false positives only with the opt-in flag.
+
+    By default ``oks_voc`` scores matched pairs only, so the false alarms leave
+    AP at 1.0 (the numbers v0.3.5 reported are unchanged).
+    """
+    gt, pr = _labels_with_spurious_predictions()
+    default = Evaluator(gt, pr)
+    assert default.unmatched_pred_scores.size == 0
+    assert default.voc_metrics()["oks_voc.mAP"] == pytest.approx(1.0)
+
+    counted = Evaluator(gt, pr, count_unmatched_as_fp=True)
+    assert sorted(counted.unmatched_pred_scores) == pytest.approx([0.8, 0.9])
+    voc = counted.voc_metrics()
+    # Ranked by score: FP 0.9, FP 0.8, TP 0.5 -> precision 1/3 at full recall.
+    assert voc["oks_voc.mAP"] == pytest.approx(1 / 3, abs=1e-3)
+    assert voc["oks_voc.mAR"] == pytest.approx(1.0)
+
+
+def test_run_evaluation_forwards_count_unmatched_as_fp(tmp_path):
+    gt, pr = _labels_with_spurious_predictions()
+    gt.save(tmp_path / "gt.slp")
+    pr.save(tmp_path / "pr.slp")
+    kwargs = dict(
+        ground_truth_path=str(tmp_path / "gt.slp"),
+        predicted_path=str(tmp_path / "pr.slp"),
+        match_method="oks",
+    )
+    default = run_evaluation(**kwargs)
+    counted = run_evaluation(**kwargs, count_unmatched_as_fp=True)
+    assert default["voc_metrics"]["oks_voc.mAP"] == pytest.approx(1.0)
+    assert counted["voc_metrics"]["oks_voc.mAP"] < 0.5
