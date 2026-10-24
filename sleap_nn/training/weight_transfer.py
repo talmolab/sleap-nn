@@ -41,7 +41,8 @@ _ALIASES: Dict[str, List[str]] = {
     "backbone": ["backbone.*"],
     "head": ["head_layers.*"],
     "heads": ["head_layers.*"],
-    "decoder": ["backbone.dec.*"],
+    # `dec`: hierarchical/pyramid backbones; `decoders`: UNet; `vit_dec`: ViTPose head.
+    "decoder": ["backbone.dec.*", "backbone.decoders.*", "backbone.vit_dec.*"],
     "neck": ["backbone.neck.*", "backbone.tap_norms.*"],
 }
 _BLOCKS_RE = re.compile(r"^blocks\[(-?\d*):(-?\d*)\]$")

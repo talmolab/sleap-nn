@@ -22,6 +22,7 @@ from sleap_nn.training.weight_transfer import (
     reinit,
     resolve_selector,
     select_keys,
+    select_params,
     set_requires_grad,
     transfer_state_dict,
     vit_blocks,
@@ -280,6 +281,24 @@ def _vit_lightning(model_name, part_names=("a", "b"), **bb):
 def dinov2_model():
     torch.manual_seed(0)
     return _vit_lightning(VIT)
+
+
+def test_decoder_selector_covers_unet_decoders(minimal_instance_centered_instance_ckpt):
+    """`decoder` picks a UNet's `backbone.decoders.*` (it used to match nothing)."""
+    model = _build(_ci_config(minimal_instance_centered_instance_ckpt))
+    names = select_params(model, ["decoder"])
+    assert names
+    assert all(".backbone.decoders." in n for n in names)
+    assert not any(".backbone.encoders." in n for n in names)
+
+
+@requires_transformers
+def test_decoder_selector_covers_vitpose_head():
+    """`decoder` picks the ViTPose direct head (`backbone.vit_dec.*`)."""
+    m = _vit_lightning(VIT, vit_decoder="classic")
+    names = select_params(m, ["decoder"])
+    assert names
+    assert all(".backbone.vit_dec." in n for n in names)
 
 
 @requires_transformers

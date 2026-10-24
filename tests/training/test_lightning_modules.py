@@ -19,6 +19,7 @@ from sleap_nn.training.lightning_modules import (
     BottomUpLightningModule,
     BottomUpMultiClassLightningModule,
     LightningModel,
+    _outputs_to_fp32,
     validate_embedding_identity,
 )
 from torch.nn.functional import mse_loss
@@ -84,6 +85,66 @@ def test_topdown_centered_instance_eval_decodes_with_dark(config):
     assert layer.refinement == "dark"
     assert layer.dark_blur_sigma == 1.5
     assert layer.flip_test is False
+
+
+def test_outputs_to_fp32_upcasts_only_half_precision_floats():
+    """bf16/fp16 tensors become float32; ints, uint8 images and non-tensors stay."""
+    out = {
+        "peaks": torch.zeros(2, 3, dtype=torch.bfloat16),
+        "image": torch.zeros(1, 3, dtype=torch.uint8),
+        "nested": [torch.ones(1, dtype=torch.float16), (torch.ones(1),)],
+        "count": 3,
+    }
+    conv = _outputs_to_fp32(out)
+    assert conv["peaks"].dtype == torch.float32
+    assert conv["image"].dtype == torch.uint8
+    assert conv["nested"][0].dtype == torch.float32
+    assert isinstance(conv["nested"][1], tuple)
+    assert conv["nested"][1][0].dtype == torch.float32
+    assert conv["count"] == 3
+
+
+def test_topdown_centered_instance_eval_collection_under_bf16(config, tmp_path):
+    """Epoch-end eval collection runs when inference outputs are bf16.
+
+    Under ``bf16-mixed`` the peak finder returns bfloat16 peaks and values, and
+    ``.numpy()`` used to raise ``TypeError: Got unsupported ScalarType BFloat16``.
+    """
+    model = TopDownCenteredInstanceLightningModule(
+        model_type="centered_instance",
+        backbone_config=config.model_config.backbone_config,
+        backbone_type="unet",
+        head_configs=config.model_config.head_configs,
+        pretrained_backbone_weights=None,
+        pretrained_head_weights=None,
+        init_weights=config.model_config.init_weights,
+        lr_scheduler=config.trainer_config.lr_scheduler,
+        optimizer="AdamW",
+    )
+    OmegaConf.update(config, "trainer_config.ckpt_dir", f"{tmp_path}")
+    OmegaConf.update(config, "trainer_config.run_name", "bf16_eval_collection")
+    OmegaConf.update(config, "data_config.data_pipeline_fw", "torch_dataset")
+    model_trainer = ModelTrainer.get_model_trainer_from_config(config)
+    train_dataset, val_dataset = get_train_val_datasets(
+        train_labels=model_trainer.train_labels,
+        val_labels=model_trainer.val_labels,
+        config=model_trainer.config,
+    )
+    _, val_data_loader = get_train_val_dataloaders(
+        train_dataset=train_dataset,
+        val_dataset=val_dataset,
+        config=model_trainer.config,
+    )
+    batch = next(iter(val_data_loader))
+
+    model._collect_val_predictions = True
+    with torch.autocast("cpu", dtype=torch.bfloat16):
+        model.validation_step(batch, 0)
+
+    assert model.val_predictions
+    pred = model.val_predictions[0]
+    assert pred["pred_peaks"].dtype == np.float32
+    assert pred["pred_scores"].dtype == np.float32
 
 
 def test_topdown_centered_instance_model(
