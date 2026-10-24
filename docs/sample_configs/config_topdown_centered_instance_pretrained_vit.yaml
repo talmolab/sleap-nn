@@ -98,8 +98,7 @@ model_config:
       vit_neck: dpt        # dpt (one tap per pyramid level) | sfp (ViTDet, last tap)
       neck_channels: null  # [48, 96, 192, 384] for hidden size 384
       gradient_checkpointing: false  # true = less memory, slower steps
-      encoder_lr_scale: 1.0  # LR multiplier for the ViT (e.g. 0.1 to move it slowly)
-      layer_decay: null      # layer-wise LR decay for ViT blocks (e.g. 0.75)
+      drop_path_rate: null   # stochastic depth, ramped 0 -> rate over blocks (e.g. 0.1)
       detail_stem: false     # conv stream adding stride-2/4/8 decoder skips
       detail_channels: null  # null = [32, 64, 128]
       vit_decoder: unet      # unet (neck + UNet decoder) | classic | simple (ViTPose heads, use output_stride 4)
@@ -163,6 +162,9 @@ trainer_config:
     # A lower LR is a good default when fine-tuning a pretrained backbone.
     lr: 0.0001
     amsgrad: false
+    weight_decay: null     # e.g. 0.1 with AdamW; biases/norms/pos-embeds get none
+    encoder_lr_scale: null # LR multiplier for the ViT (e.g. 0.1 to move it slowly)
+    layer_decay: null      # layer-wise LR decay for ViT blocks (e.g. 0.75)
   lr_scheduler:
     step_lr: null
     reduce_lr_on_plateau:
