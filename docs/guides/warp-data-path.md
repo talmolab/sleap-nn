@@ -109,6 +109,63 @@ data_config:
 
 ViTPose trains on every person with at least one keypoint: `min_labeled_nodes: 1`.
 
+### Detector-box crops
+
+Top-down inference crops each person from a detector box, but training crops come
+from GT boxes by default, and the two differ in size, aspect and centering. To train
+on the boxes inference sees, store person-detector boxes matched to the GT people in
+the labels file and switch the crop box source:
+
+```yaml
+data_config:
+  preprocessing:
+    crop_bbox_source: detector   # default: gt
+    crop_bbox_fallback: gt       # people with no matched detection: GT box (or drop)
+    crop_bbox_min_score: 0.0     # ignore matched boxes scoring lower
+    crop_bbox_detector: null     # only boxes with this `source` (null: any)
+    crop_bbox_jitter: 0.0        # optional per-edge Gaussian noise, x box size
+```
+
+The labels file carries one `sio.PredictedBoundingBox` per matched detection, linked
+to its instance (`box.instance = inst`), next to the user boxes. Unlinked predicted
+boxes (unmatched detections) are ignored. With several boxes linked to one instance,
+the highest-scoring one is used, and `crop_bbox_categories` applies to them too.
+User boxes and the `gt` path never read predicted boxes, so adding them to a file does
+not change `crop_bbox_source: gt` training. The log reports how many crops came from
+detector boxes and how many fell back.
+
+Matching follows Sárándi et al. (WACV 2023): per image, Hungarian matching on IoU
+between the detections and the GT people, keeping pairs with IoU > 0.1. Matching
+against every non-crowd GT person box, including people without keypoints, keeps a
+detection on an unlabeled person from being assigned to a labeled neighbour. For
+files without person boxes (MPII), the keypoint extent is the GT box. A minimal
+sketch (keypoint-extent GT boxes only):
+
+```python
+import numpy as np
+import sleap_io as sio
+from scipy.optimize import linear_sum_assignment
+
+def attach_matched_boxes(lf, det_xyxy, det_scores, source, min_iou=0.1):
+    insts = lf.user_instances
+    gt = np.array([[*i.numpy()[np.isfinite(i.numpy()).all(1)].min(0),
+                    *i.numpy()[np.isfinite(i.numpy()).all(1)].max(0)] for i in insts])
+    lt = np.maximum(gt[:, None, :2], det_xyxy[None, :, :2])
+    rb = np.minimum(gt[:, None, 2:], det_xyxy[None, :, 2:])
+    inter = np.prod(np.clip(rb - lt, 0, None), -1)
+    area = lambda b: np.prod(b[:, 2:] - b[:, :2], -1)
+    iou = inter / (area(gt)[:, None] + area(det_xyxy)[None] - inter)
+    r, c = linear_sum_assignment(-iou)
+    match = {j: insts[i] for i, j in zip(r, c) if iou[i, j] > min_iou}
+    for j, (box, score) in enumerate(zip(det_xyxy, det_scores)):
+        lf.bboxes.append(sio.PredictedBoundingBox(
+            *map(float, box), instance=match.get(j), category="person",
+            score=float(score), source=source))
+```
+
+`crop_bbox_jitter` perturbs each edge of the crop box independently (training only)
+to mimic detector noise without detector boxes, or on top of them.
+
 ## Augmentation
 
 The warp path reads the usual `augmentation_config` sections, plus keys that only it

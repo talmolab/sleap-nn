@@ -199,7 +199,27 @@ class PreprocessingConfig:
             boxes of these categories (e.g. `["person"]`) are crop boxes; other linked
             boxes (e.g. MPII head boxes) fall back to the keypoint box. *Default*:
             `None` (any category).
-        tiling: Configuration of tiled training/inference. Inert unless `tiling.enabled` is `True`.
+        crop_bbox_source: (str) With `crop_pipeline="warp"`, where an instance's crop
+            box comes from. `gt` uses its linked user box (or keypoint box, see
+            `crop_bbox_categories`). `detector` uses the `PredictedBoundingBox` linked
+            to the instance (`box.instance`), i.e. a person-detector box matched to
+            the ground truth, so training crops look like the ones a detector gives at
+            inference (the highest-scoring linked box wins). Instances without one
+            follow `crop_bbox_fallback`. *Default*: `"gt"`.
+        crop_bbox_detector: (str) For `crop_bbox_source="detector"`: only predicted
+            boxes whose `source` equals this string count (for files carrying boxes
+            from several detectors). *Default*: `None` (any source).
+        crop_bbox_min_score: (float) For `crop_bbox_source="detector"`: predicted
+            boxes scoring below this do not count. *Default*: `0.0`.
+        crop_bbox_fallback: (str) For `crop_bbox_source="detector"`: `gt` crops an
+            instance with no usable detector box from its `gt` box; `drop` leaves it
+            out of the dataset. *Default*: `"gt"`.
+        crop_bbox_jitter: (float) With `crop_pipeline="warp"`, training only: move
+            each edge of the crop box independently by Gaussian noise with this
+            standard deviation, as a fraction of the box's width (x edges) or height
+            (y edges), before padding. Mimics detector box noise; validation crops are
+            never jittered. *Default*: `0.0` (off).
+        tiling:Configuration of tiled training/inference. Inert unless `tiling.enabled` is `True`.
         burn_in: (bool) For the `embedding` model type: burn the instance mask into the
             crop (background pixels set to `background_fill`) so the embedder sees only
             the masked instance. *Default*: `False`.
@@ -243,6 +263,16 @@ class PreprocessingConfig:
     )
     gpu_confmaps: bool = False
     crop_bbox_categories: Optional[List[str]] = None
+    crop_bbox_source: str = field(
+        default="gt",
+        validator=lambda instance, attr, value: instance.validate_crop_bbox_source(),
+    )
+    crop_bbox_detector: Optional[str] = None
+    crop_bbox_min_score: float = 0.0
+    crop_bbox_fallback: str = field(
+        default="gt", validator=validators.in_(("gt", "drop"))
+    )
+    crop_bbox_jitter: float = field(default=0.0, validator=validators.ge(0))
     tiling: TilingConfig = field(factory=TilingConfig)
     burn_in: bool = False
     background_fill: str = "black"
@@ -267,6 +297,21 @@ class PreprocessingConfig:
             raise ValueError(
                 "A [height, width] crop_size needs crop_mode='bbox' and "
                 "crop_pipeline='warp' (the other crop paths are square)."
+            )
+
+    def validate_crop_bbox_source(self):
+        """Validate `crop_bbox_source`; detector boxes and jitter need warp crops."""
+        if self.crop_bbox_source not in ("gt", "detector"):
+            raise ValueError(
+                "crop_bbox_source must be 'gt' or 'detector', got "
+                f"{self.crop_bbox_source!r}."
+            )
+        if (
+            self.crop_bbox_source != "gt" or (self.crop_bbox_jitter or 0) > 0
+        ) and self.crop_pipeline != "warp":
+            raise ValueError(
+                "crop_bbox_source='detector' and crop_bbox_jitter need "
+                "crop_pipeline='warp'."
             )
 
     def validate_scale(self):
