@@ -2797,6 +2797,81 @@ class TilingEpochCallback(Callback):
             self._set_loader_epoch(dl, epoch)
 
 
+class AugmentationStageCallback(Callback):
+    """Switch the warp dataset's augmentation stage at an epoch or global step.
+
+    The RTMPose "stage-2 pipeline switch" (mmdet ``PipelineSwitchHook``) for
+    ``crop_pipeline="warp"``: from ``start_epoch`` (or ``start_step``) on, the
+    training dataset uses its second :class:`~sleap_nn.data.topdown_warp.WarpAug`
+    (``augmentation_config.stage2``). mmdet rebuilds the pipeline and restarts the
+    workers; here the dataset holds both stages and reads a shared-memory
+    ``aug_stage`` tensor per sample, so persistent workers switch without a
+    restart. The rule is stateless (a function of epoch / step), so resuming from a
+    checkpoint lands in the right stage. Batches prefetched before the switch (at
+    most ``num_workers * prefetch_factor``) still carry stage-1 augmentation.
+
+    Attributes:
+        start_epoch: First (0-based) epoch of stage 2, or ``None``.
+        start_step: First global step of stage 2 (when ``start_epoch`` is ``None``).
+    """
+
+    def __init__(
+        self, start_epoch: Optional[int] = None, start_step: Optional[int] = None
+    ):
+        """Initialize with the epoch or step at which stage 2 starts."""
+        if start_epoch is None and start_step is None:
+            raise ValueError(
+                "AugmentationStageCallback needs start_epoch or start_step."
+            )
+        self.start_epoch = start_epoch
+        self.start_step = start_step
+        self._stage = None
+
+    def stage_at(self, epoch: int, step: int) -> int:
+        """The augmentation stage (0 or 1) at an epoch / global step."""
+        if self.start_epoch is not None:
+            return int(epoch >= self.start_epoch)
+        return int(step >= self.start_step)
+
+    @staticmethod
+    def _datasets(trainer):
+        for dl in TilingEpochCallback._iter_dataloaders(trainer.train_dataloader):
+            ds = getattr(dl, "dataset", None)
+            if ds is not None and hasattr(ds, "set_aug_stage"):
+                yield ds
+
+    def _sync(self, trainer, step: int) -> None:
+        stage = self.stage_at(int(trainer.current_epoch), int(step))
+        if stage == self._stage:
+            return
+        for ds in self._datasets(trainer):
+            ds.set_aug_stage(stage)
+        if self._stage is not None or stage:
+            logger.info(
+                f"Augmentation stage {stage + 1} from epoch {trainer.current_epoch}, "
+                f"step {step}."
+            )
+        self._stage = stage
+
+    def on_train_epoch_start(self, trainer, pl_module):
+        """Set the stage for this epoch."""
+        self._sync(trainer, trainer.global_step)
+
+    def on_train_epoch_end(self, trainer, pl_module):
+        """Switch before the next epoch's batches are prefetched."""
+        if (
+            self.start_epoch is not None
+            and trainer.current_epoch + 1 >= self.start_epoch
+        ):
+            for ds in self._datasets(trainer):
+                ds.set_aug_stage(1)
+
+    def on_train_batch_start(self, trainer, pl_module, batch, batch_idx):
+        """Step-based switch."""
+        if self.start_step is not None and self.start_epoch is None:
+            self._sync(trainer, trainer.global_step)
+
+
 class EvalCadenceEarlyStopping(EarlyStopping):
     """``EarlyStopping`` that checks only on eval epochs, so patience counts evaluations.
 
