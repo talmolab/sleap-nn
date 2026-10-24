@@ -1888,6 +1888,21 @@ class PretrainedConfig:
             high-resolution detail below the token stride). *Default*: ``False``.
         detail_channels: (List[int]) Detail-stem channels at strides 2, 4, 8
             (exactly three). ``None`` uses ``[32, 64, 128]``. *Default*: ``None``.
+        vit_decoder: (str) How a plain ViT's tokens are decoded to the output
+            stride: ``"unet"`` (``vit_neck`` pyramid + sleap UNet decoder),
+            ``"classic"`` (ViTPose: ``log2(token_stride / output_stride)`` blocks
+            of deconv 4x4/s2 + BatchNorm + ReLU on the last tapped layer) or
+            ``"simple"`` (ViTPose: ReLU + bilinear upsampling, no parameters,
+            and the heads' output conv becomes 3x3 as in ViTPose).
+            The direct decoders take one tapped layer (default: the last) and
+            ignore ``vit_neck``, ``neck_channels`` and ``detail_stem``; use
+            ``output_stride: 4`` as in ViTPose. *Default*: ``"unet"``.
+        vit_decoder_channels: (int) Channels of the ``"classic"`` deconv blocks.
+            *Default*: ``256``.
+        vit_final_norm: (bool) Normalize the last-layer tap with the encoder's own
+            pretrained final norm (as ViTPose does) instead of a fresh LayerNorm.
+            ``None`` turns it on for ``vit_decoder: classic|simple`` and off for
+            ``"unet"``. *Default*: ``None``.
     """
 
     source: str = "hf"
@@ -1916,6 +1931,9 @@ class PretrainedConfig:
     layer_decay: Optional[float] = None
     detail_stem: bool = False
     detail_channels: Optional[List[int]] = None
+    vit_decoder: str = "unet"
+    vit_decoder_channels: int = 256
+    vit_final_norm: Optional[bool] = None
 
 
 @oneof
