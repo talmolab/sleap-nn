@@ -105,7 +105,7 @@ class BottomUpLayer(InferenceLayer):
         peaks, peak_vals, sample_inds, peak_channel_inds = find_local_peaks(
             cms.detach(),
             threshold=self.postprocess_config.peak_threshold,
-            refinement=self.postprocess_config.effective_refinement,
+            refinement=self.postprocess_config.resolve_refinement(peaks="local"),
             integral_patch_size=self.postprocess_config.integral_patch_size,
         )
         peaks = peaks * self.cms_output_stride

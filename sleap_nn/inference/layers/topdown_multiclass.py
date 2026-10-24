@@ -85,7 +85,8 @@ class CenteredInstanceMultiClassLayer(InferenceLayer):
         peaks, vals = find_global_peaks(
             cms.detach(),
             threshold=self.postprocess_config.peak_threshold,
-            refinement=self.postprocess_config.effective_refinement,
+            refinement=self.postprocess_config.resolve_refinement(auto="dark"),
+            dark_blur_sigma=self.postprocess_config.dark_blur_sigma,
             integral_patch_size=self.postprocess_config.integral_patch_size,
         )
         peaks = peaks * info.output_stride

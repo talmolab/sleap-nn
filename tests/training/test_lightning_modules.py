@@ -67,6 +67,25 @@ def cleanup_wandb():
         os.environ.pop("WANDB_MODE", None)
 
 
+def test_topdown_centered_instance_eval_decodes_with_dark(config):
+    """Epoch-end eval decodes like `predict`: DARK blurred with the training sigma."""
+    model = TopDownCenteredInstanceLightningModule(
+        model_type="centered_instance",
+        backbone_config=config.model_config.backbone_config,
+        backbone_type="unet",
+        head_configs=config.model_config.head_configs,
+        pretrained_backbone_weights=None,
+        pretrained_head_weights=None,
+        init_weights=config.model_config.init_weights,
+        lr_scheduler=config.trainer_config.lr_scheduler,
+        optimizer="AdamW",
+    )
+    layer = model.instance_peaks_inf_layer
+    assert layer.refinement == "dark"
+    assert layer.dark_blur_sigma == 1.5
+    assert layer.flip_test is False
+
+
 def test_topdown_centered_instance_model(
     config, tmp_path: str, minimal_instance_centered_instance_ckpt
 ):

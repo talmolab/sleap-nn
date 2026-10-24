@@ -34,6 +34,7 @@ from sleap_nn.inference.topdown import (
     TopDownInferenceModel,
     TopDownMultiClassFindInstancePeaks,
 )
+from sleap_nn.inference.ops.peaks import flip_idx_from_symmetries, resolve_refinement
 from sleap_nn.inference.utils import get_skeleton_from_config
 from sleap_nn.legacy_models import load_legacy_model
 from sleap_nn.inference.segmentation import (
@@ -338,10 +339,13 @@ def _build_single_instance(
         torch_model=module,
         peak_threshold=peak_threshold,
         output_stride=config.model_config.head_configs.single_instance.confmaps.output_stride,
-        refinement=integral_refinement,
+        refinement=resolve_refinement(integral_refinement),
         integral_patch_size=integral_patch_size,
         return_confmaps=return_confmaps,
         input_scale=preprocess_config.scale,
+        dark_blur_sigma=float(
+            config.model_config.head_configs.single_instance.confmaps.sigma
+        ),
     )
     return LoadedAssets(
         inference_model=inference_model,
@@ -371,6 +375,8 @@ def _build_bottomup(
     min_instance_peaks: Union[int, float] = 0,
     min_line_scores: float = 0.25,
 ) -> LoadedAssets:
+    # Bottom-up finds local peaks: "dark"/"local" raise here, before loading.
+    refinement = resolve_refinement(integral_refinement, peaks="local")
     module, config, backbone_type = _load_lightning_module(
         BottomUpLightningModule,
         ckpt_path,
@@ -406,7 +412,7 @@ def _build_bottomup(
         peak_threshold=peak_threshold,
         cms_output_stride=config.model_config.head_configs.bottomup.confmaps.output_stride,
         pafs_output_stride=config.model_config.head_configs.bottomup.pafs.output_stride,
-        refinement=integral_refinement,
+        refinement=refinement,
         integral_patch_size=integral_patch_size,
         return_confmaps=return_confmaps,
         input_scale=preprocess_config.scale,
@@ -434,6 +440,8 @@ def _build_bottomup_multiclass(
     return_confmaps: bool,
     preprocess_config: Any,
 ) -> LoadedAssets:
+    # Bottom-up finds local peaks: "dark"/"local" raise here, before loading.
+    refinement = resolve_refinement(integral_refinement, peaks="local")
     module, config, backbone_type = _load_lightning_module(
         BottomUpMultiClassLightningModule,
         ckpt_path,
@@ -451,7 +459,7 @@ def _build_bottomup_multiclass(
         peak_threshold=peak_threshold,
         cms_output_stride=config.model_config.head_configs.multi_class_bottomup.confmaps.output_stride,
         class_maps_output_stride=config.model_config.head_configs.multi_class_bottomup.class_maps.output_stride,
-        refinement=integral_refinement,
+        refinement=refinement,
         integral_patch_size=integral_patch_size,
         return_confmaps=return_confmaps,
         input_scale=preprocess_config.scale,
@@ -889,7 +897,7 @@ def _build_topdown_embedding(
             torch_model=centroid_model,
             peak_threshold=centroid_peak_threshold,
             output_stride=centroid_config.model_config.head_configs.centroid.confmaps.output_stride,
-            refinement=integral_refinement,
+            refinement=resolve_refinement(integral_refinement, peaks="centroid"),
             integral_patch_size=integral_patch_size,
             return_confmaps=return_confmaps,
             return_crops=True,
@@ -928,6 +936,38 @@ def _build_topdown_embedding(
     )
 
 
+def _flip_test_idx(skeleton: Any, part_names: Optional[List[str]]) -> torch.Tensor:
+    """Confmap-channel permutation for flip-test, from the skeleton symmetries.
+
+    Channels follow the head's ``part_names`` (the skeleton's node order when
+    unset); symmetry pairs with a node the head does not predict are skipped.
+    Without any symmetries the mirrored confmaps are averaged channel for
+    channel, which is right only when no node has a left/right partner, so
+    this warns.
+
+    Args:
+        skeleton: The model's ``sio.Skeleton``.
+        part_names: The confmap head's ``part_names`` (``None``: skeleton nodes).
+
+    Returns:
+        ``(n_channels,)`` long permutation (see :func:`flip_idx_from_symmetries`).
+    """
+    names = list(part_names) if part_names else [n.name for n in skeleton.nodes]
+    pairs = []
+    for symmetry in getattr(skeleton, "symmetries", None) or []:
+        node_a, node_b = (node.name for node in symmetry)
+        if node_a in names and node_b in names:
+            pairs.append((names.index(node_a), names.index(node_b)))
+    if not pairs:
+        logger.warning(
+            "flip_test: the skeleton has no symmetries, so the mirrored confmaps "
+            "are averaged without swapping any left/right nodes. This is only "
+            "correct if no node has a left/right partner; otherwise define the "
+            "symmetries in the skeleton and retrain, or turn flip_test off."
+        )
+    return flip_idx_from_symmetries(len(names), pairs)
+
+
 def _build_topdown(
     centroid_ckpt_path: Optional[str],
     confmap_ckpt_path: Optional[str],
@@ -942,6 +982,7 @@ def _build_topdown(
     return_confmaps: bool,
     preprocess_config: Any,
     anchor_part: Optional[str],
+    flip_test: bool = False,
 ) -> LoadedAssets:
     if isinstance(peak_threshold, list):
         centroid_peak_threshold = peak_threshold[0]
@@ -1069,7 +1110,7 @@ def _build_topdown(
             torch_model=centroid_model,
             peak_threshold=centroid_peak_threshold,
             output_stride=centroid_config.model_config.head_configs.centroid.confmaps.output_stride,
-            refinement=integral_refinement,
+            refinement=resolve_refinement(integral_refinement, peaks="centroid"),
             integral_patch_size=integral_patch_size,
             return_confmaps=return_confmaps,
             return_crops=return_crops,
@@ -1090,15 +1131,26 @@ def _build_topdown(
         max_stride_inst = confmap_config.model_config.backbone_config[
             centered_instance_backbone_type
         ]["max_stride"]
+        ci_confmaps = (
+            confmap_config.model_config.head_configs.centered_instance.confmaps
+        )
         instance_peaks = FindInstancePeaks(
             torch_model=confmap_model,
             peak_threshold=centered_instance_peak_threshold,
-            output_stride=confmap_config.model_config.head_configs.centered_instance.confmaps.output_stride,
-            refinement=integral_refinement,
+            output_stride=ci_confmaps.output_stride,
+            # Top-down keypoints default to DARK, blurred with the training sigma.
+            refinement=resolve_refinement(integral_refinement, auto="dark"),
             integral_patch_size=integral_patch_size,
             return_confmaps=return_confmaps,
             max_stride=max_stride_inst,
             input_scale=confmap_scale,
+            dark_blur_sigma=float(ci_confmaps.sigma),
+            flip_test=flip_test,
+            flip_idx=(
+                _flip_test_idx(skeletons[0], ci_confmaps.part_names)
+                if flip_test
+                else None
+            ),
         )
 
     inference_model = TopDownInferenceModel(
@@ -1243,7 +1295,7 @@ def _build_topdown_segmentation(
             torch_model=centroid_model,
             peak_threshold=centroid_peak_threshold,
             output_stride=centroid_config.model_config.head_configs.centroid.confmaps.output_stride,
-            refinement=integral_refinement,
+            refinement=resolve_refinement(integral_refinement, peaks="centroid"),
             integral_patch_size=integral_patch_size,
             return_confmaps=return_confmaps,
             return_crops=True,
@@ -1414,7 +1466,7 @@ def _build_topdown_multiclass(
             torch_model=centroid_model,
             peak_threshold=centroid_peak_threshold,
             output_stride=centroid_config.model_config.head_configs.centroid.confmaps.output_stride,
-            refinement=integral_refinement,
+            refinement=resolve_refinement(integral_refinement, peaks="centroid"),
             integral_patch_size=integral_patch_size,
             return_confmaps=return_confmaps,
             return_crops=return_crops,
@@ -1435,11 +1487,15 @@ def _build_topdown_multiclass(
         torch_model=confmap_model,
         peak_threshold=centered_instance_peak_threshold,
         output_stride=confmap_config.model_config.head_configs.multi_class_topdown.confmaps.output_stride,
-        refinement=integral_refinement,
+        # Top-down keypoints default to DARK, blurred with the training sigma.
+        refinement=resolve_refinement(integral_refinement, auto="dark"),
         integral_patch_size=integral_patch_size,
         return_confmaps=return_confmaps,
         max_stride=max_stride_inst,
         input_scale=confmap_scale,
+        dark_blur_sigma=float(
+            confmap_config.model_config.head_configs.multi_class_topdown.confmaps.sigma
+        ),
     )
 
     inference_model = TopDownInferenceModel(
@@ -1467,7 +1523,7 @@ def load_model_assets(
     backbone_ckpt_path: Optional[str] = None,
     head_ckpt_path: Optional[str] = None,
     peak_threshold: Union[float, List[float]] = 0.2,
-    integral_refinement: str = "integral",
+    integral_refinement: str = "auto",
     integral_patch_size: int = 5,
     max_instances: Optional[int] = None,
     return_confmaps: bool = False,
@@ -1494,6 +1550,7 @@ def load_model_assets(
     mask_output: str = "mask",
     polygon_epsilon: float = 0.01,
     bbox_nms_iou: Optional[float] = None,
+    flip_test: bool = False,
 ) -> tuple[LoadedAssets, List[str]]:
     """Load checkpoints and build inference models.
 
@@ -1508,6 +1565,19 @@ def load_model_assets(
     other model types. Likewise ``fg_threshold`` / ``min_mask_area`` are
     forwarded ONLY to the bottom-up segmentation builder, and ``bbox_nms_iou``
     only to the ``bbox_*`` detector builder.
+
+    ``integral_refinement`` is resolved per stage
+    (:func:`~sleap_nn.inference.ops.peaks.resolve_refinement`): ``"auto"`` is
+    DARK for the top-down keypoint stage (``centered_instance`` /
+    ``multi_class_topdown``) and integral regression everywhere else.
+    ``flip_test`` (centered-instance models only) runs the centered-instance
+    model on mirrored crops too and averages the confmaps, swapping the
+    skeleton's symmetric nodes.
+
+    Raises:
+        ValueError: On an unknown ``integral_refinement``, ``"dark"`` /
+            ``"local"`` with a bottom-up model, or ``flip_test`` without a
+            ``centered_instance`` model.
 
     Returns:
         ``(loaded_assets, model_types)`` — *model_types* is the list of
@@ -1546,6 +1616,13 @@ def load_model_assets(
     # consumed by whichever branch below ends up winning -- would need
     # dispatch-branch-aware validation; that's a separate, bigger follow-up,
     # not covered here.)
+    resolve_refinement(integral_refinement)  # unknown names fail before loading
+    if flip_test and "centered_instance" not in model_types:
+        raise ValueError(
+            "flip_test is implemented for top-down centered_instance models only; "
+            f"detected types: {model_types}."
+        )
+
     _seen_type_paths: dict = {}
     for mp, mt in zip(model_paths, model_types):
         if mt in _seen_type_paths:
@@ -1685,11 +1762,14 @@ def load_model_assets(
                 "multi_class_topdown": _build_topdown_multiclass,
             }.get(stage_2[0])
             if builder is not None:
+                # flip_test is a centered_instance (_build_topdown) knob.
+                extra = {"flip_test": flip_test} if builder is _build_topdown else {}
                 assets = builder(
                     None,
                     stage_2_path,
                     max_instances=max_instances,
                     anchor_part=anchor_part,
+                    **extra,
                     **common_kwargs,
                 )
             else:
@@ -1768,6 +1848,7 @@ def load_model_assets(
                 confmap_path,
                 max_instances=max_instances,
                 anchor_part=anchor_part,
+                flip_test=flip_test,
                 **common_kwargs,
             )
         elif "multi_class_topdown" in model_types:

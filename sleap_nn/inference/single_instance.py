@@ -24,7 +24,8 @@ class SingleInstanceInferenceModel(L.LightningModule):
         peak_threshold: Minimum confidence map value to consider a global peak as valid.
         refinement: If `None`, returns the grid-aligned peaks with no refinement. If
             `"integral"`, peaks will be refined with integral regression. If `"local"`,
-            peaks will be refined with quarter pixel local gradient offset. This has no
+            peaks will be refined with quarter pixel local gradient offset. If `"dark"`,
+            peaks will be refined with DARK (see `dark_blur_sigma`). This has no
             effect if the model has an offset regression head.
         integral_patch_size: Size of patches to crop around each rough peak for integral
             refinement as an integer scalar.
@@ -32,6 +33,8 @@ class SingleInstanceInferenceModel(L.LightningModule):
             the predicted peaks.
         input_scale: Float indicating if the images should be resized before being
             passed to the model.
+        dark_blur_sigma: Std (confmap pixels) of the modulation blur for
+            `refinement="dark"`; set it to the head's training `sigma`.
     """
 
     def __init__(
@@ -43,6 +46,7 @@ class SingleInstanceInferenceModel(L.LightningModule):
         integral_patch_size: int = 5,
         return_confmaps: Optional[bool] = False,
         input_scale: float = 1.0,
+        dark_blur_sigma: float = 1.0,
     ):
         """Initialise the model attributes."""
         super().__init__()
@@ -53,6 +57,7 @@ class SingleInstanceInferenceModel(L.LightningModule):
         self.output_stride = output_stride
         self.return_confmaps = return_confmaps
         self.input_scale = input_scale
+        self.dark_blur_sigma = dark_blur_sigma
 
     def forward(self, inputs: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         """Predict confidence maps and infer peak coordinates.
@@ -78,6 +83,7 @@ class SingleInstanceInferenceModel(L.LightningModule):
             threshold=self.peak_threshold,
             refinement=self.refinement,
             integral_patch_size=self.integral_patch_size,
+            dark_blur_sigma=self.dark_blur_sigma,
         )
 
         # Adjust for stride and scale.

@@ -1713,11 +1713,15 @@ class TopDownCenteredInstanceLightningModule(LightningModel):
             negative_loss_weight=negative_loss_weight,
         )
 
+        # Epoch-end eval decodes like `sleap-nn predict` does by default: DARK,
+        # blurred with the head's training sigma (it used grid peaks before).
         self.instance_peaks_inf_layer = FindInstancePeaks(
             torch_model=self.forward,
             peak_threshold=0.2,
             return_confmaps=True,
             output_stride=self.head_configs.centered_instance.confmaps.output_stride,
+            refinement="dark",
+            dark_blur_sigma=float(self.head_configs.centered_instance.confmaps.sigma),
         )
 
         self.node_names = self.head_configs.centered_instance.confmaps.part_names

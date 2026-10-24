@@ -31,7 +31,7 @@ from sleap_nn.inference.layers.backends.base import ModelBackend
 from sleap_nn.inference.layers.base import ImageInput, InferenceLayer
 from sleap_nn.inference.layers.configs import PostprocessConfig, PreprocessConfig
 from sleap_nn.inference.ops.coord import undo_eff_scale, undo_input_scale, undo_stride
-from sleap_nn.inference.ops.peaks import find_global_peaks
+from sleap_nn.inference.ops.peaks import find_global_peaks, fuse_flip_confmaps
 from sleap_nn.inference.outputs import Outputs
 from sleap_nn.inference.preprocess_info import PreprocInfo
 
@@ -50,6 +50,14 @@ class CenteredInstanceLayer(InferenceLayer):
             preprocess input-scale resize.
         use_gt_peaks: When ``True``, skip the model and return the GT
             keypoints from the nearest matched instance.
+        flip_test: When ``True``, also run the model on the horizontally
+            mirrored crops and average the two confmaps (see
+            :func:`~sleap_nn.inference.ops.peaks.fuse_flip_confmaps`) before
+            peak finding. Doubles the model compute.
+        flip_idx: ``(n_nodes,)`` channel permutation swapping left/right nodes
+            for the mirrored pass (see
+            :func:`~sleap_nn.inference.ops.peaks.flip_idx_from_symmetries`).
+            ``None`` keeps the channel order.
         preprocess_config / postprocess_config: Standard knobs.
     """
 
@@ -63,6 +71,8 @@ class CenteredInstanceLayer(InferenceLayer):
         use_gt_peaks: bool = False,
         preprocess_config: Optional[PreprocessConfig] = None,
         postprocess_config: Optional[PostprocessConfig] = None,
+        flip_test: bool = False,
+        flip_idx: Optional[torch.Tensor] = None,
     ) -> None:
         """Compose the layer with default empty configs when omitted."""
         super().__init__(
@@ -73,6 +83,8 @@ class CenteredInstanceLayer(InferenceLayer):
             max_stride=max_stride,
         )
         self.use_gt_peaks = use_gt_peaks
+        self.flip_test = flip_test
+        self.flip_idx = flip_idx
 
     # ──────────────────────────────────────────────────────────────────
     # predict(): model path or GT path
@@ -113,7 +125,19 @@ class CenteredInstanceLayer(InferenceLayer):
                     "nearest GT instance)."
                 )
             return self._predict_from_gt(centroids, instances, centroid_vals)
-        return super().predict(crops)
+        if not self.flip_test:
+            return super().predict(crops)
+        x, info = self.preprocess(crops)
+        cms = self._extract_confmaps(self.backend(x))
+        cms_flipped = self._extract_confmaps(self.backend(torch.flip(x, dims=[-1])))
+        fused = fuse_flip_confmaps(
+            cms,
+            cms_flipped,
+            flip_idx=self.flip_idx,
+            output_stride=self.output_stride,
+            input_width=x.shape[-1],
+        )
+        return self.postprocess({self._TORCH_OUTPUT_KEY: fused}, info)
 
     # ──────────────────────────────────────────────────────────────────
     # GT path
@@ -209,7 +233,8 @@ class CenteredInstanceLayer(InferenceLayer):
         peaks, vals = find_global_peaks(
             confmaps.detach(),
             threshold=self.postprocess_config.peak_threshold,
-            refinement=self.postprocess_config.effective_refinement,
+            refinement=self.postprocess_config.resolve_refinement(auto="dark"),
+            dark_blur_sigma=self.postprocess_config.dark_blur_sigma,
             integral_patch_size=self.postprocess_config.integral_patch_size,
         )
 

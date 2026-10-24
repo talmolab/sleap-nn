@@ -49,6 +49,7 @@ from sleap_nn.inference.layers.bottomup_multiclass import BottomUpMultiClassLaye
 from sleap_nn.inference.layers.centered_instance import CenteredInstanceLayer
 from sleap_nn.inference.layers.centroid import CentroidLayer
 from sleap_nn.inference.layers.configs import PostprocessConfig, PreprocessConfig
+from sleap_nn.inference.ops.peaks import resolve_refinement
 from sleap_nn.inference.layers.segmentation import (
     SegmentationLayer,
     SemanticSegmentationLayer,
@@ -242,6 +243,7 @@ def _build_single_instance_layer(predictor: Any, device: str) -> SingleInstanceL
             peak_threshold=inf.peak_threshold,
             refinement=inf.refinement or "none",
             integral_patch_size=inf.integral_patch_size,
+            dark_blur_sigma=getattr(inf, "dark_blur_sigma", 1.0),
             return_confmaps=getattr(inf, "return_confmaps", False),
         ),
     )
@@ -639,11 +641,14 @@ def _build_centered_instance_layer(
         backend=TorchBackend(model=instance_model.torch_model, device=device),
         output_stride=instance_model.output_stride,
         max_stride=instance_model.max_stride,
+        flip_test=getattr(instance_model, "flip_test", False),
+        flip_idx=getattr(instance_model, "flip_idx", None),
         preprocess_config=PreprocessConfig(scale=instance_model.input_scale),
         postprocess_config=PostprocessConfig(
             peak_threshold=instance_model.peak_threshold,
             refinement=instance_model.refinement or "none",
             integral_patch_size=instance_model.integral_patch_size,
+            dark_blur_sigma=getattr(instance_model, "dark_blur_sigma", 1.0),
             return_confmaps=getattr(instance_model, "return_confmaps", False),
         ),
     )
@@ -702,6 +707,7 @@ def _build_centered_instance_multiclass_layer(
             peak_threshold=instance_model.peak_threshold,
             refinement=instance_model.refinement or "none",
             integral_patch_size=instance_model.integral_patch_size,
+            dark_blur_sigma=getattr(instance_model, "dark_blur_sigma", 1.0),
             return_confmaps=getattr(instance_model, "return_confmaps", False),
         ),
     )
@@ -1259,7 +1265,7 @@ class Predictor:
         backbone_ckpt_path: Optional[str] = None,
         head_ckpt_path: Optional[str] = None,
         peak_threshold: Union[float, List[float]] = 0.2,
-        integral_refinement: str = "integral",
+        integral_refinement: str = "auto",
         integral_patch_size: int = 5,
         max_instances: Optional[int] = None,
         return_confmaps: bool = False,
@@ -1291,6 +1297,7 @@ class Predictor:
         mask_output: str = "mask",
         polygon_epsilon: float = 0.01,
         bbox_nms_iou: Optional[float] = None,
+        flip_test: bool = False,
     ) -> "Predictor":
         """Build a :class:`Predictor` from one or more checkpoint paths.
 
@@ -1308,7 +1315,12 @@ class Predictor:
             peak_threshold: Default peak threshold. ``List[float]`` for
                 top-down (``[centroid_thresh, keypoint_thresh]``). Can be
                 overridden per-call via ``predict(peak_threshold=...)``.
-            integral_refinement: ``"integral"`` or ``"none"``.
+            integral_refinement: Sub-pixel peak refinement: ``"auto"``
+                (default; DARK for the top-down keypoint stage, integral
+                regression elsewhere), ``"dark"``, ``"integral"``, ``"local"``
+                or ``"none"``. ``"dark"`` / ``"local"`` need global peaks: the
+                centroid stage uses ``"integral"`` for them and bottom-up models
+                raise. See :func:`~sleap_nn.inference.ops.peaks.resolve_refinement`.
             integral_patch_size: Refinement patch size.
             max_instances: Cap on instances per frame.
             return_confmaps: Return confidence maps on Outputs.
@@ -1369,6 +1381,11 @@ class Predictor:
             bbox_nms_iou: Class-wise IoU-NMS threshold for ``bbox_*`` detectors.
                 ``None`` (default) uses the style's default (0.45 for SSD, off for
                 CenterNet, whose peak NMS already dedupes); ``1.0`` disables it.
+            flip_test: Top-down ``centered_instance`` models only: also run the
+                centered-instance model on the horizontally mirrored crops and
+                average the confmaps (symmetric nodes swapped using the skeleton
+                symmetries) before peak finding. Doubles the centered-instance
+                compute.
         """
         from sleap_nn.inference.loaders import load_model_assets
         from sleap_nn.system_info import get_startup_info_string
@@ -1408,6 +1425,7 @@ class Predictor:
             mask_output=mask_output,
             polygon_epsilon=polygon_epsilon,
             bbox_nms_iou=bbox_nms_iou,
+            flip_test=flip_test,
         )
 
         if centroid_only:
@@ -1453,6 +1471,8 @@ class Predictor:
             f"integral_refinement={integral_refinement}",
             f"paf_workers={paf_workers}",
         ]
+        if flip_test:
+            spec.append("flip_test=True")
         if "bottomup_segmentation" in model_types:
             spec.append(f"fg_threshold={fg_threshold}")
             spec.append(f"min_mask_area={min_mask_area}")
@@ -2025,7 +2045,10 @@ class Predictor:
             keypoint_threshold: Override peak threshold for the centered-
                 instance stage only (top-down models).
             max_instances: Override max instances per frame.
-            integral_refinement: ``"integral"`` or ``"none"``.
+            integral_refinement: Override the refinement (``"auto"``,
+                ``"dark"``, ``"integral"``, ``"local"`` or ``"none"``; see
+                :meth:`from_model_paths`). ``None`` keeps the construction-time
+                value.
             integral_patch_size: Override integral refinement patch size.
             return_confmaps: Override whether to return confidence maps.
             return_crops: Override whether to return per-instance crops
@@ -2221,7 +2244,10 @@ class Predictor:
             centroid_threshold: Override centroid stage threshold (top-down).
             keypoint_threshold: Override centered-instance threshold (top-down).
             max_instances: Override max instances per frame.
-            integral_refinement: ``"integral"`` or ``"none"``.
+            integral_refinement: Override the refinement (``"auto"``,
+                ``"dark"``, ``"integral"``, ``"local"`` or ``"none"``; see
+                :meth:`from_model_paths`). ``None`` keeps the construction-time
+                value.
             integral_patch_size: Override integral refinement patch size.
             return_confmaps: Override whether to return confidence maps.
             return_crops: Override whether to return per-instance crops
@@ -2878,6 +2904,14 @@ class Predictor:
         )
         if not has_any:
             return self.layer
+        if integral_refinement is not None:
+            # Fail before any frame is read: unknown names, and dark/local for
+            # bottom-up (local-peak) keypoints.
+            bottomup = (BottomUpLayer, BottomUpMultiClassLayer)
+            resolve_refinement(
+                integral_refinement,
+                peaks="local" if isinstance(self.layer, bottomup) else "global",
+            )
 
         is_topdown = isinstance(self.layer, TopDownLayer)
 
