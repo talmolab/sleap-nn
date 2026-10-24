@@ -6685,6 +6685,23 @@ def _get_warp_centered_instance_datasets(
     if float(pre.scale) != 1.0:
         raise ValueError("crop_pipeline='warp' cuts crops at crop_size; set scale=1.0.")
     aug = config.data_config.augmentation_config
+    geometric = aug.geometric if aug is not None else None
+    intensity = aug.intensity if aug is not None else None
+    stage2 = aug.get("stage2") if aug is not None else None
+    stage2_aug = None
+    if stage2 is not None:
+        # Stage 2 = stage 1 with the overrides merged over it.
+        def _merge(base, override):
+            if base is None and override is None:
+                return None
+            out = OmegaConf.to_container(base, resolve=True) if base is not None else {}
+            out.update(dict(override or {}))
+            return out
+
+        stage2_aug = (
+            _merge(geometric, stage2.get("geometric")),
+            _merge(intensity, stage2.get("intensity")),
+        )
     common = dict(
         crop_size=pre.crop_size,
         confmap_head_config=config.model_config.head_configs.centered_instance.confmaps,
@@ -6701,8 +6718,9 @@ def _get_warp_centered_instance_datasets(
     )
     train_dataset = WarpCenteredInstanceDataset(
         labels=train_labels,
-        geometric_aug=aug.geometric if aug is not None else None,
-        intensity_aug=aug.intensity if aug is not None else None,
+        geometric_aug=geometric,
+        intensity_aug=intensity,
+        stage2_aug=stage2_aug,
         apply_aug=config.data_config.use_augmentations_train,
         instance_filter=InstanceFilter.from_config(
             OmegaConf.select(config, "data_config.instance_filter", default=None)

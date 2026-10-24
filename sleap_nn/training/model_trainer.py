@@ -110,6 +110,7 @@ from sleap_nn.training.callbacks import (
     SegmentationEvaluationCallback,
     BBoxEvaluationCallback,
     TilingEpochCallback,
+    AugmentationStageCallback,
     EncoderFreezeSchedule,
     EmbeddingEvaluationCallback,
     EvalCadenceEarlyStopping,
@@ -2945,6 +2946,23 @@ class ModelTrainer:
         )
         if tiling is not None and tiling.enabled:
             callbacks.append(TilingEpochCallback())
+
+        # Stage-2 augmentation switch (`augmentation_config.stage2`, warp only).
+        stage2 = OmegaConf.select(
+            self.config, "data_config.augmentation_config.stage2", default=None
+        )
+        if stage2 is not None and self.config.data_config.use_augmentations_train:
+            if not self._uses_warp_pipeline():
+                raise ValueError(
+                    "augmentation_config.stage2 is only implemented for "
+                    "centered_instance with preprocessing.crop_pipeline='warp'."
+                )
+            callbacks.append(
+                AugmentationStageCallback(
+                    start_epoch=stage2.get("start_epoch"),
+                    start_step=stage2.get("start_step"),
+                )
+            )
 
         # Train-only speed / dataloader-stall / memory / LR logging (`perf/*`).
         throughput_every = OmegaConf.select(

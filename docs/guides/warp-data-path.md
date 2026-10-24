@@ -111,18 +111,122 @@ ViTPose trains on every person with at least one keypoint: `min_labeled_nodes: 1
 
 ## Augmentation
 
-The warp path reads the usual `augmentation_config` sections:
+The warp path reads the usual `augmentation_config` sections, plus keys that only it
+implements (the stock path accepts them and warns once that it ignores them). All of
+them are off by default.
 
-- Rotation and scale act about the crop center; `scale > 1` zooms in, as in the stock
-  path.
+**Geometry** is folded into the one warp:
+
+- Rotation and scale act about the crop center; with the default
+  `affine_sampling: uniform`, draws are uniform and `scale > 1` zooms in, as in the
+  stock path.
 - `translate_width` / `translate_height` shift the window by that fraction of the
   **padded box** (mmpose's `RandomBBoxTransform` shift), not of the crop.
 - `flip_p` mirrors the crop and swaps left/right nodes.
-- Contrast pivots on mid-grey (127.5) and brightness scales, as in the stock path;
-  Gaussian noise is applied on the uint8 crop.
-- `erase_p`, `mixup_p` and `uniform_noise_p` are not implemented here and are
-  ignored with a warning.
-- `crop_bbox_aspect: letterbox` is not implemented; the warp path crops as `square`.
+- `affine_sampling: mmpose` follows mmpose's `RandomBBoxTransform`: truncated-normal
+  draws (±1 sigma = the range ends) around the middle of each range, `scale_*` is the
+  scale of the crop **box** (content scale = 1 / box scale), and the shift moves the
+  box before it is rotated. mmpose config numbers can then be used as they are.
+- `half_body_p` is mmpose's `RandomHalfBody`: an instance with at least
+  `half_body_min_total_keypoints` visible nodes is cropped to its upper or lower body
+  (`half_body_upper_prob` prefers the upper half). The box is centered on the chosen
+  nodes, `half_body_padding` times their extent. Lower-body nodes are those named
+  hip / knee / ankle / heel / toe / foot unless `half_body_lower_nodes` lists them.
+  It replaces the crop window, so it costs nothing extra.
+
+**Photometric** ops run on the uint8 crop, in this order:
+
+| Op | Keys | Notes |
+|---|---|---|
+| Contrast, brightness | `contrast_*`, `brightness_*` | contrast pivots on 127.5, as in the stock path |
+| HSV shift | `hsv_p`, `hsv_{hue,saturation,value}_delta` | pixel-identical to mmdet's `YOLOXHSVRandomAug` |
+| Box blur | `blur_p`, `blur_kernel_{min,max}` | albumentations `Blur` |
+| Median blur | `median_blur_p`, `median_blur_kernel_{min,max}` | albumentations `MedianBlur` |
+| Gaussian blur | `gaussian_blur_p`, `gaussian_blur_sigma_{min,max}` | |
+| Uniform noise | `uniform_noise_*` | as in the stock path |
+| Gaussian noise | `gaussian_noise_*` | as in the stock path |
+| Coarse dropout | `coarse_dropout_p`, `coarse_dropout_{min,max}_holes`, `coarse_dropout_{min,max}_size` | black holes, sides as fractions of the crop (albumentations `CoarseDropout`) |
+| Random erase | `erase_*` | random-colour box, as in the stock path |
+
+Keypoints inside dropout holes and erased boxes keep their targets, as in mmpose: the
+model learns to infer occluded joints. Half-body crops push the other half's joints
+out of the crop; with `unlabeled_points: ignore` those get zero loss instead of
+training as absent.
+
+`mixup_p > 0` raises in the warp path (the stock path, which never implemented it,
+now warns instead of silently ignoring it). `crop_bbox_aspect: letterbox` is not
+implemented here; the warp path crops as `square`.
+
+### Recipes
+
+From mmpose's main-branch configs (`td-hm_ViTPose-base_8xb64-210e_coco-256x192.py`
+and `rtmpose-m_8xb256-420e_coco-256x192.py`):
+
+=== "ViTPose"
+    ```yaml
+    augmentation_config:
+      geometric:
+        affine_sampling: mmpose
+        flip_p: 0.5
+        half_body_p: 0.3
+        translate_width: 0.16
+        translate_height: 0.16
+        translate_p: 0.3
+        scale_min: 0.5            # box scale
+        scale_max: 1.5
+        scale_p: 1.0
+        rotation_min: -80.0
+        rotation_max: 80.0
+        rotation_p: 0.6
+    ```
+
+=== "RTMPose (two stages)"
+    ```yaml
+    augmentation_config:
+      geometric:
+        affine_sampling: mmpose
+        flip_p: 0.5
+        half_body_p: 0.3
+        translate_width: 0.16
+        translate_height: 0.16
+        translate_p: 0.3
+        scale_min: 0.6
+        scale_max: 1.4
+        scale_p: 1.0
+        rotation_min: -80.0
+        rotation_max: 80.0
+        rotation_p: 0.6
+        coarse_dropout_p: 1.0
+        coarse_dropout_min_size: 0.2
+        coarse_dropout_max_size: 0.4
+      intensity:
+        hsv_p: 1.0
+        blur_p: 0.1
+        median_blur_p: 0.1
+      stage2:                     # the last 30 of 420 epochs
+        start_epoch: 390
+        geometric:
+          translate_p: 0.0
+          scale_min: 0.75
+          scale_max: 1.25
+          rotation_min: -60.0
+          rotation_max: 60.0
+          coarse_dropout_p: 0.5
+    ```
+
+The original ViTPose repository used ±40° rotation and 0.65–1.35 scale (uniform),
+narrower than mmpose's current ViTPose config.
+
+### Stage-2 switch
+
+`augmentation_config.stage2: {start_epoch | start_step, geometric, intensity}` trains
+the last part of a run with different augmentation (RTMPose's `PipelineSwitchHook`).
+Its `geometric` / `intensity` entries are overrides merged over the stage-1 sections.
+`AugmentationStageCallback` switches the training dataset through a shared-memory
+flag that persistent workers read per sample, so it works with forked and spawned
+workers without restarting them, and a resumed run lands in the right stage. Batches
+already prefetched at the switch (at most `num_workers x prefetch_factor`) still use
+stage 1. `stage2` is refused for any other pipeline.
 
 ## Throughput
 
