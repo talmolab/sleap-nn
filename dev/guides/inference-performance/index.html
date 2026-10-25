@@ -1580,6 +1580,28 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#batches-on-the-gpu-upload_batches" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Batches on the GPU (upload_batches)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#channels-last-memory_format" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Channels-last (memory_format)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#fuse_layers-conv-bn-fusion" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -8073,6 +8095,28 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#batches-on-the-gpu-upload_batches" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Batches on the GPU (upload_batches)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#channels-last-memory_format" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Channels-last (memory_format)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#fuse_layers-conv-bn-fusion" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -8242,6 +8286,13 @@ and can be re-run to validate your own setup.</p>
   <code>use_compile=True</code>.</li>
 <li><strong><code>paf_workers=0</code></strong> is the right default. Workers are a net loss
   for typical bottom-up workloads at fixture-checkpoint scale.</li>
+<li><strong><code>--upload_batches</code></strong> copies each batch to the GPU before
+  preprocessing, so resizing and top-down cropping don't hold up the
+  GPU: about 2× on a top-down pair (see
+  <a href="#batches-on-the-gpu-upload_batches">Batches on the GPU</a>).</li>
+<li><strong>On NVIDIA, channels-last</strong> (<code>--memory_format channels_last</code>)
+  roughly doubled a top-down pair's speed on an A100 (see
+  <a href="#channels-last-memory_format">Channels-last</a>).</li>
 </ul>
 </div>
 <hr />
@@ -8421,6 +8472,125 @@ shape. If your batches have varying spatial dims, set
 shape — which the new flow's sizematcher does automatically when
 <code>max_height</code> / <code>max_width</code> are set in training config.</p>
 </div>
+<h3 id="batches-on-the-gpu-upload_batches">Batches on the GPU (<code>upload_batches</code>)<a class="headerlink" href="#batches-on-the-gpu-upload_batches" title="Permanent link">&para;</a></h3>
+<p><code>sleap-nn predict --upload_batches</code> (or <code>upload_batches=True</code> on
+<code>Predictor.from_model_paths</code> / <code>sleap_nn.inference.predict</code>) copies each
+<code>uint8</code> batch from the provider to the GPU the (first) model runs on, before
+<code>layer.predict</code>. Without it (the default) the layer gets a numpy batch, and
+the sizematcher, input scaling and top-down crop extraction run on the CPU;
+only the networks run on the GPU. It applies to trained checkpoints in
+<code>sleap-nn predict</code>; <code>sleap-nn track</code> (the legacy pipeline) and exported
+ONNX/TensorRT models are unchanged. Off a CUDA device it does nothing (and
+logs a warning saying so).</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/centroid/<span class="w"> </span>-m<span class="w"> </span>models/centered_instance/<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">    </span>--device<span class="w"> </span>cuda<span class="w"> </span>--batch_size<span class="w"> </span><span class="m">16</span><span class="w"> </span>--upload_batches
+</span></code></pre></div>
+<p>Measured on an <strong>NVIDIA A100 40 GB</strong> (torch 2.6, sleap-nn 0.3.3) with a
+top-down pair (centroid at input scale 0.25, output stride 2;
+centered-instance on 320 px crops at scale 0.5, max stride 32, 24
+filters), a 1280×1024 5-animal video, batch 16, fp32:</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th style="text-align: right;">resize</th>
+<th style="text-align: right;">crops</th>
+<th style="text-align: right;">networks + peaks</th>
+<th style="text-align: right;">total ms / frame</th>
+<th style="text-align: right;">fps</th>
+<th style="text-align: right;">GPU busy</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>numpy batch (<code>upload_batches=False</code>)</td>
+<td style="text-align: right;">3.79</td>
+<td style="text-align: right;">1.42</td>
+<td style="text-align: right;">4.78</td>
+<td style="text-align: right;">10.0</td>
+<td style="text-align: right;">100</td>
+<td style="text-align: right;">38%</td>
+</tr>
+<tr>
+<td>uint8 batch on the GPU</td>
+<td style="text-align: right;">0.04</td>
+<td style="text-align: right;">0.07</td>
+<td style="text-align: right;">4.50</td>
+<td style="text-align: right;">4.6</td>
+<td style="text-align: right;">226</td>
+<td style="text-align: right;">89%</td>
+</tr>
+</tbody>
+</table>
+<p>Same animals found; 90% of keypoints bit-identical. The rest differ
+because the GPU's <code>uint8</code> resize rounds differently from the CPU's: on an
+RTX 6000 Ada, 5–13% of resized pixels came out 1 grey level apart (never
+more). That's why it is opt-in: without it, results are exactly as before.</p>
+<h3 id="channels-last-memory_format">Channels-last (<code>memory_format</code>)<a class="headerlink" href="#channels-last-memory_format" title="Permanent link">&para;</a></h3>
+<p><code>sleap-nn predict --memory_format channels_last</code> (or
+<code>memory_format="channels_last"</code> on <code>Predictor.from_model_paths</code> /
+<code>sleap_nn.inference.predict</code>) stores the weights of every model in the
+composition channels-last (both models of a top-down pair, a tiled layer's
+inner model, ...). cuDNN's fastest convolution kernels on NVIDIA GPUs use
+that layout; with channels-first weights the activations are converted
+around every convolution. Trained checkpoints only: exported ONNX/TensorRT
+models ignore it, with a warning.</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/centroid/<span class="w"> </span>-m<span class="w"> </span>models/centered_instance/<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">    </span>--device<span class="w"> </span>cuda<span class="w"> </span>--batch_size<span class="w"> </span><span class="m">16</span><span class="w"> </span>--upload_batches<span class="w"> </span>--memory_format<span class="w"> </span>channels_last
+</span></code></pre></div>
+<p>It is also a <code>TorchBackend</code> field (<code>TorchBackend(memory_format=...)</code>), and
+setting it on a built backend converts the model right away.</p>
+<p>Same A100 and top-down pair as above, batches on the GPU, fps:</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th style="text-align: right;">default layout</th>
+<th style="text-align: right;">channels-last</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>fp32, batch 16</td>
+<td style="text-align: right;">226</td>
+<td style="text-align: right;">493</td>
+</tr>
+<tr>
+<td><code>use_fp16</code>, batch 16</td>
+<td style="text-align: right;">244</td>
+<td style="text-align: right;">640</td>
+</tr>
+<tr>
+<td><code>use_fp16</code>, batch 64</td>
+<td style="text-align: right;">–</td>
+<td style="text-align: right;">801</td>
+</tr>
+</tbody>
+</table>
+<p>On this GPU fp16 only pays off once the model is channels-last. The fp16
+rows used a peak-finding fix for fp16 confidence maps whose top is two
+equal pixels (#782); without it fp16 loses about 0.8% of the animals.</p>
+<table>
+<thead>
+<tr>
+<th>Reason to enable</th>
+<th>Reason to skip</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>NVIDIA GPUs (tensor-core convolutions)</td>
+<td>AMD (ROCm): no difference measured</td>
+</tr>
+<tr>
+<td></td>
+<td>CPU / MPS: not measured</td>
+</tr>
+</tbody>
+</table>
+<p>The channels-last kernels can differ from the default ones in the last
+bits (fp32, TF32 when allowed), about as much as running the same model
+on a different GPU.</p>
 <h3 id="fuse_layers-conv-bn-fusion"><code>fuse_layers</code> (Conv-BN fusion)<a class="headerlink" href="#fuse_layers-conv-bn-fusion" title="Permanent link">&para;</a></h3>
 <p>Disabled by default. The post-PR-26 measurement on every fixture in this
 repo shows a 1.00× speedup — i.e., <strong>no measurable benefit on these
@@ -8479,38 +8649,40 @@ frame — workers can't parallelize what isn't there to parallelize.</p>
 <hr />
 <h2 id="workflow-recipes">Workflow recipes<a class="headerlink" href="#workflow-recipes" title="Permanent link">&para;</a></h2>
 <h3 id="i-want-the-fastest-correct-predictions-on-a-long-video">"I want the fastest correct predictions on a long video"<a class="headerlink" href="#i-want-the-fastest-correct-predictions-on-a-long-video" title="Permanent link">&para;</a></h3>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">sleap_nn.inference</span><span class="w"> </span><span class="kn">import</span> <span class="n">Predictor</span>
-</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>
-</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="n">predictor</span> <span class="o">=</span> <span class="n">Predictor</span><span class="o">.</span><span class="n">from_model_paths</span><span class="p">(</span>
-</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>    <span class="p">[</span><span class="s2">&quot;models/centroid/&quot;</span><span class="p">,</span> <span class="s2">&quot;models/centered_instance/&quot;</span><span class="p">],</span>
-</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>    <span class="n">device</span><span class="o">=</span><span class="s2">&quot;cuda&quot;</span><span class="p">,</span>
-</span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>    <span class="n">batch_size</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span>
-</span><span id="__span-3-7"><a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="p">)</span>
-</span><span id="__span-3-8"><a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a><span class="n">backend</span> <span class="o">=</span> <span class="n">predictor</span><span class="o">.</span><span class="n">layer</span><span class="o">.</span><span class="n">backend</span>  <span class="c1"># or .centroid_layer.backend for top-down</span>
-</span><span id="__span-3-9"><a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a><span class="n">backend</span><span class="o">.</span><span class="n">use_fp16</span> <span class="o">=</span> <span class="kc">True</span>
-</span><span id="__span-3-10"><a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a><span class="n">backend</span><span class="o">.</span><span class="n">use_compile</span> <span class="o">=</span> <span class="kc">True</span>
-</span><span id="__span-3-11"><a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a>
-</span><span id="__span-3-12"><a id="__codelineno-3-12" name="__codelineno-3-12" href="#__codelineno-3-12"></a><span class="n">labels</span> <span class="o">=</span> <span class="n">predictor</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span><span class="s2">&quot;long_video.mp4&quot;</span><span class="p">)</span>
-</span><span id="__span-3-13"><a id="__codelineno-3-13" name="__codelineno-3-13" href="#__codelineno-3-13"></a><span class="n">labels</span><span class="o">.</span><span class="n">save</span><span class="p">(</span><span class="s2">&quot;predictions.slp&quot;</span><span class="p">)</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">sleap_nn.inference</span><span class="w"> </span><span class="kn">import</span> <span class="n">Predictor</span>
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="n">predictor</span> <span class="o">=</span> <span class="n">Predictor</span><span class="o">.</span><span class="n">from_model_paths</span><span class="p">(</span>
+</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>    <span class="p">[</span><span class="s2">&quot;models/centroid/&quot;</span><span class="p">,</span> <span class="s2">&quot;models/centered_instance/&quot;</span><span class="p">],</span>
+</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>    <span class="n">device</span><span class="o">=</span><span class="s2">&quot;cuda&quot;</span><span class="p">,</span>
+</span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a>    <span class="n">batch_size</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span>
+</span><span id="__span-5-7"><a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a>    <span class="n">upload_batches</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+</span><span id="__span-5-8"><a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a>    <span class="n">memory_format</span><span class="o">=</span><span class="s2">&quot;channels_last&quot;</span><span class="p">,</span>  <span class="c1"># NVIDIA</span>
+</span><span id="__span-5-9"><a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a><span class="p">)</span>
+</span><span id="__span-5-10"><a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a><span class="n">backend</span> <span class="o">=</span> <span class="n">predictor</span><span class="o">.</span><span class="n">layer</span><span class="o">.</span><span class="n">backend</span>  <span class="c1"># or .centroid_layer.backend for top-down</span>
+</span><span id="__span-5-11"><a id="__codelineno-5-11" name="__codelineno-5-11" href="#__codelineno-5-11"></a><span class="n">backend</span><span class="o">.</span><span class="n">use_fp16</span> <span class="o">=</span> <span class="kc">True</span>
+</span><span id="__span-5-12"><a id="__codelineno-5-12" name="__codelineno-5-12" href="#__codelineno-5-12"></a><span class="n">backend</span><span class="o">.</span><span class="n">use_compile</span> <span class="o">=</span> <span class="kc">True</span>
+</span><span id="__span-5-13"><a id="__codelineno-5-13" name="__codelineno-5-13" href="#__codelineno-5-13"></a>
+</span><span id="__span-5-14"><a id="__codelineno-5-14" name="__codelineno-5-14" href="#__codelineno-5-14"></a><span class="n">labels</span> <span class="o">=</span> <span class="n">predictor</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span><span class="s2">&quot;long_video.mp4&quot;</span><span class="p">)</span>
+</span><span id="__span-5-15"><a id="__codelineno-5-15" name="__codelineno-5-15" href="#__codelineno-5-15"></a><span class="n">labels</span><span class="o">.</span><span class="n">save</span><span class="p">(</span><span class="s2">&quot;predictions.slp&quot;</span><span class="p">)</span>
 </span></code></pre></div>
 <p>Expected speedup vs eager-CPU: 20–50× on CUDA for a 5-minute video.</p>
 <h3 id="i-want-a-quick-sanity-check-on-a-10-frame-clip">"I want a quick sanity check on a 10-frame clip"<a class="headerlink" href="#i-want-a-quick-sanity-check-on-a-10-frame-clip" title="Permanent link">&para;</a></h3>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-i<span class="w"> </span>clip.mp4<span class="w"> </span>-m<span class="w"> </span>models/my_model/<span class="w"> </span>--device<span class="w"> </span>cuda<span class="w"> </span>--batch_size<span class="w"> </span><span class="m">4</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-i<span class="w"> </span>clip.mp4<span class="w"> </span>-m<span class="w"> </span>models/my_model/<span class="w"> </span>--device<span class="w"> </span>cuda<span class="w"> </span>--batch_size<span class="w"> </span><span class="m">4</span>
 </span></code></pre></div>
 <p>Skip FP16 + compile — both add overhead that dominates short runs.</p>
 <h3 id="im-on-a-mac-mps">"I'm on a Mac, MPS"<a class="headerlink" href="#im-on-a-mac-mps" title="Permanent link">&para;</a></h3>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/my_model/<span class="w"> </span>--device<span class="w"> </span>mps<span class="w"> </span>--batch_size<span class="w"> </span><span class="m">4</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/my_model/<span class="w"> </span>--device<span class="w"> </span>mps<span class="w"> </span>--batch_size<span class="w"> </span><span class="m">4</span>
 </span></code></pre></div>
 <p>FP16 silently has no effect on MPS (warning logged). <code>torch.compile</code>
 on MPS is unreliable — the new flow disables it for you with a clear
 warning. Expect ~2-3× speedup over CPU; not 20× like CUDA.</p>
 <h3 id="multi-animal-bottom-up-on-a-crowded-video">"Multi-animal bottom-up on a crowded video"<a class="headerlink" href="#multi-animal-bottom-up-on-a-crowded-video" title="Permanent link">&para;</a></h3>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="n">predictor</span> <span class="o">=</span> <span class="n">Predictor</span><span class="o">.</span><span class="n">from_model_paths</span><span class="p">(</span>
-</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>    <span class="p">[</span><span class="s2">&quot;models/bottomup/&quot;</span><span class="p">],</span>
-</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>    <span class="n">device</span><span class="o">=</span><span class="s2">&quot;cuda&quot;</span><span class="p">,</span>
-</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a>    <span class="n">batch_size</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span>
-</span><span id="__span-6-5"><a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a>    <span class="n">paf_workers</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span>   <span class="c1"># try 2 / 4 / 8; measure on your data</span>
-</span><span id="__span-6-6"><a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="p">)</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="n">predictor</span> <span class="o">=</span> <span class="n">Predictor</span><span class="o">.</span><span class="n">from_model_paths</span><span class="p">(</span>
+</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>    <span class="p">[</span><span class="s2">&quot;models/bottomup/&quot;</span><span class="p">],</span>
+</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>    <span class="n">device</span><span class="o">=</span><span class="s2">&quot;cuda&quot;</span><span class="p">,</span>
+</span><span id="__span-8-4"><a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a>    <span class="n">batch_size</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span>
+</span><span id="__span-8-5"><a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a>    <span class="n">paf_workers</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span>   <span class="c1"># try 2 / 4 / 8; measure on your data</span>
+</span><span id="__span-8-6"><a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a><span class="p">)</span>
 </span></code></pre></div>
 <p><code>paf_workers &gt; 0</code> is the one place you may need to experiment per
 dataset. Start at 0; raise only if profiling shows CPU grouping
@@ -8530,8 +8702,8 @@ deploying to:</p>
   shapes): turn <code>dynamic=True</code> on compile or skip it.</li>
 </ul>
 <p>Re-run the bench:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="nv">SLEAP_NN_REPO</span><span class="o">=</span>/path/to/sleap-nn<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="w">  </span>python<span class="w"> </span>scratch/2026-04-30-inference-refactor-implementation/cuda_bench/run_cuda_bench.py
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="nv">SLEAP_NN_REPO</span><span class="o">=</span>/path/to/sleap-nn<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="w">  </span>python<span class="w"> </span>scratch/2026-04-30-inference-refactor-implementation/cuda_bench/run_cuda_bench.py
 </span></code></pre></div>
 <p>Output lands in the same folder as a timestamped log file.</p>
 <hr />

@@ -8511,6 +8511,16 @@ same instance is safe to run on multiple sources.</p>
 <td><code>0</code></td>
 </tr>
 <tr>
+<td><code>upload_batches</code></td>
+<td>Copy each <code>uint8</code> batch to the model's GPU before preprocessing (CUDA)</td>
+<td><code>False</code></td>
+</tr>
+<tr>
+<td><code>memory_format</code></td>
+<td>Weight layout of every model: <code>"contiguous"</code> or <code>"channels_last"</code> (NVIDIA)</td>
+<td><code>"contiguous"</code></td>
+</tr>
+<tr>
 <td><code>centroid_only</code></td>
 <td>Force centroid-only output</td>
 <td><code>False</code></td>
