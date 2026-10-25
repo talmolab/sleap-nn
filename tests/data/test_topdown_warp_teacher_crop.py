@@ -225,6 +225,32 @@ def test_teacher_photometry_maps_spatial_draws():
     assert st[0, 0, 0] == te[0, 0, 0] != 138
 
 
+def test_teacher_erase_that_does_not_fit_leaves_both_crops(tmp_path):
+    crop = np.full((40, 30, 3), 128, np.uint8)
+    teacher = np.full((80, 60, 3), 128, np.uint8)
+    aug = WarpAug(erase_p=1.0, erase_scale=(0.9, 0.9), erase_ratio=(4.0, 4.0))
+    st, te = aug.intensity(crop, np.random.default_rng(0), teacher)
+    np.testing.assert_array_equal(st, crop)
+    np.testing.assert_array_equal(te, teacher)
+
+
+@pytest.mark.parametrize(
+    "gray_frames,kw,channels",
+    [(False, {"ensure_grayscale": True}, 1), (True, {"ensure_rgb": True}, 3)],
+)
+def test_teacher_crop_follows_the_channel_settings(tmp_path, gray_frames, kw, channels):
+    labels = _labels(tmp_path)
+    if gray_frames:
+        path = labels.videos[0].filename[0]
+        cv2.imwrite(path, cv2.imread(path, cv2.IMREAD_GRAYSCALE))
+    s = _draws(_ds(labels, teacher=(96, 72), **kw), 1)[0]
+    assert s["instance_image"].shape == (1, channels, 64, 48)
+    assert s[TEACHER_IMAGE_KEY].shape == (1, channels, 96, 72)
+    down = cv2.resize(_hwc(s[TEACHER_IMAGE_KEY]), (48, 64), cv2.INTER_AREA)
+    st = _hwc(s["instance_image"])
+    assert np.abs(down.reshape(st.shape) - st).mean() < 4.0
+
+
 def test_teacher_crop_size_validation(tmp_path):
     labels = _labels(tmp_path)
     for bad in [(96, 96), 64, (0, 0)]:  # an int is square, unlike the 64x48 crop
@@ -280,6 +306,18 @@ def test_builder_gives_the_teacher_crop_to_training_only(pytestconfig):
         _get_warp_centered_instance_datasets([labels], [labels], cfg, "unet", {})[0],
     ):
         assert train.teacher_hw is None and TEACHER_IMAGE_KEY not in train[0]
+
+
+def test_teacher_crop_of_embedded_gray_frames_with_ensure_rgb(pytestconfig):
+    """Frames read through the labels (an embedded grayscale .pkg.slp)."""
+    cfg, labels = _cfg(pytestconfig), _minimal_labels(pytestconfig)
+    cfg.data_config.preprocessing.ensure_rgb = True
+    train, _ = get_train_val_datasets(
+        [labels], [labels], cfg, teacher_crop_size=[96, 72]
+    )
+    s = train[0]
+    assert s["instance_image"].shape == (1, 3, 64, 48)
+    assert s[TEACHER_IMAGE_KEY].shape == (1, 3, 96, 72)
 
 
 def test_teacher_crop_size_needs_the_warp_path(pytestconfig):
