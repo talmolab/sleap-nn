@@ -103,6 +103,8 @@ Selected keyword arguments (all keyword-only):
 | `filter_config` | A `FilterConfig` | `None` |
 | `tracker_config` | A `TrackerConfig` | `None` |
 | `paf_workers` | CPU worker processes for bottom-up PAF grouping | `0` |
+| `upload_batches` | Copy each `uint8` batch to the model's GPU before preprocessing (CUDA) | `False` |
+| `memory_format` | Weight layout of every model: `"contiguous"` or `"channels_last"` (NVIDIA) | `"contiguous"` |
 | `centroid_only` | Force centroid-only output | `False` |
 
 The skeleton is resolved automatically from the training config, so

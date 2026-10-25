@@ -361,3 +361,70 @@ def test_track_rejects_upload_batches():
     assert result.exit_code != 0
     assert "upload_batches" in result.output
     assert not mock_run.called
+
+
+def test_memory_format_flag_reaches_predict():
+    """``--memory_format`` is passed on to ``run.predict`` (contiguous by default)."""
+    runner = CliRunner()
+    for args, expected in (
+        ([], "contiguous"),
+        (["--memory_format", "channels_last"], "channels_last"),
+    ):
+        with patch(
+            "sleap_nn.inference.run.predict",
+            return_value=MagicMock(),
+        ) as mock_predict:
+            result = runner.invoke(
+                cli,
+                [
+                    "predict",
+                    "--data_path",
+                    "/fake/path.mp4",
+                    "--model_paths",
+                    "/fake/model",
+                ]
+                + args,
+            )
+        assert result.exit_code == 0, result.output
+        assert mock_predict.call_args.kwargs["memory_format"] == expected
+
+
+def test_memory_format_flag_rejects_unknown_value():
+    """Only ``contiguous`` / ``channels_last`` are accepted."""
+    result = CliRunner().invoke(
+        cli,
+        [
+            "predict",
+            "--data_path",
+            "/fake/path.mp4",
+            "--model_paths",
+            "/fake/model",
+            "--memory_format",
+            "nhwc",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "memory_format" in result.output
+
+
+def test_track_rejects_memory_format():
+    """`--memory_format` is a `predict` (new flow) flag; legacy `track` refuses it."""
+    runner = CliRunner()
+    with patch(
+        "sleap_nn.legacy_predict.run_inference", return_value=MagicMock()
+    ) as mock_run:
+        result = runner.invoke(
+            cli,
+            [
+                "track",
+                "--data_path",
+                "/fake/path.mp4",
+                "--model_paths",
+                "/fake/model",
+                "--memory_format",
+                "channels_last",
+            ],
+        )
+    assert result.exit_code != 0
+    assert "memory_format" in result.output
+    assert not mock_run.called

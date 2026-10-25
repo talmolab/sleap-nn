@@ -2773,6 +2773,7 @@ def _run_in_memory_new_flow(
         "batch_size": kwargs.get("batch_size", 4),
         "paf_workers": paf_workers,
         "upload_batches": bool(kwargs.get("upload_batches")),
+        "memory_format": kwargs.get("memory_format") or "contiguous",
         "peak_threshold": peak_thresh,
         "centroid_threshold": centroid_thresh,
         "keypoint_threshold": peak_thresh,
@@ -3304,6 +3305,7 @@ def _run_stream_to_file(
         "anchor_part": kwargs.get("anchor_part"),
         "paf_workers": paf_workers,
         "upload_batches": bool(kwargs.get("upload_batches")),
+        "memory_format": kwargs.get("memory_format") or "contiguous",
         # Bottom-up PAF grouping knobs (inert for non-bottom-up models). #583.
         "max_edge_length_ratio": kwargs.get("max_edge_length_ratio", 0.25),
         "dist_penalty_weight": kwargs.get("dist_penalty_weight", 1.0),
@@ -3538,6 +3540,16 @@ def _common_inference_options(f):
             "The GPU resize rounds a few pixels differently (by 1 grey level), so "
             "results differ slightly from a run without it. `predict` with "
             "trained checkpoints only.",
+        ),
+        click.option(
+            "--memory_format",
+            type=click.Choice(["contiguous", "channels_last"]),
+            default="contiguous",
+            show_default=True,
+            help="Weight layout of the models. `channels_last` lets cuDNN use its "
+            "fast convolution kernels on NVIDIA GPUs (2.2x faster for a top-down "
+            "pair on an A100, fp32; no change on AMD ROCm). `predict` with trained "
+            "checkpoints only.",
         ),
         click.option(
             "--runtime",

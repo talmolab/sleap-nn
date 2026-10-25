@@ -36,7 +36,7 @@ and can be re-run to validate your own setup.
       preprocessing, so resizing and top-down cropping don't hold up the
       GPU: about 2× on a top-down pair (see
       [Batches on the GPU](#batches-on-the-gpu-upload_batches)).
-    - **On NVIDIA, channels-last** (`backend.memory_format = "channels_last"`)
+    - **On NVIDIA, channels-last** (`--memory_format channels_last`)
       roughly doubled a top-down pair's speed on an A100 (see
       [Channels-last](#channels-last-memory_format)).
 
@@ -142,12 +142,13 @@ predictor.layer.backend.use_compile = True
 
 `sleap-nn predict --upload_batches` (or `upload_batches=True` on
 `Predictor.from_model_paths` / `sleap_nn.inference.predict`) copies each
-`uint8` batch from the provider to the GPU before `layer.predict` when the
-device is CUDA. Without it (the default) the layer gets a numpy batch, and
+`uint8` batch from the provider to the GPU the (first) model runs on, before
+`layer.predict`. Without it (the default) the layer gets a numpy batch, and
 the sizematcher, input scaling and top-down crop extraction run on the CPU;
 only the networks run on the GPU. It applies to trained checkpoints in
 `sleap-nn predict`; `sleap-nn track` (the legacy pipeline) and exported
-ONNX/TensorRT models are unchanged.
+ONNX/TensorRT models are unchanged. Off a CUDA device it does nothing (and
+logs a warning saying so).
 
 ```bash
 sleap-nn predict -i video.mp4 -m models/centroid/ -m models/centered_instance/ \
@@ -171,19 +172,22 @@ more). That's why it is opt-in: without it, results are exactly as before.
 
 ### Channels-last (`memory_format`)
 
-`TorchBackend(memory_format="channels_last")` stores the model's weights
-channels-last. cuDNN's fastest convolution kernels on NVIDIA GPUs use that
-layout; with channels-first weights the activations are converted around
-every convolution. Can be set on a built predictor; the model is
-converted on the next forward:
+`sleap-nn predict --memory_format channels_last` (or
+`memory_format="channels_last"` on `Predictor.from_model_paths` /
+`sleap_nn.inference.predict`) stores the weights of every model in the
+composition channels-last (both models of a top-down pair, a tiled layer's
+inner model, ...). cuDNN's fastest convolution kernels on NVIDIA GPUs use
+that layout; with channels-first weights the activations are converted
+around every convolution. Trained checkpoints only: exported ONNX/TensorRT
+models ignore it, with a warning.
 
-```python
-for backend in (
-    predictor.layer.centroid_layer.backend,
-    predictor.layer.centered_instance_layer.backend,
-):
-    backend.memory_format = "channels_last"
+```bash
+sleap-nn predict -i video.mp4 -m models/centroid/ -m models/centered_instance/ \
+    --device cuda --batch_size 16 --upload_batches --memory_format channels_last
 ```
+
+It is also a `TorchBackend` field (`TorchBackend(memory_format=...)`), and
+setting it on a built backend converts the model right away.
 
 Same A100 and top-down pair as above, batches on the GPU, fps:
 
@@ -259,11 +263,12 @@ predictor = Predictor.from_model_paths(
     ["models/centroid/", "models/centered_instance/"],
     device="cuda",
     batch_size=8,
+    upload_batches=True,
+    memory_format="channels_last",  # NVIDIA
 )
 backend = predictor.layer.backend  # or .centroid_layer.backend for top-down
 backend.use_fp16 = True
 backend.use_compile = True
-backend.memory_format = "channels_last"  # NVIDIA
 
 labels = predictor.predict("long_video.mp4")
 labels.save("predictions.slp")

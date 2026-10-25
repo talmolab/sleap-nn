@@ -44,6 +44,13 @@ import torch.nn as nn
 # ──────────────────────────────────────────────────────────────────────────
 
 
+def _on_set_memory_format(backend: "TorchBackend", attribute: Any, value: str) -> str:
+    """``on_setattr`` hook: convert the model when ``memory_format`` changes."""
+    if value != backend.memory_format:
+        backend._apply_memory_format(value)
+    return value
+
+
 @attrs.define(eq=False, slots=False)
 class TorchBackend:
     """PyTorch ``nn.Module`` backend with opt-in compile / FP16 / fusion.
@@ -69,7 +76,7 @@ class TorchBackend:
             converted around every convolution. ``"channels_last"`` ran a
             top-down UNet pair 2.2× faster on an A100 (fp32) and made no
             difference on AMD (ROCm). Can also be set after construction;
-            the model is converted on the next forward.
+            the model is converted right away.
         warmup_iterations: Number of dummy forwards to run inside
             :meth:`warmup`. ``1`` is enough on MPS / CUDA.
 
@@ -89,13 +96,11 @@ class TorchBackend:
     memory_format: str = attrs.field(
         default="contiguous",
         validator=attrs.validators.in_(("contiguous", "channels_last")),
+        on_setattr=attrs.setters.pipe(attrs.setters.validate, _on_set_memory_format),
     )
 
     # Internal state, not part of the public surface.
     _compiled: Optional[nn.Module] = attrs.field(default=None, init=False, repr=False)
-    _model_memory_format: str = attrs.field(
-        default="contiguous", init=False, repr=False
-    )
 
     def __attrs_post_init__(self) -> None:
         """Validate device / feature combination, fuse, and (optionally) compile."""
@@ -105,8 +110,8 @@ class TorchBackend:
         if self.fuse_layers:
             self._fuse_conv_bn()
 
-        if self.memory_format != self._model_memory_format:
-            self._apply_memory_format()
+        if self.memory_format != "contiguous":
+            self._apply_memory_format(self.memory_format)
 
         # FP16 is applied at forward time via ``torch.autocast`` (CUDA only) —
         # see ``__call__``. We deliberately do NOT call ``model.half()``: a
@@ -132,8 +137,6 @@ class TorchBackend:
 
     def __call__(self, x: torch.Tensor) -> Dict[str, torch.Tensor]:
         """Forward pass. Always returns a dict for protocol uniformity."""
-        if self.memory_format != self._model_memory_format:
-            self._apply_memory_format()
         model = self._compiled if self._compiled is not None else self.model
         x = x.to(self.device, non_blocking=True)
 
@@ -192,7 +195,7 @@ class TorchBackend:
     # Internals
     # ──────────────────────────────────────────────────────────────────
 
-    def _apply_memory_format(self) -> None:
+    def _apply_memory_format(self, memory_format: str) -> None:
         """Convert the model's weights to ``memory_format`` (in place).
 
         Only the weights are converted. Inputs keep their layout: PyTorch
@@ -202,11 +205,10 @@ class TorchBackend:
         """
         fmt = (
             torch.channels_last
-            if self.memory_format == "channels_last"
+            if memory_format == "channels_last"
             else torch.contiguous_format
         )
         self.model.to(memory_format=fmt)
-        self._model_memory_format = self.memory_format
         if self._compiled is not None:
             self._compiled = torch.compile(
                 self.model, mode=self.compile_mode, dynamic=False

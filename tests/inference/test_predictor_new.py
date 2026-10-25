@@ -376,7 +376,7 @@ def test_upload_batches_copies_uint8_batch_to_cuda_device(monkeypatch):
 
 
 def test_from_model_paths_upload_batches_is_set_and_logged():
-    """``from_model_paths(upload_batches=True)`` sets it and names it in its log line."""
+    """``from_model_paths(upload_batches=True)`` sets it; off CUDA it warns instead."""
     from pathlib import Path
 
     from loguru import logger
@@ -397,10 +397,11 @@ def test_from_model_paths_upload_batches_is_set_and_logged():
     finally:
         logger.remove(sink)
     assert on.upload_batches is True and off.upload_batches is False
+    # On the CPU it is a no-op: not in the log line, and a warning says so.
     loaded = [m for m in messages if "Loaded inference model" in m]
     assert len(loaded) == 2
-    assert "upload_batches=True" in loaded[0]
-    assert "upload_batches" not in loaded[1]
+    assert all("upload_batches" not in m for m in loaded)
+    assert sum("upload_batches=True has no effect" in m for m in messages) == 1
 
 
 class _InlinePafPool:
@@ -492,3 +493,79 @@ def test_pipelined_bottomup_path_uploads_like_inline_path(monkeypatch, upload):
     else:
         assert calls == []
         assert all(isinstance(x, np.ndarray) for x in layer.seen)
+
+
+def test_upload_batches_off_cuda_warns_and_does_nothing():
+    """Off a CUDA device ``upload_batches`` is a logged no-op."""
+    from loguru import logger
+
+    messages = []
+    sink = logger.add(messages.append, format="{message}", level="WARNING")
+    try:
+        predictor = Predictor(layer=_StubLayer(), device="cpu", upload_batches=True)
+        quiet = Predictor(layer=_StubLayer(), device="cpu")
+    finally:
+        logger.remove(sink)
+    assert predictor._upload_device is None and quiet._upload_device is None
+    assert sum("upload_batches=True has no effect" in m for m in messages) == 1
+
+
+def test_upload_device_follows_the_models_backend(monkeypatch):
+    """Frames go to the device the (first) model runs on, not ``Predictor.device``."""
+    import types
+
+    import sleap_nn.inference.predictor as predictor_mod
+
+    monkeypatch.setattr(
+        predictor_mod,
+        "_torch_backends",
+        lambda layer: [types.SimpleNamespace(device="cuda:1")],
+    )
+    predictor = Predictor(layer=_StubLayer(), device="cuda", upload_batches=True)
+    assert predictor._upload_device == "cuda:1"
+
+
+def test_from_model_paths_memory_format_reaches_every_backend():
+    """``memory_format`` converts both top-down models (and is logged)."""
+    from pathlib import Path
+
+    from loguru import logger
+
+    from sleap_nn.inference.predictor import _torch_backends
+
+    ckpts = Path(__file__).resolve().parents[1] / "assets" / "model_ckpts"
+    paths = [
+        ckpts / "minimal_instance_centroid",
+        ckpts / "minimal_instance_centered_instance",
+    ]
+    if not all(p.exists() for p in paths):
+        pytest.skip("top-down checkpoints not present")
+    messages = []
+    sink = logger.add(messages.append, format="{message}", level="INFO")
+    try:
+        cl = Predictor.from_model_paths(
+            [str(p) for p in paths], device="cpu", memory_format="channels_last"
+        )
+        default = Predictor.from_model_paths([str(p) for p in paths], device="cpu")
+    finally:
+        logger.remove(sink)
+
+    def conv_weights(backend):
+        return [
+            m.weight for m in backend.model.modules() if isinstance(m, torch.nn.Conv2d)
+        ]
+
+    backends = _torch_backends(cl.layer)
+    assert len(backends) == 2
+    for backend in backends:
+        assert backend.memory_format == "channels_last"
+        assert all(
+            w.is_contiguous(memory_format=torch.channels_last)
+            for w in conv_weights(backend)
+        )
+    assert [b.memory_format for b in _torch_backends(default.layer)] == [
+        "contiguous"
+    ] * 2
+    loaded = [m for m in messages if "Loaded inference model" in m]
+    assert "memory_format=channels_last" in loaded[0]
+    assert "memory_format" not in loaded[1]

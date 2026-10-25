@@ -106,6 +106,37 @@ def _safe_len(provider: Any) -> int:
         return -1
 
 
+def _torch_backends(layer: Any) -> List[TorchBackend]:
+    """Every :class:`TorchBackend` in a layer composition, stage 1 first.
+
+    Walks the layer's attributes (``backend``, ``centroid_layer``,
+    ``centered_instance_layer``, a tiled layer's ``inner``, ...) so callers need
+    not know each composition's shape. Exported layers hold no ``TorchBackend``.
+    """
+    found: List[TorchBackend] = []
+    seen: set = set()
+
+    def walk(obj: Any) -> None:
+        if id(obj) in seen:
+            return
+        seen.add(id(obj))
+        if isinstance(obj, TorchBackend):
+            found.append(obj)
+            return
+        cls = type(obj)
+        if not cls.__module__.startswith("sleap_nn.inference.layers"):
+            return
+        if attrs.has(cls):  # e.g. the slotted exported layers
+            values = [getattr(obj, f.name, None) for f in attrs.fields(cls)]
+        else:
+            values = list(getattr(obj, "__dict__", {}).values())
+        for value in values:
+            walk(value)
+
+    walk(layer)
+    return found
+
+
 def _safe_num_frames(provider: Any) -> int:
     """Return ``provider.num_frames()`` or ``-1`` if unavailable/unknown.
 
@@ -1201,13 +1232,15 @@ class Predictor:
             :meth:`predict` runs the tracker on the resulting
             ``sio.Labels`` (requires ``make_labels=True``) before
             returning.
-        upload_batches: When ``True`` and ``device`` is a CUDA device, each
-            numpy batch from the provider is copied to the GPU (still
-            ``uint8``) before ``layer.predict``, so resizing, cropping and peak
-            finding run on the GPU instead of the CPU (2.2x faster for a
-            top-down pair on an A100). The GPU's ``uint8`` resize rounds some
-            pixels the other way by 1 grey level, so results differ slightly
-            from the default ``False``, which hands the layer the numpy batch.
+        upload_batches: When ``True`` and the layer's (first) model runs on a
+            CUDA device, each numpy batch from the provider is copied to that
+            GPU (still ``uint8``) before ``layer.predict``, so resizing and
+            top-down cropping run on the GPU instead of the CPU (2.2x faster
+            for a top-down pair on an A100; peak finding is on the GPU either
+            way). The GPU's ``uint8`` resize rounds some pixels the other way
+            by 1 grey level, so results differ slightly from the default
+            ``False``, which hands the layer the numpy batch. Off a CUDA device
+            it has no effect (with a logged warning).
 
     Notes:
         Keeps no state across calls — same predictor can be reused on
@@ -1229,9 +1262,11 @@ class Predictor:
     # PredictedInstance), "centroid" (sio.PredictedCentroid), or "both".
     emit_centroid: str = "instance"
     upload_batches: bool = False
+    # Where ``upload_batches`` copies frames (resolved in __attrs_post_init__).
+    _upload_device: Optional[str] = attrs.field(default=None, init=False, repr=False)
 
     def __attrs_post_init__(self) -> None:
-        """Warn (once) if ``paf_workers`` was set on a layer that can't use it.
+        """Warn (once) if ``paf_workers`` / ``upload_batches`` can't take effect.
 
         ``paf_workers > 0`` only pipelines the CPU-bound grouping stage for
         plain bottom-up (:class:`BottomUpLayer`); every other layer type
@@ -1247,6 +1282,19 @@ class Predictor:
                 f"layer={type(self.layer).__name__} will run the inline "
                 "(unpipelined) path; paf_workers has no effect here."
             )
+        if self.upload_batches:
+            # Upload to the device the (first) model runs on, not
+            # ``self.device``: a layer built by hand may live elsewhere.
+            backends = _torch_backends(self.layer)
+            device = backends[0].device if backends else self.device
+            if device is not None and torch.device(device).type == "cuda":
+                self._upload_device = str(device)
+            else:
+                logger.warning(
+                    f"upload_batches=True has no effect on device={device}: it "
+                    "copies frames to a CUDA device running a trained "
+                    "checkpoint."
+                )
 
     @property
     def filter_pipeline(self) -> FilterPipeline:
@@ -1300,6 +1348,7 @@ class Predictor:
         polygon_epsilon: float = 0.01,
         bbox_nms_iou: Optional[float] = None,
         upload_batches: bool = False,
+        memory_format: str = "contiguous",
     ) -> "Predictor":
         """Build a :class:`Predictor` from one or more checkpoint paths.
 
@@ -1381,6 +1430,9 @@ class Predictor:
             upload_batches: Copy each ``uint8`` batch to the GPU before
                 preprocessing when ``device`` is CUDA (faster; results differ
                 slightly from the default ``False``). See :class:`Predictor`.
+            memory_format: Weight layout of every model in the composition:
+                ``"contiguous"`` (default) or ``"channels_last"`` (faster cuDNN
+                convolutions on NVIDIA GPUs). See :class:`TorchBackend`.
         """
         from sleap_nn.inference.loaders import load_model_assets
         from sleap_nn.system_info import get_startup_info_string
@@ -1435,6 +1487,8 @@ class Predictor:
             )
         else:
             layer = _select_layer(loaded, model_types, device)
+        for backend in _torch_backends(layer):
+            backend.memory_format = memory_format
 
         skeleton = loaded.skeletons[0] if loaded.skeletons else None
         kwargs: dict = {
@@ -1466,8 +1520,10 @@ class Predictor:
             f"integral_refinement={integral_refinement}",
             f"paf_workers={paf_workers}",
         ]
-        if upload_batches:
+        if upload_batches and torch.device(device).type == "cuda":
             spec.append("upload_batches=True")
+        if memory_format != "contiguous":
+            spec.append(f"memory_format={memory_format}")
         if "bottomup_segmentation" in model_types:
             spec.append(f"fg_threshold={fg_threshold}")
             spec.append(f"min_mask_area={min_mask_area}")
@@ -2407,7 +2463,7 @@ class Predictor:
     # ──────────────────────────────────────────────────────────────────
 
     def _batch_images(self, batch: Batch) -> Any:
-        """Return ``batch.images``, copied to the GPU if ``upload_batches``.
+        """Return ``batch.images``, copied to the model's GPU if ``upload_batches``.
 
         Providers yield ``uint8`` numpy frames. Handed to a layer as numpy,
         they stay on the CPU through preprocessing (sizematcher, input
@@ -2417,13 +2473,8 @@ class Predictor:
         conversion).
         """
         images = batch.images
-        if (
-            self.upload_batches
-            and isinstance(images, np.ndarray)
-            and self.device is not None
-            and torch.device(self.device).type == "cuda"
-        ):
-            images = torch.from_numpy(images).to(self.device, non_blocking=True)
+        if self._upload_device is not None and isinstance(images, np.ndarray):
+            images = torch.from_numpy(images).to(self._upload_device, non_blocking=True)
         return images
 
     def _batch_iter(

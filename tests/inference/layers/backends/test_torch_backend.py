@@ -567,8 +567,8 @@ def test_memory_format_channels_last_converts_weights_same_output():
     torch.testing.assert_close(backend(x)["output"], ref, atol=1e-5, rtol=1e-4)
 
 
-def test_memory_format_set_after_construction_applies_on_next_forward():
-    """Setting ``memory_format`` on a built backend converts at the next call."""
+def test_memory_format_set_after_construction_converts_right_away():
+    """Setting ``memory_format`` on a built backend converts the model at once."""
     torch.manual_seed(0)
     model = _TinyConvModel(in_ch=3)
     x = torch.randn(2, 3, 16, 16)
@@ -576,12 +576,10 @@ def test_memory_format_set_after_construction_applies_on_next_forward():
 
     backend = TorchBackend(model=model, device="cpu")
     backend.memory_format = "channels_last"
-    out = backend(x)["output"]
     assert _weight_is_channels_last(backend)
-    torch.testing.assert_close(out, ref, atol=1e-5, rtol=1e-4)
+    torch.testing.assert_close(backend(x)["output"], ref, atol=1e-5, rtol=1e-4)
 
     backend.memory_format = "contiguous"
-    backend(x)
     assert backend.model.conv.weight.is_contiguous()
 
 
@@ -612,9 +610,12 @@ def test_memory_format_change_rebuilds_compiled_model(monkeypatch):
     assert len(compiled) == 1
 
     backend.memory_format = "channels_last"
-    backend(torch.randn(1, 3, 8, 8))
     assert len(compiled) == 2
     model, kwargs = compiled[1]
     assert model is backend.model
     assert kwargs == {"mode": backend.compile_mode, "dynamic": False}
     assert _weight_is_channels_last(backend)
+
+    # Setting the same layout again is a no-op (no recompile).
+    backend.memory_format = "channels_last"
+    assert len(compiled) == 2
