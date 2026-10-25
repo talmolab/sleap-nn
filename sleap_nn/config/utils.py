@@ -4,7 +4,7 @@ import math
 import os
 import sys
 from pathlib import Path
-from typing import Optional, Union
+from typing import Optional, Tuple, Union
 
 from loguru import logger
 from omegaconf import DictConfig, OmegaConf
@@ -887,6 +887,38 @@ def check_tiling_parity(
         logger.error(message)
         raise ValueError(message)
     return config
+
+
+def parse_hw(value, allow_int: bool = True) -> Optional[Tuple[int, int]]:
+    """``(height, width)`` of a crop size given as an int or ``[height, width]``.
+
+    Strict: every value must be a positive whole number (``384`` or ``384.0``;
+    not ``383.5``, ``True`` or ``"384"``).
+
+    Args:
+        value: The configured size.
+        allow_int: Accept a single int (a square size).
+
+    Returns:
+        The pair, or ``None`` if ``value`` is not a valid size.
+    """
+
+    def whole(v):
+        return (
+            isinstance(v, (int, float))
+            and not isinstance(v, bool)
+            and v > 0
+            and float(v).is_integer()
+        )
+
+    if allow_int and whole(value):
+        return int(value), int(value)
+    if isinstance(value, (str, bytes)) or not hasattr(value, "__len__"):
+        return None
+    hw = list(value)
+    if len(hw) != 2 or not all(whole(v) for v in hw):
+        return None
+    return int(hw[0]), int(hw[1])
 
 
 def oneof(attrs_cls, must_be_set: bool = False):

@@ -22,11 +22,19 @@ Distillation is off by default. It works for `single_instance`,
 Train the student with a teacher:
 
 ```yaml
+data_config:
+  preprocessing:
+    crop_size: [256, 192]            # the student's input
+    crop_mode: bbox
+    crop_pipeline: warp
 trainer_config:
   distillation:
     teacher: /runs/vitpose_b_384     # model directory (best.ckpt + training_config.yaml)
-    teacher_input_scale: 1.5         # 384x288 teacher, 256x192 student
+    teacher_crop_size: [384, 288]    # the teacher gets a real 384x288 crop
 ```
+
+(Without the warp crop path, use `teacher_input_scale: 1.5` instead; see
+[Teacher resolution](#teacher-resolution).)
 
 ```bash
 sleap-nn train student.yaml
@@ -122,16 +130,62 @@ DWPose's choice: the teacher then fills in nodes the annotators left out.
 ## Teacher resolution
 
 A teacher trained at a higher resolution should see more pixels than the
-student. `teacher_input_scale` resamples the student's crop by that factor
-before it goes to the teacher (rounded to a multiple of the teacher's
-`max_stride`), and resizes the teacher's outputs back to the student's grids.
-This only upsamples the student's pixels: the teacher sees the same image
-content at a larger size, not extra detail.
+student. There are two ways to give it its input size.
 
-A data pipeline can instead put the same crop window, rendered at the teacher's
-resolution, in the batch under `teacher_image`; the teacher then uses it as is
-(`teacher_input_scale` is ignored). The built-in data pipeline does not emit it
-yet.
+### `teacher_crop_size`: a real high-resolution crop
+
+With `preprocessing.crop_pipeline: warp` (`centered_instance`), set
+`teacher_crop_size` to the teacher's input size, e.g. `[384, 288]` for a
+384×288 teacher and a 256×192 student. The training loader then cuts every
+crop's window twice from the same decoded frame: once at `crop_size` for the
+student and once at `teacher_crop_size` for the teacher (`teacher_image` in the
+batch). The teacher sees the frame's own pixels at its resolution, not an
+upsampled student crop.
+
+Both crops come from one augmentation draw, so the two models always look at
+the same thing:
+
+- **Geometry.** Box jitter, half-body, rotation, scale, shift and flip build
+  one affine; the teacher's is that affine followed by a rescale of the crop's
+  pixel grid. The two crops cover exactly the same window, and the student's
+  keypoint `k` is at `(k + 0.5) * r - 0.5` in the teacher's crop
+  (`r = teacher_crop_size / crop_size`).
+- **Photometry.** Contrast, brightness and HSV are the same lookup tables. Blur
+  kernels and sigmas scale with `r`, and coarse-dropout holes and random erases
+  cover the same part of the window. Noise is drawn at each crop's own
+  resolution with the same strength.
+
+The student's crops and targets are identical with and without a teacher crop
+(the teacher's noise uses its own random stream). `teacher_crop_size` must
+have the aspect ratio of `crop_size` and be a multiple of the teacher's
+`max_stride`, and it cannot be combined with `teacher_input_scale`. Validation
+and inference are unchanged: only training batches carry `teacher_image`.
+
+The cost is a second warp and the photometric ops on the bigger crop: about
+0.45 ms more CPU per sample in a loader worker (1.8 → 2.25 ms on COCO,
+256×192 student, 384×288 teacher) and 3.3× the image bytes per batch. With
+20 workers one loader still delivered ~7,500 samples/s (10,500 without the
+teacher crop), well above what a ViT-S rank consumes, so it should not slow
+training down; the teacher's own forward pass costs far more GPU time.
+
+Watch shared memory: batches in flight between the loader workers and the
+training process live in `/dev/shm`, about `num_workers x prefetch_factor`
+batches per GPU. With a 384×288 teacher crop a batch of 128 is ~61 MB instead
+of ~19 MB, so 20 workers with the default `prefetch_factor: 2` hold ~2.5 GB
+per GPU (~10 GB on a 4-GPU node, twice that with `prefetch_factor: 4`). If workers die with a bus error or "No space left on
+device", lower `trainer_config.train_data_loader.prefetch_factor` or
+`num_workers`, or enlarge `/dev/shm`. The visualization datasets
+(`visualize_preds_during_training`) cut no teacher crops.
+
+### `teacher_input_scale`: upsample the student's crop
+
+On the other crop paths, `teacher_input_scale` resamples the student's crop by
+that factor before it goes to the teacher (rounded to a multiple of the
+teacher's `max_stride`), and resizes the teacher's outputs back to the
+student's grids. This only upsamples the student's pixels: the teacher sees the
+same image content at a larger size, not extra detail.
+
+Either way, the teacher's outputs are resized back to the student's grids.
 
 The log warns when the teacher's heatmaps, after the resize, are much wider or
 narrower than the student's targets (`sigma`). A 384-crop teacher with

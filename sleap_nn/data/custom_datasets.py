@@ -6667,8 +6667,12 @@ def _get_warp_centered_instance_datasets(
     config: DictConfig,
     backbone_type: str,
     node_weight_kwargs: Dict[str, Any],
+    teacher_crop_size=None,
 ):
     """Train/val datasets of ``preprocessing.crop_pipeline="warp"`` (centered instance).
+
+    ``teacher_crop_size`` (distillation's dual-resolution crop) goes to the
+    training dataset only.
 
     Raises:
         ValueError: If the config cannot use the warp pipeline (it needs
@@ -6731,6 +6735,7 @@ def _get_warp_centered_instance_datasets(
             OmegaConf.select(config, "data_config.instance_filter", default=None)
         ),
         base_seed=OmegaConf.select(config, "trainer_config.seed", default=0) or 0,
+        teacher_crop_size=teacher_crop_size,
         **common,
     )
     val_dataset = WarpCenteredInstanceDataset(
@@ -6744,6 +6749,7 @@ def get_train_val_datasets(
     val_labels: List[sio.Labels],
     config: DictConfig,
     rank: Optional[int] = None,
+    teacher_crop_size=None,
 ):
     """Return the train and val datasets.
 
@@ -6753,6 +6759,10 @@ def get_train_val_datasets(
         config: Sleap-nn config.
         rank: Indicates the rank of the process. Used during distributed training to ensure that image storage to
             disk occurs only once across all workers.
+        teacher_crop_size: Distillation's dual-resolution crop
+            (``trainer_config.distillation.teacher_crop_size``): the training
+            dataset also returns each window at this size as ``teacher_image``.
+            Warp ``centered_instance`` only. *Default*: ``None``.
 
     Returns:
         A tuple (train_dataset, val_dataset).
@@ -6795,6 +6805,18 @@ def get_train_val_datasets(
         raise ValueError(
             "preprocessing.crop_pipeline='warp' is implemented for the "
             f"centered_instance model type only, not {model_type!r}."
+        )
+    if teacher_crop_size is not None and (
+        model_type != "centered_instance"
+        or OmegaConf.select(
+            config, "data_config.preprocessing.crop_pipeline", default="legacy"
+        )
+        != "warp"
+    ):
+        raise ValueError(
+            "trainer_config.distillation.teacher_crop_size needs a centered_instance "
+            "model with preprocessing.crop_pipeline='warp' (the crop path that cuts "
+            "the teacher's crop); use teacher_input_scale otherwise."
         )
 
     # Gate the lossy disk cache for the embedding (appearance / re-ID) model (SPEC §5.1):
@@ -6976,7 +6998,12 @@ def get_train_val_datasets(
         == "warp"
     ):
         train_dataset, val_dataset = _get_warp_centered_instance_datasets(
-            train_labels, val_labels, config, backbone_type, node_weight_kwargs
+            train_labels,
+            val_labels,
+            config,
+            backbone_type,
+            node_weight_kwargs,
+            teacher_crop_size=teacher_crop_size,
         )
 
     elif model_type == "centered_instance":

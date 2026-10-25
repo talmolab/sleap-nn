@@ -2365,11 +2365,21 @@ class ModelTrainer:
             if self.config.data_config.cache_img_path is None:
                 self.config.data_config.cache_img_path = base_cache_img_path
 
+        teacher_crop_size = OmegaConf.select(
+            self.config, "trainer_config.distillation.teacher_crop_size", default=None
+        )
         return get_train_val_datasets(
             train_labels=self.train_labels,
             val_labels=self.val_labels,
             config=self.config,
             rank=self.trainer.global_rank,
+            # Distillation's dual-resolution crop: the training loader only (not
+            # the visualization datasets).
+            teacher_crop_size=(
+                OmegaConf.to_container(teacher_crop_size)
+                if OmegaConf.is_config(teacher_crop_size)
+                else teacher_crop_size
+            ),
         )
 
     def _setup_loggers_callbacks(self, viz_train_dataset, viz_val_dataset):
@@ -3100,7 +3110,13 @@ class ModelTrainer:
                     "Resuming distillation stage 2 needs `distillation.teacher` (the "
                     "stage-1 model): the resumed weights are not the teacher."
                 )
-        attach_distillation(self.lightning_model, cfg)
+        attach_distillation(
+            self.lightning_model,
+            cfg,
+            student_crop_size=OmegaConf.select(
+                self.config, "data_config.preprocessing.crop_size", default=None
+            ),
+        )
 
     def _maybe_compile_model(self):
         """`torch.compile` the network in place if `trainer_config.compile` is set.

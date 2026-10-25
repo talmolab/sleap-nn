@@ -12,6 +12,8 @@ import sleap_io as sio
 import yaml
 from sleap_io.io.skeleton import SkeletonDecoder, SkeletonYAMLEncoder
 
+from sleap_nn.config.utils import parse_hw
+
 
 def validate_proportion(instance, attribute, value):
     """General Proportion Validation.
@@ -283,13 +285,7 @@ class PreprocessingConfig:
         value = self.crop_size
         if value is None or isinstance(value, (int, float)):
             return
-        try:
-            hw = [int(v) for v in value]
-        except TypeError:
-            raise ValueError(
-                f"crop_size must be an int or [height, width], got {value!r}."
-            )
-        if len(hw) != 2 or min(hw) <= 0:
+        if parse_hw(value, allow_int=False) is None:
             raise ValueError(
                 f"crop_size must be an int or [height, width], got {value!r}."
             )

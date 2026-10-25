@@ -24,7 +24,10 @@ This module does the same job in one resample:
 3. Samples are uint8 crops + crop keypoints (+ per-node weights when they can
    differ from 1). With ``gpu_confmaps`` the confidence maps are rendered on the
    GPU in the training step (:func:`render_confmaps`, the same ``make_confmaps``
-   math), so no float maps cross the process boundary.
+   math), so no float maps cross the process boundary. For distillation with a
+   ``teacher_crop_size``, training samples also carry ``teacher_image``: the same
+   window and augmentation draw cut at the teacher's resolution from the same
+   decoded frame (a second warp, no second decode).
 4. :class:`BalancedBatchSampler` composes every batch from fixed per-file counts
    (``labels_idx``), with an iteration-based epoch length, per-rank streams and a
    resumable position (:class:`BalancedDataLoader`).
@@ -362,6 +365,11 @@ def build_instance_table(
 # ---------------------------------------------------------------------------
 # Geometry
 # ---------------------------------------------------------------------------
+
+#: Batch key of distillation's dual-resolution crop: the sample's window at the
+#: teacher's resolution (``teacher_crop_size``), read by
+#: :class:`~sleap_nn.training.distillation.Distiller`.
+TEACHER_IMAGE_KEY = "teacher_image"
 
 #: ``geometric.affine_sampling`` values (see :class:`WarpAug`).
 AFFINE_SAMPLINGS = ("uniform", "mmpose")
@@ -757,8 +765,37 @@ class WarpAug:
         window, scale = center_size_window(pts.mean(0), size, crop_hw, aspect, min_size)
         return window, scale, (np.maximum(size, 1e-6) * scale).astype(np.float32)
 
-    def intensity(self, crop: np.ndarray, rng: np.random.Generator) -> np.ndarray:
-        """Photometric ops on a uint8 ``(H, W, C)`` RGB (or gray) crop."""
+    def intensity(
+        self,
+        crop: np.ndarray,
+        rng: np.random.Generator,
+        teacher: Optional[np.ndarray] = None,
+        teacher_rng: Optional[np.random.Generator] = None,
+    ):
+        """Photometric ops on a uint8 ``(H, W, C)`` RGB (or gray) crop.
+
+        Args:
+            crop: The crop.
+            rng: The worker's generator. Every draw that decides an op comes from
+                it.
+            teacher: Optional second crop of the same window at another resolution
+                (the distillation teacher's, see
+                :class:`WarpCenteredInstanceDataset` ``teacher_crop_size``). It gets
+                the same draws, with the spatial ones mapped to its pixel grid: blur
+                kernels and sigma scale with the size ratio, and dropout holes and
+                the erase box cover the same part of the window. Noise is drawn per
+                pixel at its own resolution (same strength) from ``teacher_rng``,
+                so ``crop`` and ``rng``'s stream are what they are without it.
+            teacher_rng: Generator of the teacher's noise; ``None`` uses ``rng``.
+
+        Returns:
+            The augmented crop, or ``(crop, teacher)`` when ``teacher`` is given.
+        """
+        imgs = [crop] if teacher is None else [crop, teacher]
+        gens = [rng] if teacher is None else [rng, teacher_rng or rng]
+        H, W = crop.shape[:2]
+        # (y, x) pixel-grid ratio of each image to `crop`.
+        ratios = [(im.shape[0] / H, im.shape[1] / W) for im in imgs]
         alpha, beta = 1.0, 0.0
         if self.contrast_p > 0 and rng.random() < self.contrast_p:
             # About mid-grey, like the stock path (not the crop mean).
@@ -771,47 +808,74 @@ class WarpAug:
             # A clipped lookup table (cv2.convertScaleAbs would fold values below
             # 0 back up through abs()).
             lut = np.clip(np.arange(256, dtype=np.float32) * alpha + beta, 0, 255)
-            crop = cv2.LUT(crop, np.rint(lut).astype(np.uint8))
-        if crop.ndim == 2:
-            crop = crop[:, :, None]
-        if self.hsv_p > 0 and crop.shape[-1] == 3 and rng.random() < self.hsv_p:
-            crop = self._hsv(crop, rng)
+            lut = np.rint(lut).astype(np.uint8)
+            imgs = [cv2.LUT(im, lut) for im in imgs]
+        imgs = [_hwc(im) for im in imgs]
+        if self.hsv_p > 0 and imgs[0].shape[-1] == 3 and rng.random() < self.hsv_p:
+            lut = self._hsv_lut(rng)
+            if lut is not None:
+                imgs = [_apply_hsv_lut(im, lut) for im in imgs]
         if self.blur_p > 0 and rng.random() < self.blur_p:
             k = _odd_kernel(rng, *self.blur_kernel)
-            crop = cv2.blur(crop, (k, k))
+            imgs = [
+                cv2.blur(im, (_scaled_odd_kernel(k, rx), _scaled_odd_kernel(k, ry)))
+                for im, (ry, rx) in zip(imgs, ratios)
+            ]
         if self.median_blur_p > 0 and rng.random() < self.median_blur_p:
             k = _odd_kernel(rng, *self.median_blur_kernel)
-            crop = cv2.medianBlur(np.ascontiguousarray(crop), k)
+            imgs = [
+                cv2.medianBlur(
+                    np.ascontiguousarray(im),
+                    max(3, _scaled_odd_kernel(k, (ry + rx) / 2.0)),
+                )
+                for im, (ry, rx) in zip(imgs, ratios)
+            ]
         if self.gaussian_blur_p > 0 and rng.random() < self.gaussian_blur_p:
             sigma = rng.uniform(*self.gaussian_blur_sigma)
-            crop = cv2.GaussianBlur(crop, (0, 0), sigma)
-        if crop.ndim == 2:
-            crop = crop[:, :, None]
+            imgs = [
+                cv2.GaussianBlur(im, (0, 0), sigma * rx, sigmaY=sigma * ry)
+                for im, (ry, rx) in zip(imgs, ratios)
+            ]
+        imgs = [_hwc(im) for im in imgs]
         if self.uniform_noise_p > 0 and rng.random() < self.uniform_noise_p:
             lo, hi = int(self.uniform_noise[0] * 255), int(self.uniform_noise[1] * 255)
-            noise = rng.integers(lo, hi + 1, crop.shape, dtype=np.int16)
-            crop = np.clip(crop.astype(np.int16) + noise, 0, 255).astype(np.uint8)
+            out = []
+            for im, g in zip(imgs, gens):
+                noise = g.integers(lo, hi + 1, im.shape, dtype=np.int16)
+                out.append(
+                    np.clip(im.astype(np.int16) + noise, 0, 255).astype(np.uint8)
+                )
+            imgs = out
         if self.gaussian_noise_p > 0 and rng.random() < self.gaussian_noise_p:
             m, sd = self.gaussian_noise
-            noise = rng.standard_normal(crop.shape, dtype=np.float32)
-            noise = noise * np.float32(sd * 255.0) + np.float32(m * 255.0)
-            crop = np.clip(crop + noise, 0, 255).astype(np.uint8)
+            out = []
+            for im, g in zip(imgs, gens):
+                noise = g.standard_normal(im.shape, dtype=np.float32)
+                noise = noise * np.float32(sd * 255.0) + np.float32(m * 255.0)
+                out.append(np.clip(im + noise, 0, 255).astype(np.uint8))
+            imgs = out
         if self.coarse_dropout_p > 0 and rng.random() < self.coarse_dropout_p:
-            crop = self._coarse_dropout(crop, rng)
+            rects = self._dropout_rects(H, W, rng)
+            imgs = [_fill_rects(im, rects, r, 0) for im, r in zip(imgs, ratios)]
         if self.erase_p > 0 and rng.random() < self.erase_p:
-            crop = self._erase(crop, rng)
-        return crop
+            erase = self._erase_rect(H, W, imgs[0].shape[-1], rng)
+            if erase is not None:
+                rect, colour = erase
+                imgs = [
+                    _fill_rects(im, [rect], r, colour) for im, r in zip(imgs, ratios)
+                ]
+        return imgs[0] if teacher is None else (imgs[0], imgs[1])
 
-    def _hsv(self, crop: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+    def _hsv_lut(self, rng: np.random.Generator) -> Optional[np.ndarray]:
         # mmdet YOLOXHSVRandomAug: gains in [-delta, delta], each of h/s/v kept with
         # p=0.5, truncated to int; hue wraps mod 180 (OpenCV 8-bit hue), s/v clip.
-        # Done as one 3-channel LUT on the HSV image.
+        # Done as one 3-channel LUT on the HSV image (None: all gains are 0).
         gains = rng.uniform(-1, 1, 3) * np.asarray(self.hsv_delta)
         gains = (gains * rng.integers(0, 2, 3)).astype(np.int16)
         if not gains.any():
-            return crop
+            return None
         x = np.arange(256, dtype=np.int16)
-        lut = np.stack(
+        return np.stack(
             [
                 (x + gains[0]) % 180,
                 np.clip(x + gains[1], 0, 255),
@@ -819,40 +883,77 @@ class WarpAug:
             ],
             axis=-1,
         ).astype(np.uint8)[:, None, :]
-        hsv = cv2.cvtColor(crop, cv2.COLOR_RGB2HSV)
-        return cv2.cvtColor(cv2.LUT(hsv, lut), cv2.COLOR_HSV2RGB)
 
-    def _coarse_dropout(self, crop: np.ndarray, rng: np.random.Generator):
+    def _dropout_rects(
+        self, H: int, W: int, rng: np.random.Generator
+    ) -> List[Tuple[int, int, int, int]]:
         # albumentations CoarseDropout with fractional sizes: integer hole sides in
-        # [min * side, max * side], uniformly placed, filled with 0.
-        H, W = crop.shape[:2]
-        crop = crop.copy()
+        # [min * side, max * side], uniformly placed. Holes are (y, x, h, w).
         lo, hi = self.coarse_dropout_size
         n_holes = int(
             rng.integers(self.coarse_dropout_holes[0], self.coarse_dropout_holes[1] + 1)
         )
+        rects = []
         for _ in range(n_holes):
             h = int(rng.integers(int(lo * H), int(hi * H) + 1))
             w = int(rng.integers(int(lo * W), int(hi * W) + 1))
             y = int(rng.integers(0, max(H - h, 0) + 1))
             x = int(rng.integers(0, max(W - w, 0) + 1))
-            crop[y : y + h, x : x + w] = 0
-        return crop
+            rects.append((y, x, h, w))
+        return rects
 
-    def _erase(self, crop: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+    def _erase_rect(self, H: int, W: int, C: int, rng: np.random.Generator):
         # Stock `_apply_random_erase`: area fraction + aspect ratio, random colour.
-        H, W = crop.shape[:2]
+        # Returns ((y, x, h, w), colour), or None when the box does not fit.
         area = rng.uniform(*self.erase_scale) * H * W
         ratio = rng.uniform(*self.erase_ratio)
         eh, ew = int(math.sqrt(area * ratio)), int(math.sqrt(area / ratio))
         if eh >= H or ew >= W or eh < 1 or ew < 1:
-            return crop
+            return None
         y, x = int(rng.integers(0, H - eh)), int(rng.integers(0, W - ew))
-        crop = crop.copy()
-        crop[y : y + eh, x : x + ew] = rng.integers(
-            0, 256, crop.shape[-1], dtype=np.uint8
-        )
-        return crop
+        return (y, x, eh, ew), rng.integers(0, 256, C, dtype=np.uint8)
+
+
+def _hwc(img: np.ndarray) -> np.ndarray:
+    """``(H, W, C)``: cv2 drops the channel axis of single-channel images."""
+    return img[:, :, None] if img.ndim == 2 else img
+
+
+def _apply_hsv_lut(crop: np.ndarray, lut: np.ndarray) -> np.ndarray:
+    hsv = cv2.cvtColor(crop, cv2.COLOR_RGB2HSV)
+    return cv2.cvtColor(cv2.LUT(hsv, lut), cv2.COLOR_HSV2RGB)
+
+
+def _scaled_odd_kernel(k: int, r: float) -> int:
+    """The odd kernel size nearest ``k * r`` (``k`` itself at ``r == 1``).
+
+    A ``k``-pixel kernel of a crop, on a crop of the same window ``r`` x as fine.
+    """
+    if r == 1.0:
+        return int(k)
+    return max(1, 2 * int(round((k * r - 1.0) / 2.0)) + 1)
+
+
+def _fill_rects(
+    img: np.ndarray,
+    rects: Sequence[Tuple[int, int, int, int]],
+    ratio: Tuple[float, float],
+    value,
+) -> np.ndarray:
+    """A copy of ``img`` with ``(y, x, h, w)`` boxes filled with ``value``.
+
+    Boxes are in the pixels of a crop of the same window ``ratio`` (y, x) x
+    coarser than ``img``. A box covers pixel edges ``y .. y + h``; on ``img``'s grid that is
+    ``y * ry .. (y + h) * ry``, rounded to whole pixels, so boxes of crops of one
+    window at two resolutions cover the same part of the window.
+    """
+    ry, rx = ratio
+    img = img.copy()
+    for y, x, h, w in rects:
+        y0, x0 = int(round(y * ry)), int(round(x * rx))
+        y1, x1 = int(round((y + h) * ry)), int(round((x + w) * rx))
+        img[y0:y1, x0:x1] = value
+    return img
 
 
 def flip_index(
@@ -956,6 +1057,14 @@ class WarpCenteredInstanceDataset(Dataset):
         crop_bbox_jitter: Training only (``apply_aug``): standard deviation of the
             independent Gaussian shift of each box edge, as a fraction of the box's
             width / height, applied before the window rule.
+        teacher_crop_size: Distillation (``trainer_config.distillation
+            .teacher_crop_size``): also cut the SAME window at this size (an int or
+            ``(height, width)``, same aspect ratio as ``crop_size``) and return it
+            as ``teacher_image``. Same decode, same affine draw (box jitter,
+            half-body, rotation, scale, shift, flip) composed with a rescale of
+            the crop's pixel grid, and the same photometric draw
+            (:meth:`WarpAug.intensity` with ``teacher``). ``None`` (default): no
+            second crop, samples unchanged.
     """
 
     def __init__(
@@ -986,6 +1095,7 @@ class WarpCenteredInstanceDataset(Dataset):
         crop_bbox_min_score: float = 0.0,
         crop_bbox_fallback: str = "gt",
         crop_bbox_jitter: float = 0.0,
+        teacher_crop_size=None,
     ):
         """Initialize."""
         if cv2 is None:  # pragma: no cover
@@ -995,6 +1105,22 @@ class WarpCenteredInstanceDataset(Dataset):
             raise ValueError(
                 f"crop_size {crop_size} must be divisible by max_stride {max_stride} "
                 "for crop_pipeline='warp' (crops are not padded)."
+            )
+        self.teacher_hw = self.teacher_affine = None
+        if teacher_crop_size is not None:
+            th, tw = crop_hw(teacher_crop_size)
+            ry, rx = th / self.crop_h, tw / self.crop_w
+            if min(th, tw) <= 0 or abs(ry / rx - 1.0) > 0.01:
+                raise ValueError(
+                    f"teacher_crop_size {teacher_crop_size} must be a positive "
+                    f"[height, width] with the aspect ratio of crop_size {crop_size} "
+                    "(the teacher sees the same window at another resolution)."
+                )
+            self.teacher_hw = (th, tw)
+            # Student crop -> teacher crop (keypoint coordinates: pixel centers at
+            # integers), the same window on a grid (ry, rx) x as fine.
+            self.teacher_affine = (
+                _translate(-0.5, -0.5) @ np.diag([rx, ry, 1.0]) @ _translate(0.5, 0.5)
             )
         self.node_names = list(confmap_head_config.part_names)
         self.sigma = float(confmap_head_config.sigma)
@@ -1085,7 +1211,7 @@ class WarpCenteredInstanceDataset(Dataset):
         self.num_files = len(labels)
         # Only kept when some frame is not a plain image file.
         self.labels_list = labels if (self.table.path_id < 0).any() else None
-        self._rng = None
+        self._rng = self._teacher_rng = None
         self._pid = None
         f = self.table.filtered
         logger.info(
@@ -1124,9 +1250,11 @@ class WarpCenteredInstanceDataset(Dataset):
         # One generator per worker process, seeded from the worker's torch seed so
         # workers draw different augmentations.
         if self._rng is None or self._pid != os.getpid():
-            self._rng = np.random.default_rng(
-                (self.base_seed, int(self.rank), torch.initial_seed())
-            )
+            seed = (self.base_seed, int(self.rank), torch.initial_seed())
+            self._rng = np.random.default_rng(seed)
+            # The teacher crop's own noise stream, so the student's stream (and
+            # crops) are the same with and without a teacher crop.
+            self._teacher_rng = np.random.default_rng(seed + (1,))
             self._pid = os.getpid()
         return self._rng
 
@@ -1184,6 +1312,29 @@ class WarpCenteredInstanceDataset(Dataset):
         )
         return windows[0].numpy(), scales[0].numpy(), (2.0 * keep_half[0]).numpy()
 
+    def _warp(self, img: np.ndarray, M: np.ndarray, hw: Tuple[int, int]):
+        """``(h, w, C)`` RGB (or gray) uint8 crop of the BGR frame through ``M``."""
+        crop = cv2.warpAffine(
+            img,
+            M[:2].astype(np.float64),
+            (hw[1], hw[0]),
+            flags=cv2.INTER_LINEAR,
+            borderMode=cv2.BORDER_CONSTANT,
+            borderValue=0,
+        )
+        if crop.ndim == 2:
+            crop = crop[:, :, None]
+        if crop.shape[-1] == 3:
+            if self.ensure_grayscale:
+                crop = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)[:, :, None]
+            else:
+                # BGR -> RGB as a contiguous array: the photometric ops (and the
+                # CHW copy below) are ~2x slower on a reversed-channel view.
+                crop = cv2.cvtColor(crop, cv2.COLOR_BGR2RGB)
+        elif self.ensure_rgb:
+            crop = np.repeat(crop, 3, axis=-1)
+        return crop
+
     def __getitem__(self, i: int) -> Dict:
         """Return the sample at index ``i``."""
         t = self.table
@@ -1216,27 +1367,17 @@ class WarpCenteredInstanceDataset(Dataset):
             M = A @ M
         img = self._read(i)
         orig_hw = img.shape[:2]
-        crop = cv2.warpAffine(
-            img,
-            M[:2].astype(np.float64),
-            (W, H),
-            flags=cv2.INTER_LINEAR,
-            borderMode=cv2.BORDER_CONSTANT,
-            borderValue=0,
-        )
-        if crop.ndim == 2:
-            crop = crop[:, :, None]
-        if crop.shape[-1] == 3:
-            if self.ensure_grayscale:
-                crop = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)[:, :, None]
-            else:
-                # BGR -> RGB as a contiguous array: the photometric ops (and the
-                # CHW copy below) are ~2x slower on a reversed-channel view.
-                crop = cv2.cvtColor(crop, cv2.COLOR_BGR2RGB)
-        elif self.ensure_rgb:
-            crop = np.repeat(crop, 3, axis=-1)
+        crop = self._warp(img, M, (H, W))
+        teacher = None
+        if self.teacher_hw is not None:
+            # The same window (and augmentation draw) at the teacher's size, from
+            # the same decoded frame.
+            teacher = self._warp(img, self.teacher_affine @ M, self.teacher_hw)
         if rng is not None:
-            crop = aug.intensity(crop, rng)
+            if teacher is None:
+                crop = aug.intensity(crop, rng)
+            else:
+                crop, teacher = aug.intensity(crop, rng, teacher, self._teacher_rng)
 
         k = t.kpts[i].astype(np.float64) @ M[:2, :2].T + M[:2, 2]
         k = k.astype(np.float32)
@@ -1263,6 +1404,12 @@ class WarpCenteredInstanceDataset(Dataset):
             "video_idx": int(t.video_idx[i]),
             "frame_idx": int(t.frame_idx[i]),
         }
+        if teacher is not None:
+            sample[TEACHER_IMAGE_KEY] = torch.from_numpy(
+                np.ascontiguousarray(teacher.transpose(2, 0, 1))
+            ).unsqueeze(
+                0
+            )  # (1, C, Ht, Wt) uint8
         if self.emit_node_weights:
             # (1, K) like the stock datasets' `node_weights`.
             sample["node_weights"] = torch.from_numpy(
