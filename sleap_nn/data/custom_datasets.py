@@ -6731,12 +6731,25 @@ def _get_warp_centered_instance_datasets(
             OmegaConf.select(config, "data_config.instance_filter", default=None)
         ),
         base_seed=OmegaConf.select(config, "trainer_config.seed", default=0) or 0,
+        # Distillation's dual-resolution crop: training only.
+        teacher_crop_size=distillation_teacher_crop_size(config),
         **common,
     )
     val_dataset = WarpCenteredInstanceDataset(
         labels=val_labels, apply_aug=False, **common
     )
     return train_dataset, val_dataset
+
+
+def distillation_teacher_crop_size(config: DictConfig):
+    """``trainer_config.distillation.teacher_crop_size`` (stage 1), else ``None``."""
+    cfg = OmegaConf.select(config, "trainer_config.distillation", default=None)
+    if cfg is None or int(cfg.get("stage", 1) or 1) != 1:
+        return None
+    size = cfg.get("teacher_crop_size")
+    if OmegaConf.is_config(size):
+        size = OmegaConf.to_container(size)
+    return size
 
 
 def get_train_val_datasets(
@@ -6795,6 +6808,18 @@ def get_train_val_datasets(
         raise ValueError(
             "preprocessing.crop_pipeline='warp' is implemented for the "
             f"centered_instance model type only, not {model_type!r}."
+        )
+    if distillation_teacher_crop_size(config) is not None and (
+        model_type != "centered_instance"
+        or OmegaConf.select(
+            config, "data_config.preprocessing.crop_pipeline", default="legacy"
+        )
+        != "warp"
+    ):
+        raise ValueError(
+            "trainer_config.distillation.teacher_crop_size needs a centered_instance "
+            "model with preprocessing.crop_pipeline='warp' (the crop path that cuts "
+            "the teacher's crop); use teacher_input_scale otherwise."
         )
 
     # Gate the lossy disk cache for the embedding (appearance / re-ID) model (SPEC §5.1):

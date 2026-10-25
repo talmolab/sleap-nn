@@ -687,8 +687,19 @@ class DistillationConfig:
         teacher_input_scale: (float) The teacher sees the student's input crop
             resampled by this factor (e.g. ``1.5`` for a 384x288 teacher and a
             256x192 student). Its outputs are resized back to the student's
-            grids. A batch that carries ``teacher_image`` (the same crop rendered
-            at the teacher's resolution) is used instead. *Default*: ``1.0``.
+            grids. This only upsamples the student's pixels; prefer
+            ``teacher_crop_size`` where it is available. *Default*: ``1.0``.
+        teacher_crop_size: (int or [height, width]) Stage 1 with
+            ``preprocessing.crop_pipeline: warp`` (``centered_instance``): the
+            training loader also cuts each crop's window at this size (e.g.
+            ``[384, 288]`` for a 384x288 teacher and a 256x192 student; same
+            aspect ratio as ``crop_size``, a multiple of the teacher's
+            ``max_stride``) from the same decoded frame with the same
+            augmentation draw, and the teacher reads that real high-resolution
+            crop (``teacher_image`` in the batch) instead of an upsampled
+            student crop. Its outputs are resized back to the student's grids.
+            Training only; exclusive with ``teacher_input_scale``.
+            *Default*: ``None``.
         mask_unlabeled_nodes: (bool) Weight the heatmap term by the batch's
             ``node_weights`` (data_config.node_loss_mask), so nodes the sample's
             source did not label get no teacher signal. ``False`` distills every
@@ -715,11 +726,45 @@ class DistillationConfig:
         default=None, validator=validators.optional(validators.in_(["linear", "none"]))
     )
     teacher_input_scale: float = field(default=1.0, validator=validators.gt(0))
+    teacher_crop_size: Optional[Any] = field(
+        default=None,
+        validator=lambda instance, attr, value: instance.validate_teacher_crop_size(),
+    )
     mask_unlabeled_nodes: bool = True
     trainable: Optional[List[str]] = None
     teacher_precision: str = field(
         default="bf16", validator=validators.in_(["bf16", "32"])
     )
+
+    def validate_teacher_crop_size(self):
+        """`teacher_crop_size`: an int or `[height, width]`, stage 1 only."""
+        value = self.teacher_crop_size
+        if value is None:
+            return
+        try:
+            hw = [int(value)] * 2 if isinstance(value, (int, float)) else list(value)
+            ok = len(hw) == 2 and all(int(v) == v and v > 0 for v in hw)
+        except (TypeError, ValueError):
+            ok = False
+        if not ok:
+            message = (
+                "trainer_config.distillation.teacher_crop_size must be an int or "
+                f"[height, width], got {value!r}."
+            )
+        elif self.stage != 1:
+            message = (
+                "trainer_config.distillation.teacher_crop_size is a stage-1 option "
+                "(stage 2's teacher is the student itself)."
+            )
+        elif self.teacher_input_scale != 1.0:
+            message = (
+                "trainer_config.distillation: set teacher_crop_size or "
+                "teacher_input_scale, not both."
+            )
+        else:
+            return
+        logger.error(message)
+        raise ValueError(message)
 
     def __attrs_post_init__(self):
         """Stage 1 needs a teacher."""

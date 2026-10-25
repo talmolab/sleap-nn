@@ -3100,7 +3100,13 @@ class ModelTrainer:
                     "Resuming distillation stage 2 needs `distillation.teacher` (the "
                     "stage-1 model): the resumed weights are not the teacher."
                 )
-        attach_distillation(self.lightning_model, cfg)
+        attach_distillation(
+            self.lightning_model,
+            cfg,
+            student_crop_size=OmegaConf.select(
+                self.config, "data_config.preprocessing.crop_size", default=None
+            ),
+        )
 
     def _maybe_compile_model(self):
         """`torch.compile` the network in place if `trainer_config.compile` is set.

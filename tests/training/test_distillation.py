@@ -85,6 +85,22 @@ def test_config_defaults_off():
         DistillationConfig(teacher="t", stage=3)
 
 
+def test_config_teacher_crop_size():
+    assert DistillationConfig(teacher="t").teacher_crop_size is None
+    assert DistillationConfig(teacher="t", teacher_crop_size=384).teacher_crop_size
+    cfg = DistillationConfig(teacher="t", teacher_crop_size=[384, 288])
+    assert list(cfg.teacher_crop_size) == [384, 288]
+    for bad in ([384], [384, 0], "big", [1.5, 2]):
+        with pytest.raises(ValueError, match="int or"):
+            DistillationConfig(teacher="t", teacher_crop_size=bad)
+    with pytest.raises(ValueError, match="stage-1 option"):
+        DistillationConfig(stage=2, teacher_crop_size=[384, 288])
+    with pytest.raises(ValueError, match="not both"):
+        DistillationConfig(
+            teacher="t", teacher_crop_size=[384, 288], teacher_input_scale=1.5
+        )
+
+
 def test_config_key_validates(config):
     cfg = config.copy()
     cfg.trainer_config.distillation = {"teacher": "x", "alpha": 0.5}
@@ -236,6 +252,35 @@ def test_teacher_input_scale_and_teacher_image(minimal_instance_centered_instanc
     out, bb = student.model(x, return_backbone_outputs=True)
     terms = d.loss_terms(x, out, bb, {}, None)
     assert terms["heatmap"].ndim == 0 and terms["feat"].ndim == 0
+
+
+def test_teacher_crop_size_uses_the_dual_resolution_crop(
+    minimal_instance_centered_instance_ckpt,
+):
+    ckpt = minimal_instance_centered_instance_ckpt
+    student = _student(ckpt)
+    d = attach_distillation(
+        student, {"teacher": str(ckpt), "teacher_crop_size": [144, 136]}, 96
+    )
+    assert d.teacher_crop_size == (144, 136) and d.teacher_input_scale == 1.0
+    x = torch.rand(2, 1, 96, 96)
+    image = torch.full((2, 1, 1, 144, 136), 51, dtype=torch.uint8)
+    xt = d.teacher_input(x, {TEACHER_IMAGE_KEY: image})
+    assert xt.shape == (2, 1, 144, 136)
+    assert torch.allclose(xt, torch.full_like(xt, 0.2))
+    out, bb = student.model(x, return_backbone_outputs=True)
+    terms = d.loss_terms(x, out, bb, {TEACHER_IMAGE_KEY: image}, None)
+    assert terms["heatmap"].ndim == 0 and terms["feat"].ndim == 0
+    # Never a silent fallback to the student's crop at the wrong resolution.
+    with pytest.raises(ValueError, match="no `teacher_image`"):
+        d.teacher_input(x, {})
+    with pytest.raises(ValueError, match="not distillation.teacher_crop_size"):
+        d.teacher_input(x, {TEACHER_IMAGE_KEY: image[..., :128, :128]})
+    # The teacher crop must fit the teacher's stride.
+    with pytest.raises(ValueError, match="multiple of the teacher's max_stride 8"):
+        attach_distillation(
+            _student(ckpt), {"teacher": str(ckpt), "teacher_crop_size": 140}
+        )
 
 
 def test_decay_schedule(minimal_instance_centered_instance_ckpt):
@@ -451,6 +496,46 @@ def test_model_trainer_trains_with_distillation(
     # The run's checkpoint loads into a plain model.
     plain = LightningModel.get_lightning_model_from_config(_ci_config(tmp_path / "kd"))
     plain.load_state_dict(best["state_dict"], strict=True)
+
+
+def test_model_trainer_warp_dual_resolution_teacher(
+    config, tmp_path, minimal_instance_centered_instance_ckpt, monkeypatch
+):
+    """A warp run with `teacher_crop_size` feeds the teacher its own crop in every
+    training step; validation batches carry none."""
+    from sleap_nn.training.model_trainer import ModelTrainer
+
+    ckpt = minimal_instance_centered_instance_ckpt
+    cfg = _e2e_config(config, tmp_path, ckpt)
+    pre = cfg.data_config.preprocessing
+    pre.crop_mode = "bbox"
+    pre.crop_pipeline = "warp"
+    pre.crop_size = [64, 48]
+    pre.gpu_confmaps = True
+    head = cfg.model_config.head_configs.centered_instance.confmaps
+    head.anchor_part = None
+    head.centroid_method = "bbox_center"
+    cfg.trainer_config.distillation = {
+        "teacher": str(ckpt),
+        "alpha": 0.5,
+        "teacher_crop_size": [96, 72],
+    }
+    seen = []
+    teacher_input = Distiller.teacher_input
+
+    def spy(self, x, batch):
+        seen.append((tuple(x.shape[-2:]), tuple(batch[TEACHER_IMAGE_KEY].shape)))
+        return teacher_input(self, x, batch)
+
+    monkeypatch.setattr(Distiller, "teacher_input", spy)
+    trainer = ModelTrainer.get_model_trainer_from_config(cfg)
+    trainer.train()
+    assert trainer.lightning_model.distiller.teacher_crop_size == (96, 72)
+    assert seen and all(
+        xs == (64, 48) and ts[0] > 0 and ts[1:] == (1, 1, 96, 72) for xs, ts in seen
+    )
+    assert "train/distill_heatmap" in trainer.trainer.callback_metrics
+    assert TEACHER_IMAGE_KEY not in trainer.trainer.val_dataloaders.dataset[0]
 
 
 # ---------------------------------------------------------------------- DDP

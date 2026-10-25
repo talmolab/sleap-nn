@@ -73,9 +73,10 @@ DISTILLATION_MODEL_TYPES = (
 CHECKPOINT_KEY = "distillation"
 # State-dict prefix of the distiller inside the LightningModel.
 STATE_PREFIX = "distiller."
-# Optional batch key: the student's crop rendered at the teacher's resolution
-# (same window, ``teacher_input_scale`` x the pixels). A dual-resolution crop
-# path can emit it; without it the student's crop is resampled.
+# Batch key of the student's crop window rendered at the teacher's resolution
+# (``teacher_crop_size``), emitted by the warp data path
+# (`WarpCenteredInstanceDataset`). Without it the student's crop is resampled by
+# ``teacher_input_scale``.
 TEACHER_IMAGE_KEY = "teacher_image"
 
 
@@ -204,6 +205,9 @@ class Distiller(nn.Module):
         decay: ``"linear"`` or ``"none"`` (``None`` at construction: linear at
             stage 1, none at stage 2).
         teacher_input_scale: Student crop -> teacher input resampling factor.
+        teacher_crop_size: ``(height, width)`` of the batch's ``teacher_image``
+            (dual-resolution crops), which every training batch must then carry;
+            ``None`` without.
         mask_unlabeled_nodes: Weight the heatmap term by ``node_weights``.
         teacher_bf16: Run the teacher under bf16 autocast on CUDA.
         student_head: Name of the student's confmap head.
@@ -230,6 +234,7 @@ class Distiller(nn.Module):
         supervised_weight: Optional[float] = None,
         decay: Optional[str] = None,
         teacher_input_scale: float = 1.0,
+        teacher_crop_size: Optional[Tuple[int, int]] = None,
         mask_unlabeled_nodes: bool = True,
         teacher_bf16: bool = True,
         projector: Optional[nn.Module] = None,
@@ -253,6 +258,11 @@ class Distiller(nn.Module):
             decay = "linear" if self.stage == 1 else "none"
         self.decay = decay
         self.teacher_input_scale = float(teacher_input_scale)
+        self.teacher_crop_size = (
+            None
+            if teacher_crop_size is None
+            else tuple(int(v) for v in teacher_crop_size)
+        )
         self.mask_unlabeled_nodes = bool(mask_unlabeled_nodes)
         self.teacher_bf16 = bool(teacher_bf16)
         self.projector = projector
@@ -289,6 +299,11 @@ class Distiller(nn.Module):
         Args:
             x: The student's (normalized) input ``(B, C, H, W)``.
             batch: The training batch.
+
+        Raises:
+            ValueError: With ``teacher_crop_size`` set, if the batch has no
+                ``teacher_image`` of that size (the teacher would otherwise see the
+                student's crop at the wrong resolution).
         """
         from sleap_nn.data.normalization import normalize_on_gpu
 
@@ -296,7 +311,21 @@ class Distiller(nn.Module):
         if image is not None:
             if image.dim() == 5:
                 image = torch.squeeze(image, dim=1)
+            if (
+                self.teacher_crop_size is not None
+                and tuple(image.shape[-2:]) != self.teacher_crop_size
+            ):
+                raise ValueError(
+                    f"teacher_image is {tuple(image.shape[-2:])}, not "
+                    f"distillation.teacher_crop_size {self.teacher_crop_size}."
+                )
             return normalize_on_gpu(image.to(x.device))
+        if self.teacher_crop_size is not None:
+            raise ValueError(
+                "distillation.teacher_crop_size is set but the batch has no "
+                f"`{TEACHER_IMAGE_KEY}`: it is emitted by the warp crop path "
+                "(preprocessing.crop_pipeline: warp, centered_instance)."
+            )
         if self.teacher_input_scale == 1.0:
             return x
         stride = _max_stride(self.teacher)
@@ -461,7 +490,9 @@ def _check_sigma(student: nn.Module, teacher_cfg: DictConfig, scale: float) -> N
         )
 
 
-def attach_distillation(student: nn.Module, cfg: Any) -> Distiller:
+def attach_distillation(
+    student: nn.Module, cfg: Any, student_crop_size: Any = None
+) -> Distiller:
     """Build a `Distiller` from ``trainer_config.distillation`` and attach it.
 
     Call before the optimizer is built (``trainer.fit``): stage 1 adds the
@@ -470,13 +501,18 @@ def attach_distillation(student: nn.Module, cfg: Any) -> Distiller:
     Args:
         student: The `LightningModel` to train.
         cfg: A `DistillationConfig` (or its DictConfig).
+        student_crop_size: The student's input crop size (int or ``(h, w)``),
+            for the heatmap-width check with ``teacher_crop_size``; ``None``
+            skips that check.
 
     Returns:
         The distiller, also set as ``student.distiller``.
 
     Raises:
         ValueError: For an unsupported model type, skeletons with no shared node,
-            or a stage-2 ``teacher`` that does not fully initialize the student.
+            or a stage-2 ``teacher`` that does not fully initialize the student,
+            or a ``teacher_crop_size`` that is not a multiple of the teacher's
+            ``max_stride``.
     """
     if student.model_type not in DISTILLATION_MODEL_TYPES:
         raise ValueError(
@@ -499,7 +535,22 @@ def attach_distillation(student: nn.Module, cfg: Any) -> Distiller:
             s_heads[s_head]["channel_names"], t_heads[t_head]["channel_names"]
         )
         scale = float(get("teacher_input_scale", 1.0))
-        _check_sigma(student, teacher_cfg, scale)
+        teacher_crop = get("teacher_crop_size")
+        if teacher_crop is not None:
+            from sleap_nn.data.instance_cropping import crop_hw
+
+            teacher_crop = crop_hw(teacher_crop)
+            stride = _max_stride(teacher)
+            if teacher_crop[0] % stride or teacher_crop[1] % stride:
+                raise ValueError(
+                    f"distillation.teacher_crop_size {list(teacher_crop)} must be a "
+                    f"multiple of the teacher's max_stride {stride}."
+                )
+            student_hw = crop_hw(student_crop_size)
+            # The teacher's outputs are resized from its crop to the student's.
+            scale = teacher_crop[0] / student_hw[0] if student_hw[0] else None
+        if scale is not None:
+            _check_sigma(student, teacher_cfg, scale)
         projector = None
         alpha = float(get("alpha", 1.0))
         if alpha > 0:
@@ -521,7 +572,8 @@ def attach_distillation(student: nn.Module, cfg: Any) -> Distiller:
             beta=get("beta", 1.0),
             supervised_weight=get("supervised_weight"),
             decay=get("decay"),
-            teacher_input_scale=scale,
+            teacher_input_scale=1.0 if teacher_crop is not None else scale,
+            teacher_crop_size=teacher_crop,
             mask_unlabeled_nodes=get("mask_unlabeled_nodes", True),
             teacher_bf16=get("teacher_precision", "bf16") == "bf16",
             projector=projector,
@@ -530,7 +582,12 @@ def attach_distillation(student: nn.Module, cfg: Any) -> Distiller:
             f"Distillation stage 1: {feat_note}, {len(s_idx)} shared nodes, "
             f"alpha={distiller.alpha}, beta={distiller.beta}, "
             f"supervised_weight={distiller.supervised_weight}, "
-            f"decay={distiller.decay}, teacher_input_scale={scale}."
+            f"decay={distiller.decay}, "
+            + (
+                f"teacher_crop_size={list(teacher_crop)}."
+                if teacher_crop is not None
+                else f"teacher_input_scale={scale}."
+            )
         )
     else:
         if get("teacher"):

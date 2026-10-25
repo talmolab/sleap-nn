@@ -493,7 +493,8 @@ trainer_config:
     stage: 1                  # 1 teacher -> student, 2 head self-distillation
     alpha: 1.0                # feature loss weight (0 = off)
     beta: 1.0                 # heatmap loss weight
-    teacher_input_scale: 1.5  # teacher sees the crop resampled by this factor
+    teacher_crop_size: [384, 288]  # warp crops: the teacher gets its own 384x288 crop
+    # teacher_input_scale: 1.5     # other crop paths: the student crop upsampled
 ```
 
 The teacher stays frozen and outside the checkpoint; the distillation terms fade
