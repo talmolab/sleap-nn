@@ -117,8 +117,10 @@ def _draws(ds, n):
     return out
 
 
-def test_teacher_image_key_matches_distillation():
-    assert TEACHER_IMAGE_KEY == "teacher_image"
+def test_teacher_image_key_is_shared_with_distillation():
+    from sleap_nn.data import topdown_warp
+
+    assert TEACHER_IMAGE_KEY is topdown_warp.TEACHER_IMAGE_KEY
 
 
 @pytest.mark.parametrize("ratio", [2.0, 1.5])
@@ -241,7 +243,7 @@ def test_teacher_crop_collates_through_a_dataloader(tmp_path):
 # ------------------------------------------------------------------ config
 
 
-def _cfg(pytestconfig, distillation):
+def _cfg(pytestconfig):
     from pathlib import Path
 
     from tests.fixtures.datasets import config as config_fixture
@@ -254,35 +256,35 @@ def _cfg(pytestconfig, distillation):
     pre.crop_size = [64, 48]
     head = cfg.model_config.head_configs.centered_instance.confmaps
     head.anchor_part = None
-    cfg.trainer_config.distillation = distillation
     return cfg
 
 
-def test_builder_gives_the_teacher_crop_to_training_only(pytestconfig):
-    cfg = _cfg(pytestconfig, {"teacher": "t", "teacher_crop_size": [96, 72]})
-    labels = sio.load_slp(
+def _minimal_labels(pytestconfig):
+    return sio.load_slp(
         f"{pytestconfig.rootdir}/tests/assets/datasets/minimal_instance.pkg.slp"
     )
-    train, val = _get_warp_centered_instance_datasets(
-        [labels], [labels], cfg, "unet", {}
+
+
+def test_builder_gives_the_teacher_crop_to_training_only(pytestconfig):
+    cfg, labels = _cfg(pytestconfig), _minimal_labels(pytestconfig)
+    train, val = get_train_val_datasets(
+        [labels], [labels], cfg, teacher_crop_size=[96, 72]
     )
     assert train.teacher_hw == (96, 72) and val.teacher_hw is None
     assert TEACHER_IMAGE_KEY in train[0] and TEACHER_IMAGE_KEY not in val[0]
-    # Distillation without a teacher crop, stage 2, or none at all: no teacher crop.
-    for d in (None, {"teacher": "t"}, {"stage": 2}):
-        cfg.trainer_config.distillation = d
-        train, _ = _get_warp_centered_instance_datasets(
-            [labels], [labels], cfg, "unet", {}
-        )
+    # Only what the caller passes counts: a distillation config alone (as the
+    # visualization datasets see it) adds no teacher crop.
+    cfg.trainer_config.distillation = {"teacher": "t", "teacher_crop_size": [96, 72]}
+    for train in (
+        get_train_val_datasets([labels], [labels], cfg)[0],
+        _get_warp_centered_instance_datasets([labels], [labels], cfg, "unet", {})[0],
+    ):
         assert train.teacher_hw is None and TEACHER_IMAGE_KEY not in train[0]
 
 
 def test_teacher_crop_size_needs_the_warp_path(pytestconfig):
-    cfg = _cfg(pytestconfig, {"teacher": "t", "teacher_crop_size": 144})
+    cfg, labels = _cfg(pytestconfig), _minimal_labels(pytestconfig)
     cfg.data_config.preprocessing.crop_pipeline = "legacy"
     cfg.data_config.preprocessing.crop_size = 96
-    labels = sio.load_slp(
-        f"{pytestconfig.rootdir}/tests/assets/datasets/minimal_instance.pkg.slp"
-    )
     with pytest.raises(ValueError, match="crop_pipeline='warp'"):
-        get_train_val_datasets([labels], [labels], cfg)
+        get_train_val_datasets([labels], [labels], cfg, teacher_crop_size=144)

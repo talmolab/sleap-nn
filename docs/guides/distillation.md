@@ -168,6 +168,15 @@ The cost is a second warp and the photometric ops on the bigger crop: about
 teacher crop), well above what a ViT-S rank consumes, so it should not slow
 training down; the teacher's own forward pass costs far more GPU time.
 
+Watch shared memory: batches in flight between the loader workers and the
+training process live in `/dev/shm`, about `num_workers x prefetch_factor`
+batches per GPU. With a 384×288 teacher crop a batch of 128 is ~61 MB instead
+of ~19 MB, so 20 workers with the default `prefetch_factor: 2` hold ~2.5 GB
+per GPU (~10 GB on a 4-GPU node, twice that with `prefetch_factor: 4`). If workers die with a bus error or "No space left on
+device", lower `trainer_config.train_data_loader.prefetch_factor` or
+`num_workers`, or enlarge `/dev/shm`. The visualization datasets
+(`visualize_preds_during_training`) cut no teacher crops.
+
 ### `teacher_input_scale`: upsample the student's crop
 
 On the other crop paths, `teacher_input_scale` resamples the student's crop by

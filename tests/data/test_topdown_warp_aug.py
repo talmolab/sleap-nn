@@ -21,6 +21,7 @@ from sleap_nn.data.instance_cropping import BBoxCropSpec, bbox_crop_windows
 from sleap_nn.data.topdown_warp import (
     WarpAug,
     WarpCenteredInstanceDataset,
+    _apply_hsv_lut,
     center_size_window,
 )
 from sleap_nn.training.callbacks import AugmentationStageCallback
@@ -226,9 +227,8 @@ def test_hsv_matches_mmdet_reference():
     delta = (5.0, 30.0, 30.0)
     crop = np.random.default_rng(1).integers(0, 255, (16, 12, 3), dtype=np.uint8)
     for seed in range(10):
-        out = WarpAug(hsv_p=1.0, hsv_delta=delta)._hsv(
-            crop, np.random.default_rng(seed)
-        )
+        lut = WarpAug(hsv_p=1.0, hsv_delta=delta)._hsv_lut(np.random.default_rng(seed))
+        out = crop if lut is None else _apply_hsv_lut(crop, lut)
         # mmdet YOLOXHSVRandomAug.transform, on RGB.
         rng = np.random.default_rng(seed)
         gains = rng.uniform(-1, 1, 3) * np.array(delta)

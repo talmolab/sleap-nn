@@ -366,6 +366,11 @@ def build_instance_table(
 # Geometry
 # ---------------------------------------------------------------------------
 
+#: Batch key of distillation's dual-resolution crop: the sample's window at the
+#: teacher's resolution (``teacher_crop_size``), read by
+#: :class:`~sleap_nn.training.distillation.Distiller`.
+TEACHER_IMAGE_KEY = "teacher_image"
+
 #: ``geometric.affine_sampling`` values (see :class:`WarpAug`).
 AFFINE_SAMPLINGS = ("uniform", "mmpose")
 
@@ -878,10 +883,6 @@ class WarpAug:
             ],
             axis=-1,
         ).astype(np.uint8)[:, None, :]
-
-    def _hsv(self, crop: np.ndarray, rng: np.random.Generator) -> np.ndarray:
-        lut = self._hsv_lut(rng)
-        return crop if lut is None else _apply_hsv_lut(crop, lut)
 
     def _dropout_rects(
         self, H: int, W: int, rng: np.random.Generator
@@ -1404,8 +1405,7 @@ class WarpCenteredInstanceDataset(Dataset):
             "frame_idx": int(t.frame_idx[i]),
         }
         if teacher is not None:
-            # `sleap_nn.training.distillation.TEACHER_IMAGE_KEY`.
-            sample["teacher_image"] = torch.from_numpy(
+            sample[TEACHER_IMAGE_KEY] = torch.from_numpy(
                 np.ascontiguousarray(teacher.transpose(2, 0, 1))
             ).unsqueeze(
                 0

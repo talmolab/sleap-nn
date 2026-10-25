@@ -54,6 +54,11 @@ from loguru import logger
 from omegaconf import DictConfig, OmegaConf
 from torch import nn
 
+# Batch key of the student's crop window rendered at the teacher's resolution
+# (``teacher_crop_size``), emitted by the warp data path
+# (`WarpCenteredInstanceDataset`). Without it the student's crop is resampled by
+# ``teacher_input_scale``.
+from sleap_nn.data.topdown_warp import TEACHER_IMAGE_KEY
 from sleap_nn.training.losses import compute_weighted_mse_loss
 from sleap_nn.training.weight_transfer import (
     init_from_checkpoint,
@@ -73,11 +78,6 @@ DISTILLATION_MODEL_TYPES = (
 CHECKPOINT_KEY = "distillation"
 # State-dict prefix of the distiller inside the LightningModel.
 STATE_PREFIX = "distiller."
-# Batch key of the student's crop window rendered at the teacher's resolution
-# (``teacher_crop_size``), emitted by the warp data path
-# (`WarpCenteredInstanceDataset`). Without it the student's crop is resampled by
-# ``teacher_input_scale``.
-TEACHER_IMAGE_KEY = "teacher_image"
 
 
 def _resolve_model_dir(path: str) -> Tuple[Path, Path]:
@@ -512,7 +512,7 @@ def attach_distillation(
         ValueError: For an unsupported model type, skeletons with no shared node,
             or a stage-2 ``teacher`` that does not fully initialize the student,
             or a ``teacher_crop_size`` that is not a multiple of the teacher's
-            ``max_stride``.
+            ``max_stride`` or comes with a ``teacher_input_scale``.
     """
     if student.model_type not in DISTILLATION_MODEL_TYPES:
         raise ValueError(
@@ -539,6 +539,11 @@ def attach_distillation(
         if teacher_crop is not None:
             from sleap_nn.data.instance_cropping import crop_hw
 
+            if scale != 1.0:
+                raise ValueError(
+                    "distillation: set teacher_crop_size or teacher_input_scale, "
+                    "not both."
+                )
             teacher_crop = crop_hw(teacher_crop)
             stride = _max_stride(teacher)
             if teacher_crop[0] % stride or teacher_crop[1] % stride:

@@ -11,6 +11,8 @@ from typing import Optional, List, Any
 from loguru import logger
 import re
 
+from sleap_nn.config.utils import parse_hw
+
 #: Lightning ``Trainer(precision=...)`` values accepted by ``trainer_config.precision``.
 TRAINER_PRECISIONS = {"32", "32-true", "bf16-mixed", "16-mixed"}
 
@@ -725,10 +727,20 @@ class DistillationConfig:
     decay: Optional[str] = field(
         default=None, validator=validators.optional(validators.in_(["linear", "none"]))
     )
-    teacher_input_scale: float = field(default=1.0, validator=validators.gt(0))
+    teacher_input_scale: float = field(
+        default=1.0,
+        validator=[
+            validators.gt(0),
+            lambda instance, attr, value: instance.validate_teacher_crop_size(
+                attr, value
+            ),
+        ],
+    )
     teacher_crop_size: Optional[Any] = field(
         default=None,
-        validator=lambda instance, attr, value: instance.validate_teacher_crop_size(),
+        validator=lambda instance, attr, value: instance.validate_teacher_crop_size(
+            attr, value
+        ),
     )
     mask_unlabeled_nodes: bool = True
     trainable: Optional[List[str]] = None
@@ -736,17 +748,20 @@ class DistillationConfig:
         default="bf16", validator=validators.in_(["bf16", "32"])
     )
 
-    def validate_teacher_crop_size(self):
-        """`teacher_crop_size`: an int or `[height, width]`, stage 1 only."""
-        value = self.teacher_crop_size
+    def validate_teacher_crop_size(self, attr=None, new=None):
+        """`teacher_crop_size`: an int or `[height, width]`, stage 1 only.
+
+        The validator of both `teacher_crop_size` and `teacher_input_scale`
+        (``attr`` / ``new``: the field being validated and its incoming value,
+        which on assignment is not set yet), so the two cannot be combined even
+        when one is assigned after construction.
+        """
+        name = getattr(attr, "name", None)
+        value = new if name == "teacher_crop_size" else self.teacher_crop_size
+        scale = new if name == "teacher_input_scale" else self.teacher_input_scale
         if value is None:
             return
-        try:
-            hw = [int(value)] * 2 if isinstance(value, (int, float)) else list(value)
-            ok = len(hw) == 2 and all(int(v) == v and v > 0 for v in hw)
-        except (TypeError, ValueError):
-            ok = False
-        if not ok:
+        if parse_hw(value) is None:
             message = (
                 "trainer_config.distillation.teacher_crop_size must be an int or "
                 f"[height, width], got {value!r}."
@@ -756,7 +771,7 @@ class DistillationConfig:
                 "trainer_config.distillation.teacher_crop_size is a stage-1 option "
                 "(stage 2's teacher is the student itself)."
             )
-        elif self.teacher_input_scale != 1.0:
+        elif scale != 1.0:
             message = (
                 "trainer_config.distillation: set teacher_crop_size or "
                 "teacher_input_scale, not both."

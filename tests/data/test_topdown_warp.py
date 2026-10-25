@@ -325,10 +325,9 @@ def test_crop_size_hw_config_validation():
     PreprocessingConfig(crop_size=128)
     with pytest.raises(ValueError):
         PreprocessingConfig(crop_size=[256, 192], crop_mode="bbox")
-    with pytest.raises(ValueError):
-        PreprocessingConfig(
-            crop_size=[256, 192, 3], crop_mode="bbox", crop_pipeline="warp"
-        )
+    for bad in ([256, 192, 3], [256.5, 192], [256, True], "256"):
+        with pytest.raises(ValueError):
+            PreprocessingConfig(crop_size=bad, crop_mode="bbox", crop_pipeline="warp")
 
 
 # --------------------------------------------------------------------------- #

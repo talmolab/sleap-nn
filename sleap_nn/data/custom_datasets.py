@@ -6667,8 +6667,12 @@ def _get_warp_centered_instance_datasets(
     config: DictConfig,
     backbone_type: str,
     node_weight_kwargs: Dict[str, Any],
+    teacher_crop_size=None,
 ):
     """Train/val datasets of ``preprocessing.crop_pipeline="warp"`` (centered instance).
+
+    ``teacher_crop_size`` (distillation's dual-resolution crop) goes to the
+    training dataset only.
 
     Raises:
         ValueError: If the config cannot use the warp pipeline (it needs
@@ -6731,8 +6735,7 @@ def _get_warp_centered_instance_datasets(
             OmegaConf.select(config, "data_config.instance_filter", default=None)
         ),
         base_seed=OmegaConf.select(config, "trainer_config.seed", default=0) or 0,
-        # Distillation's dual-resolution crop: training only.
-        teacher_crop_size=distillation_teacher_crop_size(config),
+        teacher_crop_size=teacher_crop_size,
         **common,
     )
     val_dataset = WarpCenteredInstanceDataset(
@@ -6741,22 +6744,12 @@ def _get_warp_centered_instance_datasets(
     return train_dataset, val_dataset
 
 
-def distillation_teacher_crop_size(config: DictConfig):
-    """``trainer_config.distillation.teacher_crop_size`` (stage 1), else ``None``."""
-    cfg = OmegaConf.select(config, "trainer_config.distillation", default=None)
-    if cfg is None or int(cfg.get("stage", 1) or 1) != 1:
-        return None
-    size = cfg.get("teacher_crop_size")
-    if OmegaConf.is_config(size):
-        size = OmegaConf.to_container(size)
-    return size
-
-
 def get_train_val_datasets(
     train_labels: List[sio.Labels],
     val_labels: List[sio.Labels],
     config: DictConfig,
     rank: Optional[int] = None,
+    teacher_crop_size=None,
 ):
     """Return the train and val datasets.
 
@@ -6766,6 +6759,10 @@ def get_train_val_datasets(
         config: Sleap-nn config.
         rank: Indicates the rank of the process. Used during distributed training to ensure that image storage to
             disk occurs only once across all workers.
+        teacher_crop_size: Distillation's dual-resolution crop
+            (``trainer_config.distillation.teacher_crop_size``): the training
+            dataset also returns each window at this size as ``teacher_image``.
+            Warp ``centered_instance`` only. *Default*: ``None``.
 
     Returns:
         A tuple (train_dataset, val_dataset).
@@ -6809,7 +6806,7 @@ def get_train_val_datasets(
             "preprocessing.crop_pipeline='warp' is implemented for the "
             f"centered_instance model type only, not {model_type!r}."
         )
-    if distillation_teacher_crop_size(config) is not None and (
+    if teacher_crop_size is not None and (
         model_type != "centered_instance"
         or OmegaConf.select(
             config, "data_config.preprocessing.crop_pipeline", default="legacy"
@@ -7001,7 +6998,12 @@ def get_train_val_datasets(
         == "warp"
     ):
         train_dataset, val_dataset = _get_warp_centered_instance_datasets(
-            train_labels, val_labels, config, backbone_type, node_weight_kwargs
+            train_labels,
+            val_labels,
+            config,
+            backbone_type,
+            node_weight_kwargs,
+            teacher_crop_size=teacher_crop_size,
         )
 
     elif model_type == "centered_instance":

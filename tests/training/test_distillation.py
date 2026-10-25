@@ -90,7 +90,7 @@ def test_config_teacher_crop_size():
     assert DistillationConfig(teacher="t", teacher_crop_size=384).teacher_crop_size
     cfg = DistillationConfig(teacher="t", teacher_crop_size=[384, 288])
     assert list(cfg.teacher_crop_size) == [384, 288]
-    for bad in ([384], [384, 0], "big", [1.5, 2]):
+    for bad in ([384], [384, 0], "big", [1.5, 2], 383.5, True, "384"):
         with pytest.raises(ValueError, match="int or"):
             DistillationConfig(teacher="t", teacher_crop_size=bad)
     with pytest.raises(ValueError, match="stage-1 option"):
@@ -99,6 +99,12 @@ def test_config_teacher_crop_size():
         DistillationConfig(
             teacher="t", teacher_crop_size=[384, 288], teacher_input_scale=1.5
         )
+    # Also when either is assigned later.
+    with pytest.raises(ValueError, match="not both"):
+        cfg.teacher_input_scale = 1.5
+    later = DistillationConfig(teacher="t", teacher_input_scale=1.5)
+    with pytest.raises(ValueError, match="not both"):
+        later.teacher_crop_size = [384, 288]
 
 
 def test_config_key_validates(config):
@@ -276,6 +282,16 @@ def test_teacher_crop_size_uses_the_dual_resolution_crop(
         d.teacher_input(x, {})
     with pytest.raises(ValueError, match="not distillation.teacher_crop_size"):
         d.teacher_input(x, {TEACHER_IMAGE_KEY: image[..., :128, :128]})
+    # A raw config that skipped validation cannot combine the two either.
+    with pytest.raises(ValueError, match="not both"):
+        attach_distillation(
+            _student(ckpt),
+            {
+                "teacher": str(ckpt),
+                "teacher_crop_size": [144, 136],
+                "teacher_input_scale": 1.5,
+            },
+        )
     # The teacher crop must fit the teacher's stride.
     with pytest.raises(ValueError, match="multiple of the teacher's max_stride 8"):
         attach_distillation(
@@ -536,6 +552,8 @@ def test_model_trainer_warp_dual_resolution_teacher(
     )
     assert "train/distill_heatmap" in trainer.trainer.callback_metrics
     assert TEACHER_IMAGE_KEY not in trainer.trainer.val_dataloaders.dataset[0]
+    # The visualization datasets cut no teacher crops either.
+    assert all(ds.teacher_hw is None for ds in trainer._setup_viz_datasets())
 
 
 # ---------------------------------------------------------------------- DDP
