@@ -248,26 +248,9 @@ class CentroidLayer(InferenceLayer):
         if max_instances == 0:
             max_instances = 1  # always emit at least one slot for shape stability
 
-        # Allocate the padded outputs on the same device as the peaks so the
-        # scatter below doesn't trip the device check on cuda / mps. Falling
-        # back to CPU produces correct results on CPU but silently routes
-        # cuda / mps results through CPU (or errors on a downstream scatter).
-        device = peaks.device
-        padded_peaks = torch.full((B, max_instances, 2), float("nan"), device=device)
-        padded_vals = torch.full((B, max_instances), float("nan"), device=device)
-
-        for b in range(B):
-            mask = sample_inds == b
-            sample_peaks = peaks[mask]  # (n_b, 2)
-            sample_vals = peak_vals[mask]  # (n_b,)
-            if sample_peaks.numel() == 0:
-                continue
-            if sample_peaks.shape[0] > max_instances:
-                sample_vals, idx = torch.topk(sample_vals, max_instances)
-                sample_peaks = sample_peaks[idx]
-            n = sample_peaks.shape[0]
-            padded_peaks[b, :n] = sample_peaks
-            padded_vals[b, :n] = sample_vals
+        padded_peaks, padded_vals = pad_peaks_per_sample(
+            peaks, peak_vals, sample_inds, B, max_instances
+        )
 
         # Reverse the per-sample sizematcher last (matches legacy ordering).
         padded_peaks = undo_eff_scale(padded_peaks, info.eff_scale)
@@ -292,3 +275,65 @@ class CentroidLayer(InferenceLayer):
             return 0
         counts = torch.bincount(sample_inds.long())
         return int(counts.max().item())
+
+
+def pad_peaks_per_sample(
+    peaks: torch.Tensor,
+    peak_vals: torch.Tensor,
+    sample_inds: torch.Tensor,
+    batch_size: int,
+    max_instances: int,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Group a batch's peaks by sample into NaN-padded ``(B, K)`` slots.
+
+    A sample with at most ``max_instances`` (``K``) peaks keeps them in the
+    order they come in; a sample with more keeps its ``K`` highest, highest
+    first (what ``torch.topk`` returns). Peaks with exactly equal values
+    keep their incoming order, where ``torch.topk`` leaves it unspecified.
+
+    The whole batch is done in a few tensor ops on the peaks' device. A loop
+    over samples (``peaks[sample_inds == b]``, then ``topk``) gives the same
+    result but makes the CPU wait for the GPU several times per sample.
+
+    Args:
+        peaks: ``(n_peaks, 2)`` peak coordinates.
+        peak_vals: ``(n_peaks,)`` peak values.
+        sample_inds: ``(n_peaks,)`` sample index of each peak.
+        batch_size: Number of samples ``B``.
+        max_instances: Slots per sample ``K``.
+
+    Returns:
+        ``(B, K, 2)`` peaks and ``(B, K)`` values (float32), NaN where a
+        sample has fewer than ``K`` peaks.
+    """
+    device = peaks.device
+    B, K = batch_size, max_instances
+    # One spare column: peaks past the K-th of their sample are written there
+    # and dropped, so the number of kept peaks never has to be read back.
+    padded_peaks = torch.full((B, K + 1, 2), float("nan"), device=device)
+    padded_vals = torch.full((B, K + 1), float("nan"), device=device)
+    n = sample_inds.shape[0]
+    if n == 0:
+        return padded_peaks[:, :K].contiguous(), padded_vals[:, :K].contiguous()
+
+    sample_inds = sample_inds.long()
+    counts = torch.bincount(sample_inds, minlength=B)
+    starts = torch.cumsum(counts, 0) - counts
+    arange = torch.arange(n, device=device)
+
+    # Each peak's position among its sample's peaks, in incoming order.
+    by_sample = torch.argsort(sample_inds, stable=True)
+    pos = torch.empty_like(arange)
+    pos[by_sample] = arange - starts[sample_inds[by_sample]]
+
+    # Each peak's rank by value within its sample, highest first.
+    by_val = torch.argsort(-peak_vals, stable=True)
+    by_val = by_val[torch.argsort(sample_inds[by_val], stable=True)]
+    rank = torch.empty_like(arange)
+    rank[by_val] = arange - starts[sample_inds[by_val]]
+
+    slot = torch.where(counts[sample_inds] > K, rank, pos)
+    slot = slot.clamp(max=K)
+    padded_peaks[sample_inds, slot] = peaks.to(padded_peaks.dtype)
+    padded_vals[sample_inds, slot] = peak_vals.to(padded_vals.dtype)
+    return padded_peaks[:, :K].contiguous(), padded_vals[:, :K].contiguous()
