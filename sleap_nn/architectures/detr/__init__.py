@@ -1,7 +1,8 @@
 """Model modules of the ``bbox_detr`` (RF-DETR-style) box detector.
 
 The layout follows HF transformers' ``models/rf_detr`` port so RF-DETR weights load
-by renaming: a backbone with tapped token maps (:mod:`.backbones`), a single-level
+by renaming: a backbone with tapped token maps (:mod:`.backbones`; RF-DETR's
+windowed DINOv2 in :mod:`.dinov2_windowed`), a single-level
 projector (:mod:`.projector`), ``grid_sample`` deformable attention
 (:mod:`.deformable_attention`), the decoder (:mod:`.decoder`) and the two-stage
 proposals and prediction heads (:mod:`.model`). Training losses live in
@@ -14,6 +15,10 @@ from sleap_nn.architectures.detr.backbones import (
     TinyDetrBackbone,
     build_detr_backbone,
     register_detr_backbone,
+)
+from sleap_nn.architectures.detr.dinov2_windowed import (
+    WindowedDinov2Backbone,
+    load_dinov2_weights,
 )
 from sleap_nn.architectures.detr.decoder import (
     MLP,
@@ -44,6 +49,7 @@ __all__ = [
     "DETR_BACKBONES",
     "DetrBackbone",
     "GroupSelfAttention",
+    "load_dinov2_weights",
     "MLP",
     "multi_scale_deformable_attention",
     "MultiScaleDeformableAttention",
@@ -53,4 +59,5 @@ __all__ = [
     "sine_position_embedding",
     "TinyDetrBackbone",
     "token_proposals",
+    "WindowedDinov2Backbone",
 ]

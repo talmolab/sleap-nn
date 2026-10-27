@@ -38,7 +38,11 @@ from sleap_nn.architectures.unet import UNet
 from sleap_nn.architectures.convnext import ConvNextWrapper
 from sleap_nn.architectures.swint import SwinTWrapper
 from sleap_nn.architectures.pretrained import PretrainedBackbone
-from sleap_nn.architectures.detr import build_bbox_detr_head, build_detr_backbone
+from sleap_nn.architectures.detr import (
+    DETR_BACKBONES,
+    build_bbox_detr_head,
+    build_detr_backbone,
+)
 import torchvision.transforms.v2.functional as F
 from sleap_nn.config.model_config import DEFAULT_BBOX_CATEGORY, ssd_level_strides
 
@@ -75,6 +79,10 @@ def get_backbone(
         "pretrained": PretrainedBackbone,
     }
 
+    if backbone in DETR_BACKBONES:
+        message = f"The {backbone} backbone is only supported for bbox_detr models."
+        logger.error(message)
+        raise KeyError(message)
     if backbone not in backbones:
         message = f"Unsupported backbone: {backbone}. Supported backbones are: {', '.join(backbones.keys())}"
         logger.error(message)
