@@ -32,6 +32,7 @@ tests/assets/**/training_log.csv -text
 *.ckpt binary
 *.pkl binary
 *.pt binary
+*.safetensors binary
 *.png binary
 *.jpg binary
 *.mp4 binary

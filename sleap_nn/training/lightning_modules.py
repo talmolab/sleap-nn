@@ -331,6 +331,9 @@ class LightningModel(L.LightningModule):
         # weights in __init__, but the xavier init above clobbered them (it runs
         # on every Conv2d/Linear). Re-apply the snapshotted pretrained weights, then
         # freeze the encoder if requested. Mirrors the convnext/swint ordering.
+        if self.backbone_type == "dinov2_windowed":
+            # Same for RF-DETR's DINOv2 (when `weights` is set).
+            self.model.backbone.reload_pretrained_weights()
         if self.backbone_type == "pretrained":
             self.model.backbone.reload_pretrained_weights()
             if getattr(self.model.backbone, "freeze", False):
@@ -5244,6 +5247,22 @@ class _BBoxLightningModel(LightningModel):
         from sleap_nn.training.utils import MatplotlibRenderer
 
         return MatplotlibRenderer().render(self.get_visualization_data(sample))
+
+
+class BBoxDetrLightningModule(_BBoxLightningModel):
+    """Lightning Module for the ``bbox_detr`` (RF-DETR-style set prediction) detector.
+
+    Inference only for now: it loads ``bbox_detr`` model directories (e.g. RF-DETR
+    checkpoints imported with ``sleap-nn import-rfdetr``) for ``sleap-nn
+    predict``. ``forward`` returns the model's set-output dict, whose
+    ``pred_logits`` / ``pred_boxes`` the ``bbox_detr`` decoder reads. Training
+    (set targets, the set criterion, Group DETR) is not implemented yet.
+    """
+
+    def _compute_losses(self, raw, batch):
+        raise NotImplementedError(
+            "bbox_detr models can be loaded for inference but not trained yet."
+        )
 
 
 class BBoxCenterNetLightningModule(_BBoxLightningModel):

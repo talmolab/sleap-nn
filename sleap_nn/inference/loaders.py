@@ -20,6 +20,7 @@ if TYPE_CHECKING:
     import sleap_io as sio
 
 from sleap_nn.data.instance_cropping import crop_hw
+from sleap_nn.config.model_config import BBOX_MODEL_TYPES
 from sleap_nn.config.training_job_config import TrainingJobConfig
 from sleap_nn.config.utils import get_model_type_from_cfg, resolve_model_dir
 from sleap_nn.inference.bottomup import (
@@ -294,7 +295,9 @@ def _resolve_centroid_method(head_config: Any, anchor_override: Optional[str] = 
 def _resolve_preprocess_config(preprocess_config: Any, training_config: Any) -> Any:
     """Fill ``None`` fields in *preprocess_config* from the training config.
 
-    Mirrors the resolution loop in every legacy ``from_trained_models``.
+    Mirrors the resolution loop in every legacy ``from_trained_models``. The
+    resize mode has no override and always comes from the training config: a
+    model trained on squashed frames must see squashed frames.
     """
     for k, v in preprocess_config.items():
         if v is None:
@@ -303,6 +306,11 @@ def _resolve_preprocess_config(preprocess_config: Any, training_config: Any) -> 
                 if k in training_config.data_config.preprocessing
                 else None
             )
+    preprocess_config["resize_mode"] = OmegaConf.select(
+        training_config,
+        "data_config.preprocessing.resize_mode",
+        default="letterbox",
+    )
     return preprocess_config
 
 
@@ -654,7 +662,7 @@ def _build_bbox(
     max_instances: Optional[int] = None,
     nms_iou: Optional[float] = None,
 ) -> LoadedAssets:
-    """Load a ``bbox_centernet`` / ``bbox_ssd`` detector and wrap it for inference.
+    """Load a ``bbox_*`` detector and wrap it for inference.
 
     ``peak_threshold`` is the detection score threshold and ``max_instances`` caps
     detections per frame (default 100). ``nms_iou`` is the class-wise IoU-NMS
@@ -668,14 +676,15 @@ def _build_bbox(
     from sleap_nn.inference.bbox import BBoxDecoder, BBoxInferenceModel
     from sleap_nn.training.lightning_modules import (
         BBoxCenterNetLightningModule,
+        BBoxDetrLightningModule,
         BBoxSSDLightningModule,
     )
 
-    cls = (
-        BBoxCenterNetLightningModule
-        if model_type == "bbox_centernet"
-        else BBoxSSDLightningModule
-    )
+    cls = {
+        "bbox_centernet": BBoxCenterNetLightningModule,
+        "bbox_ssd": BBoxSSDLightningModule,
+        "bbox_detr": BBoxDetrLightningModule,
+    }[model_type]
     module, config, backbone_type = _load_lightning_module(
         cls,
         ckpt_path,
@@ -1712,15 +1721,16 @@ def load_model_assets(
             **common_kwargs,
         )
 
-    elif "bbox_centernet" in model_types or "bbox_ssd" in model_types:
+    elif set(BBOX_MODEL_TYPES) & set(model_types):
         # Whole-frame bounding-box detectors. Alone they are single-stage; with a
         # crop-consuming top-down model they replace the centroid model as stage 1.
-        model_type = "bbox_centernet" if "bbox_centernet" in model_types else "bbox_ssd"
-        if "bbox_centernet" in model_types and "bbox_ssd" in model_types:
+        detectors = [t for t in BBOX_MODEL_TYPES if t in model_types]
+        if len(detectors) > 1:
             raise ValueError(
-                "Got two bounding-box detectors (bbox_centernet and bbox_ssd); pass "
+                f"Got two bounding-box detectors ({' and '.join(detectors)}); pass "
                 "one."
             )
+        model_type = detectors[0]
         path = model_paths[model_types.index(model_type)]
         stage_2 = [t for t in BBOX_STAGE_2_MODEL_TYPES if t in model_types]
         detector_kwargs = dict(common_kwargs)
@@ -1913,7 +1923,8 @@ def _check_crop_stage(assets: LoadedAssets, model_types: List[str]) -> None:
         raise ValueError(
             "This centered-instance model crops each instance's bounding box "
             "(preprocessing.crop_mode='bbox'), so its first stage must be a "
-            "bbox_centernet / bbox_ssd detector, not a centroid model (or run it "
+            "bbox_centernet / bbox_ssd / bbox_detr detector, not a centroid model "
+            "(or run it "
             "alone on labeled frames to use ground-truth boxes)."
         )
     detector = assets.detector_assets

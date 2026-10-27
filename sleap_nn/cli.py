@@ -234,6 +234,7 @@ def cli():
     track    - Run inference/tracking workflow (legacy pipeline)
     eval     - Run evaluation workflow
     system   - Display system information and GPU status
+    import-rfdetr - Import an RF-DETR checkpoint as a bbox_detr model
     """
     pass
 
@@ -4520,6 +4521,46 @@ def info(path):
     from sleap_nn.model_info import print_model_info
 
     print_model_info(path)
+
+
+@cli.command("import-rfdetr", context_settings=CONTEXT_SETTINGS)
+@click.argument("model", type=str)
+@click.option(
+    "--output",
+    "-o",
+    "output_dir",
+    type=str,
+    required=True,
+    help="Model directory to write (training_config.yaml + best.ckpt).",
+)
+@click.option(
+    "--revision", type=str, default=None, help="HF Hub revision of the checkpoint."
+)
+@click.option(
+    "--overwrite", is_flag=True, default=False, help="Replace an existing model."
+)
+def import_rfdetr(model, output_dir, revision, overwrite):
+    """Import an RF-DETR detection checkpoint as a bbox_detr model directory.
+
+    MODEL is a size (nano, small, medium, large: the Apache-licensed
+    Roboflow/rf-detr-* checkpoints on the HF Hub), an HF Hub id, or a local
+    directory with config.json and model.safetensors. The output directory loads
+    in `sleap-nn predict` like a trained bbox_detr model (91 COCO-id classes,
+    squash resize to the checkpoint's resolution). Needs huggingface_hub and
+    safetensors (sleap-nn[backbones]) to download.
+
+    Examples:
+        sleap-nn import-rfdetr medium -o models/rfdetr-medium
+
+        sleap-nn predict -m models/rfdetr-medium -i video.mp4
+    """
+    from sleap_nn.convert.rfdetr import import_rfdetr as run_import
+
+    try:
+        out = run_import(model, output_dir, revision=revision, overwrite=overwrite)
+    except (FileExistsError, ValueError) as e:
+        raise click.ClickException(str(e)) from e
+    click.echo(f"Wrote {out}")
 
 
 def _require_finite(ctx, param, value):

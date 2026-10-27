@@ -933,15 +933,13 @@ def _select_layer(assets: Any, model_types: List[str], device: str):
             check_tiling_parity(_tiling_source_cfg(assets))
             return _build_tiled_semantic_segmentation_layer(inner, tiling)
         return inner
-    if "bbox_centernet" in model_types or "bbox_ssd" in model_types:
+    if set(BBOX_MODEL_TYPES) & set(model_types):
         if getattr(assets, "detector_assets", None) is None:
             return _build_bbox_layer(assets, device)
         # Detector-seeded top-down: build stage 2 exactly as for its GT-centroid
         # fallback, then put the detector in front of it.
         stage_2_types = [
-            t
-            for t in model_types
-            if t not in ("bbox_centernet", "bbox_ssd", "centroid")
+            t for t in model_types if t != "centroid" and t not in BBOX_MODEL_TYPES
         ]
         layer = _select_layer(assets, stage_2_types, device)
         return _attach_bbox_stage(layer, assets, device)
@@ -1563,7 +1561,7 @@ class Predictor:
         if "centered_instance_segmentation" in model_types:
             spec.append(f"fg_threshold={fg_threshold}")
             spec.append(f"mask_output={mask_output}")
-        if "bbox_centernet" in model_types or "bbox_ssd" in model_types:
+        if set(BBOX_MODEL_TYPES) & set(model_types):
             detector = getattr(loaded, "detector_assets", None) or loaded
             spec.append(
                 f"bbox_nms_iou={detector.inference_model.decoder.iou_threshold}"
