@@ -1811,6 +1811,11 @@ class DetrHeadConfig:
             soft target. *Default*: ``0.25``.
         focal_gamma: (float) Gamma of the matcher's focal cost and of the IA-BCE
             negative weight. *Default*: ``2.0``.
+        lr_component_decay: (float) RF-DETR's ``lr_component_decay``: the decoder
+            trains at ``lr * lr_component_decay`` and the backbone at
+            ``lr * encoder_lr_scale * lr_component_decay ** 2`` (times its layer
+            decay); everything else (projector, proposals, queries, heads) at
+            ``lr``. *Default*: ``0.7``.
     """
 
     categories: Optional[List[str]] = None
@@ -1835,6 +1840,9 @@ class DetrHeadConfig:
     set_cost_giou: float = 2.0
     focal_alpha: float = 0.25
     focal_gamma: float = 2.0
+    lr_component_decay: float = field(
+        default=0.7, validator=[validators.gt(0), validators.le(1)]
+    )
 
 
 @define
@@ -2090,7 +2098,8 @@ class Dinov2WindowedConfig:
     mlp_ratio: float = 4.0
     patch_size: int = 16
     pos_embed_grid: int = 36
-    out_indices: List[int] = field(factory=lambda: [3, 6, 9, 12])
+    # A tuple, not `field(factory=...)` (see `NegativesConfig.sources`).
+    out_indices: List[int] = (3, 6, 9, 12)
     num_windows: int = field(default=2, validator=validators.ge(1))
     window_block_indexes: Optional[List[int]] = None
     drop_path_rate: float = 0.0
@@ -2147,7 +2156,12 @@ class InitFromConfig:
             source skeleton saved in the checkpoint (or its
             ``training_config.yaml``). *Default*: ``True``.
         node_map: (Dict[str, str]) ``{target node: source node}`` overrides, e.g.
-            to seed a new node from a related source node. *Default*: ``None``.
+            to seed a new node from a related source node. For ``bbox_detr`` the
+            class heads' rows (``categories`` plus the never-positive extra logit,
+            named ``__extra__``) are matched by class name the same way, so a
+            subset of the source classes keeps their rows and ``{__extra__:
+            person}`` seeds the extra logit from the source's ``person`` row.
+            *Default*: ``None``.
         source_part_names: (List[str]) Source node names, for checkpoints that do
             not record them. *Default*: ``None``.
         interpolate_pos_embed: (bool) Resize learned positional embeddings on a

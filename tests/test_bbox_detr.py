@@ -110,21 +110,6 @@ def test_squash_only_for_bbox_detr(model_type):
             check_output_strides(cfg)
 
 
-def test_bbox_detr_training_not_available_yet():
-    from sleap_nn.training.lightning_modules import LightningModel
-
-    cfg = OmegaConf.create(
-        {
-            "model_config": {
-                "backbone_config": {"unet": {}},
-                "head_configs": OmegaConf.structured(get_head_configs("bbox_detr")),
-            }
-        }
-    )
-    with pytest.raises(NotImplementedError, match="not trained yet"):
-        LightningModel.get_lightning_model_from_config(cfg)
-
-
 # --------------------------------------------------------------------------- #
 # Set decoder
 # --------------------------------------------------------------------------- #

@@ -13,8 +13,12 @@ Shared by the ``bbox_*`` detection model types (``bbox_centernet``, ``bbox_ssd``
   (:func:`corners_to_bboxes`), then clipped to the frame (:func:`clip_bboxes`).
 * **Targets.** One encoder per detection style turns a frame's boxes into the dense
   tensors its loss reads: :class:`CenterNetTargetEncoder` (center heatmap + size and
-  offset maps) and :class:`SSDTargetEncoder` (per-anchor class + box targets). The
-  matching decoders live in :mod:`sleap_nn.inference.bbox`.
+  offset maps), :class:`SSDTargetEncoder` (per-anchor class + box targets) and
+  :class:`SetTargetEncoder` (``bbox_detr``: the boxes themselves, normalized
+  ``cxcywh``, turned into the matcher's list of targets by
+  :func:`collate_set_targets`). The matching decoders live in
+  :mod:`sleap_nn.inference.bbox`.
+* **Crowd regions** (:func:`is_crowd_bbox`) are never ground truth.
 
 Box coordinates are ``(x1, y1, x2, y2)`` in pixels, with the same convention as
 pose keypoints (a pixel's center is at its integer coordinate).
@@ -42,12 +46,27 @@ BBOX_SOURCES = ("auto", "bboxes", "instances", "masks")
 # ---------------------------------------------------------------------------
 
 
+def is_crowd_bbox(box: sio.BoundingBox) -> bool:
+    """Whether a box is a COCO-style crowd region (``metadata["iscrowd"]`` set).
+
+    Crowd regions (COCO ``iscrowd=1``, kept as boxes with ``iscrowd`` in their
+    metadata by the SLP 3.0 converters) mark groups too dense to annotate one by
+    one. They are not objects, so they are never box ground truth.
+    """
+    metadata = getattr(box, "metadata", None) or {}
+    return bool(metadata.get("iscrowd", 0))
+
+
 def frame_user_bboxes(lf: sio.LabeledFrame) -> List[sio.BoundingBox]:
-    """A frame's usable user boxes: not predicted and not degenerate."""
+    """A frame's usable user boxes: not predicted, not degenerate, not crowd."""
     return [
         b
         for b in (getattr(lf, "bboxes", None) or [])
-        if not b.is_predicted and not b.is_empty and b.width > 0 and b.height > 0
+        if not b.is_predicted
+        and not b.is_empty
+        and b.width > 0
+        and b.height > 0
+        and not is_crowd_bbox(b)
     ]
 
 
@@ -329,30 +348,36 @@ def clip_bboxes(
     img_hw: Tuple[int, int],
     min_size: float = 2.0,
     min_visible_fraction: float = 0.25,
+    edge_coords: bool = False,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """Clip boxes to the frame and flag the ones still worth supervising.
 
     Args:
         xyxy: ``(n, 4)`` boxes.
         img_hw: ``(height, width)`` of the frame.
-        min_size: Boxes narrower or shorter than this after clipping are dropped.
+        min_size: Boxes narrower or shorter than this after clipping are dropped
+            (as are boxes with no area left).
         min_visible_fraction: Boxes keeping less than this fraction of their area
             inside the frame (e.g. after a translation) are dropped.
+        edge_coords: Clip to ``[0, width] x [0, height]`` (box edges, as COCO and
+            DETR targets use) instead of the pixel-center range
+            ``[0, width - 1] x [0, height - 1]``.
 
     Returns:
         ``(clipped, keep)``: the clipped ``(n, 4)`` boxes and a ``(n,)`` bool mask.
     """
     h, w = img_hw
+    x_max, y_max = (w, h) if edge_coords else (w - 1, h - 1)
     finite = torch.isfinite(xyxy).all(-1)
     area = (xyxy[:, 2] - xyxy[:, 0]).clamp(min=0) * (xyxy[:, 3] - xyxy[:, 1]).clamp(
         min=0
     )
     clipped = torch.stack(
         [
-            xyxy[:, 0].clamp(0, w - 1),
-            xyxy[:, 1].clamp(0, h - 1),
-            xyxy[:, 2].clamp(0, w - 1),
-            xyxy[:, 3].clamp(0, h - 1),
+            xyxy[:, 0].clamp(0, x_max),
+            xyxy[:, 1].clamp(0, y_max),
+            xyxy[:, 2].clamp(0, x_max),
+            xyxy[:, 3].clamp(0, y_max),
         ],
         dim=-1,
     )
@@ -360,6 +385,8 @@ def clip_bboxes(
     ch = clipped[:, 3] - clipped[:, 1]
     keep = (
         finite
+        & (cw > 0)
+        & (ch > 0)
         & (cw >= min_size)
         & (ch >= min_size)
         & (cw * ch >= min_visible_fraction * area)
@@ -714,6 +741,90 @@ class SSDTargetEncoder:
         return {"ssd_cls_target": cls_target, "ssd_box_target": box_target}
 
 
+# ---------------------------------------------------------------------------
+# DETR set targets
+# ---------------------------------------------------------------------------
+
+
+class SetTargetEncoder:
+    """Frame boxes -> ``bbox_detr`` set targets.
+
+    A set-prediction loss matches queries to the boxes themselves, so the targets
+    are the frame's boxes as normalized ``cxcywh`` (relative to the whole model
+    input, padding included) with their class ids and count, padded to a fixed
+    ``max_targets`` so samples collate. :func:`collate_set_targets` turns a
+    collated batch into the list of per-image target dicts the matcher and
+    criterion (``sleap_nn.training.detr``) take.
+
+    Attributes:
+        max_targets: Padded length (the dataset's ``max_instances``; set by
+            :class:`~sleap_nn.data.custom_datasets.BBoxDataset`). ``None``: no
+            padding.
+    """
+
+    def __init__(self, max_targets: Optional[int] = None):
+        """Initialize the encoder."""
+        self.max_targets = max_targets
+
+    def __call__(
+        self, boxes: torch.Tensor, classes: torch.Tensor, img_hw: Tuple[int, int]
+    ) -> Dict[str, torch.Tensor]:
+        """Encode ``(n, 4)`` xyxy pixel boxes / ``(n,)`` classes for an ``img_hw`` input.
+
+        Returns:
+            ``set_boxes (T, 4)`` normalized ``cxcywh`` (zero-padded),
+            ``set_labels (T,)`` int64 (``-1``-padded) and ``set_count`` (int64
+            scalar ``n``), with ``T = max_targets`` (``n`` when unset).
+        """
+        h, w = img_hw
+        boxes = boxes.to(torch.float32).reshape(-1, 4)
+        n = boxes.shape[0]
+        size = boxes.new_tensor([w, h, w, h])
+        xyxy = boxes / size
+        cxcywh = torch.stack(
+            [
+                (xyxy[:, 0] + xyxy[:, 2]) / 2,
+                (xyxy[:, 1] + xyxy[:, 3]) / 2,
+                xyxy[:, 2] - xyxy[:, 0],
+                xyxy[:, 3] - xyxy[:, 1],
+            ],
+            dim=-1,
+        )
+        length = n if self.max_targets is None else self.max_targets
+        if n > length:
+            raise ValueError(f"{n} boxes exceed max_targets={length}.")
+        set_boxes = torch.zeros((length, 4), dtype=torch.float32)
+        set_boxes[:n] = cxcywh
+        set_labels = torch.full((length,), -1, dtype=torch.int64)
+        set_labels[:n] = classes.to(torch.int64).reshape(-1)
+        return {
+            "set_boxes": set_boxes,
+            "set_labels": set_labels,
+            "set_count": torch.tensor(n, dtype=torch.int64),
+        }
+
+
+def collate_set_targets(batch: Dict) -> List[Dict[str, torch.Tensor]]:
+    """A collated batch's set targets as the matcher's list of target dicts.
+
+    Args:
+        batch: A collated batch with ``set_boxes`` ``(B, T, 4)``, ``set_labels``
+            ``(B, T)`` and ``set_count`` ``(B,)`` (see :class:`SetTargetEncoder`).
+
+    Returns:
+        ``B`` dicts with ``labels`` ``(n_i,)`` int64 and ``boxes`` ``(n_i, 4)``
+        normalized ``cxcywh``, on the batch's device.
+    """
+    counts = batch["set_count"].reshape(-1).tolist()
+    return [
+        {
+            "labels": batch["set_labels"][i, :n].long(),
+            "boxes": batch["set_boxes"][i, :n],
+        }
+        for i, n in enumerate(counts)
+    ]
+
+
 def bbox_head_leaf(model_type: str, head_configs):
     """The head config leaf of a ``bbox_*`` model that holds its ``categories``."""
     if model_type == "bbox_centernet":
@@ -763,8 +874,5 @@ def get_bbox_target_encoder(model_type: str, head_configs):
             variances=list(ssd.box_variances),
         )
     if model_type == "bbox_detr":
-        raise NotImplementedError(
-            "bbox_detr set targets are not implemented yet; bbox_detr models can be "
-            "built but not trained."
-        )
+        return SetTargetEncoder()
     raise ValueError(f"{model_type} is not a bounding-box model type.")

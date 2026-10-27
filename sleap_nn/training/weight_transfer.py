@@ -8,6 +8,10 @@ whose architecture differs in places (``model_config.init_from``):
   node NAME from the source skeleton into the target skeleton, so a COCO-17 model
   can seed a 46-node union model: the 17 shared channels are copied, the 29 new
   ones keep their fresh init. Reordered skeletons are permuted, not copied blindly.
+* The class rows of a ``bbox_detr`` detector (its decoder class head and the
+  per-group encoder class heads) are copied by class NAME the same way, so an
+  imported 91-class COCO RF-DETR seeds a ``["person"]`` detector from its person
+  row (see `detr_class_names`).
 * Learned positional embeddings on a different token grid are resized
   (bicubic), keeping prefix (CLS / register) tokens.
 * Anything else that does not fit is skipped (the target keeps its init) and
@@ -52,6 +56,15 @@ _POS_EMBED_SUFFIXES = (
     "position_embedding.weight",
 )
 _LAYER_SCALE_NAMES = {"gamma", "gamma_1", "gamma_2", "lambda1"}
+
+#: Head name and class-row name of the never-positive extra logit of a
+#: ``bbox_detr`` class head (``len(categories) + 1`` logits).
+DETR_HEAD_NAME = "BBoxDetrHead"
+DETR_EXTRA_LOGIT = "__extra__"
+# The class heads of a `bbox_detr` model: one row per class, plus the extra logit.
+_DETR_CLASS_KEY_RE = re.compile(
+    r"^detr\.(?:class_embed|enc_out_class_embed\.\d+)\.(?:weight|bias)$"
+)
 
 
 # ----------------------------------------------------------------------- report
@@ -278,9 +291,28 @@ def head_channel_names(head: Any) -> Optional[List[str]]:
     return [str(n) for n in names]
 
 
+def detr_class_names(detr_config) -> List[str]:
+    """Row names of a ``bbox_detr`` class head: its categories, then the extra logit."""
+    from sleap_nn.config.model_config import DEFAULT_BBOX_CATEGORY
+
+    categories = detr_config.categories or [DEFAULT_BBOX_CATEGORY]
+    return [str(c) for c in categories] + [DETR_EXTRA_LOGIT]
+
+
 def model_head_channels(root: nn.Module) -> List[Dict[str, Any]]:
-    """``[{"name", "channel_names"}]`` for each head of the model in ``root``."""
+    """``[{"name", "channel_names"}]`` for each head of the model in ``root``.
+
+    A ``bbox_detr`` model has one entry, its class heads' rows
+    (`detr_class_names`).
+    """
     model = _model_of(root)
+    if getattr(model, "model_type", None) == "bbox_detr":
+        return [
+            {
+                "name": DETR_HEAD_NAME,
+                "channel_names": detr_class_names(model.head_configs.detr),
+            }
+        ]
     return [
         {"name": h.name, "channel_names": head_channel_names(h)}
         for h in getattr(model, "heads", [])
@@ -295,6 +327,9 @@ def _heads_from_config(cfg: DictConfig) -> Optional[List[Dict[str, Any]]]:
     model_type = get_model_type_from_cfg(cfg)
     if model_type is None:
         return None
+    if model_type == "bbox_detr":
+        detr = cfg.model_config.head_configs.bbox_detr.detr
+        return [{"name": DETR_HEAD_NAME, "channel_names": detr_class_names(detr)}]
     head_cfg = OmegaConf.create(
         OmegaConf.to_container(cfg.model_config.head_configs[model_type])
     )
@@ -531,6 +566,39 @@ def transfer_state_dict(
             continue
         src = sd[src_key]
         consumed.add(src_key)
+
+        if (
+            remap_nodes
+            and _DETR_CLASS_KEY_RE.match(rel)
+            and target_heads
+            and target_heads[0]["name"] == DETR_HEAD_NAME
+            and source_heads
+            and source_heads[0]["name"] == DETR_HEAD_NAME
+        ):
+            s_names = source_heads[0]["channel_names"]
+            t_names = target_heads[0]["channel_names"]
+            if s_names != t_names or node_map:
+                out, copied, fresh = _remap_channels(
+                    src, tgt, s_names, t_names, node_map
+                )
+                if out is None:
+                    report.skipped[key] = (
+                        f"shape {tuple(src.shape)} does not match the source "
+                        f"classes ({len(s_names)} rows)"
+                    )
+                    continue
+                new_sd[key] = out
+                report.remapped[key] = (
+                    f"{len(copied)}/{len(t_names)} class rows copied by name "
+                    f"from {len(s_names)} source rows"
+                )
+                if fresh and "detr (classes)" not in fresh_reported:
+                    fresh_reported.add("detr (classes)")
+                    report.reinitialized[f"{prefix}detr (classes)"] = (
+                        f"{len(fresh)} new class(es) keep fresh init: "
+                        + ", ".join(fresh[:8])
+                    )
+                continue
 
         if (
             key in output_keys

@@ -95,6 +95,11 @@ from sleap_nn.data.bboxes import (
     instance_crop_bbox,
     resolve_bbox_source,
 )
+from sleap_nn.data.detr_augmentation import (
+    detr_train_transform,
+    multi_scale_sizes,
+    resize_frame,
+)
 from sleap_nn.data.edge_maps import generate_edge_weights, generate_pafs
 from sleap_nn.data.segmentation_maps import (
     _compute_mask_centroids,
@@ -5550,6 +5555,9 @@ class BBoxDataset(BaseDataset):
     """
 
     _flip_needs_symmetries = False
+    # Box clipping after augmentation (see `clip_bboxes`).
+    _min_box_size = 2.0
+    _edge_coords = False
 
     def __init__(
         self,
@@ -5601,6 +5609,10 @@ class BBoxDataset(BaseDataset):
         # A box's corners are not skeleton nodes: a horizontal flip mirrors them and
         # re-boxing takes their extent, so no index swap is needed (or wanted).
         self.symmetric_inds = []
+        # Encoders with fixed-length outputs (`SetTargetEncoder`) pad to the
+        # largest box count, known only once the frames are indexed.
+        if hasattr(self.target_encoder, "max_targets"):
+            self.target_encoder.max_targets = self.max_instances
 
     def _get_lf_idx_list(self, labels: List[sio.Labels]) -> List[Dict]:
         """Return samples for frames with user boxes (+ negative frames if enabled).
@@ -5692,7 +5704,9 @@ class BBoxDataset(BaseDataset):
         boxes, keep = clip_bboxes(
             corners_to_bboxes(corners),
             img_hw,
+            min_size=self._min_box_size,
             min_visible_fraction=self.min_visible_fraction,
+            edge_coords=self._edge_coords,
         )
         boxes, classes = boxes[keep], classes[keep]
         sample_dict.update(self.target_encoder(boxes, classes, img_hw))
@@ -5708,6 +5722,104 @@ class BBoxDataset(BaseDataset):
         sample_dict["is_negative"] = bool(sample["is_negative"])
         sample_dict["labels_idx"] = sample["labels_idx"]
         return sample_dict
+
+
+class DetrBBoxDataset(BBoxDataset):
+    """:class:`BBoxDataset` for ``bbox_detr``: RF-DETR's resize, crop and flip.
+
+    Every frame is fitted to a fixed training size by ``resize_mode`` (``squash``
+    or ``letterbox``; ``max_height`` x ``max_width``, or the largest per-batch
+    multi-scale size when multi-scale is on). Training frames first go through
+    RF-DETR's geometry (:func:`~sleap_nn.data.detr_augmentation.
+    detr_train_transform`, from ``augmentation_config.detr``), then the stock
+    ``intensity`` / ``geometric`` augmentation. Boxes are clipped to the frame as
+    edge coordinates and dropped only when no area is left (RF-DETR keeps every
+    box with a positive area). Targets come from the
+    :class:`~sleap_nn.data.bboxes.SetTargetEncoder`.
+
+    Attributes:
+        resize_mode: ``"squash"`` or ``"letterbox"``.
+        train_hw: ``(height, width)`` frames are fitted to.
+        detr_aug: The ``augmentation_config.detr`` options (``None``: none).
+    """
+
+    _min_box_size = 0.0
+    _edge_coords = True
+
+    def __init__(
+        self,
+        *args,
+        resize_mode: str = "letterbox",
+        train_hw: Optional[Tuple[int, int]] = None,
+        detr_aug: Optional[Any] = None,
+        **kwargs,
+    ) -> None:
+        """Initialize class attributes (see :class:`BBoxDataset`)."""
+        kwargs.setdefault("min_visible_fraction", 0.0)
+        super().__init__(*args, **kwargs)
+        if self.scale != 1.0:
+            raise ValueError(
+                "bbox_detr fits frames to max_height x max_width; "
+                f"data_config.preprocessing.scale must be 1.0, got {self.scale}."
+            )
+        if train_hw is None:
+            if None in tuple(self.max_hw):
+                raise ValueError(
+                    "bbox_detr training needs data_config.preprocessing.max_height "
+                    "and max_width (the model input size)."
+                )
+            train_hw = tuple(self.max_hw)
+        self.resize_mode = resize_mode
+        self.train_hw = (int(train_hw[0]), int(train_hw[1]))
+        self.detr_aug = detr_aug
+
+    def _apply_common_preprocessing(self, sample: Dict) -> Dict:
+        """Channels, RF-DETR geometry + fit to ``train_hw``, pad, then stock aug."""
+        if self.ensure_rgb:
+            sample["image"] = convert_to_rgb(sample["image"])
+        elif self.ensure_grayscale:
+            sample["image"] = convert_to_grayscale(sample["image"])
+
+        corners = sample["instances"]  # (1, n, 4, 2)
+        boxes = corners_to_bboxes(corners[0])
+        in_hw = tuple(sample["image"].shape[-2:])
+        if self.apply_aug and self.detr_aug is not None:
+            aug = self.detr_aug
+            sample["image"], boxes = detr_train_transform(
+                sample["image"],
+                boxes,
+                self.train_hw,
+                self.resize_mode,
+                crop_p=float(aug["crop_p"]),
+                shortest_sides=[int(v) for v in aug["shortest_sides"]],
+                crop_range=tuple(int(v) for v in aug["crop_range"]),
+                flip_p=float(aug["flip_p"]),
+            )
+            scale_xy = (self.train_hw[1] / in_hw[1], self.train_hw[0] / in_hw[0])
+        else:
+            sample["image"], boxes, scale_xy = resize_frame(
+                sample["image"], boxes, self.train_hw, self.resize_mode
+            )
+        sample["instances"] = torch.from_numpy(bboxes_to_corners(boxes.numpy()))[None]
+        # Per-axis input scale (both equal for letterbox); approximate after a crop.
+        sample["eff_scale"] = torch.tensor(scale_xy, dtype=torch.float32)
+        sample["image"] = apply_pad_to_stride(
+            sample["image"], max_stride=self.max_stride
+        )
+
+        if self.apply_aug:
+            if self.intensity_aug is not None:
+                sample["image"], sample["instances"] = apply_intensity_augmentation(
+                    sample["image"], sample["instances"], **self.intensity_aug
+                )
+            if self.geometric_aug is not None:
+                sample["image"], sample["instances"] = apply_geometric_augmentation(
+                    sample["image"],
+                    sample["instances"],
+                    symmetric_inds=self.symmetric_inds,
+                    **self.geometric_aug,
+                )[:2]
+        return sample
 
 
 # Minimum number of tile-local foreground pixels for a mask to be "owned" by a tile.
@@ -6744,6 +6856,63 @@ def _get_warp_centered_instance_datasets(
     return train_dataset, val_dataset
 
 
+def detr_multi_scale_sizes(config: DictConfig) -> Optional[List[Tuple[int, int]]]:
+    """The per-batch multi-scale sizes of a ``bbox_detr`` training config, if on.
+
+    On when training augmentation is on and ``augmentation_config.detr.multi_scale``
+    is set: ``max_height x max_width`` +/- ``multi_scale_steps`` multiples of the
+    backbone's ``max_stride`` (:func:`~sleap_nn.data.detr_augmentation.
+    multi_scale_sizes`). ``None`` otherwise.
+    """
+    detr_aug = OmegaConf.select(
+        config, "data_config.augmentation_config.detr", default=None
+    )
+    if (
+        detr_aug is None
+        or not detr_aug.multi_scale
+        or not config.data_config.use_augmentations_train
+    ):
+        return None
+    preprocessing = config.data_config.preprocessing
+    backbone_type = get_backbone_type_from_cfg(config)
+    block = int(config.model_config.backbone_config[backbone_type].max_stride)
+    return multi_scale_sizes(
+        (int(preprocessing.max_height), int(preprocessing.max_width)),
+        block,
+        int(detr_aug.multi_scale_steps),
+    )
+
+
+def detr_dataset_kwargs(config: DictConfig) -> Tuple[Dict, Dict]:
+    """``(train, val)`` extra kwargs of :class:`DetrBBoxDataset` from a config.
+
+    Training frames are made at the largest multi-scale size (the batch is resized
+    per step, as RF-DETR does) or at ``max_height x max_width``; validation frames
+    at ``max_height x max_width``.
+    """
+    preprocessing = config.data_config.preprocessing
+    resize_mode = OmegaConf.select(
+        config, "data_config.preprocessing.resize_mode", default="letterbox"
+    )
+    if preprocessing.max_height is None or preprocessing.max_width is None:
+        raise ValueError(
+            "bbox_detr training needs data_config.preprocessing.max_height and "
+            "max_width (the model input size)."
+        )
+    base_hw = (int(preprocessing.max_height), int(preprocessing.max_width))
+    sizes = detr_multi_scale_sizes(config)
+    detr_aug = OmegaConf.select(
+        config, "data_config.augmentation_config.detr", default=None
+    )
+    train = dict(
+        resize_mode=resize_mode,
+        train_hw=sizes[-1] if sizes else base_hw,
+        detr_aug=detr_aug,
+    )
+    val = dict(resize_mode=resize_mode, train_hw=base_hw)
+    return train, val
+
+
 def get_train_val_datasets(
     train_labels: List[sio.Labels],
     val_labels: List[sio.Labels],
@@ -7514,12 +7683,10 @@ def get_train_val_datasets(
                 use_negative_frames=False,
             )
 
-    elif model_type in ("bbox_centernet", "bbox_ssd"):
+    elif model_type in ("bbox_centernet", "bbox_ssd", "bbox_detr"):
         head_configs = config.model_config.head_configs
-        target_encoder = get_bbox_target_encoder(model_type, head_configs)
         categories = bbox_head_categories(model_type, head_configs)
         common = dict(
-            target_encoder=target_encoder,
             categories=categories,
             max_stride=config.model_config.backbone_config[f"{backbone_type}"][
                 "max_stride"
@@ -7538,8 +7705,13 @@ def get_train_val_datasets(
             parallel_caching=parallel_caching,
             cache_workers=cache_workers,
         )
-        train_dataset = BBoxDataset(
+        dataset_cls, train_extra, val_extra = BBoxDataset, {}, {}
+        if model_type == "bbox_detr":
+            dataset_cls = DetrBBoxDataset
+            train_extra, val_extra = detr_dataset_kwargs(config)
+        train_dataset = dataset_cls(
             labels=train_labels,
+            target_encoder=get_bbox_target_encoder(model_type, head_configs),
             intensity_aug=(
                 config.data_config.augmentation_config.intensity
                 if config.data_config.augmentation_config is not None
@@ -7554,15 +7726,18 @@ def get_train_val_datasets(
             cache_img_path=train_cache_img_path,
             use_negative_frames=use_negative_frames,
             **common,
+            **train_extra,
         )
-        val_dataset = BBoxDataset(
+        val_dataset = dataset_cls(
             labels=val_labels,
+            target_encoder=get_bbox_target_encoder(model_type, head_configs),
             intensity_aug=None,
             geometric_aug=None,
             apply_aug=False,
             cache_img_path=val_cache_img_path,
             use_negative_frames=False,
             **common,
+            **val_extra,
         )
 
     elif model_type == "centered_instance_segmentation":

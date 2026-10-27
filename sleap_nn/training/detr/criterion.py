@@ -233,7 +233,10 @@ class SetCriterion(nn.Module):
         self.group_detr = group_detr
 
     def num_boxes(
-        self, targets: List[Dict[str, torch.Tensor]], device: torch.device
+        self,
+        targets: List[Dict[str, torch.Tensor]],
+        device: torch.device,
+        distributed: bool = True,
     ) -> torch.Tensor:
         """Loss normalizer: mean number of target boxes per rank, times the groups.
 
@@ -244,6 +247,9 @@ class SetCriterion(nn.Module):
         Args:
             targets: The batch's target dicts.
             device: Device of the returned tensor.
+            distributed: Average over ranks when ``torch.distributed`` is
+                initialized. ``False`` keeps the local count (for steps that not
+                every rank runs the same number of times).
 
         Returns:
             A float scalar tensor (kept on device to avoid a host sync).
@@ -253,7 +259,7 @@ class SetCriterion(nn.Module):
             float(sum(len(t["labels"]) for t in targets) * groups), device=device
         )
         world_size = 1
-        if dist.is_available() and dist.is_initialized():
+        if distributed and dist.is_available() and dist.is_initialized():
             dist.all_reduce(num_boxes)
             world_size = dist.get_world_size()
         return torch.clamp(num_boxes / world_size, min=1.0)
@@ -271,7 +277,10 @@ class SetCriterion(nn.Module):
         return layers
 
     def forward(
-        self, outputs: Dict, targets: List[Dict[str, torch.Tensor]]
+        self,
+        outputs: Dict,
+        targets: List[Dict[str, torch.Tensor]],
+        num_boxes: Optional[torch.Tensor] = None,
     ) -> Dict[str, torch.Tensor]:
         """Compute every loss term on every matched layer.
 
@@ -281,6 +290,8 @@ class SetCriterion(nn.Module):
                 ``aux_outputs`` (list of such dicts) and ``enc_outputs`` (one dict).
             targets: ``B`` dicts with ``labels`` ``(N_i,)`` and ``boxes``
                 ``(N_i, 4)`` normalized ``cxcywh``.
+            num_boxes: The loss normalizer. ``None`` (default): :meth:`num_boxes`,
+                all-reduced across ranks when ``torch.distributed`` is initialized.
 
         Returns:
             Loss tensors by key: ``loss_ce``, ``loss_bbox``, ``loss_giou`` and
@@ -299,7 +310,8 @@ class SetCriterion(nn.Module):
                     f"num_classes + 1 = {self.num_classes + 1}."
                 )
         groups = self.group_detr if self.training else 1
-        num_boxes = self.num_boxes(targets, outputs["pred_logits"].device)
+        if num_boxes is None:
+            num_boxes = self.num_boxes(targets, outputs["pred_logits"].device)
 
         losses = {}
         for suffix, layer in layers:

@@ -395,6 +395,12 @@ class WindowedDinov2Backbone(nn.Module):
             for i in range(num_layers)
         )
         self.layernorm = nn.LayerNorm(hidden_size, eps=layer_norm_eps)
+        # Never used by `forward` (no masked-image modeling; blocks after the last
+        # tap are skipped): kept in the state dict for checkpoint compatibility, but
+        # frozen so DDP does not wait for their gradients.
+        self.embeddings.mask_token.requires_grad_(False)
+        for layer in self.encoder.layer[max(out_indices) :]:
+            layer.requires_grad_(False)
         # Set by `load_dinov2_weights`, re-applied by `reload_pretrained_weights`.
         self._pretrained_state: Optional[Dict[str, torch.Tensor]] = None
 
@@ -438,6 +444,58 @@ class WindowedDinov2Backbone(nn.Module):
                 tap = self.layernorm(hidden)[:, 1:]
                 taps.append(window_unpartition(tap, grid, self.num_windows))
         return taps
+
+    def encoder_param_groups(
+        self,
+        base_lr: float,
+        encoder_lr_scale: Optional[float] = None,
+        layer_decay: Optional[float] = None,
+    ) -> Optional[List[Dict]]:
+        """Optimizer groups with RF-DETR's layer-wise learning-rate decay.
+
+        RF-DETR (``get_dinov2_lr_decay_rate``) counts ``D = max(out_indices) + 1``
+        layers and gives a parameter at depth ``d`` the rate
+        ``layer_decay ** (D + 1 - d)``: the embeddings are depth 0, block ``k``
+        (0-based) depth ``k + 1``, and the final LayerNorm depth ``D + 1``.
+        (``PretrainedBackbone.encoder_param_groups`` counts the blocks instead, one
+        decay step fewer.)
+
+        Args:
+            base_lr: The backbone's learning rate before layer decay.
+            encoder_lr_scale: Multiplies ``base_lr`` (``None`` = 1).
+            layer_decay: The per-layer decay; ``None`` or 0: no decay.
+
+        Returns:
+            ``None`` when every parameter trains at ``base_lr`` (no scale, no
+            decay), else ``{"params", "lr", "name"}`` groups (``depth<d>``) over the
+            trainable parameters.
+        """
+        scale = 1.0 if encoder_lr_scale is None else float(encoder_lr_scale)
+        if scale == 1.0 and not layer_decay:
+            return None
+        named = [(n, p) for n, p in self.named_parameters() if p.requires_grad]
+        if not layer_decay:
+            return [
+                {"params": [p for _, p in named], "lr": base_lr * scale, "name": "all"}
+            ]
+        num_layers = max(self.out_indices) + 1
+        by_depth: Dict[int, List[torch.Tensor]] = {}
+        for name, param in named:
+            if name.startswith("embeddings."):
+                depth = 0
+            elif name.startswith("encoder.layer."):
+                depth = int(name.split(".")[2]) + 1
+            else:
+                depth = num_layers + 1
+            by_depth.setdefault(depth, []).append(param)
+        return [
+            {
+                "params": params,
+                "lr": base_lr * scale * layer_decay ** (num_layers + 1 - depth),
+                "name": f"depth{depth}",
+            }
+            for depth, params in sorted(by_depth.items())
+        ]
 
     def reload_pretrained_weights(self):
         """Re-apply the DINOv2 weights loaded at build time (after a re-init)."""

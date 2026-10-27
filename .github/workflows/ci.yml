@@ -257,7 +257,8 @@ jobs:
           uv run --frozen --no-group gpu --extra torch-cpu --extra backbones \
             pytest tests/architectures/test_pretrained.py \
               tests/architectures/detr/test_dinov2_windowed.py \
-              tests/convert/test_rfdetr.py -v --durations=10 \
+              tests/convert/test_rfdetr.py \
+              tests/test_bbox_detr_training.py -v --durations=10 \
               --cov=sleap_nn --cov-report=xml
 
       - name: Upload coverage
