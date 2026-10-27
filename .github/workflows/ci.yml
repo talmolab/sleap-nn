@@ -57,13 +57,13 @@ jobs:
         run: uv run --frozen --no-group gpu --extra torch-cpu ruff check sleap_nn/
 
   tests:
-    # Windows is the slowest job at ~11-13 min (slow VMs + torch-on-Windows);
-    # ubuntu ~4 min, mac ~7 min. 20 gives comfortable headroom for load
-    # variance while still catching genuine hangs. (The mac job used to blow
-    # past 45 min because MPS compute intermittently hangs / OOMs on the
-    # virtualized macos-14 runner; that is now neutralized by
+    # As of Oct 2026: mac ~19-21 min and Windows ~14-21 min are the slowest
+    # jobs (slow VMs + torch-on-Windows); ubuntu ~10-13 min. 35 gives headroom
+    # for load variance while still catching genuine hangs. (The mac job used
+    # to blow past 45 min because MPS compute intermittently hangs / OOMs on
+    # the virtualized macos-14 runner; that is now neutralized by
     # SLEAP_NN_DISABLE_MPS below.)
-    timeout-minutes: 20
+    timeout-minutes: 35
     env:
       CUDA_VISIBLE_DEVICES: ""
       USE_CUDA: "0"
