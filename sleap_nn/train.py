@@ -619,7 +619,7 @@ def run_training(
                     )
                     continue
 
-                if model_type in ("bbox_centernet", "bbox_ssd"):
+                if model_type in ("bbox_centernet", "bbox_ssd", "bbox_detr"):
                     _run_bbox_split_eval(
                         config=trainer.config,
                         d_name=d_name,

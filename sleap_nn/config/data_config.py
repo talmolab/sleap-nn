@@ -561,6 +561,43 @@ class AugmentationStage2Config:
 
 
 @define
+class DetrAugmentationConfig:
+    """RF-DETR's training geometry for `bbox_detr` models.
+
+    Applied to training frames (with `use_augmentations_train`) before the
+    `intensity` / `geometric` sections, which still apply on top
+    (`sleap_nn.data.detr_augmentation`). Defaults are RF-DETR's.
+
+    Attributes:
+        crop_p: (float) Probability of the resize + crop branch: the shortest side
+            is resized to one of `shortest_sides`, a random square with a side in
+            `crop_range` is cropped, and the crop is resized to the training size.
+            Otherwise the whole frame is resized to it. Boxes are clipped to the
+            crop and dropped when no area is left. *Default*: `0.5`.
+        shortest_sides: (List[int]) Pre-crop shortest sides. *Default*:
+            `[400, 500, 600]`.
+        crop_range: (List[int]) Inclusive `[min, max]` crop side. *Default*:
+            `[384, 600]`.
+        flip_p: (float) Horizontal flip probability. *Default*: `0.5`.
+        multi_scale: (bool) Per-batch multi-scale: frames are made at the largest
+            scale and every training batch is resized to one size drawn per
+            optimizer step (the same on every rank) from `max_height x max_width`
+            +/- `multi_scale_steps` multiples of the backbone's `max_stride`.
+            *Default*: `True`.
+        multi_scale_steps: (int) Size steps up and down. *Default*: `5`.
+    """
+
+    crop_p: float = field(default=0.5, validator=validate_proportion)
+    # Tuples, not `field(factory=...)`: OmegaConf cannot call an attrs Factory
+    # when it builds this class from its type (they land as lists).
+    shortest_sides: List[int] = (400, 500, 600)
+    crop_range: List[int] = (384, 600)
+    flip_p: float = field(default=0.5, validator=validate_proportion)
+    multi_scale: bool = True
+    multi_scale_steps: int = field(default=5, validator=validators.ge(0))
+
+
+@define
 class AugmentationConfig:
     """Configuration of Augmentation.
 
@@ -569,11 +606,14 @@ class AugmentationConfig:
         geometric: Configuration options for geometric augmentations like rotation, scaling, translation etc. If None, no geometric augmentations will be applied.
         stage2: (AugmentationStage2Config) Optional second augmentation stage
             (`crop_pipeline="warp"` only). *Default*: `None`.
+        detr: (DetrAugmentationConfig) RF-DETR's resize/crop/flip and per-batch
+            multi-scale (`bbox_detr` only). *Default*: `None`.
     """
 
     intensity: Optional[IntensityConfig] = None
     geometric: Optional[GeometricConfig] = None
     stage2: Optional[AugmentationStage2Config] = None
+    detr: Optional[DetrAugmentationConfig] = None
 
 
 def validate_test_file_path(instance, attribute, value):

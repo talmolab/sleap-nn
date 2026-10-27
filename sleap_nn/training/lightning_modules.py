@@ -51,7 +51,8 @@ from sleap_nn.training.losses import (
     compute_ssd_loss,
     get_contrastive_loss,
 )
-from sleap_nn.data.bboxes import bbox_head_categories
+from sleap_nn.data.bboxes import bbox_head_categories, collate_set_targets
+from sleap_nn.data.detr_augmentation import batch_scale, resize_batch
 from sleap_nn.inference.bbox import BBoxDecoder
 from loguru import logger
 from sleap_nn.training.utils import (
@@ -76,6 +77,7 @@ from sleap_nn.config.trainer_config import (
     StepLRConfig,
 )
 from sleap_nn.training.optim import resolve_encoder_lr_options, split_weight_decay
+from sleap_nn.training.detr import build_set_criterion
 from sleap_nn.training.schedulers import (
     LinearWarmupCosineAnnealingLR,
     LinearWarmupLinearDecayLR,
@@ -473,15 +475,9 @@ class LightningModel(L.LightningModule):
             "embedding": EmbeddingLightningModule,
             "bbox_centernet": BBoxCenterNetLightningModule,
             "bbox_ssd": BBoxSSDLightningModule,
+            "bbox_detr": BBoxDetrLightningModule,
         }
 
-        if model_type == "bbox_detr":
-            message = (
-                "bbox_detr models can be built (sleap_nn.architectures.model.Model) "
-                "but not trained yet: their training module is not implemented."
-            )
-            logger.error(message)
-            raise NotImplementedError(message)
         if model_type not in lightning_models:
             message = f"Incorrect model type. Please check if one of the following keys in the head configs is not None: [`single_instance`, `centroid`, `centered_instance`, `bottomup`, `multi_class_bottomup`, `multi_class_topdown`, `bottomup_segmentation`, `centered_instance_segmentation`, `semantic_segmentation`, `embedding`, `bbox_centernet`, `bbox_ssd`]"
             logger.error(message)
@@ -558,6 +554,10 @@ class LightningModel(L.LightningModule):
             lightning_model.encoder_lr_scale,
             lightning_model.layer_decay,
         ) = resolve_encoder_lr_options(config)
+        if model_type == "bbox_detr":
+            from sleap_nn.data.custom_datasets import detr_multi_scale_sizes
+
+            lightning_model.multi_scale_sizes = detr_multi_scale_sizes(config)
 
         return lightning_model
 
@@ -5142,8 +5142,14 @@ class _BBoxLightningModel(LightningModel):
         img = normalize_on_gpu(img)
         return self._decoder_inputs(self.model(img))
 
+    def _train_input(self, X: torch.Tensor) -> torch.Tensor:
+        """The normalized training batch as the model sees it (identity by default)."""
+        return X
+
     def _step(self, batch, stage: str):
         X = normalize_on_gpu(torch.squeeze(batch["image"], dim=1))
+        if stage == "train":
+            X = self._train_input(X)
         raw = self.model(X)
         loss, terms = self._compute_losses(raw, batch)
         if stage == "train":
@@ -5249,20 +5255,183 @@ class _BBoxLightningModel(LightningModel):
         return MatplotlibRenderer().render(self.get_visualization_data(sample))
 
 
+#: Substrings of backbone parameter names trained without weight decay: RF-DETR's
+#: rule (``get_dinov2_weight_decay_rate``: norms, biases, embeddings, position
+#: tables, layer-scale ``gamma``).
+DETR_BACKBONE_NO_DECAY = ("gamma", "pos_embed", "rel_pos", "bias", "norm", "embeddings")
+
+
 class BBoxDetrLightningModule(_BBoxLightningModel):
     """Lightning Module for the ``bbox_detr`` (RF-DETR-style set prediction) detector.
 
-    Inference only for now: it loads ``bbox_detr`` model directories (e.g. RF-DETR
-    checkpoints imported with ``sleap-nn import-rfdetr``) for ``sleap-nn
-    predict``. ``forward`` returns the model's set-output dict, whose
-    ``pred_logits`` / ``pred_boxes`` the ``bbox_detr`` decoder reads. Training
-    (set targets, the set criterion, Group DETR) is not implemented yet.
+    ``forward`` returns the model's set-output dict, whose ``pred_logits`` /
+    ``pred_boxes`` the ``bbox_detr`` decoder reads. Training follows RF-DETR:
+
+    * **Loss.** The set criterion (``sleap_nn.training.detr``): Hungarian matching
+      per query group, IA-BCE + L1 + GIoU on the final layer, every earlier decoder
+      layer (``_<i>``) and the encoder proposals (``_enc``), all logged. Group DETR
+      runs in training only (``model.train()`` puts both the head and the criterion
+      in group mode). The loss is computed in float32 outside autocast. The
+      normalizer (targets x groups) is averaged over ranks in training; validation
+      keeps the local count (ranks may run different numbers of val batches).
+    * **Targets** come from the dataset's ``SetTargetEncoder`` via
+      :func:`~sleap_nn.data.bboxes.collate_set_targets`.
+    * **Multi-scale.** With ``multi_scale_sizes`` set (from
+      ``augmentation_config.detr``), each training batch is resized to the size
+      drawn for the current optimizer step (the same on every rank).
+    * **Parameter groups** (RF-DETR's ``get_param_dict``): the backbone trains at
+      ``lr * encoder_lr_scale * lr_component_decay ** 2`` times its layer decay
+      (``layer_decay``), the decoder at ``lr * lr_component_decay``, everything
+      else at ``lr``. With ``weight_decay`` set, every parameter decays except
+      backbone norms, biases and embeddings (:data:`DETR_BACKBONE_NO_DECAY`).
+    * ``init_weights: xavier`` is ignored: the detector has its own init.
+
+    EMA, gradient clipping, precision and the LR schedule are the trainer's
+    (``trainer_config.ema`` / ``gradient_clip_val`` / ``precision`` /
+    ``lr_scheduler``).
+
+    Attributes:
+        criterion: The :class:`~sleap_nn.training.detr.SetCriterion`.
+        lr_component_decay: RF-DETR's ``lr_component_decay``.
+        multi_scale_sizes: Per-batch training sizes, or ``None`` (set by
+            ``get_lightning_model_from_config``).
     """
 
-    def _compute_losses(self, raw, batch):
-        raise NotImplementedError(
-            "bbox_detr models can be loaded for inference but not trained yet."
+    multi_scale_sizes: Optional[List[Tuple[int, int]]] = None
+
+    def __init__(self, **kwargs):
+        """Initialise the configs, the model, the decoder and the criterion."""
+        if kwargs.get("init_weights") == "xavier":
+            logger.warning(
+                "bbox_detr models keep their own (RF-DETR) initialization; "
+                "init_weights: xavier is ignored."
+            )
+            kwargs["init_weights"] = "default"
+        super().__init__(**kwargs)
+        detr = self.head_configs.bbox_detr.detr
+        self.criterion = build_set_criterion(detr, num_classes=len(self.categories))
+        self.lr_component_decay = float(
+            OmegaConf.select(detr, "lr_component_decay", default=0.7)
+            if OmegaConf.is_config(detr)
+            else getattr(detr, "lr_component_decay", 0.7)
         )
+
+    def _train_input(self, X: torch.Tensor) -> torch.Tensor:
+        """Resize the batch to this step's multi-scale size (if on)."""
+        if not self.multi_scale_sizes:
+            return X
+        return resize_batch(X, batch_scale(self.global_step, self.multi_scale_sizes))
+
+    def _compute_losses(self, raw, batch):
+        targets = collate_set_targets(batch)
+        device = raw["pred_logits"].device
+        num_boxes = self.criterion.num_boxes(
+            targets, device, distributed=self.criterion.training
+        )
+        with torch.autocast(device_type=device.type, enabled=False):
+            losses = self.criterion(_float_outputs(raw), targets, num_boxes=num_boxes)
+            loss = self.criterion.total_loss(losses)
+        return loss, losses
+
+    def _rfdetr_param_groups(self) -> List[Dict[str, Any]]:
+        """``{"params", "lr", "name"}`` groups: base, decoder, backbone (by depth)."""
+        component = self.lr_component_decay
+        backbone = self.model.backbone
+        decoder_ids = {id(p) for p in self.model.detr.decoder.parameters()}
+        backbone_lr = self.lr * (self.encoder_lr_scale or 1.0) * component**2
+
+        backbone_groups = None
+        groups_fn = getattr(backbone, "encoder_param_groups", None)
+        if groups_fn is not None:
+            backbone_groups = groups_fn(
+                backbone_lr, encoder_lr_scale=1.0, layer_decay=self.layer_decay
+            )
+        if backbone_groups is None:
+            if self.layer_decay:
+                logger.warning(
+                    "trainer_config.optimizer.layer_decay: this bbox_detr backbone "
+                    "has no layers to decay; it trains at one learning rate."
+                )
+            params = [p for p in backbone.parameters() if p.requires_grad]
+            backbone_groups = (
+                [{"params": params, "lr": backbone_lr, "name": "backbone"}]
+                if params
+                else []
+            )
+        else:
+            backbone_groups = [
+                {**g, "name": "backbone/" + str(g.get("name", i))}
+                for i, g in enumerate(backbone_groups)
+            ]
+        in_backbone = {id(p) for g in backbone_groups for p in g["params"]}
+
+        base, decoder = [], []
+        for p in self.parameters():
+            if not p.requires_grad or id(p) in in_backbone:
+                continue
+            (decoder if id(p) in decoder_ids else base).append(p)
+        groups = [{"params": base, "lr": self.lr, "name": "base"}]
+        if decoder:
+            groups.append(
+                {"params": decoder, "lr": self.lr * component, "name": "decoder"}
+            )
+        return groups + backbone_groups
+
+    def _trainable_param_groups(self):
+        """RF-DETR's learning-rate groups (see the class docstring)."""
+        return self._rfdetr_param_groups()
+
+    def _build_optimizer(self) -> torch.optim.Optimizer:
+        """The optimizer with RF-DETR's weight-decay rule when ``weight_decay`` is set."""
+        if self.weight_decay is None:
+            return super()._build_optimizer()
+        optimizers = {"Adam": torch.optim.Adam, "AdamW": torch.optim.AdamW}
+        if self.optimizer not in optimizers:
+            raise ValueError(
+                f"Unknown optimizer {self.optimizer!r}; expected one of "
+                f"{list(optimizers)}."
+            )
+        name_of = {id(p): n for n, p in self.named_parameters()}
+        backbone_ids = {id(p) for p in self.model.backbone.parameters()}
+        wd = float(self.weight_decay)
+        params = []
+        for group in self._trainable_param_groups():
+            rest = {k: v for k, v in group.items() if k != "params"}
+            name = rest.pop("name")
+            decay, no_decay = [], []
+            for p in group["params"]:
+                exempt = id(p) in backbone_ids and any(
+                    key in name_of.get(id(p), "") for key in DETR_BACKBONE_NO_DECAY
+                )
+                (no_decay if exempt else decay).append(p)
+            for half, half_wd, suffix in (
+                (decay, wd, "decay"),
+                (no_decay, 0.0, "no_decay"),
+            ):
+                if half:
+                    params.append(
+                        {
+                            **rest,
+                            "params": half,
+                            "weight_decay": half_wd,
+                            "name": f"{name}/{suffix}",
+                        }
+                    )
+        return optimizers[self.optimizer](
+            params, lr=self.lr, amsgrad=self.amsgrad, weight_decay=wd
+        )
+
+
+def _float_outputs(outputs):
+    """A set-output dict (nested lists/dicts of tensors) with half floats as float32."""
+    if isinstance(outputs, torch.Tensor):
+        half = outputs.dtype in (torch.float16, torch.bfloat16)
+        return outputs.float() if half else outputs
+    if isinstance(outputs, dict):
+        return {k: _float_outputs(v) for k, v in outputs.items()}
+    if isinstance(outputs, (list, tuple)):
+        return [_float_outputs(v) for v in outputs]
+    return outputs
 
 
 class BBoxCenterNetLightningModule(_BBoxLightningModel):

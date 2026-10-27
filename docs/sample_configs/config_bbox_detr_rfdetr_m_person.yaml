@@ -1,0 +1,126 @@
+# bbox_detr M2 check: fine-tune an imported RF-DETR-M to a person-only detector on
+# COCO train2017 person boxes (people without keypoints included, crowd regions
+# dropped), validated on COCO val2017. RF-DETR's training recipe throughout.
+#
+# Import the weights first (CPU):
+#   sleap-nn import-rfdetr medium -o models/rfdetr-medium
+# Then (4 GPUs):
+#   sleap-nn train config_bbox_detr_rfdetr_m_person.yaml \
+#     trainer_config.run_name=rfdetr_m_person_constant
+#
+# LR schedule: constant (RF-DETR's default; as here). Step: set
+#   lr_scheduler.multi_step_lr: {milestones: [15], gamma: 0.1}
+# Cosine: set
+#   lr_scheduler.cosine_annealing_warmup: {warmup_steps: 0, eta_min: 0.0}
+data_config:
+  train_labels_path:
+    - /scr/talmo/code/2026-10-22-sleap-nn-human/datasets/_slp3/coco_train2017.slp
+  val_labels_path:
+    - /scr/talmo/code/2026-10-22-sleap-nn-human/datasets/_slp3/coco_val2017.slp
+  # User boxes on the frames (COCO person boxes, crowd regions excluded).
+  bbox_source: bboxes
+  preprocessing:
+    ensure_rgb: true
+    max_height: 576
+    max_width: 576
+    # RF-DETR's square resize: needed to reuse its weights.
+    resize_mode: squash
+  use_augmentations_train: true
+  augmentation_config:
+    intensity: null
+    geometric: null
+    # RF-DETR: 50/50 resize vs resize + crop, flip, per-batch multi-scale
+    # 576 +/- 5 x 32 (416..736).
+    detr:
+      crop_p: 0.5
+      shortest_sides: [400, 500, 600]
+      crop_range: [384, 600]
+      flip_p: 0.5
+      multi_scale: true
+      multi_scale_steps: 5
+model_config:
+  init_weights: default
+  # Start from the imported RF-DETR-M. Class rows are copied by name: `person`
+  # from COCO's person row, and the extra (never positive) logit from it too.
+  init_from:
+    path: models/rfdetr-medium
+    node_map:
+      __extra__: person
+  backbone_config:
+    dinov2_windowed:
+      in_channels: 3
+      hidden_size: 384
+      num_layers: 12
+      num_heads: 6
+      mlp_ratio: 4.0
+      patch_size: 16
+      pos_embed_grid: 36
+      out_indices: [3, 6, 9, 12]
+      num_windows: 2
+      window_block_indexes: [0, 1, 2, 4, 5, 7, 8, 10, 11]
+      drop_path_rate: 0.0
+      output_stride: 16
+      max_stride: 32
+  head_configs:
+    bbox_detr:
+      detr:
+        categories: [person]
+        hidden_dim: 256
+        num_queries: 300
+        group_detr: 13
+        dec_layers: 4
+        sa_nheads: 8
+        ca_nheads: 16
+        dec_n_points: 2
+        dim_feedforward: 2048
+        num_select: 300
+        lr_component_decay: 0.7
+trainer_config:
+  # 4 GPUs x 4 images = 16 per step (RF-DETR: batch 4 x 4 accumulation steps).
+  trainer_devices: 4
+  trainer_accelerator: gpu
+  trainer_strategy: ddp
+  train_data_loader:
+    batch_size: 4
+    num_workers: 8
+    shuffle: true
+  val_data_loader:
+    batch_size: 8
+    num_workers: 4
+  max_epochs: 20
+  min_train_steps_per_epoch: 1
+  precision: bf16-mixed
+  gradient_clip_val: 0.1
+  optimizer_name: AdamW
+  optimizer:
+    lr: 1.0e-4
+    weight_decay: 1.0e-4
+    # lr_encoder = 1.5e-4 = 1.5 x lr, times 0.7^2 and the layer decay.
+    encoder_lr_scale: 1.5
+    layer_decay: 0.8
+  lr_scheduler:
+    reduce_lr_on_plateau: null
+  early_stopping:
+    stop_training_on_plateau: false
+  ema:
+    enabled: true
+    decay: 0.993
+    warmup_steps: 100
+  eval:
+    enabled: true
+    frequency: 1
+  model_ckpt:
+    save_top_k: 1
+    save_last: true
+  save_ckpt: true
+  ckpt_dir: runs
+  run_name: rfdetr_m_person
+  visualize_preds_during_training: false
+  throughput_log_every_n_steps: 50
+  use_wandb: true
+  wandb:
+    entity: talmolab
+    project: sleap-nn-human
+    group: bbox-detr
+    name: null
+    viz_enabled: false

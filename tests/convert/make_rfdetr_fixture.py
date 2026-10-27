@@ -9,6 +9,11 @@ Writes to ``tests/assets/detr/``:
   ``hf_outputs.pt``: inputs and HF's outputs (final, per decoder layer, encoder
   proposals) for a few cases. ``test_rfdetr.py`` imports the directory with
   ``import_rfdetr`` and checks the outputs without transformers.
+* ``rfdetr_tiny/hf_losses.pt``: HF's float64 training losses of the tiny model
+  (``RfDetrForObjectDetection(labels=...)`` in train mode, so with Group DETR)
+  on fixed images and boxes: every term, per decoder layer and ``_enc``.
+  ``tests/test_bbox_detr_training.py`` checks the ``bbox_detr`` training module's
+  losses against them.
 * ``rfdetr_small_reference.pt``: HF's float64 outputs of the real
   ``Roboflow/rf-detr-small`` on a synthetic image (first ``KEEP`` queries), for
   the download test that runs with ``SLEAP_NN_TEST_HF_WEIGHTS=1``.
@@ -127,6 +132,74 @@ def make_tiny():
     print(f"Wrote {TINY_DIR} ({size:.0f} KiB)")
 
 
+# Each loss case: (input seed, square side, per-image targets as (class id,
+# normalized cxcywh)).
+LOSS_CASES = [
+    dict(
+        seed=11,
+        side=64,
+        targets=[
+            [(1, (0.3, 0.4, 0.2, 0.3)), (3, (0.7, 0.6, 0.4, 0.5))],
+            [(0, (0.5, 0.5, 0.6, 0.8))],
+        ],
+    ),
+    dict(
+        seed=12,
+        side=96,
+        targets=[
+            [
+                (4, (0.2, 0.25, 0.1, 0.2)),
+                (2, (0.55, 0.5, 0.5, 0.4)),
+                (4, (0.8, 0.8, 0.3, 0.3)),
+            ]
+        ],
+    ),
+]
+
+
+def make_tiny_losses():
+    """HF's float64 training losses of the tiny model (``hf_losses.pt``)."""
+    import transformers
+    from transformers import RfDetrForObjectDetection
+
+    model = RfDetrForObjectDetection.from_pretrained(
+        TINY_DIR, attn_implementation="eager"
+    )
+    model = model.double().train()
+    cases = []
+    for case in LOSS_CASES:
+        generator = torch.Generator().manual_seed(case["seed"])
+        side = case["side"]
+        batch = len(case["targets"])
+        image = torch.randint(0, 256, (batch, 3, side, side), generator=generator).to(
+            torch.uint8
+        )
+        x = image.double() / 255
+        labels = [
+            dict(
+                class_labels=torch.tensor([c for c, _ in t], dtype=torch.long),
+                boxes=torch.tensor([b for _, b in t], dtype=torch.float64),
+            )
+            for t in case["targets"]
+        ]
+        with torch.no_grad():
+            out = model(pixel_values=(x - MEAN.double()) / STD.double(), labels=labels)
+        cases.append(
+            dict(
+                case=case,
+                image=image,
+                labels=labels,
+                loss=out.loss,
+                loss_dict={k: v.detach().clone() for k, v in out.loss_dict.items()},
+            )
+        )
+    torch.save(
+        dict(transformers_version=transformers.__version__, cases=cases),
+        TINY_DIR / "hf_losses.pt",
+    )
+    print(f"Wrote {TINY_DIR / 'hf_losses.pt'}")
+
+
 def make_small_reference():
     import transformers
     from transformers import RfDetrForObjectDetection
@@ -151,5 +224,11 @@ def make_small_reference():
 
 
 if __name__ == "__main__":
-    make_tiny()
-    make_small_reference()
+    import sys
+
+    if sys.argv[1:] == ["losses"]:
+        make_tiny_losses()  # the losses of the existing tiny model only
+    else:
+        make_tiny()
+        make_tiny_losses()
+        make_small_reference()

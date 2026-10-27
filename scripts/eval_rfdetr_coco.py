@@ -9,7 +9,13 @@ boxes with pycocotools:
 * person-only box AP: person detections only, ``catIds=[1]`` (the protocol of
   the human project's ``coco_person_ap.py``).
 
-Category ids: the imported head's class index is the COCO category id.
+Category ids: a detection's COCO category id is looked up by its class NAME in
+the annotations (so a fine-tuned ``["person"]`` head scores as COCO id 1); names
+COCO does not have (the imported head's unused ``N/A_<id>`` slots) keep their
+class index, which for an imported head is the COCO category id.
+
+The model can also be a trained ``bbox_detr`` run directory (``best.ckpt`` +
+``training_config.yaml``), e.g. the M2 person fine-tunes.
 
 Usage (``--limit`` evaluates the first N labeled frames only, e.g. a CPU smoke)::
 
@@ -86,8 +92,18 @@ def frame_image_path(lf) -> str:
     return filename[lf.frame_idx] if isinstance(filename, list) else filename
 
 
-def coco_results(predictions: Path, model_dir: Path):
-    """``(results, image_ids)``: COCO results JSON entries and the predicted images."""
+def coco_category_ids(annotations: Path) -> dict:
+    """COCO category name -> id from an instances JSON."""
+    cats = json.loads(annotations.read_text())["categories"]
+    return {c["name"]: int(c["id"]) for c in cats}
+
+
+def coco_results(predictions: Path, model_dir: Path, category_ids: dict):
+    """``(results, image_ids)``: COCO results JSON entries and the predicted images.
+
+    ``category_ids`` maps class names to COCO ids; other names keep their class
+    index (see the module docstring).
+    """
     import sleap_io as sio
     from omegaconf import OmegaConf
 
@@ -105,7 +121,7 @@ def coco_results(predictions: Path, model_dir: Path):
             results.append(
                 {
                     "image_id": image_id,
-                    "category_id": categories.index(name),
+                    "category_id": category_ids.get(name, categories.index(name)),
                     "bbox": [box.x1, box.y1, box.x2 - box.x1, box.y2 - box.y1],
                     "score": float(box.score),
                 }
@@ -169,7 +185,9 @@ def main(argv=None):
     predictions = args.out_dir / "predictions.slp"
     run_predict(args.model_dir, labels, predictions, args.device, args.batch_size)
 
-    results, image_ids = coco_results(predictions, args.model_dir)
+    results, image_ids = coco_results(
+        predictions, args.model_dir, coco_category_ids(args.annotations)
+    )
     (args.out_dir / "coco_results.json").write_text(json.dumps(results))
     summary = {
         "model_dir": args.model_dir.as_posix(),
