@@ -651,3 +651,135 @@ def test_lr_schedules(tiny_import, schedule):
         assert factors[0] == pytest.approx(1.0)
         assert factors[len(factors) // 2] == pytest.approx(0.5, abs=0.02)
         assert factors[-1] < 0.01
+
+
+# --------------------------------------------------------------------------- #
+# Edge cases
+# --------------------------------------------------------------------------- #
+def _derived_box_labels(minimal_instance):
+    from sleap_nn.data.bboxes import add_bboxes_to_labels
+
+    labels = sio.load_slp(minimal_instance.as_posix())
+    add_bboxes_to_labels(labels, source="instances", padding=2.0)
+    return labels
+
+
+def test_detr_dataset_paths_and_validation(minimal_instance):
+    from sleap_nn.data.custom_datasets import DetrBBoxDataset
+
+    labels = _derived_box_labels(minimal_instance)
+    common = dict(
+        labels=[labels],
+        target_encoder=SetTargetEncoder(),
+        categories=["object"],
+        max_stride=32,
+    )
+    # train_hw defaults to max_hw; grayscale frames, stock geometric aug on top.
+    ds = DetrBBoxDataset(
+        **common,
+        ensure_grayscale=True,
+        apply_aug=True,
+        max_hw=(96, 128),
+        resize_mode="letterbox",
+        detr_aug={
+            "crop_p": 1.0,
+            "shortest_sides": [96],
+            "crop_range": [64, 96],
+            "flip_p": 1.0,
+        },
+        geometric_aug={"scale_min": 0.9, "scale_max": 1.1, "affine_p": 1.0},
+    )
+    assert ds.train_hw == (96, 128)
+    sample = ds[0]
+    assert sample["image"].shape[-3:] == (1, 96, 128)
+    n = int(sample["set_count"])
+    assert n == sample["num_instances"] and n <= 2
+    if n:
+        assert (sample["set_boxes"][:n, 2:] > 0).all()
+    with pytest.raises(ValueError, match="scale must be 1.0"):
+        DetrBBoxDataset(**common, scale=0.5, max_hw=(96, 96))
+    with pytest.raises(ValueError, match="max_height"):
+        DetrBBoxDataset(**common)
+    with pytest.raises(ValueError, match="squash or letterbox"):
+        resize_frame(torch.zeros(1, 1, 8, 8), torch.zeros(0, 4), (4, 4), "stretch")
+
+
+def test_detr_dataset_kwargs_need_max_hw(config):
+    from sleap_nn.data.custom_datasets import detr_dataset_kwargs
+
+    cfg = config.copy()
+    cfg.data_config.preprocessing.max_height = None
+    with pytest.raises(ValueError, match="max_height and"):
+        detr_dataset_kwargs(cfg)
+
+
+def test_module_ignores_xavier_and_validates_optimizer(tiny_import, caplog):
+    cfg = _tiny_training_config(tiny_import)
+    cfg.model_config.init_weights = "xavier"
+    module = _module(cfg)
+    assert module.init_weights == "default"
+    # Without multi-scale the training batch passes through unchanged.
+    x = torch.zeros(1, 3, 64, 64)
+    assert module._train_input(x) is x
+    module.optimizer = "SGD"
+    with pytest.raises(ValueError, match="Unknown optimizer"):
+        module._build_optimizer()
+
+
+def test_float_outputs_casts_half_only():
+    from sleap_nn.training.lightning_modules import _float_outputs
+
+    out = _float_outputs(
+        {
+            "pred_logits": torch.zeros(1, dtype=torch.bfloat16),
+            "aux_outputs": [{"pred_boxes": torch.zeros(1, dtype=torch.float16)}],
+            "enc_outputs": None,
+            "kept": torch.zeros(1, dtype=torch.float64),
+        }
+    )
+    assert out["pred_logits"].dtype == torch.float32
+    assert out["aux_outputs"][0]["pred_boxes"].dtype == torch.float32
+    assert out["enc_outputs"] is None and out["kept"].dtype == torch.float64
+
+
+def test_dinov2_unused_blocks_frozen_and_lr_groups():
+    from sleap_nn.architectures.detr import WindowedDinov2Backbone
+
+    bb = WindowedDinov2Backbone(
+        hidden_size=16, num_layers=4, num_heads=2, pos_embed_grid=4, out_indices=[2]
+    )
+    assert not any(p.requires_grad for p in bb.encoder.layer[2:].parameters())
+    assert all(p.requires_grad for p in bb.encoder.layer[:2].parameters())
+    assert bb.encoder_param_groups(1.0) is None
+    (group,) = bb.encoder_param_groups(1.0, encoder_lr_scale=2.0)
+    assert group["lr"] == 2.0
+    assert {id(p) for p in group["params"]} == {
+        id(p) for p in bb.parameters() if p.requires_grad
+    }
+
+
+def test_class_rows_fresh_and_mismatched(tiny_import):
+    from sleap_nn.training.weight_transfer import (
+        DETR_HEAD_NAME,
+        transfer_state_dict,
+    )
+
+    source = torch.load(tiny_import / "best.ckpt", weights_only=False)["state_dict"]
+    cfg = _tiny_training_config(tiny_import)
+    cfg.model_config.head_configs.bbox_detr.detr.categories = ["LABEL_2", "new"]
+    cfg.model_config.init_from = {"path": tiny_import.as_posix()}
+    module = _module(cfg)
+    report = module.transfer_reports[-1]
+    assert any("new" in v for v in report.reinitialized.values())
+    torch.testing.assert_close(
+        module.state_dict()["model.detr.class_embed.bias"][0],
+        source["model.detr.class_embed.bias"][2],
+    )
+    # Source class names that do not match the rows: skipped, not misloaded.
+    names = [f"LABEL_{i}" for i in range(4)] + ["__extra__"]  # one row short
+    report = transfer_state_dict(
+        module,
+        source,
+        source_heads=[{"name": DETR_HEAD_NAME, "channel_names": names}],
+    )
+    assert "model.detr.class_embed.weight" in report.skipped
