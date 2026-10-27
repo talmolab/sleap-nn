@@ -2036,6 +2036,70 @@ class PretrainedConfig:
     vit_final_norm: Optional[bool] = None
 
 
+@define
+class Dinov2WindowedConfig:
+    """RF-DETR's windowed DINOv2 backbone, for ``bbox_detr`` models only.
+
+    A DINOv2 ViT on a stride-16 token grid (DINOv2's 14x14 patch embedding
+    resampled to 16x16) with windowed attention in the blocks between taps, whose
+    tapped token maps feed the DETR projector
+    (``sleap_nn.architectures.detr.dinov2_windowed``). This is the backbone of
+    RF-DETR's Apache checkpoints (``sleap-nn import-rfdetr``); defaults are
+    RF-DETR-M's (DINOv2-S at 576 px).
+
+    Attributes:
+        in_channels: (int) Input channels. *Default*: ``3``.
+        hidden_size: (int) Token width: 384 (ViT-S) or 768 (ViT-B).
+            *Default*: ``384``.
+        num_layers: (int) Transformer blocks. *Default*: ``12``.
+        num_heads: (int) Attention heads (6 for ViT-S, 12 for ViT-B).
+            *Default*: ``6``.
+        mlp_ratio: (float) MLP width as a multiple of ``hidden_size``.
+            *Default*: ``4.0``.
+        patch_size: (int) Patch size (the token stride). *Default*: ``16``.
+        pos_embed_grid: (int) Side of the square token grid the learned position
+            embedding covers (RF-DETR: training resolution / ``patch_size``); it is
+            interpolated for other inputs. *Default*: ``36``.
+        out_indices: (List[int]) Tapped hidden states (0 is the embedding output,
+            ``i`` the output of block ``i``). *Default*: ``[3, 6, 9, 12]``.
+        num_windows: (int) Attention windows per side (1 = global attention
+            everywhere). Input sides must be multiples of ``patch_size *
+            num_windows``. *Default*: ``2``.
+        window_block_indexes: (List[int]) Blocks (0-based) that attend within
+            windows. ``None``: every block up to the last tap except the tapped
+            indices, as RF-DETR. *Default*: ``None``.
+        drop_path_rate: (float) Stochastic depth, ramped over the blocks.
+            *Default*: ``0.0``.
+        weights: (str) Initialize from a plain DINOv2 checkpoint: an HF Hub id
+            (``facebook/dinov2-small`` / ``facebook/dinov2-base``) or a local
+            directory. The patch embedding is resampled to ``patch_size`` and the
+            position embedding resized to ``pos_embed_grid``. ``None``: random
+            init (e.g. when a whole checkpoint is loaded afterwards).
+            *Default*: ``None``.
+        revision: (str) HF Hub revision of ``weights``. *Default*: ``None``.
+        output_stride: (int) Stride of the token maps (= ``patch_size``).
+            *Default*: ``16``.
+        max_stride: (int) Inputs are padded to multiples of this (``patch_size *
+            num_windows``). *Default*: ``32``.
+    """
+
+    in_channels: int = 3
+    hidden_size: int = 384
+    num_layers: int = 12
+    num_heads: int = 6
+    mlp_ratio: float = 4.0
+    patch_size: int = 16
+    pos_embed_grid: int = 36
+    out_indices: List[int] = field(factory=lambda: [3, 6, 9, 12])
+    num_windows: int = field(default=2, validator=validators.ge(1))
+    window_block_indexes: Optional[List[int]] = None
+    drop_path_rate: float = 0.0
+    weights: Optional[str] = None
+    revision: Optional[str] = None
+    output_stride: int = 16
+    max_stride: int = 32
+
+
 @oneof
 @define
 class BackboneConfig:
@@ -2047,12 +2111,15 @@ class BackboneConfig:
         swint: An instance of `SwinTConfig`.
         pretrained: An instance of `PretrainedConfig` (external HuggingFace
             pretrained backbone).
+        dinov2_windowed: An instance of `Dinov2WindowedConfig` (RF-DETR's windowed
+            DINOv2; `bbox_detr` models only).
     """
 
     unet: Optional[UNetConfig] = None
     convnext: Optional[ConvNextConfig] = None
     swint: Optional[SwinTConfig] = None
     pretrained: Optional[PretrainedConfig] = None
+    dinov2_windowed: Optional[Dinov2WindowedConfig] = None
 
 
 @define

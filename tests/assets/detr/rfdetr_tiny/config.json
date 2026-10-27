@@ -1,0 +1,119 @@
+{
+  "activation_dropout": 0.0,
+  "activation_function": "silu",
+  "architectures": [
+    "RfDetrForObjectDetection"
+  ],
+  "attention_bias": true,
+  "attention_dropout": 0.0,
+  "auxiliary_loss": true,
+  "backbone_config": {
+    "_name_or_path": "",
+    "apply_layernorm": true,
+    "architectures": null,
+    "attention_probs_dropout_prob": 0.0,
+    "chunk_size_feed_forward": 0,
+    "drop_path_rate": 0.0,
+    "dtype": null,
+    "hidden_act": "gelu",
+    "hidden_dropout_prob": 0.0,
+    "hidden_size": 16,
+    "id2label": {
+      "0": "LABEL_0",
+      "1": "LABEL_1"
+    },
+    "image_size": 64,
+    "initializer_range": 0.02,
+    "is_encoder_decoder": false,
+    "label2id": {
+      "LABEL_0": 0,
+      "LABEL_1": 1
+    },
+    "layer_norm_eps": 1e-06,
+    "layerscale_value": 1.0,
+    "mlp_ratio": 4,
+    "model_type": "rf_detr_dinov2",
+    "num_attention_heads": 2,
+    "num_channels": 3,
+    "num_hidden_layers": 4,
+    "num_windows": 2,
+    "out_features": [
+      "stage2",
+      "stage4"
+    ],
+    "out_indices": [
+      2,
+      4
+    ],
+    "output_attentions": false,
+    "output_hidden_states": false,
+    "patch_size": 16,
+    "problem_type": null,
+    "qkv_bias": true,
+    "reshape_hidden_states": true,
+    "return_dict": true,
+    "stage_names": [
+      "stem",
+      "stage1",
+      "stage2",
+      "stage3",
+      "stage4"
+    ],
+    "use_mask_token": true,
+    "use_swiglu_ffn": false,
+    "window_block_indexes": [
+      0,
+      1,
+      3
+    ]
+  },
+  "bbox_cost": 5,
+  "bbox_loss_coefficient": 5,
+  "c2f_num_blocks": 3,
+  "class_cost": 2,
+  "class_loss_coefficient": 1,
+  "d_model": 16,
+  "decoder_activation_function": "relu",
+  "decoder_cross_attention_heads": 4,
+  "decoder_ffn_dim": 32,
+  "decoder_layers": 2,
+  "decoder_n_points": 2,
+  "decoder_self_attention_heads": 2,
+  "dice_loss_coefficient": 1,
+  "disable_custom_kernels": true,
+  "dropout": 0.0,
+  "dtype": "float32",
+  "eos_coefficient": 0.1,
+  "focal_alpha": 0.25,
+  "giou_cost": 2,
+  "giou_loss_coefficient": 2,
+  "group_detr": 3,
+  "hidden_expansion": 0.5,
+  "id2label": {
+    "0": "LABEL_0",
+    "1": "LABEL_1",
+    "2": "LABEL_2",
+    "3": "LABEL_3",
+    "4": "LABEL_4"
+  },
+  "init_std": 0.02,
+  "intermediate_size": 1024,
+  "label2id": {
+    "LABEL_0": 0,
+    "LABEL_1": 1,
+    "LABEL_2": 2,
+    "LABEL_3": 3,
+    "LABEL_4": 4
+  },
+  "layer_norm_eps": 1e-05,
+  "mask_class_loss_coefficient": 5.0,
+  "mask_dice_loss_coefficient": 5.0,
+  "mask_downsample_ratio": 4,
+  "mask_loss_coefficient": 1,
+  "mask_point_sample_ratio": 16,
+  "model_type": "rf_detr",
+  "num_feature_levels": 1,
+  "num_queries": 12,
+  "segmentation_head_activation_function": "gelu",
+  "transformers_version": "5.20.2"
+}

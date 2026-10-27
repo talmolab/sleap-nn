@@ -7,10 +7,10 @@ stride and width::
 
 RF-DETR taps four blocks of a ViT (blocks 3, 6, 9 and 12 of DINOv2-S) at the patch
 stride, and the projector concatenates them. Backbones are looked up by
-``model_config.backbone_config`` type in :data:`DETR_BACKBONES`; the real ones come
-later (``dinov2_windowed`` for RF-DETR weights, and the ``pretrained`` HF/timm
-loader for DINOv3). This module ships only :class:`TinyDetrBackbone`, a small
-convolutional stand-in for tests.
+``model_config.backbone_config`` type in :data:`DETR_BACKBONES`:
+``dinov2_windowed`` (RF-DETR's DINOv2, :mod:`.dinov2_windowed`) is registered;
+the ``pretrained`` HF/timm loader (DINOv3) comes later. This module also ships
+:class:`TinyDetrBackbone`, a small convolutional stand-in for tests.
 """
 
 from typing import Callable, Dict, List, Protocol, runtime_checkable
