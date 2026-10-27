@@ -3130,7 +3130,25 @@ class ModelTrainer:
             return
         mode = "default" if mode is True else str(mode)
         logger.info(f"Compiling the model with torch.compile(mode='{mode}')...")
-        self.lightning_model.model.compile(mode=mode)
+        sizes = getattr(self.lightning_model, "multi_scale_sizes", None)
+        if not sizes:
+            self.lightning_model.model.compile(mode=mode)
+            return
+        # Per-batch multi-scale (`bbox_detr`): one static graph per size. Dynamic
+        # shapes hit a PyTorch assert in the backward of the antialiased bicubic
+        # position-embedding resize (torch 2.9), and past Dynamo's recompile limit
+        # (default 8) the remaining sizes would silently run eager. Each size
+        # compiles once, plus the eval-mode (validation) graphs.
+        import torch._dynamo
+
+        dynamo_config = torch._dynamo.config
+        name = (
+            "recompile_limit"
+            if hasattr(dynamo_config, "recompile_limit")
+            else "cache_size_limit"
+        )
+        setattr(dynamo_config, name, max(getattr(dynamo_config, name), len(sizes) + 8))
+        self.lightning_model.model.compile(mode=mode, dynamic=False)
 
     def train(self):
         """Train the lightning model."""
