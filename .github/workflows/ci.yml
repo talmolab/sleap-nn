@@ -116,7 +116,7 @@ jobs:
       - name: Install graphics dependencies (Ubuntu)
         if: matrix.os == 'ubuntu'
         run: |
-          sudo apt-get update && sudo apt-get install -y libglapi-mesa libegl-mesa0 libegl1 libopengl0 libgl1 libglx-mesa0
+          sudo apt-get update && sudo apt-get install -y libegl-mesa0 libegl1 libopengl0 libgl1 libglx-mesa0
 
       - name: Print environment info
         run: |
@@ -229,7 +229,7 @@ jobs:
         # stack, whose video/rendering deps need libEGL (the other test jobs
         # install the same packages).
         run: |
-          sudo apt-get update && sudo apt-get install -y libglapi-mesa libegl-mesa0 libegl1 libopengl0 libgl1 libglx-mesa0
+          sudo apt-get update && sudo apt-get install -y libegl-mesa0 libegl1 libopengl0 libgl1 libglx-mesa0
 
       - name: Cache HuggingFace configs
         uses: actions/cache@v4
@@ -305,7 +305,7 @@ jobs:
 
       - name: Install graphics dependencies
         run: |
-          sudo apt-get update && sudo apt-get install -y libglapi-mesa libegl-mesa0 libegl1 libopengl0 libgl1 libglx-mesa0
+          sudo apt-get update && sudo apt-get install -y libegl-mesa0 libegl1 libopengl0 libgl1 libglx-mesa0
 
       - name: Assert onnx and onnxruntime are importable
         # Without this the suite would silently skip back to zero ONNX coverage --
