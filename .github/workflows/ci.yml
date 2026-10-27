@@ -248,14 +248,16 @@ jobs:
         # coverage — the failure mode this job exists to close.
         run: |
           uv run --frozen --no-group gpu --extra torch-cpu --extra backbones python -c "
-          import transformers
+          import safetensors, transformers
           print('transformers', transformers.__version__)
           "
 
       - name: Run pretrained backbone tests
         run: |
           uv run --frozen --no-group gpu --extra torch-cpu --extra backbones \
-            pytest tests/architectures/test_pretrained.py -v --durations=10 \
+            pytest tests/architectures/test_pretrained.py \
+              tests/architectures/detr/test_dinov2_windowed.py \
+              tests/convert/test_rfdetr.py -v --durations=10 \
               --cov=sleap_nn --cov-report=xml
 
       - name: Upload coverage
