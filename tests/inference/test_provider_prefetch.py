@@ -101,6 +101,7 @@ def test_video_provider_prefetch_overlaps_decode_with_consumer_work():
         lock = threading.Lock()
         decodes: list[int] = []
         overlapping: list[int] = []
+        consumer_turns = [0]
 
         class SlowVideo:
             def __init__(self, video):
@@ -108,13 +109,23 @@ def test_video_provider_prefetch_overlaps_decode_with_consumer_work():
 
             def __getitem__(self, i):
                 # A decode counts as overlapping if the consumer was busy when it
-                # started OR was still busy when it finished -- either way the two
-                # ran concurrently.
-                busy_at_start = consumer_busy.is_set()
+                # started, was still busy when it finished, OR began a turn while
+                # it ran -- any of these means the two ran concurrently. The last
+                # case matters: with equal delays the consumer's turn starts just
+                # after the producer hands it a batch (and starts the next decode),
+                # so a whole turn can fall strictly inside one decode, invisible
+                # to the start/end samples (observed on Windows CI: 0 of 20).
+                with lock:
+                    busy_at_start = consumer_busy.is_set()
+                    turns_at_start = consumer_turns[0]
                 time.sleep(decode_delay)
                 with lock:
                     decodes.append(i)
-                    if busy_at_start or consumer_busy.is_set():
+                    if (
+                        busy_at_start
+                        or consumer_busy.is_set()
+                        or consumer_turns[0] != turns_at_start
+                    ):
                         overlapping.append(i)
                 return self._video[i]
 
@@ -136,7 +147,9 @@ def test_video_provider_prefetch_overlaps_decode_with_consumer_work():
         provider._sio_video = SlowVideo(provider._sio_video)
         t0 = time.monotonic()
         for _ in provider:
-            consumer_busy.set()
+            with lock:
+                consumer_turns[0] += 1
+                consumer_busy.set()
             time.sleep(consumer_delay)
             consumer_busy.clear()
         elapsed = time.monotonic() - t0

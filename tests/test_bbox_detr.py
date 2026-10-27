@@ -4,6 +4,7 @@ The model modules are tested in ``tests/architectures/detr`` and the set losses 
 ``tests/training/detr``.
 """
 
+import numpy as np
 import pytest
 import torch
 from omegaconf import OmegaConf
@@ -261,3 +262,130 @@ def test_bbox_layer_squash_resize(resize_mode):
         torch.testing.assert_close(
             box, torch.tensor([16 * s, 16 * s, 48 * s, 119.0]), rtol=0, atol=1e-3
         )
+
+
+# --------------------------------------------------------------------------- #
+# Export
+# --------------------------------------------------------------------------- #
+@pytest.fixture
+def tiny_detr_model():
+    """A small ``Model(bbox_detr)`` with fully random weights (no zero-inits)."""
+    from sleap_nn.architectures.detr import DETR_BACKBONES, TinyDetrBackbone
+    from sleap_nn.architectures.model import Model
+
+    DETR_BACKBONES["unet"] = lambda cfg: TinyDetrBackbone(
+        in_channels=cfg.in_channels, out_channels=16, stride=16
+    )
+    try:
+        hc = OmegaConf.structured(get_head_configs("bbox_detr"))
+        hc.bbox_detr.detr.update(
+            categories=["a", "b"],
+            hidden_dim=32,
+            num_queries=10,
+            group_detr=2,
+            dec_layers=2,
+            sa_nheads=2,
+            ca_nheads=4,
+            dim_feedforward=64,
+            num_select=20,
+        )
+        torch.manual_seed(0)
+        model = Model(
+            backbone_type="unet",
+            backbone_config=OmegaConf.create({"in_channels": 1, "output_stride": 16}),
+            head_configs=hc.bbox_detr,
+            model_type="bbox_detr",
+        ).eval()
+        with torch.no_grad():
+            for p in model.parameters():
+                p.normal_(0, 0.1)
+        yield model, hc
+    finally:
+        del DETR_BACKBONES["unet"]
+
+
+def test_bbox_detr_onnx_export(tiny_detr_model, tmp_path):
+    """The exported graph matches PyTorch, also at sizes other than the trace."""
+    ort = pytest.importorskip("onnxruntime")
+    pytest.importorskip("onnx")
+    from sleap_nn.export.exporters.onnx_exporter import export_to_onnx
+    from sleap_nn.export.wrappers.bbox import BBoxONNXWrapper
+
+    model, _ = tiny_detr_model
+    wrapper = BBoxONNXWrapper(model, model_type="bbox_detr").eval()
+    path = export_to_onnx(
+        wrapper,
+        tmp_path / "detr.onnx",
+        input_shape=(1, 1, 96, 80),
+        numerical_check=True,
+    )
+    session = ort.InferenceSession(str(path), providers=["CPUExecutionProvider"])
+    assert [o.name for o in session.get_outputs()] == ["pred_logits", "pred_boxes"]
+    for shape in [(1, 1, 96, 80), (3, 1, 96, 80), (2, 1, 128, 192)]:
+        x = torch.randint(0, 256, shape, dtype=torch.uint8)
+        with torch.no_grad():
+            expected = wrapper(x)
+        logits, boxes = session.run(None, {"image": x.numpy()})
+        assert logits.shape == (shape[0], 10, 3)
+        np.testing.assert_allclose(
+            logits, expected["pred_logits"].numpy(), atol=1e-4, rtol=0
+        )
+        np.testing.assert_allclose(
+            boxes, expected["pred_boxes"].numpy(), atol=1e-4, rtol=0
+        )
+
+
+@pytest.mark.parametrize("resize_mode", ["squash", "letterbox"])
+def test_exported_bbox_detr_layer_matches_native(tiny_detr_model, resize_mode):
+    """ExportedBBoxLayer + the export wrapper give the native layer's boxes."""
+    from sleap_nn.export.wrappers.bbox import BBoxONNXWrapper
+    from sleap_nn.inference.layers.backends import TorchBackend
+    from sleap_nn.inference.layers.bbox import BBoxLayer, ExportedBBoxLayer
+    from sleap_nn.inference.layers.configs import PostprocessConfig, PreprocessConfig
+
+    model, hc = tiny_detr_model
+
+    class _Native(torch.nn.Module):
+        """The checkpoint path's forward: drop n_samples, scale to [0, 1]."""
+
+        def __init__(self, model):
+            super().__init__()
+            self.model = model
+
+        def forward(self, x):
+            out = self.model(x.squeeze(1) / 255.0)
+            return {"pred_logits": out["pred_logits"], "pred_boxes": out["pred_boxes"]}
+
+    decoder = BBoxDecoder.from_head_configs("bbox_detr", hc, score_threshold=0.0)
+    kwargs = dict(
+        decoder=decoder,
+        output_stride=16,
+        max_stride=16,
+        preprocess_config=PreprocessConfig(
+            max_height=96, max_width=128, resize_mode=resize_mode
+        ),
+        postprocess_config=PostprocessConfig(peak_threshold=0.0, max_instances=20),
+    )
+    frame = torch.randint(0, 256, (1, 1, 150, 230), dtype=torch.uint8)
+    native = BBoxLayer(
+        backend=TorchBackend(model=_Native(model), device="cpu"), **kwargs
+    ).predict(frame.float())
+    wrapper = BBoxONNXWrapper(model, model_type="bbox_detr").eval()
+    exported = ExportedBBoxLayer(
+        backend=TorchBackend(model=wrapper, device="cpu"), **kwargs
+    ).predict(frame.numpy())
+    valid = torch.isfinite(native.pred_bbox_scores[0])
+    assert valid.sum() > 0
+    # The exported path rounds the resized frame to uint8 (the graph's input), so
+    # allow sub-pixel differences.
+    torch.testing.assert_close(
+        exported.pred_bbox_scores[0][valid],
+        native.pred_bbox_scores[0][valid],
+        atol=1e-4,
+        rtol=0,
+    )
+    torch.testing.assert_close(
+        exported.pred_bboxes[0][valid], native.pred_bboxes[0][valid], atol=1e-3, rtol=0
+    )
+    boxes = native.pred_bboxes[0][valid]
+    assert boxes[:, [0, 2]].max() <= 229 and boxes[:, [1, 3]].max() <= 149

@@ -239,7 +239,7 @@ class BBoxDetrHead(nn.Module):
         """
         memory = self.projector(features)
         batch, _, h, w = memory.shape
-        if h * w < self.num_queries:
+        if not torch.jit.is_tracing() and h * w < self.num_queries:
             raise ValueError(
                 f"The {h}x{w} token map has fewer tokens than num_queries "
                 f"({self.num_queries}); use a larger input or fewer queries."

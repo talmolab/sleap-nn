@@ -38,6 +38,7 @@ from sleap_nn.data.instance_cropping import (
     points_from_crop,
     window_corners,
 )
+from sleap_nn.inference.layers.backends.torch_backend import TorchBackend
 from sleap_nn.inference.layers.base import ImageInput, InferenceLayer
 from sleap_nn.inference.layers.centered_instance import CenteredInstanceLayer
 from sleap_nn.inference.layers.centroid import CentroidLayer
@@ -191,6 +192,11 @@ class TopDownLayer:
         #    original-image space.
         x_raw = self.centroid_layer._to_4d_tensor(image)
         x_sized, eff_scale = self._sizematch_like_centroid_layer(x_raw)
+        crop_device = self._crop_device()
+        if crop_device is not None:
+            # Crop on the stage-2 GPU: cutting crops out of full CPU frames was
+            # ~10x slower than the rest of top-down inference on COCO.
+            x_sized = x_sized.to(crop_device, non_blocking=True)
         sized_centroids = centroids * eff_scale.view(-1, 1, 1).to(centroids.device)
         boxes = centroid_out.pred_bboxes
         stage_2_kwargs = {}
@@ -231,6 +237,31 @@ class TopDownLayer:
                 ).to(device),
             )
         return out
+
+    def _crop_device(self) -> Optional[torch.device]:
+        """The CUDA device to cut stage-2 crops on, or ``None`` to crop in place.
+
+        The sized frame moves to the device the stage-2 PyTorch model runs on,
+        so cropping (a gather, or ``grid_sample`` for box-scaled crops) runs
+        there and the crops are already where the model needs them. ``None``
+        (crop wherever the frame is, as before) when stage 2 is not a CUDA
+        :class:`TorchBackend` (CPU, MPS, exported models), and when stage 2
+        resamples its crops (``scale`` / ``max_height`` / ``max_width`` in its
+        preprocessing): a ``uint8`` resize on the GPU rounds some pixels 1
+        grey level differently than on the CPU, which would change outputs.
+        """
+        backend = getattr(self.centered_instance_layer, "backend", None)
+        if not isinstance(backend, TorchBackend):
+            return None
+        device = torch.device(backend.device)
+        if device.type != "cuda":
+            return None
+        cfg = getattr(self.centered_instance_layer, "preprocess_config", None)
+        if cfg is not None and (
+            cfg.scale != 1.0 or cfg.max_height is not None or cfg.max_width is not None
+        ):
+            return None
+        return device
 
     def _sizematch_like_centroid_layer(
         self, x_raw: torch.Tensor
