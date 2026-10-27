@@ -472,6 +472,13 @@ class LightningModel(L.LightningModule):
             "bbox_ssd": BBoxSSDLightningModule,
         }
 
+        if model_type == "bbox_detr":
+            message = (
+                "bbox_detr models can be built (sleap_nn.architectures.model.Model) "
+                "but not trained yet: their training module is not implemented."
+            )
+            logger.error(message)
+            raise NotImplementedError(message)
         if model_type not in lightning_models:
             message = f"Incorrect model type. Please check if one of the following keys in the head configs is not None: [`single_instance`, `centroid`, `centered_instance`, `bottomup`, `multi_class_bottomup`, `multi_class_topdown`, `bottomup_segmentation`, `centered_instance_segmentation`, `semantic_segmentation`, `embedding`, `bbox_centernet`, `bbox_ssd`]"
             logger.error(message)

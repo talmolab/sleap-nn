@@ -326,3 +326,39 @@ class SetCriterion(nn.Module):
         if total is None:
             raise ValueError(f"None of the losses {list(losses)} has a weight.")
         return total
+
+
+def build_set_criterion(detr_config, num_classes: Optional[int] = None) -> SetCriterion:
+    """Build the set criterion of a ``bbox_detr`` model from its ``detr`` config leaf.
+
+    Args:
+        detr_config: The ``model_config.head_configs.bbox_detr.detr`` leaf
+            (``DetrHeadConfig`` or its DictConfig).
+        num_classes: Overrides the class count (default: ``len(categories)``, or 1
+            when categories are unset).
+
+    Returns:
+        A :class:`SetCriterion` with the config's matcher costs, loss weights, focal
+        parameters and ``group_detr``.
+    """
+    if num_classes is None:
+        num_classes = len(detr_config.categories or [None])
+    matcher = HungarianMatcher(
+        cost_class=detr_config.set_cost_class,
+        cost_bbox=detr_config.set_cost_bbox,
+        cost_giou=detr_config.set_cost_giou,
+        focal_alpha=detr_config.focal_alpha,
+        focal_gamma=detr_config.focal_gamma,
+    )
+    return SetCriterion(
+        num_classes,
+        matcher=matcher,
+        weight_dict={
+            "loss_ce": detr_config.cls_loss_coef,
+            "loss_bbox": detr_config.bbox_loss_coef,
+            "loss_giou": detr_config.giou_loss_coef,
+        },
+        focal_alpha=detr_config.focal_alpha,
+        focal_gamma=detr_config.focal_gamma,
+        group_detr=detr_config.group_detr,
+    )

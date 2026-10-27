@@ -27,6 +27,7 @@ from sleap_nn.training.detr.box_ops import (
 from sleap_nn.training.detr.criterion import (
     LOSS_TERMS,
     SetCriterion,
+    build_set_criterion,
     register_loss_term,
 )
 from sleap_nn.training.detr.matcher import HungarianMatcher
@@ -36,6 +37,7 @@ __all__ = [
     "box_cxcywh_to_xyxy",
     "box_iou",
     "box_xyxy_to_cxcywh",
+    "build_set_criterion",
     "elementwise_box_iou",
     "elementwise_generalized_box_iou",
     "generalized_box_iou",

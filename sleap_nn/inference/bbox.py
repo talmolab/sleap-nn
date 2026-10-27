@@ -1,4 +1,4 @@
-"""Decoding for the bounding-box detectors (``bbox_centernet``, ``bbox_ssd``).
+"""Decoding for the bounding-box detectors (``bbox_centernet``, ``bbox_ssd``, ``bbox_detr``).
 
 Each detection style has a pure-torch decoder that turns its raw head outputs into
 per-frame boxes, scores and class ids in model-input pixels:
@@ -7,6 +7,8 @@ per-frame boxes, scores and class ids in model-input pixels:
   box read from the size/offset maps at each peak.
 * :func:`decode_ssd` -- per-anchor class probabilities and decoded deltas,
   thresholded and class-wise IoU-NMSed.
+* :func:`decode_set` -- DETR set predictions: sigmoid scores over queries x
+  classes, the top ``num_select`` pairs, no NMS.
 
 :class:`BBoxDecoder` binds a style and its parameters (built from a model's head
 config) and is what both the LightningModules (val-time eval) and the inference
@@ -35,7 +37,8 @@ from sleap_nn.data.bboxes import (
 
 # IoU-NMS default per style: SSD's anchors overlap so it needs NMS (0.45 as in the
 # SSD paper); CenterNet's max-pool peak NMS already yields one peak per object.
-DEFAULT_NMS_IOU = {"bbox_centernet": None, "bbox_ssd": 0.45}
+# A DETR's one-to-one matching already yields one query per object.
+DEFAULT_NMS_IOU = {"bbox_centernet": None, "bbox_ssd": 0.45, "bbox_detr": None}
 DEFAULT_MAX_DETECTIONS = 100
 
 _Decoded = Tuple[torch.Tensor, torch.Tensor, torch.Tensor]
@@ -229,17 +232,72 @@ def decode_ssd(
     return _pad_detections(per_frame, max_detections, raw.device)
 
 
+def decode_set(
+    pred_logits: torch.Tensor,
+    pred_boxes: torch.Tensor,
+    img_hw: Tuple[int, int],
+    score_threshold: float = 0.2,
+    num_select: int = 300,
+    max_detections: int = DEFAULT_MAX_DETECTIONS,
+    iou_threshold: Optional[float] = None,
+) -> _Decoded:
+    """Decode DETR set predictions into boxes (RF-DETR's ``PostProcess``).
+
+    Scores are the sigmoid of every (query, real class) logit; the extra last logit
+    of the ``num_classes + 1`` is dropped. The ``num_select`` highest-scoring
+    pairs are kept (one query can yield several classes), then thresholded. Boxes
+    are normalized ``cxcywh`` relative to the model input and come out as ``xyxy``
+    in its pixels.
+
+    Args:
+        pred_logits: ``(B, Q, C + 1)`` class logits.
+        pred_boxes: ``(B, Q, 4)`` normalized ``cxcywh`` boxes.
+        img_hw: Model-input ``(H, W)``; boxes are scaled to it and clipped.
+        score_threshold: Minimum detection score.
+        num_select: (query, class) pairs kept before thresholding.
+        max_detections: Detections kept per frame.
+        iou_threshold: Optional class-wise IoU-NMS (``None``, the default, keeps
+            DETR's NMS-free output).
+
+    Returns:
+        Padded ``(boxes, scores, classes)`` in input pixels.
+    """
+    probs = pred_logits[..., :-1].float().sigmoid()
+    b, q, c = probs.shape
+    k = min(int(num_select), q * c)
+    scores, inds = probs.reshape(b, -1).topk(k, dim=1)
+    classes = inds % c
+    boxes = pred_boxes.float().gather(1, (inds // c)[..., None].expand(b, k, 4))
+    cx, cy, w, h = boxes.unbind(-1)
+    boxes = torch.stack([cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2], dim=-1)
+    img_h, img_w = img_hw
+    boxes = _clip_to_image(
+        boxes * boxes.new_tensor([img_w, img_h, img_w, img_h]), img_hw
+    )
+    per_frame = []
+    for i in range(b):
+        keep = scores[i] >= score_threshold
+        bx, sc, cl = _nms(
+            boxes[i][keep], scores[i][keep], classes[i][keep], iou_threshold
+        )
+        per_frame.append(
+            (bx[:max_detections], sc[:max_detections], cl[:max_detections])
+        )
+    return _pad_detections(per_frame, max_detections, pred_logits.device)
+
+
 class BBoxDecoder:
     """A detection style's decoder bound to its parameters.
 
     Attributes:
-        model_type: ``"bbox_centernet"`` or ``"bbox_ssd"``.
+        model_type: ``"bbox_centernet"``, ``"bbox_ssd"`` or ``"bbox_detr"``.
         categories: Ordered class names (class ids index into it).
         output_stride: CenterNet grid stride.
         score_threshold: Minimum detection score.
         iou_threshold: IoU-NMS threshold (``None`` disables it).
         max_detections: Detections kept per frame.
         anchor_encoder: SSD only -- the target encoder that owns the anchors.
+        num_select: DETR only -- (query, class) pairs kept before thresholding.
     """
 
     def __init__(
@@ -251,6 +309,7 @@ class BBoxDecoder:
         iou_threshold: Optional[float] = None,
         max_detections: int = DEFAULT_MAX_DETECTIONS,
         anchor_encoder: Optional[SSDTargetEncoder] = None,
+        num_select: int = 300,
     ):
         """Initialize the decoder."""
         if model_type not in DEFAULT_NMS_IOU:
@@ -264,6 +323,7 @@ class BBoxDecoder:
         self.iou_threshold = iou_threshold
         self.max_detections = int(max_detections)
         self.anchor_encoder = anchor_encoder
+        self.num_select = int(num_select)
 
     @classmethod
     def from_head_configs(
@@ -282,9 +342,11 @@ class BBoxDecoder:
 
         if iou_threshold == "default":
             iou_threshold = DEFAULT_NMS_IOU[model_type]
-        anchor_encoder, output_stride = None, 1
+        anchor_encoder, output_stride, num_select = None, 1, 300
         if model_type == "bbox_ssd":
             anchor_encoder = get_bbox_target_encoder(model_type, head_configs)
+        elif model_type == "bbox_detr":
+            num_select = head_configs.bbox_detr.detr.num_select
         else:
             output_stride = head_configs.bbox_centernet.center.output_stride
         return cls(
@@ -295,6 +357,7 @@ class BBoxDecoder:
             iou_threshold=iou_threshold,
             max_detections=max_detections or DEFAULT_MAX_DETECTIONS,
             anchor_encoder=anchor_encoder,
+            num_select=num_select,
         )
 
     def __call__(
@@ -309,7 +372,8 @@ class BBoxDecoder:
         Args:
             outputs: The model's head-name -> tensor dict. CenterNet expects
                 ``BBoxCenterHead`` as probabilities (the module ``forward`` applies
-                the sigmoid); SSD expects the raw ``SSDHead`` tensor.
+                the sigmoid); SSD expects the raw ``SSDHead`` tensor; DETR expects
+                ``pred_logits`` and ``pred_boxes``.
             img_hw: Model-input ``(H, W)``.
             score_threshold: Per-call override of the score threshold.
             max_detections: Per-call override of the detections kept per frame.
@@ -329,6 +393,16 @@ class BBoxDecoder:
                 max_detections=k,
                 iou_threshold=self.iou_threshold,
                 img_hw=img_hw,
+            )
+        if self.model_type == "bbox_detr":
+            return decode_set(
+                outputs["pred_logits"],
+                outputs["pred_boxes"],
+                img_hw=img_hw,
+                score_threshold=thr,
+                num_select=self.num_select,
+                max_detections=k,
+                iou_threshold=self.iou_threshold,
             )
         return decode_ssd(
             outputs["SSDHead"],

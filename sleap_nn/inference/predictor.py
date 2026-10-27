@@ -40,6 +40,7 @@ import torch
 from loguru import logger
 
 from sleap_nn.inference.filters import FilterConfig, FilterPipeline
+from sleap_nn.config.model_config import BBOX_MODEL_TYPES
 from sleap_nn.config.utils import check_tiling_parity
 from sleap_nn.inference.layers.backends import TorchBackend
 from sleap_nn.inference.layers.bbox import BBoxLayer, BBoxStageLayer
@@ -506,6 +507,7 @@ def _build_bbox_layer(predictor: Any, device: str) -> BBoxLayer:
             max_width=_pp_field(predictor, "max_width"),
             ensure_rgb=_pp_field(predictor, "ensure_rgb"),
             ensure_grayscale=_pp_field(predictor, "ensure_grayscale"),
+            resize_mode=_pp_field(predictor, "resize_mode", "letterbox"),
         ),
         postprocess_config=PostprocessConfig(
             peak_threshold=inf.decoder.score_threshold,
@@ -528,6 +530,7 @@ def _build_bbox_stage_layer(detector_assets: Any, device: str) -> BBoxStageLayer
             max_width=_pp_field(detector_assets, "max_width"),
             ensure_rgb=_pp_field(detector_assets, "ensure_rgb"),
             ensure_grayscale=_pp_field(detector_assets, "ensure_grayscale"),
+            resize_mode=_pp_field(detector_assets, "resize_mode", "letterbox"),
         ),
         postprocess_config=PostprocessConfig(
             peak_threshold=inf.decoder.score_threshold,
@@ -624,9 +627,7 @@ def _seed_from_boxes(
             "multi_class_topdown or centered_instance_segmentation); got model "
             f"types {model_types}."
         )
-    stage_1 = [
-        t for t in model_types if t in ("centroid", "bbox_centernet", "bbox_ssd")
-    ]
+    stage_1 = [t for t in model_types if t == "centroid" or t in BBOX_MODEL_TYPES]
     if stage_1:
         raise ValueError(
             f"Seeding from {boxes!r} boxes replaces the top-down stage 1; pass only "

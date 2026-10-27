@@ -319,7 +319,8 @@ class InferenceLayer(ABC):
 
             * ``processed_tensor``: ``(B, 1, C, H', W')`` if
               ``unsqueeze_n_samples`` else ``(B, C, H', W')``.
-            * ``eff_scale``: ``(B,)`` per-sample sizematcher scale factor.
+            * ``eff_scale``: ``(B,)`` per-sample sizematcher scale factor, or
+              ``(B, 2)`` per-axis ``(x, y)`` scales with ``resize_mode="squash"``.
               All ones when no sizematcher is configured.
             * ``original_HW``: ``(H, W)`` of the input before any resize.
         """
@@ -328,6 +329,7 @@ class InferenceLayer(ABC):
         from sleap_nn.data.resizing import (
             apply_pad_to_stride,
             apply_sizematcher,
+            apply_squash_resize,
             resize_image,
         )
 
@@ -344,7 +346,17 @@ class InferenceLayer(ABC):
 
         # 2. Per-sample sizematcher → eff_scale. Skipped entirely when
         # ``skip_sizematcher`` (tiled inference runs frames at native res).
-        if not skip_sizematcher and (
+        if not skip_sizematcher and cfg.resize_mode == "squash":
+            # Squash: every frame to exactly (max_height, max_width), one scale per
+            # axis, so eff_scale is (B, 2) (x, y).
+            resized_frames, eff_scales = [], []
+            for b in range(B):
+                r, scale_xy = apply_squash_resize(x[b], cfg.max_height, cfg.max_width)
+                resized_frames.append(r)
+                eff_scales.append(scale_xy)
+            x = torch.stack(resized_frames, dim=0)
+            eff_scale = torch.tensor(eff_scales, dtype=torch.float32, device=x.device)
+        elif not skip_sizematcher and (
             cfg.max_height is not None or cfg.max_width is not None
         ):
             resized_frames: list = []

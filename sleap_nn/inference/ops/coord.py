@@ -60,10 +60,13 @@ def undo_eff_scale(coords: torch.Tensor, eff_scale: torch.Tensor) -> torch.Tenso
 
     The sizematcher fits each frame to ``(max_h, max_w)`` preserving aspect
     ratio, producing one scalar scale factor per batch sample (not constant).
+    A squash resize (``resize_mode="squash"``) scales each axis on its own and
+    gives one ``(x, y)`` pair per sample instead.
 
     Args:
         coords: Tensor with shape ``(B, ...)`` whose trailing axis is xy.
-        eff_scale: ``(B,)`` per-sample scale factors.
+        eff_scale: ``(B,)`` per-sample scale factors, or ``(B, 2)`` per-sample
+            ``(x, y)`` scales.
 
     Returns:
         Coords with each sample divided by its own ``eff_scale``.
@@ -72,7 +75,10 @@ def undo_eff_scale(coords: torch.Tensor, eff_scale: torch.Tensor) -> torch.Tenso
     # where every frame had the same native size.
     if torch.all(eff_scale == 1.0):
         return coords
-    shape = [eff_scale.shape[0]] + [1] * (coords.ndim - 1)
+    if eff_scale.ndim == 2:
+        shape = [eff_scale.shape[0]] + [1] * (coords.ndim - 2) + [2]
+    else:
+        shape = [eff_scale.shape[0]] + [1] * (coords.ndim - 1)
     return coords / eff_scale.view(shape).to(coords.device)
 
 

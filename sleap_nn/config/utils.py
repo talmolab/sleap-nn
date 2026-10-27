@@ -183,6 +183,16 @@ def check_output_strides(config: OmegaConf) -> OmegaConf:
             ] = max_stride
     elif backbone_type == "pretrained":
         _set_pretrained_decoder_mode(config, model_type)
+    resize_mode = OmegaConf.select(
+        config, "data_config.preprocessing.resize_mode", default="letterbox"
+    )
+    if resize_mode == "squash" and model_type != "bbox_detr":
+        message = (
+            "data_config.preprocessing.resize_mode='squash' is only supported for "
+            f"bbox_detr models, not {model_type}."
+        )
+        logger.error(message)
+        raise ValueError(message)
     return config
 
 

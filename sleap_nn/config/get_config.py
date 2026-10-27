@@ -45,6 +45,8 @@ from sleap_nn.config.model_config import (
     BBoxOffsetHeadConfig,
     BBoxSSDConfig,
     SSDHeadConfig,
+    BBoxDetrConfig,
+    DetrHeadConfig,
     SegmentationHeadConfig,
     InstanceCenterConfig,
     CenterOffsetConfig,
@@ -454,9 +456,11 @@ def get_head_configs(head_cfg: Union[str, Dict[str, Any]]):
             )
         elif head_cfg == "bbox_ssd":
             head_configs.bbox_ssd = BBoxSSDConfig(ssd=SSDHeadConfig())
+        elif head_cfg == "bbox_detr":
+            head_configs.bbox_detr = BBoxDetrConfig(detr=DetrHeadConfig())
         else:
             raise ValueError(
-                f"{head_cfg} is not a valid head type. Please choose one of ['bottomup', 'centered_instance', 'centroid', 'single_instance', 'multi_class_bottomup', 'multi_class_topdown', 'bottomup_segmentation', 'centered_instance_segmentation', 'semantic_segmentation', 'embedding', 'bbox_centernet', 'bbox_ssd']"
+                f"{head_cfg} is not a valid head type. Please choose one of ['bottomup', 'centered_instance', 'centroid', 'single_instance', 'multi_class_bottomup', 'multi_class_topdown', 'bottomup_segmentation', 'centered_instance_segmentation', 'semantic_segmentation', 'embedding', 'bbox_centernet', 'bbox_ssd', 'bbox_detr']"
             )
 
     elif isinstance(head_cfg, dict):
@@ -574,6 +578,10 @@ def get_head_configs(head_cfg: Union[str, Dict[str, Any]]):
         elif "bbox_ssd" in head_cfg and head_cfg["bbox_ssd"] is not None:
             head_configs.bbox_ssd = BBoxSSDConfig(
                 ssd=SSDHeadConfig(**(head_cfg["bbox_ssd"].get("ssd") or {}))
+            )
+        elif "bbox_detr" in head_cfg and head_cfg["bbox_detr"] is not None:
+            head_configs.bbox_detr = BBoxDetrConfig(
+                detr=DetrHeadConfig(**(head_cfg["bbox_detr"].get("detr") or {}))
             )
 
     return head_configs
