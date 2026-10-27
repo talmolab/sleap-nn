@@ -1,4 +1,4 @@
-"""ONNX export wrapper for the bounding-box detectors (``bbox_centernet``, ``bbox_ssd``)."""
+"""ONNX export wrapper for the bounding-box detectors (``bbox_centernet``, ``bbox_ssd``, ``bbox_detr``)."""
 
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ from sleap_nn.export.wrappers.base import BaseExportWrapper
 BBOX_EXPORT_OUTPUTS = {
     "bbox_centernet": ["BBoxCenterHead", "BBoxSizeHead", "BBoxOffsetHead"],
     "bbox_ssd": ["SSDHead"],
+    "bbox_detr": ["pred_logits", "pred_boxes"],
 }
 
 
@@ -22,7 +23,8 @@ class BBoxONNXWrapper(BaseExportWrapper):
     Unlike the pose wrappers, decoding is NOT baked into the graph: the output is
     exactly what the detector's LightningModule ``forward`` returns (CenterNet's
     center heatmap as probabilities plus raw size/offset maps; SSD's raw
-    per-anchor logits + deltas), and
+    per-anchor logits + deltas; DETR's final-layer ``pred_logits`` / ``pred_boxes``,
+    without the training-only auxiliary and encoder outputs), and
     :class:`~sleap_nn.inference.layers.bbox.ExportedBBoxLayer` decodes it
     with the same :class:`~sleap_nn.inference.bbox.BBoxDecoder` as the
     checkpoint path. That keeps exported and native predictions identical
@@ -41,7 +43,7 @@ class BBoxONNXWrapper(BaseExportWrapper):
 
         Args:
             model: The underlying ``Model`` (backbone + detector heads).
-            model_type: ``"bbox_centernet"`` or ``"bbox_ssd"``.
+            model_type: ``"bbox_centernet"``, ``"bbox_ssd"`` or ``"bbox_detr"``.
         """
         super().__init__(model)
         if model_type not in BBOX_EXPORT_OUTPUTS:
@@ -57,4 +59,6 @@ class BBoxONNXWrapper(BaseExportWrapper):
                 "BBoxSizeHead": out["BBoxSizeHead"],
                 "BBoxOffsetHead": out["BBoxOffsetHead"],
             }
+        if self.model_type == "bbox_detr":
+            return {"pred_logits": out["pred_logits"], "pred_boxes": out["pred_boxes"]}
         return {"SSDHead": out["SSDHead"]}

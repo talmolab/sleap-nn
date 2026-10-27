@@ -237,6 +237,12 @@ class PreprocessingConfig:
             bounding-box midpoint, robust to concave masks whose COM lands off the
             instance). Only `mask`-mode centering is affected; pose-mode centering is
             driven by `anchor_part`. *Default*: `auto`.
+        resize_mode: (str) How a frame is fitted to `(max_height, max_width)`.
+            `letterbox` scales it by one factor to fit and pads the rest. `squash`
+            resizes it to exactly `(max_height, max_width)`, scaling each axis on its
+            own (RF-DETR's preprocessing, needed to reuse its weights), and maps
+            predicted boxes back per axis; it needs both `max_height` and `max_width`
+            and is only supported for `bbox_detr` models. *Default*: `letterbox`.
     """
 
     ensure_rgb: bool = False
@@ -279,6 +285,24 @@ class PreprocessingConfig:
     burn_in: bool = False
     background_fill: str = "black"
     crop_centering: str = "auto"
+    resize_mode: str = field(
+        default="letterbox",
+        validator=lambda instance, attr, value: instance.validate_resize_mode(),
+    )
+
+    def validate_resize_mode(self):
+        """Validate `resize_mode`; `squash` needs both `max_height` and `max_width`."""
+        if self.resize_mode not in ("letterbox", "squash"):
+            raise ValueError(
+                f"resize_mode must be 'letterbox' or 'squash', got {self.resize_mode!r}."
+            )
+        if self.resize_mode == "squash" and (
+            self.max_height is None or self.max_width is None
+        ):
+            raise ValueError(
+                "resize_mode='squash' resizes every frame to exactly "
+                "(max_height, max_width); set both."
+            )
 
     def validate_crop_size(self):
         """Validate `crop_size`: an int, or `[height, width]` for warp crops."""

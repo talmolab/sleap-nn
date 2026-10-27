@@ -1,6 +1,7 @@
 """Bounding-box ground truth, augmentation geometry and training targets.
 
-Shared by the ``bbox_*`` detection model types (``bbox_centernet``, ``bbox_ssd``):
+Shared by the ``bbox_*`` detection model types (``bbox_centernet``, ``bbox_ssd``,
+``bbox_detr``):
 
 * **Ground truth.** Boxes come from ``LabeledFrame.bboxes`` (``sio.UserBoundingBox``).
   :func:`add_bboxes_to_labels` can derive them in memory from pose instances or
@@ -719,6 +720,8 @@ def bbox_head_leaf(model_type: str, head_configs):
         return head_configs.bbox_centernet.center
     if model_type == "bbox_ssd":
         return head_configs.bbox_ssd.ssd
+    if model_type == "bbox_detr":
+        return head_configs.bbox_detr.detr
     raise ValueError(f"{model_type} is not a bounding-box model type.")
 
 
@@ -758,5 +761,10 @@ def get_bbox_target_encoder(model_type: str, head_configs):
             pos_iou_threshold=ssd.pos_iou_threshold,
             neg_iou_threshold=ssd.neg_iou_threshold,
             variances=list(ssd.box_variances),
+        )
+    if model_type == "bbox_detr":
+        raise NotImplementedError(
+            "bbox_detr set targets are not implemented yet; bbox_detr models can be "
+            "built but not trained."
         )
     raise ValueError(f"{model_type} is not a bounding-box model type.")

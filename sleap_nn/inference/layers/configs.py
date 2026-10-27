@@ -31,6 +31,11 @@ class PreprocessConfig:
             via :func:`sleap_nn.data.resizing.resize_image` (``tvf.resize``) on
             the live ckpt path. ``1.0`` is identity.
         crop_size: Top-down stage 2 only — square crop side length.
+        resize_mode: How frames are fitted to ``(max_height, max_width)``:
+            ``"letterbox"`` (one scale, then pad) or ``"squash"`` (resize to
+            exactly that size, a separate scale per axis, so ``eff_scale`` is
+            ``(B, 2)`` ``(x, y)``). Squash needs both ``max_height`` and
+            ``max_width``.
     """
 
     ensure_rgb: Optional[bool] = None
@@ -39,14 +44,23 @@ class PreprocessConfig:
     max_width: Optional[int] = None
     scale: float = 1.0
     crop_size: Optional[Tuple[int, int]] = None
+    resize_mode: str = "letterbox"
 
     def __attrs_post_init__(self) -> None:
-        """Reject the contradictory ``ensure_rgb=True`` + ``ensure_grayscale=True``."""
+        """Reject contradictory channel or resize settings."""
         if self.ensure_rgb and self.ensure_grayscale:
             raise ValueError(
                 "ensure_rgb and ensure_grayscale cannot both be True; choose one "
                 "(or leave both None to keep the source channel count)."
             )
+        if self.resize_mode not in ("letterbox", "squash"):
+            raise ValueError(
+                f"resize_mode must be 'letterbox' or 'squash', got {self.resize_mode!r}."
+            )
+        if self.resize_mode == "squash" and (
+            self.max_height is None or self.max_width is None
+        ):
+            raise ValueError("resize_mode='squash' needs max_height and max_width.")
 
 
 @attrs.frozen

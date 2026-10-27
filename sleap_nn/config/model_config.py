@@ -1587,12 +1587,12 @@ class EmbeddingConfig:
 
 
 # ---------------------------------------------------------------------------
-# Bounding-box detection head configs (the `bbox_*` model family). Two detection
+# Bounding-box detection head configs (the `bbox_*` model family). The detection
 # styles share one data pipeline (`sleap_nn.data.bboxes`), one output type
 # (`sio.PredictedBoundingBox` on `LabeledFrame.bboxes`) and one COCO-style eval
 # (`match_method="bbox"`); they differ only in their heads, targets and decoder.
 # ---------------------------------------------------------------------------
-BBOX_MODEL_TYPES = ("bbox_centernet", "bbox_ssd")
+BBOX_MODEL_TYPES = ("bbox_centernet", "bbox_ssd", "bbox_detr")
 
 # Class name given to boxes that carry no `sio.Category`.
 DEFAULT_BBOX_CATEGORY = "object"
@@ -1762,6 +1762,91 @@ class BBoxSSDConfig:
     ssd: Optional[SSDHeadConfig] = None
 
 
+@define
+class DetrHeadConfig:
+    """Detector of a ``bbox_detr`` (RF-DETR-style set prediction) model.
+
+    Everything after the backbone: a projector from the backbone's tapped token
+    maps to one ``hidden_dim`` map, two-stage proposals (every token proposes a
+    box; the top ``num_queries`` seed the queries), a deformable-attention decoder
+    and shared class/box heads, trained with Hungarian matching and the RF-DETR set
+    loss (``sleap_nn.training.detr``). Defaults are RF-DETR's.
+
+    Attributes:
+        categories: (List[str]) Ordered class names. ``None`` (default) is filled
+            in at training setup, as for ``bbox_centernet``. The class head has
+            ``len(categories) + 1`` sigmoid logits (the last is never a positive).
+        output_stride: (int) Stride of the backbone's token maps (the patch size).
+            *Default*: ``16``.
+        hidden_dim: (int) Width of the projected map and the queries.
+            *Default*: ``256``.
+        num_queries: (int) Queries per group; at inference, the candidates per
+            image that ``num_select`` picks from. *Default*: ``300``.
+        group_detr: (int) Query groups in training (Group DETR); inference uses
+            one. *Default*: ``13``.
+        dec_layers: (int) Decoder layers. *Default*: ``3``.
+        sa_nheads: (int) Decoder self-attention heads. *Default*: ``8``.
+        ca_nheads: (int) Decoder deformable cross-attention heads. *Default*:
+            ``16``.
+        dec_n_points: (int) Sampling points per cross-attention head.
+            *Default*: ``2``.
+        dim_feedforward: (int) Decoder FFN width. *Default*: ``2048``.
+        dropout: (float) Decoder dropout. *Default*: ``0.0``.
+        c2f_num_blocks: (int) Bottlenecks in the projector's C2f block.
+            *Default*: ``3``.
+        c2f_expansion: (float) C2f hidden width as a fraction of ``hidden_dim``.
+            *Default*: ``0.5``.
+        num_select: (int) Detections kept per image by the set decoder (top-K over
+            queries x classes). *Default*: ``300``.
+        cls_loss_coef: (float) Weight of the IoU-aware BCE class loss.
+            *Default*: ``1.0``.
+        bbox_loss_coef: (float) Weight of the L1 box loss. *Default*: ``5.0``.
+        giou_loss_coef: (float) Weight of the GIoU loss. *Default*: ``2.0``.
+        set_cost_class: (float) Matcher weight of the focal class cost.
+            *Default*: ``2.0``.
+        set_cost_bbox: (float) Matcher weight of the L1 box cost. *Default*:
+            ``5.0``.
+        set_cost_giou: (float) Matcher weight of the GIoU cost. *Default*: ``2.0``.
+        focal_alpha: (float) Alpha of the matcher's focal cost and of the IA-BCE
+            soft target. *Default*: ``0.25``.
+        focal_gamma: (float) Gamma of the matcher's focal cost and of the IA-BCE
+            negative weight. *Default*: ``2.0``.
+    """
+
+    categories: Optional[List[str]] = None
+    output_stride: int = 16
+    hidden_dim: int = 256
+    num_queries: int = 300
+    group_detr: int = field(default=13, validator=validators.ge(1))
+    dec_layers: int = field(default=3, validator=validators.ge(1))
+    sa_nheads: int = 8
+    ca_nheads: int = 16
+    dec_n_points: int = 2
+    dim_feedforward: int = 2048
+    dropout: float = 0.0
+    c2f_num_blocks: int = 3
+    c2f_expansion: float = 0.5
+    num_select: int = 300
+    cls_loss_coef: float = 1.0
+    bbox_loss_coef: float = 5.0
+    giou_loss_coef: float = 2.0
+    set_cost_class: float = 2.0
+    set_cost_bbox: float = 5.0
+    set_cost_giou: float = 2.0
+    focal_alpha: float = 0.25
+    focal_gamma: float = 2.0
+
+
+@define
+class BBoxDetrConfig:
+    """Head config for the ``bbox_detr`` (RF-DETR-style, set prediction) model type.
+
+    Wraps the single ``detr`` leaf (mirrors ``BBoxSSDConfig``).
+    """
+
+    detr: Optional[DetrHeadConfig] = None
+
+
 @oneof
 @define
 class HeadConfig:
@@ -1783,6 +1868,7 @@ class HeadConfig:
         embedding: An instance of `EmbeddingConfig`.
         bbox_centernet: An instance of `BBoxCenterNetConfig`.
         bbox_ssd: An instance of `BBoxSSDConfig`.
+        bbox_detr: An instance of `BBoxDetrConfig`.
     """
 
     single_instance: Optional[SingleInstanceConfig] = None
@@ -1797,6 +1883,7 @@ class HeadConfig:
     embedding: Optional[EmbeddingConfig] = None
     bbox_centernet: Optional[BBoxCenterNetConfig] = None
     bbox_ssd: Optional[BBoxSSDConfig] = None
+    bbox_detr: Optional[BBoxDetrConfig] = None
 
 
 @define

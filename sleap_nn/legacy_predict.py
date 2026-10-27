@@ -16,6 +16,7 @@ from sleap_nn.tracking.tracker import (
     connect_single_breaks,
     cull_instances,
 )
+from sleap_nn.config.model_config import BBOX_MODEL_TYPES
 from sleap_nn.system_info import get_startup_info_string
 from sleap_nn.inference.provenance import (
     build_inference_provenance,
@@ -666,7 +667,7 @@ def run_inference(
                     "  from sleap_nn.inference.run import predict\n"
                     "  predict(src, model_paths=[centroid_dir, seg_dir])"
                 )
-            if "bbox_centernet" in _types or "bbox_ssd" in _types:
+            if set(BBOX_MODEL_TYPES) & set(_types):
                 # Box detectors emit `sio.PredictedBoundingBox`es, and a detector-
                 # seeded top-down pipeline exists only in the new flow.
                 raise ValueError(

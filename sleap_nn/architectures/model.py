@@ -38,6 +38,7 @@ from sleap_nn.architectures.unet import UNet
 from sleap_nn.architectures.convnext import ConvNextWrapper
 from sleap_nn.architectures.swint import SwinTWrapper
 from sleap_nn.architectures.pretrained import PretrainedBackbone
+from sleap_nn.architectures.detr import build_bbox_detr_head, build_detr_backbone
 import torchvision.transforms.v2.functional as F
 from sleap_nn.config.model_config import DEFAULT_BBOX_CATEGORY, ssd_level_strides
 
@@ -105,6 +106,7 @@ def get_head(model_type: str, head_config: DictConfig) -> Head:
             - 'embedding'
             - 'bbox_centernet'
             - 'bbox_ssd'
+            ('bbox_detr' has no `Head`; `Model` builds its detector directly.)
         head_config (DictConfig): A config for the head.
 
     Returns:
@@ -237,6 +239,11 @@ class Model(nn.Module):
         backbone_config: An `DictConfig` configuration dictionary for the model backbone.
         head_configs: An `DictConfig` configuration dictionary for the model heads.
         model_type: Type of the model. One of `single_instance`, `centered_instance`, `centroid`, `bottomup`, `multi_class_bottomup`, `multi_class_topdown`.
+
+    A `bbox_detr` model has no `Head`s: its backbone is a DETR backbone
+    (`sleap_nn.architectures.detr.build_detr_backbone`, returning tapped token maps)
+    and everything after it is `self.detr` (a `BBoxDetrHead`), whose output dict
+    (`pred_logits`, `pred_boxes`, `aux_outputs`, `enc_outputs`) `forward` returns.
     """
 
     def __init__(
@@ -251,6 +258,17 @@ class Model(nn.Module):
         self.backbone_type = backbone_type
         self.backbone_config = backbone_config
         self.head_configs = head_configs
+        self.model_type = model_type
+
+        if model_type == "bbox_detr":
+            self.heads = []
+            self.head_layers = nn.ModuleList([])
+            self.backbone = build_detr_backbone(backbone_type, backbone_config)
+            self.detr = build_bbox_detr_head(
+                head_configs.detr,
+                in_channels=self.backbone.out_channels * self.backbone.num_taps,
+            )
+            return
 
         self.heads = get_head(model_type, self.head_configs)
         for head in self.heads:
@@ -371,7 +389,10 @@ class Model(nn.Module):
                 x = F.rgb_to_grayscale(x, num_output_channels=1)
 
         backbone_outputs = self.backbone(x)
-        outputs = self.forward_heads(backbone_outputs)
+        if self.model_type == "bbox_detr":
+            outputs = self.detr(backbone_outputs)
+        else:
+            outputs = self.forward_heads(backbone_outputs)
         if return_backbone_outputs:
             return outputs, backbone_outputs
         return outputs

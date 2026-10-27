@@ -84,6 +84,46 @@ def resize_image(image: torch.Tensor, scale: float):
     return image
 
 
+def compute_squash_scale(
+    img_hw: Tuple[int, int], out_hw: Tuple[int, int]
+) -> Tuple[float, float]:
+    """Per-axis ``(x, y)`` scale of a squash resize from ``img_hw`` to ``out_hw``.
+
+    Args:
+        img_hw: The frame's ``(height, width)``.
+        out_hw: The target ``(height, width)``.
+
+    Returns:
+        ``(out_width / width, out_height / height)``.
+    """
+    return out_hw[1] / img_hw[1], out_hw[0] / img_hw[0]
+
+
+def apply_squash_resize(
+    image: torch.Tensor, height: int, width: int
+) -> Tuple[torch.Tensor, Tuple[float, float]]:
+    """Resize an image to exactly ``(height, width)``, ignoring its aspect ratio.
+
+    This is RF-DETR's square resize ("squash"), the alternative to the size
+    matcher's scale-and-pad ("letterbox"). Coordinates map to the resized image by
+    multiplying ``x`` and ``y`` by the returned scales, and back by dividing
+    (``sleap_nn.inference.ops.coord.undo_eff_scale`` with a ``(B, 2)`` scale).
+
+    Args:
+        image: Image tensor of shape ``(..., channels, height, width)``.
+        height: Output height.
+        width: Output width.
+
+    Returns:
+        ``(resized image, (scale_x, scale_y))``.
+    """
+    img_hw = tuple(image.shape[-2:])
+    scale_xy = compute_squash_scale(img_hw, (height, width))
+    if img_hw != (height, width):
+        image = tvf.resize(image, size=[int(height), int(width)])
+    return image, scale_xy
+
+
 def apply_resizer(image: torch.Tensor, instances: torch.Tensor, scale: float = 1.0):
     """Rescale image and keypoints by a scale factor.
 
