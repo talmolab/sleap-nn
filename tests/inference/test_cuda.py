@@ -378,3 +378,138 @@ def test_torch_backend_cuda_does_not_block_default_use_compile_false():
     # Forward still works.
     out = backend(torch.zeros(1, 1, 8, 8))
     assert out["output"].shape == (1, 4, 8, 8)
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# 6. Top-down crops on the stage-2 GPU (CPU frames, CUDA model)
+# ─────────────────────────────────────────────────────────────────────────
+
+ASSETS = Path(__file__).resolve().parents[1] / "assets"
+CENTROID_CKPT = ASSETS / "model_ckpts" / "minimal_instance_centroid"
+CENTERED_CKPT = ASSETS / "model_ckpts" / "minimal_instance_centered_instance"
+
+
+def _stub_topdown(device: str, bbox_crop, record: dict):
+    """A ``TopDownLayer`` whose stages are stubs, stage 2 on ``device``.
+
+    Stage 1 reports two centroids (one overhanging the frame edge) and their boxes
+    on the CPU, like GT / given boxes. Stage 2 records the crops it is handed.
+    """
+    from sleap_nn.inference.layers.backends import TorchBackend
+    from sleap_nn.inference.layers.centered_instance import CenteredInstanceLayer
+    from sleap_nn.inference.layers.centroid import CentroidLayer
+    from sleap_nn.inference.layers.configs import PreprocessConfig
+    from sleap_nn.inference.layers.topdown import TopDownLayer
+    from sleap_nn.inference.outputs import Outputs
+
+    centroid_layer = CentroidLayer.__new__(CentroidLayer)
+    centroid_layer.use_gt_centroids = False
+    centroid_layer.preprocess_config = PreprocessConfig()
+    centroid_layer._to_4d_tensor = staticmethod(CentroidLayer._to_4d_tensor)
+    boxes = torch.tensor([[[10.0, 12.0, 40.0, 50.0], [-6.0, 30.0, 20.5, 70.25]]])
+
+    def fake_centroids(image, instances=None):
+        return Outputs(
+            pred_centroids=(boxes[..., :2] + boxes[..., 2:]) / 2,
+            pred_centroid_values=torch.tensor([[0.9, 0.8]]),
+            pred_bboxes=boxes,
+            pred_bbox_scores=torch.tensor([[0.9, 0.8]]),
+            pred_bbox_classes=torch.zeros(1, 2, dtype=torch.long),
+        )
+
+    centroid_layer.predict = fake_centroids
+
+    inst_layer = CenteredInstanceLayer.__new__(CenteredInstanceLayer)
+    inst_layer.use_gt_peaks = False
+    inst_layer.backend = TorchBackend(model=nn.Identity(), device=device)
+    inst_layer.preprocess_config = PreprocessConfig()
+
+    def fake_peaks(crops):
+        record["crops"] = crops
+        n = crops.shape[0]
+        # One "peak" per crop at its mean intensity, so outputs depend on pixels.
+        mean = crops.float().mean(dim=(1, 2, 3)).to(device)
+        return Outputs(
+            pred_keypoints=mean.view(n, 1, 1, 1).expand(n, 1, 1, 2).contiguous(),
+            pred_peak_values=torch.ones(n, 1, 1, device=device),
+        )
+
+    inst_layer.predict = fake_peaks
+    return TopDownLayer(
+        centroid_layer=centroid_layer,
+        centered_instance_layer=inst_layer,
+        crop_size=(24, 24),
+        bbox_crop=bbox_crop,
+    )
+
+
+@pytest.mark.parametrize("crop_mode", ["fixed", "bbox"])
+def test_topdown_crops_cpu_frames_on_the_model_gpu(crop_mode):
+    """CPU frames are cropped on stage 2's GPU, with the CPU crops and outputs.
+
+    Fixed windows are a gather: bit-identical. Box-scaled windows are bilinear
+    (``grid_sample``), whose CUDA kernel rounds a rare pixel to the other grey
+    level once the crop is quantized back to ``uint8``.
+    """
+    from sleap_nn.data.instance_cropping import BBoxCropSpec
+
+    bbox_crop = BBoxCropSpec(aspect="letterbox") if crop_mode == "bbox" else None
+    rng = np.random.default_rng(0)
+    frames = rng.integers(0, 255, size=(1, 3, 64, 48), dtype=np.uint8)
+
+    cpu_record: dict = {}
+    cpu_out = _stub_topdown("cpu", bbox_crop, cpu_record).predict(frames)
+    cuda_record: dict = {}
+    cuda_out = _stub_topdown("cuda", bbox_crop, cuda_record).predict(frames)
+
+    assert cpu_record["crops"].device.type == "cpu"
+    assert cuda_record["crops"].device.type == "cuda"
+    assert cuda_record["crops"].dtype == torch.uint8
+    crop_diff = (cuda_record["crops"].cpu().int() - cpu_record["crops"].int()).abs()
+    if crop_mode == "fixed":
+        assert crop_diff.max() == 0
+    else:
+        assert crop_diff.max() <= 1 and (crop_diff > 0).float().mean() < 0.01
+    atol = ATOL_CPU_GPU if crop_mode == "fixed" else 0.01
+    for field in ("pred_keypoints", "instance_bboxes", "pred_centroids"):
+        torch.testing.assert_close(
+            getattr(cuda_out, field).cpu(),
+            getattr(cpu_out, field),
+            atol=atol,
+            rtol=RTOL_CPU_GPU,
+            equal_nan=True,
+        )
+
+
+@pytest.mark.skipif(
+    not CENTROID_CKPT.exists() or not CENTERED_CKPT.exists(),
+    reason="top-down checkpoints not present",
+)
+def test_topdown_predictor_cuda_matches_cpu(minimal_instance):
+    """A centroid + centered-instance pair on CUDA predicts what it does on CPU."""
+    import sleap_io as sio
+
+    from sleap_nn.inference.predictor import Predictor
+
+    labels = sio.load_slp(minimal_instance)
+
+    def _keypoints(device: str) -> np.ndarray:
+        predictor = Predictor.from_model_paths(
+            [str(CENTROID_CKPT), str(CENTERED_CKPT)],
+            device=device,
+            peak_threshold=0.1,
+            max_instances=6,
+        )
+        if device == "cuda":
+            assert predictor.layer._crop_device() == torch.device("cuda")
+        pred = predictor.predict(labels, make_labels=True)
+        return np.stack(
+            [inst.numpy() for lf in pred.labeled_frames for inst in lf.instances]
+        )
+
+    cpu_kpts = _keypoints("cpu")
+    cuda_kpts = _keypoints("cuda")
+    assert cpu_kpts.shape == cuda_kpts.shape and len(cpu_kpts) > 0
+    # Fixed crops are bit-identical across devices; what is left is the models'
+    # CUDA-vs-CPU forward (the single-instance parity test's 0.01 px budget).
+    np.testing.assert_allclose(cuda_kpts, cpu_kpts, atol=0.01, equal_nan=True)

@@ -9,7 +9,6 @@ import json
 import pytest
 import torch
 from omegaconf import OmegaConf
-from safetensors.torch import save_file
 
 from sleap_nn.architectures.detr import DETR_BACKBONES, WindowedDinov2Backbone
 from sleap_nn.architectures.detr.dinov2_windowed import (
@@ -133,6 +132,7 @@ def test_flexivit_resample_preserves_patch_responses():
 
 def _fake_dinov2_dir(tmp_path, hidden=16, layers=4, heads=2, registers=False):
     """A local HF ``Dinov2Model`` checkpoint (patch 14, 37x37 position grid)."""
+    save_file = pytest.importorskip("safetensors.torch").save_file
     ref = WindowedDinov2Backbone(
         hidden_size=hidden,
         num_layers=layers,

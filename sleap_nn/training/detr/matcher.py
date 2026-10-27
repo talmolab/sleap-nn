@@ -74,11 +74,10 @@ def sanitize_cost_matrix(cost: torch.Tensor, valid: torch.Tensor) -> torch.Tenso
     if finite_valid.numel() == 0:
         sentinel = cost.new_tensor(dtype_max)
     else:
+        # The clamp also maps an overflow to inf back to the largest finite value.
         sentinel = (
             finite_valid.max() + finite_valid.abs().max() + _SENTINEL_MARGIN
         ).clamp(max=dtype_max)
-        if not torch.isfinite(sentinel):
-            sentinel = cost.new_tensor(dtype_max)
     return torch.where(finite, cost, sentinel)
 
 

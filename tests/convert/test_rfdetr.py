@@ -9,6 +9,9 @@ outputs. Importing it and running the sleap-nn model must reproduce every output
 
 ``test_import_real_small_matches_hf`` downloads ``Roboflow/rf-detr-small``; it
 runs only with ``SLEAP_NN_TEST_HF_WEIGHTS=1``.
+
+Reading checkpoints needs ``safetensors`` (the ``backbones`` extra); without it
+only the key-mapping tests run. CI runs the rest in the pretrained-backbones job.
 """
 
 import json
@@ -58,6 +61,7 @@ def _load_model(model_dir: Path) -> Model:
 
 @pytest.fixture(scope="module")
 def tiny_import(tmp_path_factory):
+    pytest.importorskip("safetensors")
     out = tmp_path_factory.mktemp("rfdetr") / "tiny"
     import_rfdetr(TINY, out)
     return out
@@ -218,6 +222,7 @@ def test_unsupported_configs_are_refused():
 
 
 def test_cli_import(tmp_path):
+    pytest.importorskip("safetensors")
     from sleap_nn.cli import cli
 
     out = tmp_path / "cli"
@@ -276,6 +281,7 @@ requires_hf_weights = pytest.mark.skipif(
 @requires_hf_weights
 def test_import_real_small_matches_hf(tmp_path):
     """The real RF-DETR-S matches HF's float64 outputs (first queries)."""
+    pytest.importorskip("safetensors")
     ref = torch.load(ASSETS / "rfdetr_small_reference.pt", weights_only=False)
     out_dir = import_rfdetr("small", tmp_path / "small")
     model = _load_model(out_dir).eval().double()

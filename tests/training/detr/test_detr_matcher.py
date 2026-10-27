@@ -173,6 +173,10 @@ def test_sanitize_cost_matrix():
         torch.full((2, 2), float("nan")), torch.ones(2, 2).bool()
     )
     assert torch.isfinite(all_bad).all()
+    # A sentinel that would overflow is clamped to the largest finite value.
+    huge = torch.tensor([[3e38, float("inf")]])
+    out = sanitize_cost_matrix(huge, torch.ones_like(huge, dtype=torch.bool))
+    assert out[0, 1] == torch.finfo(torch.float32).max
 
 
 def test_focal_classification_cost_values():
@@ -188,6 +192,8 @@ def test_rejects_bad_groups_and_weights():
     outputs, targets = _random_case([1], num_queries=5)
     with pytest.raises(ValueError, match="divisible"):
         HungarianMatcher()(outputs, targets, group_detr=2)
+    with pytest.raises(ValueError, match="2 targets for a batch of 1"):
+        HungarianMatcher()(outputs, targets * 2)
     with pytest.raises(ValueError, match="non-zero"):
         HungarianMatcher(cost_class=0, cost_bbox=0, cost_giou=0)
 

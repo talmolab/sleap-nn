@@ -198,3 +198,34 @@ def test_infer_n_nodes_reads_the_head_not_the_backbone():
     layer = TopDownLayer.__new__(TopDownLayer)
     layer.centered_instance_layer = inst_layer
     assert layer._infer_n_nodes() == 17
+
+
+def test_crop_device_only_for_a_cuda_torch_stage_2():
+    """Frames move to the stage-2 GPU for cropping only when nothing changes.
+
+    A CUDA ``TorchBackend`` with no crop resampling crops on the GPU; CPU / MPS /
+    exported backends, and a stage 2 that resizes its crops (a GPU ``uint8``
+    resize rounds differently), keep cropping where the frame is.
+    """
+
+    class _ExportedBackend:  # e.g. ONNX / TensorRT: not a TorchBackend
+        device = "cuda"
+
+    def _layer(device, backend_cls=TorchBackend, **preprocess):
+        backend = object.__new__(backend_cls)  # no model / device needed
+        if backend_cls is TorchBackend:
+            backend.device = device
+        inst_layer = CenteredInstanceLayer.__new__(CenteredInstanceLayer)
+        inst_layer.backend = backend
+        inst_layer.preprocess_config = PreprocessConfig(**preprocess)
+        layer = TopDownLayer.__new__(TopDownLayer)
+        layer.centered_instance_layer = inst_layer
+        return layer
+
+    assert _layer("cuda")._crop_device() == torch.device("cuda")
+    assert _layer("cuda:1")._crop_device() == torch.device("cuda:1")
+    assert _layer("cpu")._crop_device() is None
+    assert _layer("mps")._crop_device() is None
+    assert _layer("cuda", scale=0.5)._crop_device() is None
+    assert _layer("cuda", max_height=256)._crop_device() is None
+    assert _layer("cuda", backend_cls=_ExportedBackend)._crop_device() is None

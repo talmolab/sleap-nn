@@ -57,13 +57,13 @@ jobs:
         run: uv run --frozen --no-group gpu --extra torch-cpu ruff check sleap_nn/
 
   tests:
-    # Windows is the slowest job at ~11-13 min (slow VMs + torch-on-Windows);
-    # ubuntu ~4 min, mac ~7 min. 20 gives comfortable headroom for load
-    # variance while still catching genuine hangs. (The mac job used to blow
-    # past 45 min because MPS compute intermittently hangs / OOMs on the
-    # virtualized macos-14 runner; that is now neutralized by
+    # As of Oct 2026: mac ~19-21 min and Windows ~14-21 min are the slowest
+    # jobs (slow VMs + torch-on-Windows); ubuntu ~10-13 min. 35 gives headroom
+    # for load variance while still catching genuine hangs. (The mac job used
+    # to blow past 45 min because MPS compute intermittently hangs / OOMs on
+    # the virtualized macos-14 runner; that is now neutralized by
     # SLEAP_NN_DISABLE_MPS below.)
-    timeout-minutes: 20
+    timeout-minutes: 35
     env:
       CUDA_VISIBLE_DEVICES: ""
       USE_CUDA: "0"
@@ -116,7 +116,7 @@ jobs:
       - name: Install graphics dependencies (Ubuntu)
         if: matrix.os == 'ubuntu'
         run: |
-          sudo apt-get update && sudo apt-get install -y libglapi-mesa libegl-mesa0 libegl1 libopengl0 libgl1 libglx-mesa0
+          sudo apt-get update && sudo apt-get install -y libegl-mesa0 libegl1 libopengl0 libgl1 libglx-mesa0
 
       - name: Print environment info
         run: |
@@ -229,7 +229,7 @@ jobs:
         # stack, whose video/rendering deps need libEGL (the other test jobs
         # install the same packages).
         run: |
-          sudo apt-get update && sudo apt-get install -y libglapi-mesa libegl-mesa0 libegl1 libopengl0 libgl1 libglx-mesa0
+          sudo apt-get update && sudo apt-get install -y libegl-mesa0 libegl1 libopengl0 libgl1 libglx-mesa0
 
       - name: Cache HuggingFace configs
         uses: actions/cache@v4
@@ -248,14 +248,16 @@ jobs:
         # coverage — the failure mode this job exists to close.
         run: |
           uv run --frozen --no-group gpu --extra torch-cpu --extra backbones python -c "
-          import transformers
+          import safetensors, transformers
           print('transformers', transformers.__version__)
           "
 
       - name: Run pretrained backbone tests
         run: |
           uv run --frozen --no-group gpu --extra torch-cpu --extra backbones \
-            pytest tests/architectures/test_pretrained.py -v --durations=10 \
+            pytest tests/architectures/test_pretrained.py \
+              tests/architectures/detr/test_dinov2_windowed.py \
+              tests/convert/test_rfdetr.py -v --durations=10 \
               --cov=sleap_nn --cov-report=xml
 
       - name: Upload coverage
@@ -305,7 +307,7 @@ jobs:
 
       - name: Install graphics dependencies
         run: |
-          sudo apt-get update && sudo apt-get install -y libglapi-mesa libegl-mesa0 libegl1 libopengl0 libgl1 libglx-mesa0
+          sudo apt-get update && sudo apt-get install -y libegl-mesa0 libegl1 libopengl0 libgl1 libglx-mesa0
 
       - name: Assert onnx and onnxruntime are importable
         # Without this the suite would silently skip back to zero ONNX coverage --
