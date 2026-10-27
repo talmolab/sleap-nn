@@ -353,7 +353,12 @@ def test_bbox_detr_train_predict_eval(config, minimal_instance, tmp_path):
 # --------------------------------------------------------------------------- #
 @pytest.fixture(scope="module")
 def tiny_import(tmp_path_factory):
-    """The tiny HF RF-DETR fixture imported as a sleap-nn model directory."""
+    """The tiny HF RF-DETR fixture imported as a sleap-nn model directory.
+
+    Reading the checkpoint needs ``safetensors`` (the ``backbones`` extra); CI runs
+    these tests in the pretrained-backbones job.
+    """
+    pytest.importorskip("safetensors")
     from sleap_nn.convert.rfdetr import import_rfdetr
 
     out = tmp_path_factory.mktemp("rfdetr") / "tiny"
