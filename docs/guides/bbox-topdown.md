@@ -114,6 +114,14 @@ crop. Keypoints are mapped into and out of the crop by the same affine transform
 frame is size-matched to the centered-instance model's own `max_height`/`max_width`
 before cropping.
 
+When the centered-instance model runs on a CUDA GPU (and does not resize its crops,
+i.e. `scale: 1.0` and no `max_height`/`max_width`), the size-matched frame is moved to
+that GPU before cropping, so crops are cut there instead of on the CPU (57x faster
+cropping, ~1.9x faster box-seeded top-down inference on COCO val). Fixed-window crops
+are bit-identical either way. Box-scaled crops come from CUDA's `grid_sample`, which
+rounds a rare pixel (~0.1%) to the neighboring gray level, so keypoints can move by
+hundredths of a pixel (COCO AP unchanged).
+
 ## Evaluation
 
 - `sleap-nn eval` scores the pose predictions as for any top-down model.
