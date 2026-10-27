@@ -2,9 +2,12 @@
 
 import itertools
 
+import numpy as np
 import pytest
 import torch
+from scipy.optimize import linear_sum_assignment
 
+from sleap_nn.training.detr.criterion import SetCriterion
 from sleap_nn.training.detr.matcher import (
     HungarianMatcher,
     focal_classification_cost,
@@ -69,6 +72,29 @@ def test_batched_cost_matches_per_image_cost():
         torch.testing.assert_close(
             cost[i, :, :n], _brute_force_cost(matcher, outputs, targets, i)
         )
+
+
+@pytest.mark.parametrize("make_case", ["random", "tied"])
+def test_compact_cost_equals_padded_cost_exactly(make_case):
+    """The unpadded per-target cost has the padded cost's values, bit for bit."""
+    matcher = HungarianMatcher()
+    case = _random_case if make_case == "random" else _tied_case
+    outputs, targets = case([2, 0, 5, 1], num_queries=7, seed=4)
+    cost, _ = matcher.cost_matrix(outputs, targets)
+    image_idx = torch.cat(
+        [torch.full((len(t["labels"]),), i) for i, t in enumerate(targets)]
+    )
+    compact = matcher._compact_cost(
+        outputs,
+        image_idx,
+        torch.cat([t["labels"] for t in targets]),
+        torch.cat([t["boxes"] for t in targets]),
+    )
+    row = 0
+    for i, t in enumerate(targets):
+        n = len(t["labels"])
+        assert torch.equal(compact[row : row + n], cost[i, :, :n].T)
+        row += n
 
 
 def test_matching_is_optimal():
@@ -204,3 +230,135 @@ def test_no_grad():
     outputs["pred_logits"].requires_grad_(True)
     rows, _ = HungarianMatcher()(outputs, targets)[0]
     assert not rows.requires_grad
+
+
+def _reference_match(matcher, outputs, targets, group_detr=1):
+    """The original one-layer path: scipy on the padded host cost, per image/group."""
+    cost, valid = matcher.cost_matrix(outputs, targets)
+    if not torch.isfinite(cost.masked_select(valid)).all():
+        cost = sanitize_cost_matrix(cost, valid)
+    cost = cost.cpu().numpy()
+    group_size = cost.shape[1] // group_detr
+    indices = []
+    for i, t in enumerate(targets):
+        n = len(t["labels"])
+        query_idx, target_idx = [np.zeros(0, np.int64)], [np.zeros(0, np.int64)]
+        for g in range(group_detr if n else 0):
+            start = g * group_size
+            rows, cols = linear_sum_assignment(cost[i, start : start + group_size, :n])
+            query_idx.append(rows + start)
+            target_idx.append(cols)
+        indices.append(
+            (
+                torch.as_tensor(np.concatenate(query_idx), dtype=torch.int64),
+                torch.as_tensor(np.concatenate(target_idx), dtype=torch.int64),
+            )
+        )
+    return indices
+
+
+def _assert_same_matches(actual, expected):
+    assert len(actual) == len(expected)
+    for (rows, cols), (ref_rows, ref_cols) in zip(actual, expected):
+        assert rows.dtype == cols.dtype == torch.int64
+        assert torch.equal(rows, ref_rows)
+        assert torch.equal(cols, ref_cols)
+
+
+def _tied_case(sizes, num_queries, seed=0):
+    """Predictions and targets drawn from a few values, so costs have many ties."""
+    outputs, targets = _random_case(sizes, num_queries, seed=seed)
+    g = torch.Generator().manual_seed(seed + 100)
+    levels = torch.tensor([0.2, 0.4, 0.6])
+    pick = lambda *shape: levels[torch.randint(0, 3, shape, generator=g)]  # noqa: E731
+    outputs["pred_boxes"] = pick(len(sizes), num_queries, 4)
+    outputs["pred_logits"] = torch.randint(
+        -1, 2, outputs["pred_logits"].shape, generator=g
+    ).float()
+    for t in targets:
+        t["boxes"] = pick(len(t["labels"]), 4)
+        t["labels"] = torch.zeros_like(t["labels"])
+    return outputs, targets
+
+
+@pytest.mark.parametrize("seed", range(6))
+@pytest.mark.parametrize("make_case", [_random_case, _tied_case])
+def test_match_layers_equals_reference_per_layer(seed, make_case):
+    """Batched multi-layer matching gives exactly the original per-layer matches.
+
+    Covers padded targets (mixed sizes, empty images, more targets than a group's
+    queries), query groups, ties, and layers with equal and different query counts.
+    """
+    matcher = HungarianMatcher()
+    sizes = [[0, 3, 7, 1], [5, 0], [2, 2, 2], [9, 1, 0, 4]][seed % 4]
+    groups = [1, 3, 2][seed % 3]
+    layers, targets = [], None
+    # Equal query counts take the stacked cost pass, unequal ones the per-layer one.
+    query_counts = [6, 6, 6] if seed % 2 else [6, 6, 4]
+    for layer_seed, num_queries in enumerate(q * groups for q in query_counts):
+        outputs, layer_targets = make_case(sizes, num_queries, seed=seed)
+        if targets is None:
+            targets = layer_targets
+        layers.append(
+            {
+                k: v + 0.01 * layer_seed * (k == "pred_logits")
+                for k, v in outputs.items()
+            }
+        )
+    all_indices = matcher.match_layers(layers, targets, group_detr=groups)
+    assert len(all_indices) == len(layers)
+    for layer, indices in zip(layers, all_indices):
+        expected = _reference_match(matcher, layer, targets, groups)
+        _assert_same_matches(indices, expected)
+        _assert_same_matches(matcher(layer, targets, group_detr=groups), expected)
+
+
+def test_match_layers_sanitizes_each_layer_on_its_own():
+    """A non-finite layer is sanitized with its own statistics, not the others'."""
+    matcher = HungarianMatcher()
+    clean, targets = _random_case([3, 2], num_queries=8, seed=1)
+    bad = {k: v.clone() for k, v in clean.items()}
+    bad["pred_boxes"][0, :3] = float("nan")
+    bad["pred_logits"][1, 5] = float("inf")
+    for layers in ([clean, bad], [bad, clean]):
+        all_indices = matcher.match_layers(layers, targets, group_detr=2)
+        for layer, indices in zip(layers, all_indices):
+            _assert_same_matches(
+                indices, _reference_match(matcher, layer, targets, group_detr=2)
+            )
+
+
+def test_match_layers_empty_and_validation():
+    """All-empty targets and no layers short-circuit; bad layers still raise."""
+    matcher = HungarianMatcher()
+    outputs, targets = _random_case([0, 0], num_queries=4)
+    out = matcher.match_layers([outputs, outputs], targets)
+    assert [[r.numel() for r, _ in layer] for layer in out] == [[0, 0], [0, 0]]
+    assert matcher.match_layers([], targets) == []
+    good, targets = _random_case([1], num_queries=4)
+    bad, _ = _random_case([1], num_queries=5)
+    with pytest.raises(ValueError, match="divisible"):
+        matcher.match_layers([good, bad], targets, group_detr=2)
+
+
+def test_criterion_matches_every_layer_with_the_reference():
+    """SetCriterion's losses equal those from per-layer reference matching."""
+    num_queries, groups = 12, 3
+    outputs, targets = _random_case([2, 0, 4], num_queries=num_queries, seed=7)
+    for k in ("aux_outputs", "enc_outputs"):
+        outputs.pop(k, None)
+    aux = [_random_case([2, 0, 4], num_queries, seed=s)[0] for s in (8, 9)]
+    enc = _random_case([2, 0, 4], num_queries, seed=10)[0]
+    full = {**outputs, "aux_outputs": aux, "enc_outputs": enc}
+    criterion = SetCriterion(num_classes=2, group_detr=groups).train()
+    losses = criterion(full, targets)
+
+    class Reference(HungarianMatcher):
+        def match_layers(self, layers, targets, group_detr=1):
+            return [_reference_match(self, l, targets, group_detr) for l in layers]
+
+    reference = SetCriterion(num_classes=2, matcher=Reference(), group_detr=groups)
+    expected = reference.train()(full, targets)
+    assert losses.keys() == expected.keys()
+    for key in losses:
+        assert torch.equal(losses[key], expected[key]), key
