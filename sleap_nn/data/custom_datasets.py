@@ -10,6 +10,7 @@ import functools
 import math
 import os
 import threading
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from copy import deepcopy
 from itertools import cycle
@@ -5606,6 +5607,8 @@ class BBoxDataset(BaseDataset):
             cache_workers=cache_workers,
             use_negative_frames=use_negative_frames,
         )
+        #: Number of training files (the groups of ``trainer_config.balanced_sampler``).
+        self.num_files = len(labels)
         # A box's corners are not skeleton nodes: a horizontal flip mirrors them and
         # re-boxing takes their extent, so no index swap is needed (or wanted).
         self.symmetric_inds = []
@@ -5622,9 +5625,10 @@ class BBoxDataset(BaseDataset):
         """
         lf_idx_list = []
         max_boxes = 0
+        skipped = Counter()
         for labels_idx, label in enumerate(labels):
             for lf_idx, lf in enumerate(label):
-                xyxy, classes = frame_bbox_arrays(lf, self.categories)
+                xyxy, classes = frame_bbox_arrays(lf, self.categories, skipped)
                 if xyxy.shape[0] == 0:
                     continue
                 max_boxes = max(max_boxes, xyxy.shape[0])
@@ -5640,6 +5644,11 @@ class BBoxDataset(BaseDataset):
                         "bbox_classes": classes,
                     }
                 )
+        if skipped:
+            logger.info(
+                f"Boxes of categories outside {self.categories} are not ground "
+                f"truth; skipped: {dict(skipped.most_common())}."
+            )
         if self.use_negative_frames and lf_idx_list:
             neg_samples = self._collect_negative_frames(labels)
             for neg in neg_samples:
@@ -5674,13 +5683,32 @@ class BBoxDataset(BaseDataset):
             img = np.expand_dims(img, axis=2)
         return img
 
+    @property
+    def labels_idx(self) -> np.ndarray:
+        """The training file of every sample."""
+        return np.asarray([s["labels_idx"] for s in self.lf_idx_list], dtype=np.int64)
+
+    def _read_frame(
+        self, sample: Dict
+    ) -> Tuple[np.ndarray, Optional[Tuple[float, float]]]:
+        """The sample's frame and, if it was decoded smaller, its ``(sx, sy)`` scale.
+
+        The base dataset always decodes at full size (scale ``None``).
+        """
+        return self._read_image(sample), None
+
     def __getitem__(self, index) -> Dict:
         """Return the image, padded GT boxes and detection targets for ``index``."""
         sample = self.lf_idx_list[index]
-        img = self._read_image(sample)
+        img, decode_scale = self._read_frame(sample)
         image = torch.from_numpy(np.transpose(img, (2, 0, 1))[None].copy())
+        orig_hw = [image.shape[-2], image.shape[-1]]
 
         xyxy = sample["bboxes"]
+        if decode_scale is not None:
+            sx, sy = decode_scale
+            xyxy = xyxy * np.asarray([sx, sy, sx, sy], dtype=np.float32)
+            orig_hw = [round(orig_hw[0] / sy), round(orig_hw[1] / sx)]
         classes = torch.from_numpy(sample["bbox_classes"]).long()
         n_boxes = xyxy.shape[0]
         # Boxes ride the instance-coordinate path of the shared preprocessing /
@@ -5695,9 +5723,14 @@ class BBoxDataset(BaseDataset):
             "instances": corners,
             "video_idx": torch.tensor(sample["video_idx"], dtype=torch.int32),
             "frame_idx": torch.tensor(sample["frame_idx"], dtype=torch.int32),
-            "orig_size": torch.Tensor([image.shape[-2], image.shape[-1]]).unsqueeze(0),
+            "orig_size": torch.Tensor(orig_hw).unsqueeze(0),
         }
         sample_dict = self._apply_common_preprocessing(sample_dict)
+        if decode_scale is not None and "eff_scale" in sample_dict:
+            # Relative to the original frame, not the smaller decode.
+            sample_dict["eff_scale"] = sample_dict["eff_scale"] * torch.tensor(
+                decode_scale, dtype=torch.float32
+            )
         img_hw = tuple(sample_dict["image"].shape[-2:])
 
         corners = sample_dict.pop("instances")[0, :n_boxes]
@@ -5737,14 +5770,23 @@ class DetrBBoxDataset(BBoxDataset):
     box with a positive area). Targets come from the
     :class:`~sleap_nn.data.bboxes.SetTargetEncoder`.
 
+    Every step of that chain starts by shrinking the frame, so a JPEG much larger
+    than the training size (CrowdHuman photos up to 10,800 px, JRDB-Pose
+    panoramas) is decoded at 1/2, 1/4 or 1/8 scale in the DCT domain (PIL
+    ``draft``) whenever that is still at least as large as the frame's next resize
+    target (:meth:`min_decode_scale`); the boxes are scaled to match. Other frames
+    are read through sleap-io as usual.
+
     Attributes:
         resize_mode: ``"squash"`` or ``"letterbox"``.
         train_hw: ``(height, width)`` frames are fitted to.
         detr_aug: The ``augmentation_config.detr`` options (``None``: none).
+        reduced_decode: Decode large JPEGs at reduced size (see above).
     """
 
     _min_box_size = 0.0
     _edge_coords = True
+    reduced_decode = True
 
     def __init__(
         self,
@@ -5772,6 +5814,52 @@ class DetrBBoxDataset(BBoxDataset):
         self.resize_mode = resize_mode
         self.train_hw = (int(train_hw[0]), int(train_hw[1]))
         self.detr_aug = detr_aug
+
+    def min_decode_scale(self, height: int, width: int) -> float:
+        """Smallest scale of a ``height x width`` frame that no later step enlarges.
+
+        The fit to ``train_hw`` (letterbox: the limiting axis; squash: both axes)
+        and, in training with RF-DETR's crop branch on, the resize of the shortest
+        side to the largest of ``shortest_sides``.
+        """
+        out_h, out_w = self.train_hw
+        if self.resize_mode == "squash":
+            scale = max(out_h / height, out_w / width)
+        else:
+            scale = min(out_h / height, out_w / width)
+        aug = self.detr_aug
+        if self.apply_aug and aug is not None and float(aug["crop_p"]) > 0:
+            side = max(int(v) for v in aug["shortest_sides"])
+            scale = max(scale, side / min(height, width))
+        return scale
+
+    def _image_path(self, sample: Dict) -> Optional[str]:
+        """The image file of a sample read from an image-list video, else ``None``."""
+        if self.cache_img is not None or self.labels_list is None:
+            return None
+        video = self.labels_list[sample["labels_idx"]].videos[sample["video_idx"]]
+        filename = video.filename
+        if not isinstance(filename, list):
+            return None
+        return str(filename[sample["frame_idx"]])
+
+    def _read_frame(
+        self, sample: Dict
+    ) -> Tuple[np.ndarray, Optional[Tuple[float, float]]]:
+        """The frame, decoded at 1/2, 1/4 or 1/8 size when that loses nothing."""
+        path = self._image_path(sample) if self.reduced_decode else None
+        if path is None or not path.lower().endswith((".jpg", ".jpeg")):
+            return super()._read_frame(sample)
+        with Image.open(path) as im:
+            width, height = im.size
+            scale = self.min_decode_scale(height, width)
+            if im.format != "JPEG" or im.mode not in ("RGB", "L") or scale > 0.5:
+                return super()._read_frame(sample)
+            im.draft(im.mode, (math.ceil(width * scale), math.ceil(height * scale)))
+            img = np.asarray(im)
+        if img.ndim == 2:
+            img = img[..., None]
+        return img, (img.shape[1] / width, img.shape[0] / height)
 
     def _apply_common_preprocessing(self, sample: Dict) -> Dict:
         """Channels, RF-DETR geometry + fit to ``train_hw``, pad, then stock aug."""
@@ -8093,6 +8181,24 @@ def get_train_val_datasets(
     return train_dataset, val_dataset
 
 
+def freeze_heap_worker_init_fn(worker_id: int) -> None:
+    """Exclude a forked dataloader worker's inherited objects from its GC.
+
+    A worker inherits its parent's heap copy-on-write. CPython's cyclic GC
+    writes into every tracked object's header when it scans it, so the first
+    full collection in a worker copies the whole inherited heap (the loaded
+    ``Labels``: ~1.3 KB per box, ~14 GB for Objects365 + Open Images) into that
+    worker. ``gc.freeze()`` moves those objects to the permanent generation,
+    which collections never scan.
+
+    Args:
+        worker_id: The dataloader worker id (unused).
+    """
+    import gc
+
+    gc.freeze()
+
+
 def rank_worker_init_fn(worker_id: int, rank: int = 0) -> None:
     """Seed a DDP rank's train dataloader worker from its own seed and the rank.
 
@@ -8113,6 +8219,7 @@ def rank_worker_init_fn(worker_id: int, rank: int = 0) -> None:
     """
     import random
 
+    freeze_heap_worker_init_fn(worker_id)
     state = np.random.SeedSequence([torch.initial_seed(), int(rank)]).generate_state(
         4, dtype=np.uint32
     )
@@ -8215,8 +8322,14 @@ def get_train_val_dataloaders(
 
     from sleap_nn.data.topdown_warp import WarpCenteredInstanceDataset
 
-    if isinstance(train_dataset, WarpCenteredInstanceDataset):
-        return _get_warp_dataloaders(
+    balanced = (
+        OmegaConf.select(config, "trainer_config.balanced_sampler", default=None)
+        is not None
+    )
+    if isinstance(train_dataset, WarpCenteredInstanceDataset) or (
+        isinstance(train_dataset, BBoxDataset) and balanced
+    ):
+        return _get_balanced_dataloaders(
             train_dataset,
             val_dataset,
             config,
@@ -8377,9 +8490,12 @@ def _get_train_drop_last(
 
 
 def _train_worker_init_fn(config: DictConfig, rank: Optional[int], devices: int):
-    """The train loader's ``worker_init_fn``: rank-seeded under DDP, else None."""
+    """The train loader's ``worker_init_fn``: rank-seeded under DDP.
+
+    Every worker also freezes its inherited heap (:func:`freeze_heap_worker_init_fn`).
+    """
     if devices <= 1:
-        return None
+        return freeze_heap_worker_init_fn
     if config.trainer_config.train_data_loader.num_workers == 0 and (rank or 0) == 0:
         logger.warning(
             "train_data_loader.num_workers=0 with multiple devices: augmentation runs "
@@ -8390,7 +8506,7 @@ def _train_worker_init_fn(config: DictConfig, rank: Optional[int], devices: int)
     return functools.partial(rank_worker_init_fn, rank=rank if rank is not None else 0)
 
 
-def _get_warp_dataloaders(
+def _get_balanced_dataloaders(
     train_dataset,
     val_dataset,
     config: DictConfig,
@@ -8400,7 +8516,9 @@ def _get_warp_dataloaders(
     pin_memory: bool,
     val_pin_memory: bool,
 ):
-    """Loaders for ``crop_pipeline="warp"``.
+    """Loaders for ``crop_pipeline="warp"`` and for mixed bbox training files.
+
+    Bbox datasets come here only with ``trainer_config.balanced_sampler`` set.
 
     Training uses :class:`~sleap_nn.data.topdown_warp.BalancedBatchSampler` in a
     resumable :class:`~sleap_nn.data.topdown_warp.BalancedDataLoader` when
@@ -8431,20 +8549,46 @@ def _get_warp_dataloaders(
     vl_prefetch = _get_prefetch_factor(config, "val_data_loader")
     if bs is not None:
         n_groups = train_dataset.num_files
-        counts = resolve_batch_counts(
-            bs.get("counts"), bs.get("weights"), tl.batch_size, n_groups
-        )
-        if rank == 0:
-            logger.info(
-                f"Balanced batches: {counts} samples per training file per batch."
+        seed = OmegaConf.select(config, "trainer_config.seed", default=0) or 0
+        if bs.get("per_sample", False):
+            weights = bs.get("weights")
+            if weights is None:
+                weights = [1.0] * n_groups
+            if len(weights) != n_groups:
+                raise ValueError(
+                    f"balanced_sampler.weights has {len(weights)} entries for "
+                    f"{n_groups} training files."
+                )
+            if rank == 0:
+                logger.info(
+                    f"Mixed batches: each sample from training file g with "
+                    f"probability {list(weights)} (normalized)."
+                )
+            sampler = BalancedBatchSampler(
+                train_dataset.labels_idx,
+                None,
+                batches_per_epoch=batches,
+                seed=seed,
+                rank=rank,
+                weights=list(weights),
+                batch_size=tl.batch_size,
             )
-        sampler = BalancedBatchSampler(
-            train_dataset.labels_idx,
-            counts,
-            batches_per_epoch=batches,
-            seed=OmegaConf.select(config, "trainer_config.seed", default=0) or 0,
-            rank=rank,
-        )
+        else:
+            counts = resolve_batch_counts(
+                bs.get("counts"), bs.get("weights"), tl.batch_size, n_groups
+            )
+            if rank == 0:
+                logger.info(
+                    f"Balanced batches: {counts} samples per training file per "
+                    "batch."
+                )
+            sampler = BalancedBatchSampler(
+                train_dataset.labels_idx,
+                counts,
+                batches_per_epoch=batches,
+                seed=seed,
+                rank=rank,
+            )
         train_loader = BalancedDataLoader(
             train_dataset,
             batch_sampler=sampler,

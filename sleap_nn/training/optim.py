@@ -58,6 +58,15 @@ def no_weight_decay_names(module: nn.Module) -> Set[str]:
     return names
 
 
+def is_embedding_or_token(name: str) -> bool:
+    """Whether a parameter name is a learned position embedding or special token.
+
+    Args:
+        name: Fully-qualified parameter name.
+    """
+    return bool(_NO_DECAY_NAME_RE.search(name))
+
+
 def is_no_decay(name: str, param: torch.Tensor, extra_names: Set[str] = ()) -> bool:
     """Whether a parameter trains without weight decay.
 
@@ -68,7 +77,7 @@ def is_no_decay(name: str, param: torch.Tensor, extra_names: Set[str] = ()) -> b
     """
     if param.ndim <= 1 or name.endswith(".bias"):
         return True
-    if _NO_DECAY_NAME_RE.search(name):
+    if is_embedding_or_token(name):
         return True
     return any(name == n or name.startswith(n + ".") for n in extra_names)
 

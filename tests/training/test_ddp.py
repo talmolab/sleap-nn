@@ -23,7 +23,11 @@ from omegaconf import OmegaConf
 from PIL import Image
 from torch.utils.data import DataLoader, Dataset, DistributedSampler
 
-from sleap_nn.data.custom_datasets import _train_worker_init_fn, rank_worker_init_fn
+from sleap_nn.data.custom_datasets import (
+    _train_worker_init_fn,
+    freeze_heap_worker_init_fn,
+    rank_worker_init_fn,
+)
 from sleap_nn.training.callbacks import EvalCadenceEarlyStopping, _gather_val_entries
 from sleap_nn.training.model_trainer import ModelTrainer
 
@@ -130,7 +134,9 @@ def test_train_worker_init_fn_only_under_ddp():
     config = OmegaConf.create(
         {"trainer_config": {"train_data_loader": {"num_workers": 2}}}
     )
-    assert _train_worker_init_fn(config, rank=0, devices=1) is None
+    assert (
+        _train_worker_init_fn(config, rank=0, devices=1) is freeze_heap_worker_init_fn
+    )
     fn = _train_worker_init_fn(config, rank=3, devices=4)
     assert fn.func is rank_worker_init_fn and fn.keywords == {"rank": 3}
 

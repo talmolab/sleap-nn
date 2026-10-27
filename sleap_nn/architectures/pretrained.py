@@ -43,6 +43,13 @@ force via ``mode``):
   last token map (by default through the encoder's own pretrained final norm)
   straight to the output stride.
 
+* **Tapped token maps only** (``mode="tokens"``, the ``bbox_detr`` backbone,
+  :class:`sleap_nn.architectures.detr.pretrained_vit.PretrainedDetrBackbone`).
+  The plain-ViT hidden-state path of Case C without the neck or decoder:
+  ``forward`` returns the tapped layers as stride-``token_stride`` maps (prefix
+  tokens dropped), each through the encoder's pretrained final norm, as RF-DETR
+  taps its DINOv2.
+
 Key behaviors baked in here (rather than in the data pipeline, which is uint8 /
 [0, 1] only): model-specific mean/std normalization (read from the matching
 `AutoImageProcessor`, or passed explicitly), grayscale->3ch is handled upstream
@@ -193,9 +200,9 @@ def _resolve_mode(
             ``config``.
 
     Returns:
-        ``"decoder"`` or ``"encoder"``.
+        ``"decoder"``, ``"encoder"`` or ``"tokens"`` (only when asked for).
     """
-    if mode in ("decoder", "encoder"):
+    if mode in ("decoder", "encoder", "tokens"):
         return mode
     if isotropic is None:
         isotropic = _is_isotropic(config)
@@ -361,6 +368,44 @@ def _linearize_drop_path(enc: nn.Module, drop_path_rate: float) -> None:
     )
 
 
+def encoder_param_depths(
+    named: List[Tuple[str, torch.Tensor]],
+    num_layers: int,
+    after_depth: Optional[int] = None,
+) -> List[Tuple[torch.Tensor, int]]:
+    """Layer-decay depth of each parameter of a plain-ViT encoder.
+
+    Block ``i`` (0-indexed in its parameter name: ``layer.i.`` / ``blocks.i.``,
+    HF and timm) is depth ``i + 1``. Parameters registered before the first block
+    (patch/position embeddings, CLS and register tokens, CLIP's pre-norm) are
+    depth 0, and those after the last (final norms, pooling heads) depth
+    ``after_depth``. Registration order is family-agnostic where name heuristics
+    are not.
+
+    Args:
+        named: ``(name, parameter)`` pairs in registration order (e.g. a filtered
+            ``enc.named_parameters()``).
+        num_layers: The encoder's blocks (block depths are capped at it).
+        after_depth: Depth of the parameters after the last block; ``None`` uses
+            ``num_layers + 1``.
+
+    Returns:
+        ``(parameter, depth)`` pairs in the order of ``named``.
+    """
+    after = num_layers + 1 if after_depth is None else int(after_depth)
+    depths = []
+    seen_block = False
+    for name, param in named:
+        match = _BLOCK_RE.search(name)
+        if match:
+            seen_block = True
+            depth = min(int(match.group(1)) + 1, num_layers)
+        else:
+            depth = after if seen_block else 0
+        depths.append((param, depth))
+    return depths
+
+
 def _build_timm_wrapper(
     model_name: str,
     hf_config: Any,
@@ -445,7 +490,8 @@ class PretrainedBackbone(FreezableEncoderMixin, nn.Module):
             config (no network access) — useful for tests/CI and cold-start
             training.
         mode: One of ``"auto"``, ``"decoder"`` (Case A, or Case C for a plain
-            ViT), ``"encoder"`` (Case B). ``"auto"`` picks a decoder for
+            ViT), ``"encoder"`` (Case B), ``"tokens"`` (a plain ViT's tapped token
+            maps only, for ``bbox_detr``). ``"auto"`` picks a decoder for
             hierarchical backbones; for a plain ViT it picks Case C when the model
             has a spatial head (``spatial_heads``) and encoder-only otherwise.
         out_indices: Optional explicit stage indices to tap (Case A). If ``None``,
@@ -474,8 +520,9 @@ class PretrainedBackbone(FreezableEncoderMixin, nn.Module):
         layers: Transformer layers to tap for a plain ViT (Case C), 1-indexed
             (``hidden_states[i]`` is the output of block ``i``; negative indices
             count from the last block). ``None`` taps 4 evenly spaced layers ending
-            at the last one for ``vit_neck="dpt"``, and the last layer for
-            ``"sfp"`` / encoder mode.
+            at the last one for ``vit_neck="dpt"`` and ``mode="tokens"`` (blocks
+            3, 6, 9, 12 of a 12-block ViT), and the last layer for ``"sfp"`` /
+            encoder mode.
         vit_neck: How a plain ViT's single-stride maps become a pyramid (Case C):
             ``"dpt"`` (one tapped layer per level, the default) or ``"sfp"``
             (ViTDet Simple Feature Pyramid from the last tapped layer).
@@ -515,7 +562,8 @@ class PretrainedBackbone(FreezableEncoderMixin, nn.Module):
         vit_final_norm: Normalize a tap of the encoder's last layer with the
             encoder's own (pretrained) final norm instead of a fresh LayerNorm.
             ``None`` turns it on for the direct decoders (as ViTPose does) and
-            off for ``"unet"`` (unchanged behavior).
+            off for ``"unet"`` (unchanged behavior). In ``mode="tokens"`` it
+            applies to EVERY tap (RF-DETR's convention) and defaults to on.
         spatial_heads: Whether the model has a spatial head; decides what
             ``mode="auto"`` means for a plain ViT (see ``_resolve_mode``). Set by
             `Model`, not by the config.
@@ -623,6 +671,13 @@ class PretrainedBackbone(FreezableEncoderMixin, nn.Module):
         self.mode = _resolve_mode(
             hf_config, mode, spatial_heads=spatial_heads, isotropic=isotropic
         )
+        if self.mode == "tokens" and not isotropic:
+            message = (
+                f"mode='tokens' taps a plain ViT's layers; '{model_name}' is a "
+                "hierarchical encoder."
+            )
+            logger.error(message)
+            raise ValueError(message)
 
         # Case C: a plain ViT is read through its hidden states (generic for any
         # HF vision transformer). So is an encoder-only ViT that ships no
@@ -630,7 +685,7 @@ class PretrainedBackbone(FreezableEncoderMixin, nn.Module):
         # (DINOv2) keep the AutoBackbone path below, so existing checkpoints load
         # unchanged.
         self.token_path = isotropic and (
-            self.mode == "decoder"
+            self.mode in ("decoder", "tokens")
             or self.is_timm
             or _backbone_class_or_none(hf_config) is None
         )
@@ -640,11 +695,22 @@ class PretrainedBackbone(FreezableEncoderMixin, nn.Module):
         # Unset: the pretrained final norm for the direct decoders (as ViTPose),
         # a fresh tap LayerNorm otherwise (unchanged behavior).
         self.vit_final_norm = (
-            self.direct_decoder if vit_final_norm is None else bool(vit_final_norm)
+            (self.direct_decoder or self.mode == "tokens")
+            if vit_final_norm is None
+            else bool(vit_final_norm)
         )
         if self.token_path:
             knobs = {"out_indices": out_indices}
-            if self.mode == "encoder":
+            if self.mode == "tokens":
+                # The tapped maps are the output: no neck, no decoder.
+                knobs.update(
+                    neck_channels=neck_channels,
+                    detail_stem=detail_stem or None,
+                    vit_neck=None if vit_neck == "dpt" else vit_neck,
+                    vit_decoder=None if vit_decoder == "unet" else vit_decoder,
+                )
+                path = "token-map"
+            elif self.mode == "encoder":
                 # Encoder-only pools one tapped layer: there is no neck or decoder.
                 knobs.update(
                     neck_channels=neck_channels,
@@ -682,7 +748,10 @@ class PretrainedBackbone(FreezableEncoderMixin, nn.Module):
             mean, std = self._resolve_norm_stats(image_mean, image_std)
             self.register_buffer("image_mean", torch.tensor(mean).view(1, -1, 1, 1))
             self.register_buffer("image_std", torch.tensor(std).view(1, -1, 1, 1))
-            if self.mode == "encoder":
+            if self.mode == "tokens":
+                self._probe_tokens()
+                self.max_stride = max_stride
+            elif self.mode == "encoder":
                 self._probe_tokens()
                 self._build_encoder_only([self.token_stride], [self.hidden_size])
             elif self.direct_decoder:
@@ -914,7 +983,10 @@ class PretrainedBackbone(FreezableEncoderMixin, nn.Module):
         direct = getattr(self, "direct_decoder", False)
         if layers is None:
             dpt = self.mode == "decoder" and self.vit_neck == "dpt" and not direct
-            num_taps = max(len(self._neck_scales), 1) if dpt else 1
+            if self.mode == "tokens":
+                num_taps = 4
+            else:
+                num_taps = max(len(self._neck_scales), 1) if dpt else 1
             layers = _default_layers(self.num_layers, num_taps)
         elif len(layers) != 1 and (
             self.mode == "encoder" or self.vit_neck == "sfp" or direct
@@ -986,13 +1058,19 @@ class PretrainedBackbone(FreezableEncoderMixin, nn.Module):
                 f"vit_final_norm: no final norm found in '{self.model_name}'; using "
                 "a fresh LayerNorm on the last layer instead."
             )
-        elif self.vit_final_norm and self.num_layers not in self.layers:
+        elif (
+            self.vit_final_norm
+            and self.mode != "tokens"
+            and self.num_layers not in self.layers
+        ):
             logger.warning(
                 f"vit_final_norm applies only to a tap of the last layer "
                 f"({self.num_layers}); taps {self.layers} use fresh LayerNorms."
             )
+        # `mode="tokens"` sends every tap through the final norm (RF-DETR).
         self._final_norm_taps = [
-            self._final_norm_name is not None and layer == self.num_layers
+            self._final_norm_name is not None
+            and (layer == self.num_layers or self.mode == "tokens")
             for layer in self.layers
         ]
         self.tap_norms = nn.ModuleList(
@@ -1463,21 +1541,8 @@ class PretrainedBackbone(FreezableEncoderMixin, nn.Module):
             )
             return single
 
-        # Block i (0-indexed in its parameter name) -> depth i + 1. Parameters
-        # registered before the first block (patch/position embeddings, CLS and
-        # register tokens, CLIP's pre-norm) -> depth 0; after the last block
-        # (final norms, pooling heads) -> depth L + 1. Registration order is
-        # family-agnostic where name heuristics are not.
-        block_re = re.compile(r"(?:^|\.)(?:layer|layers|blocks|block)\.(\d+)\.")
         groups: Dict[int, List[torch.Tensor]] = {}
-        seen_block = False
-        for name, param in named:
-            match = block_re.search(name)
-            if match:
-                seen_block = True
-                depth = min(int(match.group(1)) + 1, num_layers)
-            else:
-                depth = num_layers + 1 if seen_block else 0
+        for param, depth in encoder_param_depths(named, num_layers):
             groups.setdefault(depth, []).append(param)
         return [
             {
@@ -1646,6 +1711,19 @@ class PretrainedBackbone(FreezableEncoderMixin, nn.Module):
             maps.append(tokens.transpose(1, 2).reshape(b, -1, gh, gw))
         return maps
 
+    def token_maps(self, x: torch.Tensor) -> List[torch.Tensor]:
+        """The tapped token maps of a plain ViT (``mode="tokens"``).
+
+        Args:
+            x: ``(B, in_channels, H, W)`` images in ``[0, 1]``; ``H`` and ``W``
+                should be multiples of ``token_stride``.
+
+        Returns:
+            One ``(B, hidden_size, H / token_stride, W / token_stride)`` map per
+            tapped layer, prefix tokens dropped, after its tap norm.
+        """
+        return self._tap_tokens(self._normalize(x))
+
     def forward(self, x: torch.Tensor) -> Dict[str, Any]:
         """Forward pass emitting the sleap-nn backbone dict contract.
 
@@ -1661,7 +1739,11 @@ class PretrainedBackbone(FreezableEncoderMixin, nn.Module):
             "intermediate_feat": bottleneck}``.
             Case C also carries ``"last_tap"``: the deepest tapped token map
             (stride ``token_stride``, after its tap norm).
+            ``mode="tokens"``: the list of :meth:`token_maps` instead (the
+            ``bbox_detr`` backbone contract).
         """
+        if self.mode == "tokens":
+            return self.token_maps(x)
         x = self._normalize(x)
         if self.token_path:
             feats = self._tap_tokens(x)

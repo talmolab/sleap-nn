@@ -8,12 +8,23 @@ stride and width::
 RF-DETR taps four blocks of a ViT (blocks 3, 6, 9 and 12 of DINOv2-S) at the patch
 stride, and the projector concatenates them. Backbones are looked up by
 ``model_config.backbone_config`` type in :data:`DETR_BACKBONES`:
-``dinov2_windowed`` (RF-DETR's DINOv2, :mod:`.dinov2_windowed`) is registered;
-the ``pretrained`` HF/timm loader (DINOv3) comes later. This module also ships
-:class:`TinyDetrBackbone`, a small convolutional stand-in for tests.
+``dinov2_windowed`` (RF-DETR's DINOv2, :mod:`.dinov2_windowed`) and ``pretrained``
+(any HF/timm plain ViT -- DINOv3, DINOv2 -- through sleap-nn's pretrained loader,
+:mod:`.pretrained_vit`). This module also ships :class:`TinyDetrBackbone`, a small
+convolutional stand-in for tests, and :func:`rfdetr_layer_decay_groups`, the
+layer-wise learning rates both ViT backbones give the optimizer.
 """
 
-from typing import Callable, Dict, List, Protocol, runtime_checkable
+from typing import (
+    Callable,
+    Dict,
+    Iterable,
+    List,
+    Optional,
+    Protocol,
+    Tuple,
+    runtime_checkable,
+)
 
 import torch
 from omegaconf import DictConfig
@@ -97,6 +108,53 @@ class TinyDetrBackbone(nn.Module):
             x = x + block(x)
             taps.append(x)
         return taps[-self.num_taps :]
+
+
+def rfdetr_layer_decay_groups(
+    depths: Iterable[Tuple[torch.Tensor, int]],
+    base_lr: float,
+    num_layers: int,
+    encoder_lr_scale: Optional[float] = None,
+    layer_decay: Optional[float] = None,
+) -> Optional[List[Dict]]:
+    """Optimizer groups with RF-DETR's layer-wise learning-rate decay.
+
+    RF-DETR (``get_dinov2_lr_decay_rate``) counts ``D = max(out_indices) + 1``
+    layers (``num_layers`` here) and gives a parameter at depth ``d`` the rate
+    ``layer_decay ** (D + 1 - d)``: the embeddings are depth 0, block ``k``
+    (0-based) depth ``k + 1``, and what follows the blocks (the final norm) depth
+    ``D + 1``.
+
+    Args:
+        depths: ``(parameter, depth)`` pairs of the trainable parameters.
+        base_lr: The backbone's learning rate before layer decay.
+        num_layers: RF-DETR's ``D``.
+        encoder_lr_scale: Multiplies ``base_lr`` (``None`` = 1).
+        layer_decay: The per-layer decay; ``None`` or 0: no decay.
+
+    Returns:
+        ``None`` when every parameter trains at ``base_lr`` (no scale, no decay),
+        else ``{"params", "lr", "name"}`` groups (``depth<d>``, or one ``all``).
+    """
+    scale = 1.0 if encoder_lr_scale is None else float(encoder_lr_scale)
+    if scale == 1.0 and not layer_decay:
+        return None
+    depths = list(depths)
+    if not layer_decay:
+        return [
+            {"params": [p for p, _ in depths], "lr": base_lr * scale, "name": "all"}
+        ]
+    by_depth: Dict[int, List[torch.Tensor]] = {}
+    for param, depth in depths:
+        by_depth.setdefault(depth, []).append(param)
+    return [
+        {
+            "params": params,
+            "lr": base_lr * scale * layer_decay ** (num_layers + 1 - depth),
+            "name": f"depth{depth}",
+        }
+        for depth, params in sorted(by_depth.items())
+    ]
 
 
 #: Builders of DETR backbones by ``backbone_config`` type, each taking the type's
