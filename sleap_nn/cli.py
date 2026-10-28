@@ -2286,6 +2286,11 @@ def _run_embeddings(
             "--data_path is required for --save_embeddings / --tracking on an "
             "embedding model."
         )
+    if _node_filter_kwargs(kwargs):
+        raise click.UsageError(
+            "--nodes/--node_prefix are not supported with an embedding model; run "
+            "the pose model on its own with them."
+        )
 
     model_paths = list(kwargs["model_paths"])
     embedding_dirs = [m for m in model_paths if _is_embedding_model(m)]
@@ -2622,6 +2627,30 @@ def _refuse_overwriting_input_early(source, output_path, output_format) -> None:
         raise click.UsageError(str(e)) from e
 
 
+def _node_filter_kwargs(kwargs: dict) -> dict:
+    """``node_filter`` / ``strip_prefix`` predictor kwargs from the CLI flags.
+
+    Empty without ``--nodes`` / ``--node_prefix``.
+
+    Raises:
+        click.UsageError: For both flags at once, or ``--strip_prefix`` without
+            ``--node_prefix``.
+    """
+    names = [n.strip() for arg in kwargs.get("nodes") or () for n in arg.split(",")]
+    names = [n for n in names if n]
+    prefix = kwargs.get("node_prefix")
+    if names and prefix is not None:
+        raise click.UsageError("Pass --nodes or --node_prefix, not both.")
+    if kwargs.get("strip_prefix") and prefix is None:
+        raise click.UsageError("--strip_prefix needs --node_prefix.")
+    if not names and prefix is None:
+        return {}
+    return {
+        "node_filter": names or prefix,
+        "strip_prefix": True if kwargs.get("strip_prefix") else None,
+    }
+
+
 def _run_in_memory_new_flow(
     kwargs: dict, paf_workers: int, save_output: bool = True
 ) -> "object":
@@ -2840,6 +2869,7 @@ def _run_in_memory_new_flow(
         "flip_test": kwargs.get("flip_test", False),
         "boxes": kwargs.get("boxes"),
         "box_score_threshold": kwargs.get("box_score_threshold") or 0.0,
+        **_node_filter_kwargs(kwargs),
         "min_mask_area": kwargs.get("min_mask_area", 0),
         "center_nms_kernel": kwargs.get("center_nms_kernel", 3),
         "mask_cleanup": kwargs.get("mask_cleanup", False),
@@ -2911,6 +2941,12 @@ def _run_in_memory_new_flow(
         predict_kwargs["filter_config"] = filter_config
 
     if export_dir is not None:
+        if predict_kwargs.get("node_filter") is not None:
+            raise click.UsageError(
+                "--nodes/--node_prefix apply when the model is built from its "
+                "checkpoint; for an exported model, export it filtered "
+                "(`sleap-nn export --nodes/--node-prefix`)."
+            )
         if kwargs.get("flip_test"):
             raise click.UsageError(
                 "--flip_test is not supported for exported ONNX/TensorRT models "
@@ -3356,6 +3392,7 @@ def _run_stream_to_file(
         "fg_threshold": kwargs.get("fg_threshold", 0.5),
         "bbox_nms_iou": kwargs.get("bbox_nms_iou"),
         "flip_test": kwargs.get("flip_test", False),
+        **_node_filter_kwargs(kwargs),
         "min_mask_area": kwargs.get("min_mask_area", 0),
         "center_nms_kernel": kwargs.get("center_nms_kernel", 3),
         "mask_cleanup": kwargs.get("mask_cleanup", False),
@@ -4007,6 +4044,39 @@ def _common_inference_options(f):
                 "the skeleton symmetries) before peak finding. Doubles the "
                 "centered-instance compute. Not available for exported models."
             ),
+        ),
+        click.option(
+            "--nodes",
+            "nodes",
+            type=str,
+            multiple=True,
+            default=(),
+            help=(
+                "single_instance / centered_instance models only: predict only "
+                "these nodes (repeat the flag or comma-separate names). The "
+                "confmap head is sliced to their channels, so the other confmaps "
+                "are never computed; the output skeleton keeps their edges and "
+                "symmetries."
+            ),
+        ),
+        click.option(
+            "--node_prefix",
+            "--node-prefix",
+            "node_prefix",
+            type=str,
+            default=None,
+            help=(
+                "Like --nodes, selecting every node whose name starts with this "
+                "prefix (e.g. 'hcm-2025/' of a multi-dataset model)."
+            ),
+        ),
+        click.option(
+            "--strip_prefix",
+            "--strip-prefix",
+            "strip_prefix",
+            is_flag=True,
+            default=False,
+            help="Write the --node_prefix nodes under their names without it.",
         ),
         click.option(
             "--boxes",

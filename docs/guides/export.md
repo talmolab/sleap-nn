@@ -84,6 +84,14 @@ sleap-nn export MODEL_PATH [options]
 | `--precision` | TensorRT precision | `fp32`, `fp16`, `tf32` | `fp16` |
 | `--max-instances` | Max instances per frame | `INT` | `20` |
 | `--max-batch-size` | Max batch size | `INT` | `8` |
+| `--nodes` | Export only these confmap nodes (`single_instance` / `centered_instance`, alone or in a top-down bundle); repeat or comma-separate | `TEXT` | all nodes |
+| `--node-prefix` | Export only the nodes whose name starts with the prefix | `TEXT` | `None` |
+| `--strip-prefix` | Name the `--node-prefix` nodes without the prefix in the exported metadata and `training_config` | Flag | `false` |
+
+`--nodes` / `--node-prefix` slice the confmap head to the kept channels before
+tracing, so the exported graph computes only those confidence maps (see
+[Predicting a subset of nodes](inference-guide.md#predicting-a-subset-of-nodes)).
+The export's metadata and copied `training_config.yaml` describe the kept nodes.
 
 ---
 
