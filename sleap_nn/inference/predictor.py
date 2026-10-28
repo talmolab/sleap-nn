@@ -1363,6 +1363,8 @@ class Predictor:
         flip_test: bool = False,
         boxes: Optional[str] = None,
         box_score_threshold: float = 0.0,
+        node_filter: Optional[Union[str, List[str]]] = None,
+        strip_prefix: Optional[Union[bool, str]] = None,
     ) -> "Predictor":
         """Build a :class:`Predictor` from one or more checkpoint paths.
 
@@ -1460,6 +1462,13 @@ class Predictor:
                 only the crop model. ``None`` (default) keeps the usual stage 1.
             box_score_threshold: With ``boxes="given"``, drop boxes scoring below
                 this.
+            node_filter: ``single_instance`` / ``centered_instance`` models only:
+                predict only these nodes, a list of node names or a string prefix
+                (e.g. ``"hcm-2025/"``). The confmap head is sliced to their
+                channels, so the other confmaps are never computed, and the output
+                skeleton keeps their edges and symmetries.
+            strip_prefix: Rename the kept nodes in the output: ``True`` strips the
+                ``node_filter`` prefix, a string strips that prefix.
         """
         from sleap_nn.inference.loaders import load_model_assets
         from sleap_nn.system_info import get_startup_info_string
@@ -1500,6 +1509,8 @@ class Predictor:
             polygon_epsilon=polygon_epsilon,
             bbox_nms_iou=bbox_nms_iou,
             flip_test=flip_test,
+            node_filter=node_filter,
+            strip_prefix=strip_prefix,
         )
 
         if centroid_only:
@@ -1551,6 +1562,8 @@ class Predictor:
         ]
         if flip_test:
             spec.append("flip_test=True")
+        if node_filter is not None:
+            spec.append(f"node_filter={node_filter!r}")
         if "bottomup_segmentation" in model_types:
             spec.append(f"fg_threshold={fg_threshold}")
             spec.append(f"min_mask_area={min_mask_area}")

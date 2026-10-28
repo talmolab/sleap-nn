@@ -238,9 +238,14 @@ sleap-nn predict --data_path INPUT --model_paths MODEL [OPTIONS]
 | `--integral_refinement` | Sub-pixel peak refinement. `auto` = `dark` for top-down keypoints, `integral` otherwise. `dark`/`local` need one peak per channel: the centroid stage keeps `integral`, bottom-up rejects them | `auto`, `dark`, `integral`, `local`, `none` | `auto` |
 | `--integral_patch_size` | Patch size for `integral` refinement | `INT` | `5` |
 | `--flip_test` | Top-down `centered_instance` only: average the confidence maps of the crops and their mirror (left/right nodes swapped from the skeleton symmetries) | Flag | `false` |
+| `--nodes` | `single_instance` / `centered_instance` only: predict only these nodes (repeat or comma-separate). The confmap head is sliced to their channels | `TEXT` | all nodes |
+| `--node_prefix` | Like `--nodes`, for every node whose name starts with the prefix (e.g. `hcm-2025/`) | `TEXT` | `None` |
+| `--strip_prefix` | Write the `--node_prefix` nodes without the prefix | Flag | `false` |
 
 Exported models do no sub-pixel refinement and refuse `--flip_test`. See
 [Sub-pixel refinement and flip-test](../guides/inference-guide.md#sub-pixel-refinement-and-flip-test).
+See [Predicting a subset of nodes](../guides/inference-guide.md#predicting-a-subset-of-nodes)
+for `--nodes` / `--node_prefix`.
 
 ### Examples
 

@@ -1561,6 +1561,8 @@ def load_model_assets(
     polygon_epsilon: float = 0.01,
     bbox_nms_iou: Optional[float] = None,
     flip_test: bool = False,
+    node_filter: Optional[Union[str, List[str]]] = None,
+    strip_prefix: Optional[Union[bool, str]] = None,
 ) -> tuple[LoadedAssets, List[str]]:
     """Load checkpoints and build inference models.
 
@@ -1584,10 +1586,19 @@ def load_model_assets(
     model on mirrored crops too and averages the confmaps, swapping the
     skeleton's symmetric nodes.
 
+    ``node_filter`` (``single_instance`` / ``centered_instance`` only) keeps a
+    subset of the confmap channels: a list of node names, or a string prefix such
+    as ``"hcm-2025/"``. The confmap head's output conv is sliced to those channels
+    (the others are never computed) and the skeleton restricted to them, with
+    their edges and symmetries and the flip-test permutation recomputed;
+    ``strip_prefix`` (``True``: the filter's prefix, or a string) renames the
+    output nodes. See :mod:`sleap_nn.inference.node_filter`.
+
     Raises:
         ValueError: On an unknown ``integral_refinement``, ``"dark"`` /
-            ``"local"`` with a bottom-up model, or ``flip_test`` without a
-            ``centered_instance`` model.
+            ``"local"`` with a bottom-up model, ``flip_test`` without a
+            ``centered_instance`` model, or a ``node_filter`` that selects nothing
+            or targets another model type.
 
     Returns:
         ``(loaded_assets, model_types)`` — *model_types* is the list of
@@ -1885,6 +1896,13 @@ def load_model_assets(
             f"Could not create inference assets from model paths:\n{model_paths}\n"
             f"Detected types: {model_types}"
         )
+
+    if node_filter is not None:
+        from sleap_nn.inference.node_filter import apply_node_filter
+
+        apply_node_filter(assets, model_types, node_filter, strip_prefix)
+    elif strip_prefix not in (None, False):
+        raise ValueError("strip_prefix needs a node_filter.")
 
     _check_crop_stage(assets, model_types)
     return assets, model_types

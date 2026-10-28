@@ -484,6 +484,9 @@ def predict(
     # Top-down stage 1 from given boxes (construction-time; crop models only)
     boxes: Optional[str] = None,
     box_score_threshold: float = 0.0,
+    # Node filter (construction-time; single_instance / centered_instance only)
+    node_filter: Optional[Union[str, List[str]]] = None,
+    strip_prefix: Optional[Union[bool, str]] = None,
     # SAM prompted-mask producer (explicit, no default; PLAN L2). When set, masks
     # are produced from the existing poses in ``source`` (no trained seg model).
     mask_backend: Optional[str] = None,
@@ -612,6 +615,13 @@ def predict(
             scored by the box. A ``sio.Labels`` source is copied first, so the
             boxes are not attached to the caller's object.
         box_score_threshold: Drop given boxes scoring below this.
+        node_filter: ``single_instance`` / ``centered_instance`` checkpoints only:
+            predict only these nodes, a list of names or a string prefix. The
+            confmap head is sliced to their channels (see
+            :mod:`sleap_nn.inference.node_filter`). Not available for exported
+            models (export them filtered instead).
+        strip_prefix: Rename the kept nodes: ``True`` strips the ``node_filter``
+            prefix, a string strips that prefix.
         mask_backend: **Explicit** SAM mask backend (PLAN L2): ``"sam"`` (SAM1) /
             ``"sam3"`` (PR-B). When set, ``source`` is treated as a pose ``.slp``
             and masks are predicted from its existing instances (no trained seg
@@ -843,8 +853,17 @@ def predict(
         if box_mode is not None:
             build_kwargs["boxes"] = box_mode
             build_kwargs["box_score_threshold"] = box_score_threshold
+        if node_filter is not None:
+            build_kwargs["node_filter"] = node_filter
+            build_kwargs["strip_prefix"] = strip_prefix
         predictor = Predictor.from_model_paths(model_paths, **build_kwargs)
     else:
+        if node_filter is not None:
+            raise ValueError(
+                "node_filter is not available for exported (ONNX/TensorRT) models; "
+                "export the filtered model (`sleap-nn export --nodes/--node_prefix`) "
+                "or run the checkpoint directory."
+            )
         if flip_test:
             raise ValueError(
                 "flip_test is not available for exported (ONNX/TensorRT) models, "

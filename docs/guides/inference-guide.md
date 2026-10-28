@@ -276,6 +276,38 @@ sleap-nn predict -i video.mp4 -m models/centroid/ -m models/centered_instance/ \
     refinement. `--integral_refinement` has no effect on them and `--flip_test` is
     refused.
 
+#### Predicting a subset of nodes
+
+A model trained on a merged skeleton, e.g. one per-dataset channel block
+`<dataset>/<node>` for many datasets, predicts every channel by default.
+`--nodes` (node names, repeat the flag or comma-separate) or `--node_prefix` (every
+node whose name starts with it) keeps only some of them:
+
+```bash
+sleap-nn predict -i video.mp4 -m models/centroid/ -m models/centered_instance/ \
+    --node_prefix hcm-2025/ --strip_prefix
+```
+
+- The confmap head's output convolution is sliced to the kept channels when the
+  model is loaded, so the other confidence maps are never computed. Kept channels
+  are bit-identical to the same channels of the full model, and so are their
+  predictions.
+- The output skeleton keeps the kept nodes, the edges and symmetries between them,
+  and `--flip_test` swaps channels from the restricted symmetries. Flip-test needs
+  both nodes of each kept symmetric pair.
+- `--strip_prefix` writes the `--node_prefix` nodes under their own names
+  (`hcm-2025/nose` -> `nose`).
+- For `single_instance` and `centered_instance` models. Other model types refuse
+  the flags. For an ONNX/TensorRT model, export it filtered (`sleap-nn export
+  --nodes/--node-prefix`).
+
+On CPU, a 300-channel centered-instance head (UNet, 32 filters, 192x192 crops,
+batch 16) filtered to 15 channels cuts the network forward from 3.07 s to 2.52 s
+per batch on one thread (-18%) and DARK peak finding from 92 ms to 5 ms.
+
+In Python: `Predictor.from_model_paths(..., node_filter="hcm-2025/",
+strip_prefix=True)` or `load_model_assets(..., node_filter=[...])`.
+
 ### Bottom-Up Segmentation
 
 Bottom-up segmentation models predict a per-instance **mask** (plus instance-center

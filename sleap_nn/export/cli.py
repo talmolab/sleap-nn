@@ -68,6 +68,33 @@ CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"]}
     help="TensorRT builder workspace size in GB. Uses exporter default if unset.",
 )
 @click.option("--verify/--no-verify", default=True, show_default=True)
+@click.option(
+    "--nodes",
+    "nodes",
+    type=str,
+    multiple=True,
+    default=(),
+    help=(
+        "Export only these confmap nodes (single_instance / centered_instance): "
+        "repeat or comma-separate. The head is sliced to their channels."
+    ),
+)
+@click.option(
+    "--node-prefix",
+    "--node_prefix",
+    "node_prefix",
+    type=str,
+    default=None,
+    help="Export only the nodes whose name starts with this prefix.",
+)
+@click.option(
+    "--strip-prefix/--no-strip-prefix",
+    "--strip_prefix",
+    "strip_prefix",
+    default=False,
+    show_default=True,
+    help="Write the --node-prefix nodes under their names without the prefix.",
+)
 def export(
     model_paths: tuple[Path, ...],
     output: Optional[Path],
@@ -88,6 +115,9 @@ def export(
     peak_threshold: float,
     workspace_size_gb: Optional[float],
     verify: bool,
+    nodes: tuple = (),
+    node_prefix: Optional[str] = None,
+    strip_prefix: bool = False,
 ) -> None:
     """Export trained models to ONNX/TensorRT formats."""
     import torch
@@ -156,6 +186,12 @@ def export(
         warn_on_tiled_export(cfg)
     model_types = [resolve_model_type(cfg) for cfg in cfgs]
     backbone_types = [resolve_backbone_type(cfg) for cfg in cfgs]
+    # Checkpoints load with their own (unfiltered) configs; `cfgs` describe the
+    # exported network, i.e. after the node filter.
+    load_cfgs = list(cfgs)
+    node_idx = _resolve_export_node_filter(
+        cfgs, model_types, nodes, node_prefix, strip_prefix
+    )
 
     # A standalone centroid model is exported from a SINGLE directory; passing two
     # centroid dirs is almost always a mistake (the user likely meant centroid +
@@ -225,10 +261,11 @@ def export(
         lightning_model = _load_lightning_model(
             model_type=model_type,
             backbone_type=backbone_type,
-            cfg=cfg,
+            cfg=load_cfgs[0],
             ckpt_path=ckpt_path,
             device=device,
         )
+        _slice_export_head(lightning_model.model, model_type, node_idx.get(0))
 
         torch_model = lightning_model.model
         torch_model.eval()
@@ -470,7 +507,9 @@ def export(
             verify=verify,
         )
 
-        training_config_path = _copy_training_config(model_path, export_dir, None)
+        training_config_path = _copy_training_config(
+            model_path, export_dir, None, cfg=cfg if node_idx else None
+        )
         if training_config_path is not None:
             training_config_hash = hash_file(training_config_path)
             training_config_text = training_config_path.read_text()
@@ -632,10 +671,13 @@ def export(
         instance_model = _load_lightning_model(
             model_type="centered_instance",
             backbone_type=instance_backbone,
-            cfg=instance_cfg,
+            cfg=load_cfgs[instance_idx],
             ckpt_path=instance_ckpt,
             device=device,
         ).model
+        _slice_export_head(
+            instance_model, "centered_instance", node_idx.get(instance_idx)
+        )
 
         centroid_model.eval()
         instance_model.eval()
@@ -712,7 +754,10 @@ def export(
 
         centroid_cfg_path = _copy_training_config(centroid_path, export_dir, "centroid")
         instance_cfg_path = _copy_training_config(
-            instance_path, export_dir, "centered_instance"
+            instance_path,
+            export_dir,
+            "centered_instance",
+            cfg=instance_cfg if node_idx else None,
         )
         config_payload = {}
         config_hashes = []
@@ -1034,20 +1079,85 @@ def export(
 
 
 def _copy_training_config(
-    model_path: Path, export_dir: Path, label: Optional[str]
+    model_path: Path, export_dir: Path, label: Optional[str], cfg=None
 ) -> Optional[Path]:
+    """Copy a model's training config into the export dir.
+
+    With ``cfg`` (a node-filtered config, :func:`_resolve_export_node_filter`),
+    that config is written as YAML instead of copying the file.
+    """
     training_config_path = _training_config_path(model_path)
     if training_config_path is None:
         return None
 
+    suffix = ".yaml" if cfg is not None else training_config_path.suffix
     if label:
-        dest_name = f"training_config_{label}{training_config_path.suffix}"
+        dest_name = f"training_config_{label}{suffix}"
     else:
-        dest_name = training_config_path.name
+        dest_name = f"training_config{suffix}"
 
     dest_path = export_dir / dest_name
-    shutil.copy(training_config_path, dest_path)
+    if cfg is not None:
+        from omegaconf import OmegaConf
+
+        OmegaConf.save(cfg, dest_path)
+    else:
+        shutil.copy(training_config_path, dest_path)
     return dest_path
+
+
+def _resolve_export_node_filter(
+    cfgs: list, model_types: list, nodes: tuple, node_prefix, strip_prefix: bool
+) -> dict:
+    """Apply ``--nodes`` / ``--node-prefix`` to the configs being exported.
+
+    Replaces the target model's entry of ``cfgs`` with its node-filtered config
+    (:func:`~sleap_nn.inference.node_filter.filter_training_config`) and returns
+    ``{model index: confmap channel indices}`` to slice its head with (empty
+    without a filter). The target is a lone ``single_instance`` /
+    ``centered_instance`` model or the centered-instance model of a
+    centroid + centered_instance bundle.
+    """
+    from sleap_nn.inference.node_filter import filter_training_config
+
+    names = [n.strip() for arg in nodes for n in arg.split(",") if n.strip()]
+    if names and node_prefix is not None:
+        raise click.ClickException("Pass --nodes or --node-prefix, not both.")
+    node_filter = names or node_prefix
+    if not node_filter:
+        if strip_prefix:
+            raise click.ClickException("--strip-prefix needs --node-prefix.")
+        return {}
+    if strip_prefix and node_prefix is None:
+        raise click.ClickException("--strip-prefix needs --node-prefix.")
+    targets = [
+        i
+        for i, mt in enumerate(model_types)
+        if mt in ("single_instance", "centered_instance")
+    ]
+    if len(targets) != 1:
+        raise click.ClickException(
+            "--nodes/--node-prefix apply to a single_instance or centered_instance "
+            f"model (alone or with its centroid model); got {model_types}."
+        )
+    i = targets[0]
+    try:
+        cfgs[i], idx = filter_training_config(
+            cfgs[i], model_types[i], node_filter, strip_prefix=strip_prefix or None
+        )
+    except ValueError as e:
+        raise click.ClickException(str(e)) from None
+    logger.info(f"Node filter: exporting {len(idx)} confmap channels.")
+    return {i: idx}
+
+
+def _slice_export_head(model, model_type: str, idx) -> None:
+    """Slice a loaded model's confmap head to the node filter's channels."""
+    if idx is None:
+        return
+    from sleap_nn.inference.node_filter import NODE_FILTER_HEADS, slice_head_conv
+
+    slice_head_conv(model, NODE_FILTER_HEADS[model_type], idx)
 
 
 def _training_config_path(model_path: Path) -> Optional[Path]:
