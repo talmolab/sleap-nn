@@ -4945,8 +4945,14 @@ def _register_export_commands():
         ]
     ),
     default=None,
+    # The choices are listed in the help text, which wraps between words; the
+    # default [a|b|...] metavar is too long for its column and splits names.
+    metavar="PIPELINE",
     help=(
-        "Override model pipeline type. 'centroid' generates a single STANDALONE "
+        "Override model pipeline type: single_instance, centroid, bottomup, "
+        "topdown, multi_class_bottomup, multi_class_topdown, bbox_centernet, "
+        "bbox_ssd, bbox_detr, topdown_bbox_centernet, topdown_bbox_ssd or "
+        "topdown_bbox_detr. 'centroid' generates a single STANDALONE "
         "centroid config (one point per animal); 'topdown' generates paired "
         "centroid + centered_instance configs; 'bbox_centernet' / 'bbox_ssd' / "
         "'bbox_detr' generate a bounding-box detector trained on boxes derived from "
