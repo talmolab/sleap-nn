@@ -637,7 +637,7 @@ trainer_config:
 | `throughput_log_every_n_steps` | int | `50` | `perf/*` throughput window (0 disables) |
 | `confmap_fg_bg_diagnostics` | bool | `null` | Log confmap fg/bg MSE split (`null` = centroid only) |
 | `ema` | EMAConfig | off | Weight EMA; see [EMAConfig](#emaconfig) |
-| `balanced_sampler` | BalancedSamplerConfig | `null` | Fixed per-file counts in every batch for `crop_pipeline: warp` (`counts`, or `weights` rounded to the batch size); per-rank streams, resumed from checkpoints. See [Fast top-down data path](../guides/warp-data-path.md#mixing-datasets) |
+| `balanced_sampler` | BalancedSamplerConfig | `null` | Per-file batch composition for `crop_pipeline: warp` and the `bbox_*` models: fixed per-file `counts`, or `weights` rounded to the batch size; with `per_sample: true` each sample's file is drawn with probability `weights` instead (any number of files at any batch size). Per-rank streams, resumed from checkpoints. See [Fast top-down data path](../guides/warp-data-path.md#mixing-datasets) |
 
 ### DataLoaderConfig
 
@@ -657,8 +657,8 @@ trainer_config:
 | `lr` | float | `1e-4` | Learning rate |
 | `amsgrad` | bool | `false` | Enable AMSGrad variant |
 | `weight_decay` | float | `null` | Decay for weight matrices / kernels only; biases, norms, 1-D params, position embeddings and special tokens get none (`null` = torch default on every parameter: `0` for Adam, `0.01` for AdamW) |
-| `encoder_lr_scale` | float | `null` | `pretrained` encoder LR multiplier (`null` = `1.0`; replaces the deprecated backbone key) |
-| `layer_decay` | float | `null` | Plain-ViT `pretrained` encoder: block `i` of `L` trains at `encoder_lr_scale · layer_decay^(L+1−i)` × `lr` (replaces the deprecated backbone key) |
+| `encoder_lr_scale` | float | `null` | `pretrained` encoder LR multiplier (`null` = `1.0`; replaces the deprecated backbone key). For `bbox_detr` the backbone (`pretrained` or `dinov2_windowed`) trains at `lr · encoder_lr_scale · lr_component_decay²` times its layer decay (RF-DETR: `1.5`) |
+| `layer_decay` | float | `null` | Plain-ViT `pretrained` encoder: block `i` of `L` trains at `encoder_lr_scale · layer_decay^(L+1−i)` × `lr` (replaces the deprecated backbone key). For `bbox_detr`, RF-DETR's rule with `L` = the last tapped block (RF-DETR: `0.8`) |
 
 ### LRSchedulerConfig
 

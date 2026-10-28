@@ -89,6 +89,12 @@ pure function of the seed, the rank and the batch index, and the number of batch
 delivered is saved in the checkpoint, so `resume_ckpt_path` continues the same
 stream where it stopped.
 
+With `per_sample: true`, each sample's file is drawn at random with probability
+`weights` (normalized; equal shares when `null`) instead of fixed per-batch counts,
+so any number of files mixes at any batch size (e.g. 5 files at 8 per GPU). The
+`bbox_*` detectors use the same sampler; see the [DETR box detector
+guide](bbox-detr.md#our-human-detector-two-stages).
+
 ## Crop boxes and filters
 
 - `crop_bbox_categories` keeps only linked user boxes of those categories as crop

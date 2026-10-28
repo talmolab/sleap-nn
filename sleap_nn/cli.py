@@ -4938,19 +4938,40 @@ def _register_export_commands():
             "multi_class_topdown",
             "bbox_centernet",
             "bbox_ssd",
+            "bbox_detr",
             "topdown_bbox_centernet",
             "topdown_bbox_ssd",
+            "topdown_bbox_detr",
         ]
     ),
     default=None,
+    # The choices are listed in the help text, which wraps between words; the
+    # default [a|b|...] metavar is too long for its column and splits names.
+    metavar="PIPELINE",
     help=(
-        "Override model pipeline type. 'centroid' generates a single STANDALONE "
+        "Override model pipeline type: single_instance, centroid, bottomup, "
+        "topdown, multi_class_bottomup, multi_class_topdown, bbox_centernet, "
+        "bbox_ssd, bbox_detr, topdown_bbox_centernet, topdown_bbox_ssd or "
+        "topdown_bbox_detr. 'centroid' generates a single STANDALONE "
         "centroid config (one point per animal); 'topdown' generates paired "
-        "centroid + centered_instance configs; 'bbox_centernet' / 'bbox_ssd' "
-        "generate a bounding-box detector trained on boxes derived from the poses; "
-        "'topdown_bbox_centernet' / 'topdown_bbox_ssd' generate paired detector + "
-        "centered_instance configs whose crops are the detected boxes "
-        "(crop_mode: bbox)."
+        "centroid + centered_instance configs; 'bbox_centernet' / 'bbox_ssd' / "
+        "'bbox_detr' generate a bounding-box detector trained on boxes derived from "
+        "the poses; 'topdown_bbox_centernet' / 'topdown_bbox_ssd' / "
+        "'topdown_bbox_detr' generate paired detector + centered_instance configs "
+        "whose crops are the detected boxes (crop_mode: bbox)."
+    ),
+)
+@click.option(
+    "--gpu_memory_gb",
+    "--gpu-memory-gb",
+    "gpu_memory_gb",
+    type=str,
+    default=None,
+    help=(
+        "GPU memory (GB) of the training machine, or 'auto' to read it from the "
+        "first visible GPU. With it, multi-animal top-down data whose bbox_detr "
+        "run fits is recommended topdown_bbox_detr. Default: not considered, so "
+        "--auto gives the same config on every machine."
     ),
 )
 @click.option(
@@ -4964,6 +4985,7 @@ def config(
     output,
     auto,
     pipeline,
+    gpu_memory_gb,
     show_yaml,
 ):
     """Generate training configuration for a SLEAP file.
@@ -4985,8 +5007,12 @@ def config(
 
         # Box detector + box-scaled centered-instance pair
         sleap-nn config labels.slp --auto --pipeline topdown_bbox_centernet -o cfg.yaml
+
+        # Recommend bbox_detr when this machine's GPU fits it
+        sleap-nn config labels.slp --auto --gpu_memory_gb auto -o cfg.yaml
     """
     from sleap_nn.config_generator.generator import ConfigGenerator
+    from sleap_nn.config_generator.recommender import detect_gpu_memory_gb
 
     # Auto mode (non-interactive)
     if auto:
@@ -4994,8 +5020,20 @@ def config(
             click.echo("Error: SLP_PATH is required for --auto mode", err=True)
             raise SystemExit(1)
 
+        gpu_gb = None
+        if gpu_memory_gb == "auto":
+            gpu_gb = detect_gpu_memory_gb()
+        elif gpu_memory_gb is not None:
+            try:
+                gpu_gb = float(gpu_memory_gb)
+            except ValueError:
+                raise click.BadParameter(
+                    f"expected a number of GB or 'auto', got {gpu_memory_gb!r}",
+                    param_hint="--gpu_memory_gb",
+                )
+
         gen = ConfigGenerator.from_slp(slp_path)
-        gen.auto()
+        gen.auto(gpu_memory_gb=gpu_gb)
 
         # Apply overrides
         if pipeline:

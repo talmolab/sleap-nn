@@ -1,0 +1,135 @@
+data_config:
+  train_labels_path:
+  - /path/to/labels.slp
+  val_labels_path: null
+  validation_fraction: 0.1
+  test_file_path: null
+  provider: LabelsReader
+  user_instances_only: true
+  data_pipeline_fw: torch_dataset
+  cache_img_path: null
+  use_existing_imgs: false
+  delete_cache_imgs_after_training: true
+  parallel_caching: true
+  cache_workers: 0
+  preprocessing:
+    ensure_rgb: true
+    ensure_grayscale: false
+    max_height: 384
+    max_width: 384
+    scale: 1.0
+    crop_size: null
+    resize_mode: letterbox
+  use_augmentations_train: true
+  augmentation_config:
+    intensity: null
+    geometric: null
+    detr:
+      crop_p: 0.5
+      shortest_sides:
+      - 384
+      crop_range:
+      - 256
+      - 384
+      flip_p: 0.5
+      multi_scale: true
+      multi_scale_steps: 5
+  bbox_source: auto
+  bbox_padding: 2.0
+model_config:
+  init_weights: default
+  pretrained_backbone_weights: null
+  pretrained_head_weights: null
+  backbone_config:
+    unet: null
+    convnext: null
+    swint: null
+    pretrained:
+      source: hf
+      model_name: timm/vit_small_patch16_dinov3.lvd1689m
+      weights: true
+      mode: tokens
+      layers:
+      - 3
+      - 6
+      - 9
+      - 12
+      drop_path_rate: 0.1
+      in_channels: 3
+      output_stride: 16
+      max_stride: 32
+  head_configs:
+    single_instance: null
+    centroid: null
+    centered_instance: null
+    bottomup: null
+    multi_class_bottomup: null
+    multi_class_topdown: null
+    bbox_detr:
+      detr:
+        categories: null
+        output_stride: 16
+        hidden_dim: 256
+        num_queries: 100
+        group_detr: 13
+        dec_layers: 3
+        num_select: 100
+        lr_component_decay: 0.7
+trainer_config:
+  train_data_loader:
+    batch_size: 8
+    shuffle: true
+    num_workers: 0
+  val_data_loader:
+    batch_size: 8
+    shuffle: false
+    num_workers: 0
+  model_ckpt:
+    save_top_k: 1
+    save_last: true
+  trainer_devices: auto
+  trainer_accelerator: auto
+  enable_progress_bar: true
+  min_train_steps_per_epoch: 1
+  visualize_preds_during_training: false
+  keep_viz: false
+  max_epochs: 200
+  seed: 42
+  use_wandb: false
+  save_ckpt: true
+  ckpt_dir: ./models
+  run_name: null
+  resume_ckpt_path: null
+  optimizer_name: AdamW
+  optimizer:
+    lr: 0.0001
+    amsgrad: false
+    weight_decay: 0.0001
+    encoder_lr_scale: 1.5
+    layer_decay: 0.8
+  lr_scheduler:
+    step_lr: null
+    reduce_lr_on_plateau: null
+    cosine_annealing_warmup: null
+    linear_warmup_linear_decay: null
+  early_stopping:
+    stop_training_on_plateau: false
+    min_delta: 1.0e-06
+    patience: 5
+  online_hard_keypoint_mining:
+    online_mining: false
+    hard_to_easy_ratio: 2.0
+    min_hard_keypoints: 2
+    max_hard_keypoints: null
+    loss_scale: 5.0
+  ema:
+    enabled: true
+    decay: 0.993
+    warmup_steps: 100
+  gradient_clip_val: 0.1
+  precision: bf16-mixed
+  eval:
+    enabled: true
+    frequency: 1
+    oks_stddev: 0.025
+    match_threshold: 50.0

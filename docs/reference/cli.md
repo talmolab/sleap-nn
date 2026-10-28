@@ -23,6 +23,8 @@ Complete command-line interface documentation.
 | [`sleap-nn eval-tracking`](#sleap-nn-eval-tracking) | Evaluate identity persistence of tracked predictions |
 | [`sleap-nn export`](#sleap-nn-export) | Export to ONNX/TensorRT |
 | [`sleap-nn config`](#sleap-nn-config) | Generate training configs (experimental) |
+| [`sleap-nn import-rfdetr`](#sleap-nn-import-rfdetr) | Import an RF-DETR checkpoint as a `bbox_detr` model |
+| [`sleap-nn detect-boxes`](#sleap-nn-detect-boxes) | Write detector boxes into training labels (detector-box crops) |
 | [`sleap-nn info`](#sleap-nn-info) | Inspect trained models |
 | [`sleap-nn system`](#sleap-nn-system) | System diagnostics |
 
@@ -369,7 +371,8 @@ sleap-nn config SLP_PATH [OPTIONS]
 |--------|-------|-------------|--------|---------|
 | `--output` | `-o` | Output path for config file(s) | `PATH` | `<slp_name>_config.yaml` |
 | `--auto` | | Auto-generate without interactive TUI | Flag | `false` |
-| `--pipeline` | | Model pipeline type | `single_instance`, `bottomup`, `topdown`, `multi_class_bottomup`, `multi_class_topdown`, `centroid`, `bbox_centernet`, `bbox_ssd`, `topdown_bbox_centernet`, `topdown_bbox_ssd` | Auto-detected |
+| `--pipeline` | | Model pipeline type | `single_instance`, `bottomup`, `topdown`, `multi_class_bottomup`, `multi_class_topdown`, `centroid`, `bbox_centernet`, `bbox_ssd`, `bbox_detr`, `topdown_bbox_centernet`, `topdown_bbox_ssd`, `topdown_bbox_detr` | Auto-detected |
+| `--gpu_memory_gb` | | GPU memory of the training machine, or `auto` to read the first visible GPU. With it, multi-animal top-down data whose `bbox_detr` run fits is recommended `topdown_bbox_detr` (the TUI always reads the GPU) | `FLOAT`, `auto` | Not considered |
 | `--show-yaml` | | Print YAML to stdout instead of saving | Flag | `false` |
 
 ### Modes
@@ -405,6 +408,12 @@ sleap-nn config labels.slp --auto -o my_config.yaml
 # Auto-generate with overrides
 sleap-nn config labels.slp --auto --pipeline bottomup
 
+# DETR box detector + box-scaled centered-instance pair
+sleap-nn config labels.slp --auto --pipeline topdown_bbox_detr -o mice.yaml
+
+# Let the recommender consider this machine's GPU (may pick topdown_bbox_detr)
+sleap-nn config labels.slp --auto --gpu_memory_gb auto
+
 # Preview YAML without saving
 sleap-nn config labels.slp --auto --show-yaml
 ```
@@ -416,13 +425,101 @@ For **top-down** pipelines, two config files are generated:
 - `<name>_centroid.yaml` - Centroid model config
 - `<name>_centered_instance.yaml` - Centered instance model config
 
-The box-detector top-down pipelines (`topdown_bbox_centernet` / `topdown_bbox_ssd`)
-write `<name>_bbox_centernet.yaml` (or `<name>_bbox_ssd.yaml`) and a
-`<name>_centered_instance.yaml` with box-scaled crops.
+The box-detector top-down pipelines (`topdown_bbox_centernet` / `topdown_bbox_ssd` /
+`topdown_bbox_detr`) write `<name>_bbox_centernet.yaml` (or `<name>_bbox_ssd.yaml`,
+`<name>_bbox_detr.yaml`) and a `<name>_centered_instance.yaml` with box-scaled crops.
 
 For other pipelines, a single config file is generated.
 
 See the [Config Generator Guide](../guides/config-generator.md) for detailed usage.
+
+---
+
+## `sleap-nn import-rfdetr`
+
+Convert an RF-DETR detection checkpoint into a `bbox_detr` model directory
+(`training_config.yaml` + `best.ckpt`) that `predict` loads like a trained model
+and `init_from` can fine-tune. See the [DETR box detector guide](../guides/bbox-detr.md#import-rf-detr).
+
+```bash
+sleap-nn import-rfdetr MODEL -o OUTPUT_DIR [OPTIONS]
+```
+
+`MODEL` is a size, `nano`, `small`, `medium` or `large` (the Apache-2.0
+`Roboflow/rf-detr-*` checkpoints on the HF Hub), an HF Hub id, or a local directory
+with `config.json` and `model.safetensors`. The model keeps RF-DETR's 91 COCO-id
+classes and its square squash resize at the checkpoint's resolution. Needs
+`huggingface_hub` and `safetensors` (`sleap-nn[backbones]`).
+
+| Option | Short | Description | Values | Default |
+|--------|-------|-------------|--------|---------|
+| `--output` | `-o` | Model directory to write | `PATH` | Required |
+| `--revision` | | HF Hub revision of the checkpoint | `TEXT` | `None` |
+| `--overwrite` | | Replace an existing model in the directory | Flag | `false` |
+
+```bash
+sleap-nn import-rfdetr medium -o models/rfdetr-medium
+sleap-nn predict -m models/rfdetr-medium -i video.mp4
+```
+
+---
+
+## `sleap-nn detect-boxes`
+
+Run a `bbox_*` detector over every labeled frame (or read existing detections),
+match the detections to each frame's ground-truth animals and write a copy of the
+labels with one `PredictedBoundingBox` per detection, linked to its matched
+instance. Train a centered-instance model on the result with
+`preprocessing.crop_bbox_source: detector` so its training crops look like
+inference crops ([Detector-box crops](../guides/warp-data-path.md#detector-box-crops)).
+
+```bash
+sleap-nn detect-boxes -i LABELS.slp (-m MODEL | --detections DETS.json | --detection_chunks DIR) [OPTIONS]
+```
+
+Matching: Hungarian on IoU per frame between detections scoring at least
+`--score_threshold` and the ground truth (non-crowd user boxes of `--category`,
+plus the keypoint extent of pose instances without a linked box); pairs with IoU
+above `--min_iou` are kept. Match statistics go into
+`provenance["detector_boxes"]` and `<output>.json`.
+
+| Option | Short | Description | Values | Default |
+|--------|-------|-------------|--------|---------|
+| `--data_path` | `-i` | Input labels | `PATH` | Required |
+| `--output_path` | `-o` | Output labels | `PATH` | `<input>.<tag>.slp` |
+| `--model_path` | `-m` | `bbox_*` model directory to run | `PATH` | `None` |
+| `--detections` | | COCO detection-results JSON, matched to frames by `file_name` or `image_id` | `PATH` | `None` |
+| `--detection_chunks` | | Directory of `chunk_*.npz` files from an earlier detector pass (with `--image_list`) | `PATH` | `None` |
+| `--image_list` | | Image list (one path per line) the chunks were made from | `PATH` | `None` |
+| `--detector_id` | | The boxes' `source` | `TEXT` | Model dir name, JSON stem or chunk model id |
+| `--tag` | | Output name tag | `TEXT` | `bboxdetr` (model), `dets` (otherwise) |
+| `--category` | | Ground-truth category, detector class and the new boxes' category. A single-class detector's class is used as this category | `TEXT` | `person` |
+| `--score_threshold` | | Detections scoring at least this are matched and stored | `FLOAT` | `0.3` |
+| `--min_iou` | | Matched pairs with IoU above this are kept | `FLOAT` | `0.1` |
+| `--json_category_id` | | COCO category id kept from `--detections` | `INT` | `1` |
+| `--device` | | Device for a model run | `auto`, `cuda`, `cpu`, ... | `auto` |
+| `--batch_size` | | Frames (or tiles) per forward pass | `INT` | `8` |
+| `--min_score` | | Detector score floor (what `--save_detections` keeps) | `FLOAT` | `0.01` |
+| `--max_detections` | | Detections per image (per tile and per merged frame) | `INT` | `300` |
+| `--tile_width` | | Detect in full-height tiles this wide (very wide frames, e.g. panoramas) | `INT` | Off |
+| `--tile_stride` | | Horizontal tile stride | `INT` | `390` |
+| `--tile_nms_iou` | | Tile merge: suppress boxes with IoU above this with a kept box | `FLOAT` | `0.6` |
+| `--tile_contain` | | Tile merge: suppress inner-edge boxes this much inside a kept box | `FLOAT` | `0.7` |
+| `--replace_predicted` | | Remove existing predicted boxes first (re-boxing a file) | Flag | `false` |
+| `--save_detections` | | Also write the raw detections as a COCO results JSON | `PATH` | `None` |
+| `--dry_run` | | Print match statistics only | Flag | `false` |
+| `--overwrite` | | Replace an existing output | Flag | `false` |
+
+```bash
+# A mouse detector over a pose project (boxes named "mouse")
+sleap-nn detect-boxes -i train.pkg.slp -m models/mouse_detr --category mouse
+
+# Person detections already in a COCO results JSON
+sleap-nn detect-boxes -i coco_val2017.slp --detections dets.json
+
+# Panoramas in 640-px full-height tiles
+sleap-nn detect-boxes -i jrdb_train.slp -m models/person --tile_width 640
+```
 
 ---
 

@@ -248,7 +248,7 @@ data_config:
 | `cache_workers` | int | `0` | Number of workers for parallel caching (0 = auto: min(4, cpu_count)) |
 | `use_augmentations_train` | bool | `true` | Apply augmentations during training |
 | `bbox_source` | str | `auto` | Ground-truth boxes for `bbox_*` models: `auto` (the file's user boxes if it has any, else the tight box of each user instance's visible points, else of each mask), `bboxes`, `instances` or `masks`. Ignored by other model types |
-| `bbox_padding` | float | `0.0` | Pixels added on every side of boxes derived from instances or masks |
+| `bbox_padding` | float | `0.0` | Pixels added on every side of boxes derived from instances or masks (keypoints sit inside the outline; the config generator uses 5% of the median animal size for `bbox_detr`). Use the same value in a box-scaled centered-instance model |
 | `instance_filter` | InstanceFilterConfig | `null` | `crop_pipeline: warp` only: train only on instances with at least `min_labeled_nodes` of `count_nodes` (default: every node) labeled and a box of `sqrt(area) >= min_bbox_size` px. Validation keeps every instance |
 
 ### PreprocessingConfig
@@ -259,7 +259,8 @@ data_config:
 | `ensure_grayscale` | bool | `false` | Convert images to 1 channel (grayscale) |
 | `max_height` | int | `null` | Pad images to this height |
 | `max_width` | int | `null` | Pad images to this width |
-| `scale` | float | `1.0` | Resize factor (e.g., 0.5 = half size) |
+| `scale` | float | `1.0` | Resize factor (e.g., 0.5 = half size). Must be `1.0` for `bbox_detr`, whose input size is `max_height` x `max_width` |
+| `resize_mode` | str | `letterbox` | How a frame is fitted to `max_height` x `max_width`: `letterbox` (one scale, padded bottom/right) or `squash` (each axis scaled on its own; RF-DETR's resize, needed for its imported weights). `squash` needs both sizes and is `bbox_detr` only |
 | `crop_size` | int or `[h, w]` | `null` | Crop size for centered-instance models. If `null`, auto-computed from data. `[height, width]` (e.g. `[256, 192]` for people) needs `crop_mode: bbox` and `crop_pipeline: warp` |
 | `crop_pipeline` | str | `legacy` | How `centered_instance` training crops are cut: `legacy`, or `warp` (one affine warp from the full frame, uint8 samples, no size matcher; needs `crop_mode: bbox`). See [Fast top-down data path](../guides/warp-data-path.md) |
 | `gpu_confmaps` | bool | `false` | `crop_pipeline: warp`: render the confidence maps on the GPU in the training step instead of in the workers |
@@ -303,6 +304,23 @@ data_config:
 | `start_step` | int | `null` | First global step of stage 2 (used when `start_epoch` is `null`) |
 | `geometric` | dict | `null` | Overrides merged over `augmentation_config.geometric` |
 | `intensity` | dict | `null` | Overrides merged over `augmentation_config.intensity` |
+
+### DetrAugmentationConfig (augmentation_config.detr)
+
+RF-DETR's training geometry, `bbox_detr` only. Applied to training frames before
+`intensity` / `geometric` (set `geometric: null` explicitly for keypoint-derived
+boxes: an omitted section means the default rotation). Defaults are RF-DETR's COCO
+values; scale `shortest_sides` / `crop_range` to your input size (the config
+generator uses the input's short side and 2/3 to 1x of it).
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `crop_p` | float | `0.5` | Probability of the resize + crop branch: resize the shortest side to one of `shortest_sides`, crop a random square with a side in `crop_range`, resize it to the input size. Otherwise the whole frame is resized. Boxes are clipped to the crop, dropped when no area is left |
+| `shortest_sides` | list[int] | `[400, 500, 600]` | Pre-crop shortest sides |
+| `crop_range` | list[int] | `[384, 600]` | Inclusive `[min, max]` crop side |
+| `flip_p` | float | `0.5` | Horizontal flip probability |
+| `multi_scale` | bool | `true` | Per-batch multi-scale: every training batch is resized to one size drawn per optimizer step (the same on every rank) from `max_height x max_width` +/- `multi_scale_steps` multiples of the backbone's `max_stride` |
+| `multi_scale_steps` | int | `5` | Size steps up and down |
 
 ### GeometricConfig (augmentation_config.geometric)
 

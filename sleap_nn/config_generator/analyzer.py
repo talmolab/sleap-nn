@@ -54,6 +54,12 @@ class DatasetStats:
         estimated_total_bytes: Estimated memory for all images.
         overlap_frequency: Fraction of frames with overlapping instances (IoU > 0.2).
         node_visibility: Dict mapping node names to visibility percentage (0-100).
+        small_bbox_size: 5th percentile of ``sqrt(width * height)`` over instance
+            boxes: the size of a small animal, used by the ``bbox_detr`` token
+            rule (``recommend_detr_resolution``).
+        median_bbox_size: Median of ``sqrt(width * height)`` over instance boxes.
+        touch_frequency: Fraction of frames where two instances' boxes intersect
+            (IoU > 0): animals touching or overlapping.
     """
 
     slp_path: str
@@ -77,6 +83,9 @@ class DatasetStats:
     total_instances: int = 0
     overlap_frequency: float = 0.0
     node_visibility: Optional[Dict[str, float]] = None
+    small_bbox_size: float = 0.0
+    median_bbox_size: float = 0.0
+    touch_frequency: float = 0.0
 
     @property
     def frame_area(self) -> int:
@@ -138,6 +147,7 @@ class DatasetStats:
             f"  Avg bbox size: {self.avg_bbox_size:.1f}px",
             f"  Animal size: ~{self.animal_to_frame_ratio * 100:.1f}% of frame",
             f"  Overlap frequency: {self.overlap_frequency * 100:.1f}%",
+            f"  Touching frames: {self.touch_frequency * 100:.1f}%",
             f"  Skeleton: {self.num_nodes} nodes, {self.num_edges} edges",
             f"  Tracks: {self.num_tracks if self.has_tracks else 'none'}",
         ]
@@ -238,6 +248,37 @@ def _compute_bbox_stats(
         float(np.min(bbox_sizes)),
         float(np.mean(bbox_diagonals)),
     )
+
+
+def _compute_box_size_percentiles(
+    labels: sio.Labels, user_instances_only: bool = True
+) -> Tuple[float, float]:
+    """5th percentile and median of ``sqrt(width * height)`` over instance boxes.
+
+    The geometric-mean side does not depend on the animal's orientation as much
+    as ``max(width, height)`` does (a mouse along a diagonal vs an axis).
+
+    Args:
+        labels: sleap_io Labels object.
+        user_instances_only: If True, only consider user-labeled instances.
+
+    Returns:
+        ``(p5, median)`` in pixels, or ``(0.0, 0.0)`` without boxes.
+    """
+    sizes = []
+    for lf in labels.labeled_frames:
+        instances = lf.user_instances if user_instances_only else lf.instances
+        if not instances and user_instances_only:
+            instances = lf.instances
+        for inst in instances:
+            bbox = _get_instance_bbox(inst)
+            if bbox is not None:
+                w, h = bbox[2] - bbox[0], bbox[3] - bbox[1]
+                if w > 0 or h > 0:
+                    sizes.append(float(np.sqrt(max(w, 1.0) * max(h, 1.0))))
+    if not sizes:
+        return 0.0, 0.0
+    return float(np.percentile(sizes, 5)), float(np.median(sizes))
 
 
 def _compute_avg_instances(
@@ -485,8 +526,14 @@ def analyze_slp(
     # Compute overlap frequency (only for multi-instance datasets)
     if max_instances > 1:
         overlap_freq = _compute_overlap_frequency(labels, user_instances_only)
+        # Touching: any intersection at all (IoU > 0).
+        touch_freq = _compute_overlap_frequency(
+            labels, user_instances_only, iou_threshold=1e-9
+        )
     else:
         overlap_freq = 0.0
+        touch_freq = 0.0
+    small_box, median_box = _compute_box_size_percentiles(labels, user_instances_only)
 
     # Skeleton info
     skeleton = labels.skeletons[0] if labels.skeletons else None
@@ -530,4 +577,7 @@ def analyze_slp(
         total_instances=total_instances,
         overlap_frequency=overlap_freq,
         node_visibility=node_visibility,
+        small_bbox_size=small_box,
+        median_bbox_size=median_box,
+        touch_frequency=touch_freq,
     )

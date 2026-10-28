@@ -1,0 +1,162 @@
+# bbox_detr for animals: a mouse box detector trained from a pretrained DINOv3
+# ViT-S/16 with a freshly initialized projector and decoder (no detection
+# checkpoint), as stage 1 of a top-down pose model. Sized for a small dataset: the
+# SLEAP paper's 2-mouse "mice HC" set (1,180 train / 147 val frames, 1280 x 1024 IR
+# grayscale, mice touching in ~40% of frames).
+#
+#   sleap-nn train config_bbox_detr_dinov3_s_mouse.yaml \
+#     "data_config.train_labels_path=[mice.train.pkg.slp]" \
+#     "data_config.val_labels_path=[mice.val.pkg.slp]"
+#
+# Then use it as the first stage of a top-down model whose crops are these boxes
+# (crop_mode: bbox, same bbox_source / bbox_padding):
+#
+#   sleap-nn predict -i video.mp4 -m models/mouse_detr -m models/mouse_ci
+#
+# `sleap-nn config labels.slp --auto --pipeline topdown_bbox_detr` writes this
+# config (and the instance model) for your own data, with the input size and box
+# padding computed from your labels. See docs/guides/bbox-detr.md.
+data_config:
+  train_labels_path: null
+  val_labels_path: null
+  test_file_path: null
+  # No user boxes in a pose project: derive one per instance from its visible
+  # nodes (`auto` falls back to `instances`), padded on every side by bbox_padding
+  # px because keypoints sit inside the outline. 9 px is 5% of the median mouse
+  # size here (sqrt(w * h) = 173 px). The centered-instance model must use the
+  # same two values so its crops match the detected boxes.
+  bbox_source: instances
+  bbox_padding: 9.0
+  data_pipeline_fw: torch_dataset_cache_img_memory
+  preprocessing:
+    # DINOv3 was pretrained on RGB; gray frames are repeated to 3 channels.
+    ensure_rgb: true
+    # Resolution rule: the smallest 5% of mice (padded sqrt(w * h) = 97 px) must
+    # be >= 3 ViT tokens (48 px) wide and the median mouse >= 4. That needs a
+    # scale of 0.50, so the 1280 x 1024 frames are letterboxed to 640 x 512
+    # (multiples of 32): small mice 3.0 tokens, median 6.0, 40 x 32 = 1,280 tokens
+    # of global attention. A bigger arena or smaller animals need a larger input;
+    # past ~1280 px see the guide's tiling section.
+    max_height: 512
+    max_width: 640
+    scale: 1.0
+    # One scale per frame, padded bottom/right (our own weights; `squash` is only
+    # for imported RF-DETR weights).
+    resize_mode: letterbox
+  use_augmentations_train: true
+  augmentation_config:
+    # IR brightness and contrast vary across sessions.
+    intensity:
+      contrast_min: 0.8
+      contrast_max: 1.2
+      contrast_p: 0.5
+      brightness_min: 0.8
+      brightness_max: 1.2
+      brightness_p: 0.5
+    # No rotation or affine scale: rotating a keypoint box inflates it. Must be
+    # null, not omitted (omitted means the +-15 deg default).
+    geometric: null
+    # RF-DETR's geometry, scaled to this input: half the samples resize the
+    # shortest side to 512 and crop a square of 341-512 px, i.e. zoom 1-1.5x
+    # (RF-DETR's COCO values, 400-600 / 384-600, assume ~600 px inputs); flip
+    # 50%; every batch is resized to 640 x 512 +/- 5 steps of 32 px.
+    detr:
+      crop_p: 0.5
+      shortest_sides: [512]
+      crop_range: [341, 512]
+      flip_p: 0.5
+      multi_scale: true
+      multi_scale_steps: 5
+model_config:
+  init_weights: default
+  backbone_config:
+    pretrained:
+      source: hf
+      # 21.6M params; the pretrained ViT is the only pretrained part.
+      model_name: timm/vit_small_patch16_dinov3.lvd1689m
+      weights: true
+      # The bbox_detr backbone returns the tapped token maps.
+      mode: tokens
+      # Blocks 3, 6, 9, 12, each through the pretrained final norm (RF-DETR's taps).
+      layers: [3, 6, 9, 12]
+      drop_path_rate: 0.1
+      in_channels: 3
+      output_stride: 16
+      # Inputs padded to 32: the multi-scale step.
+      max_stride: 32
+  head_configs:
+    bbox_detr:
+      detr:
+        # One class. Left null it is filled at train time from the boxes; derived
+        # boxes have no category, so the class is "object". The class bias starts
+        # at the 0.01 prior (RF-DETR's init).
+        categories: null
+        output_stride: 16
+        hidden_dim: 256
+        # 100 queries instead of RF-DETR's 300: frames hold a few animals, and
+        # 100 still leaves room for every animal plus near-duplicates to learn
+        # to reject. Needs >= 100 tokens, i.e. inputs >= 160 x 160.
+        num_queries: 100
+        num_select: 100
+        # 13 query groups in training (Group DETR), one at inference.
+        group_detr: 13
+        # 3 layers (RF-DETR-S): a fresh decoder on a small dataset; 9.1M params
+        # for projector, decoder and heads.
+        dec_layers: 3
+        sa_nheads: 8
+        ca_nheads: 16
+        dec_n_points: 2
+        dim_feedforward: 2048
+        # Decoder lr x 0.7; backbone lr x 1.5 x 0.7^2 x layer decay.
+        lr_component_decay: 0.7
+trainer_config:
+  trainer_devices: 1
+  trainer_accelerator: gpu
+  train_data_loader:
+    batch_size: 8
+    num_workers: 8
+    shuffle: true
+  val_data_loader:
+    batch_size: 8
+    num_workers: 4
+  # Small data needs long training: the RF-DETR paper says more than 100 epochs.
+  # 200 epochs of 148 steps is ~30K steps: ~7 GB of GPU memory and ~2 h on one
+  # RTX PRO 6000 (estimated from RF-DETR-M's measured 44 images/s at a similar
+  # token count). M5 sweeps 100 / 200 / 400. An epoch is one pass over the frames
+  # (min_train_steps_per_epoch: 1).
+  max_epochs: 200
+  min_train_steps_per_epoch: 1
+  # bf16 autocast (Ampere or newer; use "32" on older GPUs).
+  precision: bf16-mixed
+  gradient_clip_val: 0.1
+  optimizer_name: AdamW
+  optimizer:
+    # RF-DETR: lr 1e-4 at 16 images per step; kept at batch 8 (its fine-tuning
+    # advice is to halve it if training does not converge).
+    lr: 1.0e-4
+    weight_decay: 1.0e-4
+    encoder_lr_scale: 1.5
+    layer_decay: 0.8
+  # Constant LR (RF-DETR's default) and no early stopping: the EMA weights keep
+  # improving long after the loss flattens.
+  lr_scheduler:
+    reduce_lr_on_plateau: null
+  early_stopping:
+    stop_training_on_plateau: false
+  ema:
+    enabled: true
+    decay: 0.993
+    warmup_steps: 100
+  # Box mAP on the validation frames every epoch (147 frames: seconds); the
+  # checkpoint with the best eval/val/bbox_mAP is kept.
+  eval:
+    enabled: true
+    frequency: 1
+  model_ckpt:
+    save_top_k: 1
+    save_last: true
+  save_ckpt: true
+  ckpt_dir: models
+  run_name: mouse_detr
+  visualize_preds_during_training: false
+  use_wandb: false
