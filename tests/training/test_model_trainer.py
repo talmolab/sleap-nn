@@ -2472,6 +2472,82 @@ def test_head_config_without_a_skeleton_names_the_head_it_cannot_fill(config):
         trainer_bu._setup_head_config()
 
 
+class TestExplicitPafEdges:
+    """``_setup_head_config`` checks PAF ``edges`` against the skeleton's edges.
+
+    PAF targets always come from the skeleton's own edges, one channel pair per
+    edge in skeleton order, while the head is sized from ``edges``. A wrong length
+    used to crash deep in the loss, and a same-length mismatch (e.g. a reversed
+    edge) trained without error against mislabeled channels.
+    """
+
+    @staticmethod
+    def _bottomup_trainer(config, edges, skeleton):
+        cfg = OmegaConf.create(OmegaConf.to_container(config, resolve=True))
+        cfg.model_config.head_configs.centered_instance = None
+        # Only the `pafs` key, so the edges branch is what runs.
+        cfg.model_config.head_configs.bottomup = OmegaConf.create(
+            {"pafs": {"edges": edges, "sigma": 4.0, "output_stride": 4}}
+        )
+        trainer = ModelTrainer(config=cfg)
+        trainer.model_type = "bottomup"
+        trainer.skeletons = [skeleton]
+        return trainer
+
+    @pytest.fixture
+    def skeleton(self, minimal_instance):
+        skeleton = sio.load_slp(minimal_instance).skeletons[0]
+        assert [(e.source.name, e.destination.name) for e in skeleton.edges] == [
+            ("A", "B")
+        ]
+        return skeleton
+
+    def test_null_edges_are_inferred(self, config, skeleton):
+        trainer = self._bottomup_trainer(config, None, skeleton)
+        trainer._setup_head_config()
+        edges = trainer.config.model_config.head_configs.bottomup.pafs.edges
+        assert [tuple(e) for e in edges] == [("A", "B")]
+
+    def test_matching_explicit_edges_pass(self, config, skeleton):
+        trainer = self._bottomup_trainer(config, [["A", "B"]], skeleton)
+        trainer._setup_head_config()
+
+    @pytest.mark.parametrize(
+        "edges",
+        [
+            [["B", "A"]],  # reversed: same length, would train silently
+            [["A", "B"], ["B", "A"]],  # extra edge: channel-count mismatch
+            [["A", "C"]],  # node not in the skeleton
+        ],
+    )
+    def test_mismatched_explicit_edges_raise(self, config, skeleton, edges):
+        trainer = self._bottomup_trainer(config, edges, skeleton)
+        with pytest.raises(ValueError, match=r"must exactly match the skeleton's"):
+            trainer._setup_head_config()
+
+    @pytest.mark.parametrize("edges", [[["A"]], [1]], ids=["one-node", "not-a-pair"])
+    def test_malformed_edge_raises(self, config, skeleton, edges):
+        trainer = self._bottomup_trainer(config, edges, skeleton)
+        with pytest.raises(ValueError, match=r"node-name pairs"):
+            trainer._setup_head_config()
+
+    def test_explicit_edges_without_skeleton_raise(self, config, skeleton):
+        trainer = self._bottomup_trainer(config, [["A", "B"]], skeleton)
+        trainer.skeletons = []
+        with pytest.raises(ValueError, match=r"labels carry no skeleton"):
+            trainer._setup_head_config()
+
+    @pytest.mark.parametrize(
+        "skeleton",
+        [sio.Skeleton(["A", "B"]), sio.Skeleton(["A"])],
+        ids=["no-edges", "single-node"],
+    )
+    def test_edgeless_skeleton_raises(self, config, skeleton):
+        trainer = self._bottomup_trainer(config, None, skeleton)
+        with pytest.raises(ValueError, match=r"edges is empty"):
+            trainer._setup_head_config()
+
+
 def test_centroids_from_masks_rejects_an_unknown_method(config, tmp_path):
     cfg = _centroid_cfg_from(config, tmp_path)
     cfg.data_config.centroids_from_masks = "anchor"  # a mask has no nodes
@@ -2587,6 +2663,68 @@ class TestMultiClassIdentityClasses:
         cv = trainer.config.model_config.head_configs.multi_class_topdown.class_vectors
         assert cv.classes is not None and len(cv.classes) == 2
         assert not hasattr(cv, "class_uuids")
+
+    def test_inferred_classes_are_sorted(self, minimal_instance):
+        """Inferred classes have a stable order (set order varies per process)."""
+        labels, _ = self._tracked_labels(minimal_instance, ("zed", "alpha"))
+        trainer = self._build_trainer(
+            "multi_class_bottomup", "class_maps", {"classes": None}, [labels]
+        )
+        trainer._setup_head_config()
+        cm = trainer.config.model_config.head_configs.multi_class_bottomup.class_maps
+        assert list(cm.classes) == ["alpha", "zed"]
+
+    @pytest.mark.parametrize(
+        "model_type,sub_key",
+        [
+            ("multi_class_topdown", "class_vectors"),
+            ("multi_class_bottomup", "class_maps"),
+        ],
+    )
+    def test_explicit_classes_missing_a_track_raise(
+        self, minimal_instance, model_type, sub_key
+    ):
+        """A used track name with no class crashed on the first sample load."""
+        labels, _ = self._tracked_labels(minimal_instance)
+        trainer = self._build_trainer(
+            model_type, sub_key, {"classes": ["female"]}, [labels]
+        )
+        with pytest.raises(ValueError, match=r"no class for the track name\(s\)"):
+            trainer._setup_head_config()
+
+    def test_duplicate_classes_raise(self, minimal_instance):
+        labels, _ = self._tracked_labels(minimal_instance)
+        trainer = self._build_trainer(
+            "multi_class_topdown",
+            "class_vectors",
+            {"classes": ["female", "male", "female"]},
+            [labels],
+        )
+        with pytest.raises(ValueError, match=r"more than once"):
+            trainer._setup_head_config()
+
+    def test_unused_explicit_classes_warn(self, minimal_instance, caplog):
+        """A superset is allowed (room for more identities) but warned about."""
+        labels, _ = self._tracked_labels(minimal_instance)
+        trainer = self._build_trainer(
+            "multi_class_topdown",
+            "class_vectors",
+            {"classes": ["female", "male", "pup"]},
+            [labels],
+        )
+        trainer._setup_head_config()
+        assert "includes ['pup']" in caplog.text
+
+    def test_validation_only_track_raises(self, minimal_instance):
+        """Inferred classes come from the training labels only."""
+        train, _ = self._tracked_labels(minimal_instance)
+        val, _ = self._tracked_labels(minimal_instance, ("female", "stranger"))
+        trainer = self._build_trainer(
+            "multi_class_topdown", "class_vectors", {"classes": None}, [train]
+        )
+        trainer.val_labels = [val]
+        with pytest.raises(ValueError, match=r"\['stranger'\]"):
+            trainer._setup_head_config()
 
 
 class TestEmbeddingPretrainedBackboneSync:
