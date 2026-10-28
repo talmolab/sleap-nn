@@ -6,9 +6,11 @@ confmap channels, of which a user wants one dataset's. :func:`apply_node_filter`
 slices the confmap head's output convolution (``Conv2d(in -> K)``, 1x1 or 3x3) to
 the selected channels after the checkpoint is loaded, so the unused confmaps are
 never computed, and restricts the output skeleton (edges, symmetries, the
-flip-test channel permutation) to the kept nodes. Sliced channels are exactly the
+flip-test channel permutation) to the kept nodes. Sliced channels are the
 unfiltered model's channels: a 1x1 / 3x3 conv's output channel ``c`` depends only
-on its own filter ``weight[c]`` and ``bias[c]``.
+on its own filter ``weight[c]`` and ``bias[c]`` (up to float rounding: a conv
+backend may sum in another order for another channel count, ~1e-7 on macOS CPU;
+bit-identical on Linux CPU).
 
 Scope: ``single_instance`` and top-down ``centered_instance`` models.
 """

@@ -82,7 +82,11 @@ def test_check_flip_partners():
 
 @pytest.mark.parametrize("kernel_size", [1, 3])
 def test_slice_head_conv_keeps_exact_channels(kernel_size):
-    """A sliced head outputs exactly the selected channels of the full head."""
+    """A sliced head outputs the selected channels of the full head.
+
+    Up to float rounding: conv backends may sum in another order for another
+    output-channel count (~1e-7 on macOS CPU).
+    """
     torch.manual_seed(0)
     head = CenteredInstanceConfmapsHead(part_names=[f"n{i}" for i in range(300)])
     layer = head.make_head(x_in=32, kernel_size=kernel_size)
@@ -97,7 +101,7 @@ def test_slice_head_conv_keeps_exact_channels(kernel_size):
     assert new.out_channels == 15 and new.kernel_size == (kernel_size,) * 2
     with torch.no_grad():
         sliced = model.head_layers[0](x)
-    torch.testing.assert_close(sliced, full[:, idx], rtol=0, atol=0)
+    torch.testing.assert_close(sliced, full[:, idx], rtol=1e-5, atol=1e-5)
 
 
 def _renamed_model_dir(src, dst, rename):
@@ -145,7 +149,7 @@ def test_filtered_confmaps_equal_unfiltered_channels(fixture, model_type, reques
         cms_full = _module(full, model_type)(x)
         cms_filt = _module(filt, model_type)(x)
     assert cms_full.shape[1] == 2 and cms_filt.shape[1] == 1
-    torch.testing.assert_close(cms_filt, cms_full[:, [1]], rtol=0, atol=0)
+    torch.testing.assert_close(cms_filt, cms_full[:, [1]], rtol=1e-5, atol=1e-5)
 
 
 def _points(labels):

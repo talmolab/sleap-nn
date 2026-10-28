@@ -290,8 +290,8 @@ sleap-nn predict -i video.mp4 -m models/centroid/ -m models/centered_instance/ \
 
 - The confmap head's output convolution is sliced to the kept channels when the
   model is loaded, so the other confidence maps are never computed. Kept channels
-  are bit-identical to the same channels of the full model, and so are their
-  predictions.
+  equal the same channels of the full model up to float rounding (bit-identical
+  on Linux CPU), and so do their predictions.
 - The output skeleton keeps the kept nodes, the edges and symmetries between them,
   and `--flip_test` swaps channels from the restricted symmetries. Flip-test needs
   both nodes of each kept symmetric pair.
