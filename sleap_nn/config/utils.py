@@ -327,6 +327,9 @@ def _set_pretrained_encoder_mode(config: OmegaConf) -> None:
 def _set_pretrained_decoder_mode(config: OmegaConf, model_type: str) -> None:
     """Record `mode: decoder` for a `pretrained` backbone under a spatial head.
 
+    A ``bbox_detr`` model records ``mode: tokens`` instead (its backbone is the
+    tapped token maps).
+
     ``mode: auto`` means "decoder" whenever the model has a spatial head (for a
     plain ViT, the feature-pyramid neck), which the backbone would otherwise work
     out from the heads at construction. Writing it here makes the saved training
@@ -337,7 +340,20 @@ def _set_pretrained_decoder_mode(config: OmegaConf, model_type: str) -> None:
         model_type: The model type (its heads decide).
     """
     pretrained_cfg = config.model_config.backbone_config.pretrained
-    if OmegaConf.select(pretrained_cfg, "mode", default="auto") != "auto":
+    mode = OmegaConf.select(pretrained_cfg, "mode", default="auto")
+    if model_type == "bbox_detr":
+        # The DETR projector reads the tapped token maps themselves.
+        if mode not in ("auto", "tokens"):
+            message = (
+                f"model_config.backbone_config.pretrained.mode={mode!r} is not valid "
+                "for bbox_detr, whose backbone returns the tapped token maps; use "
+                "mode='tokens' (or 'auto', which resolves to it)."
+            )
+            logger.error(message)
+            raise ValueError(message)
+        pretrained_cfg.mode = "tokens"
+        return
+    if mode != "auto":
         return
     heads = config.model_config.head_configs[model_type] or {}
     if any(

@@ -3217,10 +3217,10 @@ class ModelTrainer:
         # inject a DistributedSampler into a custom batch_sampler (it raises), so disable
         # replacement for embedding; every other model type passes an explicit
         # DistributedSampler under DDP, so the default (True) is correct for them.
-        # The balanced per-file batch sampler (`crop_pipeline="warp"`) also draws
-        # its own per-rank stream.
+        # The balanced per-file batch sampler (`crop_pipeline="warp"`, `bbox_*`)
+        # also draws its own per-rank stream.
         use_distributed_sampler = self.model_type != "embedding" and not (
-            self._uses_warp_pipeline()
+            (self._uses_warp_pipeline() or self.model_type.startswith("bbox_"))
             and OmegaConf.select(
                 self.config, "trainer_config.balanced_sampler", default=None
             )

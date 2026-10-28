@@ -38,7 +38,10 @@ from loguru import logger
 from omegaconf import DictConfig
 from torch import nn
 
-from sleap_nn.architectures.detr.backbones import register_detr_backbone
+from sleap_nn.architectures.detr.backbones import (
+    rfdetr_layer_decay_groups,
+    register_detr_backbone,
+)
 
 IMAGENET_MEAN = (0.485, 0.456, 0.406)
 IMAGENET_STD = (0.229, 0.224, 0.225)
@@ -470,32 +473,21 @@ class WindowedDinov2Backbone(nn.Module):
             decay), else ``{"params", "lr", "name"}`` groups (``depth<d>``) over the
             trainable parameters.
         """
-        scale = 1.0 if encoder_lr_scale is None else float(encoder_lr_scale)
-        if scale == 1.0 and not layer_decay:
-            return None
-        named = [(n, p) for n, p in self.named_parameters() if p.requires_grad]
-        if not layer_decay:
-            return [
-                {"params": [p for _, p in named], "lr": base_lr * scale, "name": "all"}
-            ]
         num_layers = max(self.out_indices) + 1
-        by_depth: Dict[int, List[torch.Tensor]] = {}
-        for name, param in named:
+        depths = []
+        for name, param in self.named_parameters():
+            if not param.requires_grad:
+                continue
             if name.startswith("embeddings."):
                 depth = 0
             elif name.startswith("encoder.layer."):
                 depth = int(name.split(".")[2]) + 1
             else:
                 depth = num_layers + 1
-            by_depth.setdefault(depth, []).append(param)
-        return [
-            {
-                "params": params,
-                "lr": base_lr * scale * layer_decay ** (num_layers + 1 - depth),
-                "name": f"depth{depth}",
-            }
-            for depth, params in sorted(by_depth.items())
-        ]
+            depths.append((param, depth))
+        return rfdetr_layer_decay_groups(
+            depths, base_lr, num_layers, encoder_lr_scale, layer_decay
+        )
 
     def reload_pretrained_weights(self):
         """Re-apply the DINOv2 weights loaded at build time (after a re-init)."""

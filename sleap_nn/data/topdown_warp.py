@@ -29,8 +29,9 @@ This module does the same job in one resample:
    window and augmentation draw cut at the teacher's resolution from the same
    decoded frame (a second warp, no second decode).
 4. :class:`BalancedBatchSampler` composes every batch from fixed per-file counts
-   (``labels_idx``), with an iteration-based epoch length, per-rank streams and a
-   resumable position (:class:`BalancedDataLoader`).
+   (``labels_idx``) or per-sample file weights, with an iteration-based epoch
+   length, per-rank streams and a resumable position (:class:`BalancedDataLoader`).
+   The bbox datasets use it too.
 """
 
 from __future__ import annotations
@@ -1527,18 +1528,61 @@ class BalancedBatchSampler(Sampler):
     concatenated passes. So resuming needs only the number of batches delivered
     (``position``, kept up to date by :class:`BalancedDataLoader`): each ``__iter__``
     yields from ``position`` to the end of its epoch.
+
+    With ``weights`` instead (per-sample mixing), every sample of a batch picks its
+    group with probability ``weights[g]`` and then a uniformly random sample of that
+    group (with replacement), from a generator keyed on ``(seed, rank, b)``. Any
+    number of groups mixes in the right proportions at any batch size, which fixed
+    integer counts cannot do with a few images per GPU.
     """
 
     def __init__(
         self,
         group_ids: np.ndarray,
-        counts: Sequence[int],
+        counts: Optional[Sequence[int]],
         batches_per_epoch: int,
         seed: int = 0,
         rank: int = 0,
+        weights: Optional[Sequence[float]] = None,
+        batch_size: Optional[int] = None,
     ):
-        """Initialize."""
+        """Initialize.
+
+        Args:
+            group_ids: Group (training file) of every sample.
+            counts: Samples per group per batch (fixed composition), or ``None``
+                with ``weights``.
+            batches_per_epoch: Batches per epoch.
+            seed: Base seed.
+            rank: This process's rank (its own stream).
+            weights: Per-sample group probabilities (normalized here), replacing
+                ``counts``.
+            batch_size: Samples per batch; required with ``weights``.
+
+        Raises:
+            ValueError: On inconsistent counts / weights.
+        """
         group_ids = np.asarray(group_ids)
+        if weights is not None:
+            w = np.asarray(weights, dtype=np.float64)
+            if (w < 0).any() or w.sum() <= 0:
+                raise ValueError(f"balanced_sampler weights must be >= 0, got {w}.")
+            if not batch_size or batch_size < 1:
+                raise ValueError("Per-sample weights need a batch_size >= 1.")
+            self.weights = w / w.sum()
+            self.groups = [np.flatnonzero(group_ids == g) for g in range(len(w))]
+            for g, idx in enumerate(self.groups):
+                if self.weights[g] > 0 and len(idx) == 0:
+                    raise ValueError(f"Group {g} has weight {w[g]} but no samples.")
+            self.counts = None
+            self.batch_size = int(batch_size)
+            self.batches_per_epoch = int(batches_per_epoch)
+            self.seed = int(seed)
+            self.rank = int(rank)
+            self.position = 0
+            self._perm_cache: Dict[int, Tuple[int, np.ndarray]] = {}
+            return
+        self.weights = None
         self.counts = [int(c) for c in counts]
         if sum(self.counts) <= 0:
             raise ValueError("balanced_sampler counts must sum to at least 1.")
@@ -1567,6 +1611,14 @@ class BalancedBatchSampler(Sampler):
 
     def batch(self, b: int) -> np.ndarray:
         """Sample indices of global batch ``b`` (group by group)."""
+        if self.weights is not None:
+            # A key no (seed, rank, group, pass) permutation uses.
+            rng = np.random.default_rng((self.seed, self.rank, 2**32 - 1, b))
+            groups = rng.choice(len(self.weights), self.batch_size, p=self.weights)
+            groups.sort()
+            return np.asarray(
+                [self.groups[g][rng.integers(len(self.groups[g]))] for g in groups]
+            )
         parts = []
         for g, c in enumerate(self.counts):
             n = len(self.groups[g])

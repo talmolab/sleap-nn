@@ -76,7 +76,12 @@ from sleap_nn.config.trainer_config import (
     ReduceLROnPlateauConfig,
     StepLRConfig,
 )
-from sleap_nn.training.optim import resolve_encoder_lr_options, split_weight_decay
+from sleap_nn.training.optim import (
+    is_embedding_or_token,
+    no_weight_decay_names,
+    resolve_encoder_lr_options,
+    split_weight_decay,
+)
 from sleap_nn.training.detr import build_set_criterion
 from sleap_nn.training.schedulers import (
     LinearWarmupCosineAnnealingLR,
@@ -5283,7 +5288,11 @@ class BBoxDetrLightningModule(_BBoxLightningModel):
       ``lr * encoder_lr_scale * lr_component_decay ** 2`` times its layer decay
       (``layer_decay``), the decoder at ``lr * lr_component_decay``, everything
       else at ``lr``. With ``weight_decay`` set, every parameter decays except
-      backbone norms, biases and embeddings (:data:`DETR_BACKBONE_NO_DECAY`).
+      backbone norms, biases and embeddings (:data:`DETR_BACKBONE_NO_DECAY`), and
+      backbone position embeddings / special tokens by name (timm's
+      ``cls_token`` / ``reg_token``: :func:`~sleap_nn.training.optim.
+      is_embedding_or_token`) or as the module declares them
+      (``no_weight_decay()``).
     * ``init_weights: xavier`` is ignored: the detector has its own init.
 
     EMA, gradient clipping, precision and the LR schedule are the trainer's
@@ -5393,6 +5402,7 @@ class BBoxDetrLightningModule(_BBoxLightningModel):
             )
         name_of = {id(p): n for n, p in self.named_parameters()}
         backbone_ids = {id(p) for p in self.model.backbone.parameters()}
+        declared = no_weight_decay_names(self)
         wd = float(self.weight_decay)
         params = []
         for group in self._trainable_param_groups():
@@ -5400,8 +5410,11 @@ class BBoxDetrLightningModule(_BBoxLightningModel):
             name = rest.pop("name")
             decay, no_decay = [], []
             for p in group["params"]:
-                exempt = id(p) in backbone_ids and any(
-                    key in name_of.get(id(p), "") for key in DETR_BACKBONE_NO_DECAY
+                name = name_of.get(id(p), "")
+                exempt = id(p) in backbone_ids and (
+                    any(key in name for key in DETR_BACKBONE_NO_DECAY)
+                    or is_embedding_or_token(name)
+                    or any(name == n or name.startswith(n + ".") for n in declared)
                 )
                 (no_decay if exempt else decay).append(p)
             for half, half_wd, suffix in (
