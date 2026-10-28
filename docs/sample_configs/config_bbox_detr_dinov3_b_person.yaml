@@ -8,9 +8,10 @@
 # (iscrowd=1) and `ignore` (isfake=1) boxes and Open Images `crowd` (IsGroupOf) and
 # body-part boxes are skipped; frames left with no person box are not sampled.
 #
-# Stage 2 starts from this run's checkpoint (`model_config.init_from`) on COCO
-# train2017 + CrowdHuman + CrowdPose + JRDB-Pose + Human-Art, mixed per sample by
-# `trainer_config.balanced_sampler` ({per_sample: true, weights: [...]}).
+# Stage 2 (config_bbox_detr_dinov3_b_person_stage2.yaml) starts from this run's
+# checkpoint (`model_config.init_from`) on COCO train2017 + CrowdHuman + CrowdPose
+# + JRDB-Pose + Human-Art, mixed per sample by `trainer_config.balanced_sampler`.
+# See docs/guides/bbox-detr.md.
 #
 #   sleap-nn train config_bbox_detr_dinov3_b_person.yaml
 #

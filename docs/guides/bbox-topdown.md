@@ -32,7 +32,9 @@ sleap-nn train config_bbox_centernet.yaml
 sleap-nn train config_centered_instance.yaml
 ```
 
-(`topdown_bbox_ssd` uses the SSD-style detector.) The two configs share
+(`topdown_bbox_ssd` uses the SSD-style detector, `topdown_bbox_detr` the DETR
+detector of the [DETR box detector guide](bbox-detr.md), which keeps touching
+animals apart.) The two configs share
 `bbox_source` / `bbox_padding`, as they must (below). The TUI (`sleap-nn config
 labels.slp`) offers the same pair.
 

@@ -6,7 +6,7 @@ based on training configuration parameters.
 
 import math
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, Optional
 
 if TYPE_CHECKING:
     from sleap_nn.config_generator.analyzer import DatasetStats
@@ -242,4 +242,112 @@ def estimate_memory(
         cpu_fits_in_memory=cpu_fits,
         cpu_message=cpu_message,
         params_count=num_params,
+    )
+
+
+#: Training bytes per parameter: fp32 weights, gradients (4 of the 20), AdamW's two
+#: moments and the EMA copy.
+_DETR_BYTES_PER_PARAM = 20
+#: Saved activation bytes per token per channel per ViT block (bf16 autocast),
+#: calibrated on M2's measured 4.7 GB/GPU peak: RF-DETR-M, batch 4, multi-scale up
+#: to 736 px.
+_VIT_ACTIVATION_BYTES = 78
+#: Decoder activation bytes per query per layer, in units of
+#: ``(12 * hidden_dim + 2 * dim_feedforward)`` (bf16: 2 bytes).
+_DECODER_ACTIVATION_BYTES = 2
+
+
+def estimate_detr_memory(
+    stats: "DatasetStats",
+    preset: str = "dinov3_s",
+    batch_size: int = 8,
+    max_height: Optional[int] = None,
+    max_width: Optional[int] = None,
+    num_queries: int = 100,
+    group_detr: int = 13,
+    multi_scale_steps: int = 5,
+    hidden_dim: int = 256,
+    dim_feedforward: int = 2048,
+) -> MemoryEstimate:
+    """Estimate the training GPU memory of a ``bbox_detr`` model.
+
+    Peak memory is set by the largest multi-scale step (``max_height`` /
+    ``max_width`` plus ``multi_scale_steps`` x 32): the ViT's saved activations
+    (every block sees every token), the decoder over ``group_detr x num_queries``
+    queries, and ~20 bytes per parameter for weights, gradients, AdamW and EMA.
+    Calibrated on a measured run (RF-DETR-M at 576, batch 4: 4.7 GB); treat it as
+    +/- 30%.
+
+    Args:
+        stats: DatasetStats from analyze_slp() (frame size for the CPU cache).
+        preset: A ``DETR_PRESETS`` key.
+        batch_size: Training images per GPU.
+        max_height: Letterbox height (default: the preset's input size).
+        max_width: Letterbox width (default: the preset's input size).
+        num_queries: Queries per group.
+        group_detr: Query groups in training.
+        multi_scale_steps: Multi-scale steps above the base size (0: off).
+        hidden_dim: Width of the memory and queries.
+        dim_feedforward: Decoder FFN width.
+
+    Returns:
+        MemoryEstimate with breakdown (``confmaps_mb`` holds the decoder's share).
+    """
+    from sleap_nn.config_generator.architecture_estimates import (
+        DETR_MAX_STRIDE,
+        DETR_PATCH_SIZE,
+        DETR_PRESETS,
+        estimate_detr_params,
+    )
+
+    p = DETR_PRESETS[preset]
+    height = int(max_height or p.input_size) + multi_scale_steps * DETR_MAX_STRIDE
+    width = int(max_width or p.input_size) + multi_scale_steps * DETR_MAX_STRIDE
+    tokens = (height // DETR_PATCH_SIZE) * (width // DETR_PATCH_SIZE)
+    params = estimate_detr_params(
+        preset, num_queries=num_queries, group_detr=group_detr
+    )["total"]
+
+    weights_mb = params * (_DETR_BYTES_PER_PARAM - 4) / 1e6
+    gradients_mb = params * 4 / 1e6
+    batch_img_mb = batch_size * height * width * 3 * 4 / 1e6
+    vit_mb = (
+        batch_size * p.num_layers * tokens * p.hidden_size * _VIT_ACTIVATION_BYTES / 1e6
+    )
+    decoder_mb = (
+        batch_size
+        * p.dec_layers
+        * group_detr
+        * num_queries
+        * (12 * hidden_dim + 2 * dim_feedforward)
+        * _DECODER_ACTIVATION_BYTES
+        / 1e6
+    )
+    total_mb = weights_mb + gradients_mb + batch_img_mb + vit_mb + decoder_mb
+
+    if total_mb < 10_000:
+        gpu_status: Literal["green", "yellow", "red"] = "green"
+        gpu_message = "Should fit on a 12 GB GPU"
+    elif total_mb < 20_000:
+        gpu_status = "yellow"
+        gpu_message = "Needs a 24 GB GPU"
+    else:
+        gpu_status = "red"
+        gpu_message = "Needs a 48 GB GPU, or reduce batch_size / input size"
+
+    # The CPU side is the same as for the other models.
+    cpu = estimate_memory(stats, batch_size=1)
+    return MemoryEstimate(
+        model_weights_mb=weights_mb,
+        batch_images_mb=batch_img_mb,
+        activations_mb=vit_mb,
+        gradients_mb=gradients_mb,
+        confmaps_mb=decoder_mb,
+        total_gpu_mb=total_mb,
+        cache_memory_mb=cpu.cache_memory_mb,
+        gpu_status=gpu_status,
+        gpu_message=gpu_message,
+        cpu_fits_in_memory=cpu.cpu_fits_in_memory,
+        cpu_message=cpu.cpu_message,
+        params_count=params,
     )

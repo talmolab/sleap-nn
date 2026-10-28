@@ -89,6 +89,12 @@ pure function of the seed, the rank and the batch index, and the number of batch
 delivered is saved in the checkpoint, so `resume_ckpt_path` continues the same
 stream where it stopped.
 
+With `per_sample: true`, each sample's file is drawn at random with probability
+`weights` (normalized; equal shares when `null`) instead of fixed per-batch counts,
+so any number of files mixes at any batch size (e.g. 5 files at 8 per GPU). The
+`bbox_*` detectors use the same sampler; see the [DETR box detector
+guide](bbox-detr.md#our-human-detector-two-stages).
+
 ## Crop boxes and filters
 
 - `crop_bbox_categories` keeps only linked user boxes of those categories as crop
@@ -134,34 +140,41 @@ User boxes and the `gt` path never read predicted boxes, so adding them to a fil
 not change `crop_bbox_source: gt` training. The log reports how many crops came from
 detector boxes and how many fell back.
 
-Matching follows Sárándi et al. (WACV 2023): per image, Hungarian matching on IoU
-between the detections and the GT people, keeping pairs with IoU > 0.1. Matching
-against every non-crowd GT person box, including people without keypoints, keeps a
-detection on an unlabeled person from being assigned to a labeled neighbour. For
-files without person boxes (MPII), the keypoint extent is the GT box. A minimal
-sketch (keypoint-extent GT boxes only):
+`sleap-nn detect-boxes` writes these boxes. It runs a `bbox_*` model (for example a
+`bbox_detr` person detector, or an RF-DETR checkpoint imported with
+`sleap-nn import-rfdetr`) over every labeled frame, or reads existing detections,
+matches them to the GT people and writes `<name>.<tag>.slp` next to the input:
 
-```python
-import numpy as np
-import sleap_io as sio
-from scipy.optimize import linear_sum_assignment
-
-def attach_matched_boxes(lf, det_xyxy, det_scores, source, min_iou=0.1):
-    insts = lf.user_instances
-    gt = np.array([[*i.numpy()[np.isfinite(i.numpy()).all(1)].min(0),
-                    *i.numpy()[np.isfinite(i.numpy()).all(1)].max(0)] for i in insts])
-    lt = np.maximum(gt[:, None, :2], det_xyxy[None, :, :2])
-    rb = np.minimum(gt[:, None, 2:], det_xyxy[None, :, 2:])
-    inter = np.prod(np.clip(rb - lt, 0, None), -1)
-    area = lambda b: np.prod(b[:, 2:] - b[:, :2], -1)
-    iou = inter / (area(gt)[:, None] + area(det_xyxy)[None] - inter)
-    r, c = linear_sum_assignment(-iou)
-    match = {j: insts[i] for i, j in zip(r, c) if iou[i, j] > min_iou}
-    for j, (box, score) in enumerate(zip(det_xyxy, det_scores)):
-        lf.bboxes.append(sio.PredictedBoundingBox(
-            *map(float, box), instance=match.get(j), category="person",
-            score=float(score), source=source))
+```bash
+sleap-nn detect-boxes -i train.slp -m models/person_detector            # -> train.bboxdetr.slp
+sleap-nn detect-boxes -i train.slp --detections dets.json --tag dfinex  # COCO results JSON
+sleap-nn detect-boxes -i jrdb.slp -m models/person_detector --tile_width 640  # panoramas
 ```
+
+Matching follows Sárándi et al. (WACV 2023): per image, Hungarian matching on IoU
+between the detections scoring at least `--score_threshold` (0.3) and the GT people,
+keeping pairs with IoU > `--min_iou` (0.1). The GT people are every non-crowd person
+user box, including people without keypoints (so a detection on an unlabeled person is
+not assigned to a labeled neighbour), plus the keypoint extent of each pose instance
+without a linked person box (MPII, whose boxes are head boxes). Crowd boxes are
+ignored. Every detection scoring at least the threshold is stored with the file's
+single `person` category, `source` = the detector id (the model directory name unless
+`--detector_id` is given; this is what `crop_bbox_detector` filters on), its `score`
+and `metadata["match_iou"]`; matched detections are linked to their instance, the
+others (and detections matched to keypoint-less people) stay unlinked. Everything
+else in the file is kept, including `/human_meta`. The match statistics (people
+matched and unmatched, recall at IoU 0.5 / 0.75, mean IoU, boxes stored) go into
+`provenance["detector_boxes"]` and `<name>.<tag>.json`.
+
+Other options: `--detections` matches a COCO results JSON to frames by `file_name`
+or `image_id`; `--save_detections` writes a model run's raw detections (score >=
+`--min_score`) in that format, so they can be re-matched with other thresholds
+without the model; `--replace_predicted` drops a file's existing predicted boxes
+first (re-boxing a file made with another detector); `--dry_run` prints the
+statistics only. `--tile_width` detects very wide frames in full-height tiles
+(`--tile_stride`, default 390) merged by edge-aware NMS: a box is dropped if its IoU
+with a kept box exceeds `--tile_nms_iou`, or if it touches an inner tile edge and
+lies mostly (`--tile_contain`) inside a kept box. Tiles are cut horizontally only.
 
 `crop_bbox_jitter` perturbs each edge of the crop box independently (training only)
 to mimic detector noise without detector boxes, or on top of them.

@@ -20,9 +20,14 @@ PipelineType = Literal[
     "multi_class_topdown",
     "bbox_centernet",
     "bbox_ssd",
+    "bbox_detr",
     "topdown_bbox_centernet",
     "topdown_bbox_ssd",
+    "topdown_bbox_detr",
 ]
+
+#: The bounding-box detector pipelines (single model, boxes only).
+BBOX_DETECTORS = ("bbox_centernet", "bbox_ssd", "bbox_detr")
 
 # Top-down pipelines whose first stage is a bounding-box detector instead of a
 # centroid model, mapped to that detector's pipeline. The second stage is a
@@ -30,7 +35,15 @@ PipelineType = Literal[
 TOPDOWN_BBOX_DETECTORS = {
     "topdown_bbox_centernet": "bbox_centernet",
     "topdown_bbox_ssd": "bbox_ssd",
+    "topdown_bbox_detr": "bbox_detr",
 }
+
+#: Touching-frame rate (GT boxes with IoU > 0) above which ``bbox_detr`` is
+#: worth suggesting: it predicts a set of boxes with no NMS, so touching animals
+#: are not suppressed as duplicates.
+DETR_TOUCH_FREQUENCY = 0.05
+#: Share of the GPU a recommended ``bbox_detr`` training run may use.
+DETR_GPU_HEADROOM = 0.8
 
 BackboneType = Literal[
     "unet_medium_rf",
@@ -98,20 +111,147 @@ class ConfigRecommendation:
     anchor_part: Optional[str] = None
 
 
-def recommend_pipeline(stats: DatasetStats) -> PipelineRecommendation:
+def detect_gpu_memory_gb() -> Optional[float]:
+    """Total memory of the first visible CUDA GPU in GB, or ``None`` without one."""
+    try:
+        import torch
+
+        if not torch.cuda.is_available():
+            return None
+        return torch.cuda.get_device_properties(0).total_memory / 1e9
+    except Exception:
+        return None
+
+
+def detr_fits_gpu(stats: DatasetStats, gpu_memory_gb: Optional[float]) -> bool:
+    """Whether the default ``bbox_detr`` (DINOv3 ViT-S, batch 4) trains on the GPU.
+
+    Sized at the token-width resolution of the dataset
+    (``recommend_detr_resolution``) with ``DETR_GPU_HEADROOM`` of ``gpu_memory_gb``.
+    Also needs ``transformers`` (``pip install sleap-nn[backbones]``) for the
+    DINOv3 weights.
+
+    Args:
+        stats: DatasetStats from analyze_slp().
+        gpu_memory_gb: GPU memory in GB; ``None`` (unknown) never fits.
+
+    Returns:
+        True when the run is expected to fit.
+    """
+    import importlib.util
+
+    from sleap_nn.config_generator.memory import estimate_detr_memory
+
+    if gpu_memory_gb is None or importlib.util.find_spec("transformers") is None:
+        return False
+    res = detr_resolution_for(stats)
+    mem = estimate_detr_memory(
+        stats, "dinov3_s", 4, res.max_height, res.max_width, num_queries=100
+    )
+    return mem.total_gpu_gb <= DETR_GPU_HEADROOM * gpu_memory_gb
+
+
+def detr_bbox_padding(stats: DatasetStats) -> float:
+    """Padding (px) of ``bbox_detr`` training boxes derived from poses.
+
+    Keypoints sit inside the animal's outline, so the tight box of the visible
+    nodes is a little small; pad it by 5% of the median animal size on every side.
+    """
+    median = stats.median_bbox_size or stats.avg_bbox_size
+    return float(round(0.05 * median))
+
+
+def detr_resolution_for(stats: DatasetStats, bbox_padding: float = 0.0):
+    """The token-width input size (``recommend_detr_resolution``) of a dataset.
+
+    Args:
+        stats: DatasetStats from analyze_slp().
+        bbox_padding: Pixels added on every side of the training boxes.
+
+    Returns:
+        A ``DetrResolution``.
+    """
+    from sleap_nn.config_generator.architecture_estimates import (
+        recommend_detr_resolution,
+    )
+
+    small = stats.small_bbox_size or stats.avg_bbox_size
+    median = stats.median_bbox_size or stats.avg_bbox_size
+    return recommend_detr_resolution(
+        stats.max_height,
+        stats.max_width,
+        small + 2 * bbox_padding,
+        median + 2 * bbox_padding,
+    )
+
+
+def _topdown_recommendation(
+    stats: DatasetStats,
+    reason: str,
+    alternatives: List[PipelineType],
+    warnings: List[str],
+    gpu_memory_gb: Optional[float],
+) -> PipelineRecommendation:
+    """A multi-animal top-down recommendation: centroid, or ``bbox_detr`` stage 1.
+
+    ``topdown_bbox_detr`` is recommended when it fits ``gpu_memory_gb``; it is the
+    better first stage when animals touch, since it has no NMS to merge them.
+    Otherwise the centroid pair is recommended and ``topdown_bbox_detr`` is listed
+    as an alternative.
+    """
+    touching = stats.touch_frequency
+    touch_note = (
+        f"animals touch in {touching:.0%} of frames and bbox_detr has no NMS to "
+        "suppress one of them"
+    )
+    if detr_fits_gpu(stats, gpu_memory_gb):
+        why = "Multiple animals and the GPU fits a DETR box detector"
+        if touching >= DETR_TOUCH_FREQUENCY:
+            why += f"; {touch_note}"
+        return PipelineRecommendation(
+            recommended="topdown_bbox_detr",
+            reason=f"{why} - top-down with a bbox_detr first stage",
+            alternatives=["centroid"] + alternatives,
+            warnings=warnings
+            + ["You'll need to train a centered_instance model as well"],
+            requires_second_model=True,
+            second_model_type="centered_instance",
+        )
+    if touching >= DETR_TOUCH_FREQUENCY:
+        warnings = warnings + [
+            f"{touch_note[0].upper()}{touch_note[1:]}: consider "
+            "topdown_bbox_detr if your GPU has the memory"
+        ]
+    return PipelineRecommendation(
+        recommended="centroid",
+        reason=reason,
+        alternatives=alternatives + ["topdown_bbox_detr"],
+        warnings=warnings,
+        requires_second_model=True,
+        second_model_type="centered_instance",
+    )
+
+
+def recommend_pipeline(
+    stats: DatasetStats, gpu_memory_gb: Optional[float] = None
+) -> PipelineRecommendation:
     """Recommend the best pipeline based on dataset statistics.
 
     Decision tree:
     1. Single animal per frame -> single_instance
-    2. Multiple small animals (<20% frame area) -> top-down (centroid)
+    2. Multiple small animals (<20% frame area) -> top-down (centroid, or a
+       bbox_detr first stage when it fits ``gpu_memory_gb``)
     3. Multiple large animals with edges -> bottomup
-    4. Multiple large animals without edges -> top-down (centroid)
+    4. Multiple large animals without edges -> top-down (as in 2)
 
     Note: Multi-class models are available as alternatives when tracks exist,
     but are not recommended by default.
 
     Args:
         stats: DatasetStats from analyze_slp().
+        gpu_memory_gb: GPU memory in GB (``detect_gpu_memory_gb``). ``None``
+            (default) never recommends ``bbox_detr``, so the recommendation does
+            not depend on the machine.
 
     Returns:
         PipelineRecommendation with suggested pipeline and reasoning.
@@ -156,14 +296,13 @@ def recommend_pipeline(stats: DatasetStats) -> PipelineRecommendation:
         alternatives: List[PipelineType] = ["bottomup"]
         if stats.has_identity:
             alternatives.append("multi_class_topdown")
-        return PipelineRecommendation(
-            recommended="centroid",
+        return _topdown_recommendation(
+            stats,
             reason=f"Animals are small relative to frame (~{int(stats.animal_to_frame_ratio * 100)}% area) - "
             "top-down approach recommended",
             alternatives=alternatives,
             warnings=["You'll need to train a centered_instance model as well"],
-            requires_second_model=True,
-            second_model_type="centered_instance",
+            gpu_memory_gb=gpu_memory_gb,
         )
     else:
         # Large animals
@@ -173,16 +312,15 @@ def recommend_pipeline(stats: DatasetStats) -> PipelineRecommendation:
             alternatives = []
             if stats.has_identity:
                 alternatives.append("multi_class_topdown")
-            return PipelineRecommendation(
-                recommended="centroid",
+            return _topdown_recommendation(
+                stats,
                 reason="No skeleton edges available for bottom-up",
                 alternatives=alternatives,
                 warnings=warnings,
-                requires_second_model=True,
-                second_model_type="centered_instance",
+                gpu_memory_gb=gpu_memory_gb,
             )
         # Has edges - recommend bottom-up
-        alternatives = ["centroid"]
+        alternatives = ["centroid", "topdown_bbox_detr"]
         if stats.has_identity:
             alternatives.append("multi_class_bottomup")
         return PipelineRecommendation(
@@ -307,13 +445,17 @@ def _recommend_rotation(view_type: ViewType) -> Tuple[Tuple[float, float], str]:
 
 
 def recommend_config(
-    stats: DatasetStats, view_type: ViewType = ViewType.UNKNOWN
+    stats: DatasetStats,
+    view_type: ViewType = ViewType.UNKNOWN,
+    gpu_memory_gb: Optional[float] = None,
 ) -> ConfigRecommendation:
     """Generate complete configuration recommendation.
 
     Args:
         stats: DatasetStats from analyze_slp().
         view_type: Camera view (side, top, or unknown).
+        gpu_memory_gb: GPU memory in GB, for the ``bbox_detr`` recommendation
+            (see ``recommend_pipeline``).
 
     Returns:
         ConfigRecommendation with all parameter suggestions.
@@ -324,7 +466,7 @@ def recommend_config(
         >>> print(f"Pipeline: {rec.pipeline.recommended}")
         >>> print(f"Backbone: {rec.backbone}")
     """
-    pipeline = recommend_pipeline(stats)
+    pipeline = recommend_pipeline(stats, gpu_memory_gb)
     backbone, backbone_reason = _recommend_backbone(stats)
     sigma, sigma_reason = _recommend_sigma(stats, pipeline.recommended)
     input_scale, scale_reason = _recommend_scale(stats)

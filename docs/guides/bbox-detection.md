@@ -2,8 +2,10 @@
 
 Train a whole-frame **object detector** that predicts one axis-aligned box (and a
 class) per animal, and write the predictions to `.slp` as
-`sio.PredictedBoundingBox` on `LabeledFrame.bboxes`. Two detection styles share one
-data pipeline, one output type and one COCO-style evaluation:
+`sio.PredictedBoundingBox` on `LabeledFrame.bboxes`. Two dense detection styles share one
+data pipeline, one output type and one COCO-style evaluation (a third,
+`bbox_detr`, predicts a set of boxes with a pretrained ViT and no NMS: see the
+[DETR box detector guide](bbox-detr.md)):
 
 | | `bbox_centernet` (CenterNet-style) | `bbox_ssd` (SSD-style) |
 |---|---|---|
@@ -113,7 +115,9 @@ Notes:
   Prefer **little or no rotation**: the axis-aligned box of rotated corners is larger
   than the rotated animal, so rotation inflates the targets. Scale, translation and
   `flip_p` are exact.
-- **Tiling** is not supported for detectors yet (a clear error is raised).
+- **Tiling** is not supported for detectors in `sleap-nn predict` yet (a clear error
+  is raised). `sleap-nn detect-boxes --tile_width` has a full-height tiled mode for
+  wide panoramas (see [detector-box crops](warp-data-path.md#detector-box-crops)).
 
 ## Training and monitoring
 

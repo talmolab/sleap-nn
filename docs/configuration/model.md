@@ -17,6 +17,8 @@ model_config:
     unet: {...}       # Only one backbone
     convnext: null
     swint: null
+    pretrained: null       # HuggingFace / timm encoder (also bbox_detr's DINOv3)
+    dinov2_windowed: null  # RF-DETR's windowed DINOv2 (bbox_detr only)
 
   head_configs:
     single_instance: {...}  # Only one head type
@@ -28,6 +30,7 @@ model_config:
     bottomup_segmentation: null
     bbox_centernet: null
     bbox_ssd: null
+    bbox_detr: null
 ```
 
 ---
@@ -144,10 +147,41 @@ model's heads; `mode` forces it):
   plain ViT can feed spatial heads. `auto` resolves to it whenever the model has a
   spatial head.
 
+A `bbox_detr` model uses a plain ViT in a fourth way, `mode: tokens` (written for
+you when `mode: auto`): the tapped layers' token maps go straight to the DETR
+projector, each through the encoder's pretrained final norm, with no neck or
+decoder. See the [DETR box detector guide](../guides/bbox-detr.md).
+
 See the [Pretrained Backbones guide](../guides/pretrained-backbones.md) for the
 tested-model table, `timm/...` checkpoints, the ViT knobs, gating/`HF_TOKEN` and
 offline workflow, and freeze / fine-tune guidance. The full field list is in
 [PretrainedConfig](#pretrainedconfig) below.
+
+### Windowed DINOv2 (RF-DETR, `bbox_detr` only)
+
+The backbone of RF-DETR's checkpoints: DINOv2 on a 16 px token grid (its 14 x 14
+patch embedding resampled to 16 x 16) with windowed attention in the blocks
+between taps. `sleap-nn import-rfdetr` writes it; set `weights` to start it from a
+plain DINOv2 checkpoint instead. Defaults are RF-DETR-M's.
+
+```yaml
+backbone_config:
+  dinov2_windowed:
+    hidden_size: 384         # ViT-S (768: ViT-B)
+    num_layers: 12
+    num_heads: 6
+    patch_size: 16
+    pos_embed_grid: 36       # training size / 16 (RF-DETR: 24 / 32 / 36 / 44 for N / S / M / L)
+    out_indices: [3, 6, 9, 12]
+    num_windows: 2           # input sides must be multiples of patch_size * num_windows
+    window_block_indexes: null  # null = every block up to the last tap except the taps
+    drop_path_rate: 0.0
+    weights: null            # e.g. facebook/dinov2-small; null = random (a checkpoint loads after)
+    output_stride: 16
+    max_stride: 32
+```
+
+Full field list: [Dinov2WindowedConfig](#dinov2windowedconfig).
 
 ---
 
@@ -288,7 +322,7 @@ Notes:
 Axis-aligned box detection, one box per animal (written as
 `sio.PredictedBoundingBox` on `LabeledFrame.bboxes`). Ground-truth boxes come from
 the labels' own boxes or are derived from poses / masks
-(`data_config.bbox_source`). Two styles:
+(`data_config.bbox_source`). Three styles:
 
 ```yaml
 head_configs:
@@ -314,10 +348,26 @@ head_configs:
       anchor_sizes: null # null = auto-sized from the training boxes, saved into the config
 ```
 
+```yaml
+head_configs:
+  bbox_detr:             # RF-DETR-style set prediction (no NMS); needs a ViT backbone
+    detr:
+      categories: null   # filled from the training boxes
+      num_queries: 100   # detections per frame (RF-DETR: 300)
+      num_select: 100
+      dec_layers: 3
+      group_detr: 13     # query groups in training
+```
+
 Notes:
 
 - Keep rotation augmentation off: the axis-aligned box of rotated corners is larger
   than the rotated animal.
+- `bbox_detr` takes a `pretrained` plain ViT (DINOv3 / DINOv2) or `dinov2_windowed`
+  backbone, `preprocessing.scale: 1.0` with `max_height` / `max_width` as the input
+  size, and usually RF-DETR's augmentation (`augmentation_config.detr`). See the
+  [DETR box detector guide](../guides/bbox-detr.md) and
+  [`config_bbox_detr_dinov3_s_mouse.yaml`](https://github.com/talmolab/sleap-nn/blob/main/docs/sample_configs/config_bbox_detr_dinov3_s_mouse.yaml).
 - With `trainer_config.eval.enabled: true`, the best checkpoint and early stopping
   follow `eval/val/bbox_mAP` (see `eval.select_metric`).
 - See the [Bounding-box detection guide](../guides/bbox-detection.md) and the sample
@@ -472,7 +522,7 @@ model_config:
 | `include` | list | `null` | Selectors of weights to load (`null` = all): `all`, `backbone`, `encoder`, `decoder`, `neck`, `head`, `embeddings`, `blocks[a:b]`, globs |
 | `exclude` | list | `null` | Selectors of weights to leave at their init |
 | `remap_nodes` | bool | `true` | Copy per-node head channels by node name |
-| `node_map` | dict | `null` | `{target node: source node}` overrides |
+| `node_map` | dict | `null` | `{target node: source node}` overrides. For `bbox_detr` the class-head rows are matched by class name the same way (the never-positive extra logit is `__extra__`); classes the source lacks start fresh |
 | `source_part_names` | list | `null` | Source node names, for checkpoints that record none |
 | `interpolate_pos_embed` | bool | `true` | Resize learned positional embeddings to the new token grid |
 | `reinit` | list | `null` | Selectors re-initialized after loading |
@@ -538,7 +588,7 @@ External HuggingFace / timm backbone (`backbone_config.pretrained`). See the
 | `source` | str | `hf` | Backbone source; only `hf` (HuggingFace Hub) is supported |
 | `model_name` | str | `facebook/convnextv2-nano-22k-224` | HF model id, or a `timm/...` checkpoint (needs `timm`) |
 | `weights` | bool | `true` | Download and load pretrained weights; `false` = random init from the model config |
-| `mode` | str | `auto` | `auto`, `decoder` (Case A hierarchical / Case C plain ViT), or `encoder` (Case B pooled bottleneck). `auto` picks `decoder` when the model has a spatial head, `encoder` for `embedding` |
+| `mode` | str | `auto` | `auto`, `decoder` (Case A hierarchical / Case C plain ViT), `encoder` (Case B pooled bottleneck), or `tokens` (the tapped token maps, for `bbox_detr`). `auto` picks `decoder` when the model has a spatial head, `encoder` for `embedding`, `tokens` for `bbox_detr` |
 | `freeze` | bool | `false` | Freeze the pretrained encoder (feature extraction); the neck, decoder and heads still train |
 | `revision` | str | `null` | HF revision (commit sha / tag) to pin |
 | `normalize` | bool | `true` | Apply the model's mean/std inside the backbone (forced off for `embedding`) |
@@ -747,3 +797,56 @@ head_configs:
       output_stride: 16  # match backbone max_stride
       loss_weight: 1.0
 ```
+
+### Dinov2WindowedConfig
+
+RF-DETR's windowed DINOv2 (`backbone_config.dinov2_windowed`, `bbox_detr` only).
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `in_channels` | int | `3` | Input channels |
+| `hidden_size` | int | `384` | Token width: 384 (ViT-S) or 768 (ViT-B) |
+| `num_layers` | int | `12` | Transformer blocks |
+| `num_heads` | int | `6` | Attention heads (6 for ViT-S, 12 for ViT-B) |
+| `mlp_ratio` | float | `4.0` | MLP width as a multiple of `hidden_size` |
+| `patch_size` | int | `16` | Patch size (the token stride) |
+| `pos_embed_grid` | int | `36` | Side of the token grid the learned position embedding covers (training size / `patch_size`); interpolated for other inputs |
+| `out_indices` | list[int] | `[3, 6, 9, 12]` | Tapped hidden states (`0` = embedding output, `i` = output of block `i`) |
+| `num_windows` | int | `2` | Attention windows per side (`1` = global attention). Input sides must be multiples of `patch_size * num_windows` |
+| `window_block_indexes` | list[int] | `null` | Blocks (0-based) that attend within windows; `null` = every block up to the last tap except the tapped ones (RF-DETR) |
+| `drop_path_rate` | float | `0.0` | Stochastic depth, ramped over the blocks |
+| `weights` | str | `null` | Initialize from a plain DINOv2 checkpoint (HF id such as `facebook/dinov2-small`, or a directory): patch embedding resampled to `patch_size`, position embedding resized to `pos_embed_grid`. `null` = random init |
+| `revision` | str | `null` | HF Hub revision of `weights` |
+| `output_stride` | int | `16` | Stride of the token maps (`= patch_size`) |
+| `max_stride` | int | `32` | Inputs are padded to multiples of this (`patch_size * num_windows`); also the multi-scale step |
+
+### bbox_detr.detr
+
+The DETR detector after the backbone (`head_configs.bbox_detr.detr`). Defaults are
+RF-DETR's; the [guide](../guides/bbox-detr.md) gives animal defaults.
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `categories` | list | `null` | Class names; `null` = the training boxes' categories in first-seen order (`object` for boxes without one). The class head has `len(categories) + 1` sigmoid logits; the last is never a positive |
+| `output_stride` | int | `16` | Stride of the backbone's token maps |
+| `hidden_dim` | int | `256` | Width of the projected map and the queries |
+| `num_queries` | int | `300` | Queries per group: the most boxes per frame. Needs at least this many tokens in every input (training sizes with fewer are dropped from multi-scale) |
+| `group_detr` | int | `13` | Query groups in training (Group DETR); inference uses one |
+| `dec_layers` | int | `3` | Decoder layers |
+| `sa_nheads` | int | `8` | Decoder self-attention heads |
+| `ca_nheads` | int | `16` | Deformable cross-attention heads |
+| `dec_n_points` | int | `2` | Sampling points per cross-attention head |
+| `dim_feedforward` | int | `2048` | Decoder FFN width |
+| `dropout` | float | `0.0` | Decoder dropout |
+| `c2f_num_blocks` | int | `3` | Bottlenecks in the projector's C2f block |
+| `c2f_expansion` | float | `0.5` | C2f hidden width as a fraction of `hidden_dim` |
+| `num_select` | int | `300` | Detections kept per frame (top-k over queries x classes) |
+| `cls_loss_coef` | float | `1.0` | Weight of the IoU-aware BCE class loss |
+| `bbox_loss_coef` | float | `5.0` | Weight of the L1 box loss |
+| `giou_loss_coef` | float | `2.0` | Weight of the GIoU loss |
+| `set_cost_class` | float | `2.0` | Matcher weight of the focal class cost |
+| `set_cost_bbox` | float | `5.0` | Matcher weight of the L1 box cost |
+| `set_cost_giou` | float | `2.0` | Matcher weight of the GIoU cost |
+| `focal_alpha` | float | `0.25` | Alpha of the matcher's focal cost and of the IA-BCE soft target |
+| `focal_gamma` | float | `2.0` | Gamma of the matcher's focal cost and of the IA-BCE negative weight |
+| `lr_component_decay` | float | `0.7` | The decoder trains at `lr * lr_component_decay`, the backbone at `lr * encoder_lr_scale * lr_component_decay^2` (times its layer decay), everything else at `lr` |
