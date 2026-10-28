@@ -5130,6 +5130,8 @@ class _BBoxLightningModel(LightningModel):
             score_threshold=self._EVAL_SCORE_THRESHOLD,
         )
         self.node_names = ["bbox"]
+        # Per-stage `[term names, on-device sum, step count]` (`_accumulate_terms`).
+        self._epoch_term_sums: Dict[str, list] = {}
 
     def _decoder_inputs(self, raw: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         """Raw head outputs -> the decoder's input dict (identity by default)."""
@@ -5176,11 +5178,50 @@ class _BBoxLightningModel(LightningModel):
                 on_epoch=True,
                 sync_dist=True,
             )
-        for name, value in terms.items():
+        self._accumulate_terms(stage, terms)
+        return loss, raw, X
+
+    def _accumulate_terms(self, stage: str, terms: Dict[str, torch.Tensor]):
+        """Add a step's loss terms to the stage's running sum (logged per epoch).
+
+        One on-device stack and add instead of one ``self.log`` per term per step
+        (20 for a 4-layer ``bbox_detr``); ``_log_epoch_terms`` logs the means.
+        """
+        if not terms:
+            return
+        values = torch.stack([v.detach().float() for v in terms.values()])
+        prev = self._epoch_term_sums.get(stage)
+        if prev is None or prev[0] != list(terms):
+            self._epoch_term_sums[stage] = [list(terms), values, 1]
+        else:
+            prev[1] = prev[1] + values
+            prev[2] += 1
+
+    def _log_epoch_terms(self, stage: str):
+        """Log ``<stage>/<term>`` epoch means of the accumulated loss terms."""
+        entry = self._epoch_term_sums.pop(stage, None)
+        if entry is None:
+            return
+        names, total, count = entry
+        for name, value in zip(names, total / count):
             self.log(
                 f"{stage}/{name}", value, on_step=False, on_epoch=True, sync_dist=True
             )
-        return loss, raw, X
+
+    def on_train_epoch_end(self):
+        """Log the epoch's training loss terms, then the base epoch metrics."""
+        self._log_epoch_terms("train")
+        super().on_train_epoch_end()
+
+    def on_validation_epoch_start(self):
+        """Reset the validation loss-term sums, then the base epoch state."""
+        self._epoch_term_sums.pop("val", None)
+        super().on_validation_epoch_start()
+
+    def on_validation_epoch_end(self):
+        """Log the epoch's validation loss terms, then the base epoch metrics."""
+        self._log_epoch_terms("val")
+        super().on_validation_epoch_end()
 
     def training_step(self, batch, batch_idx):
         """Training step."""

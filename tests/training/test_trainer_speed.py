@@ -365,6 +365,28 @@ def test_compile_in_place_keeps_state_dict_keys(value, mode):
     assert list(net.state_dict()) == keys
 
 
+def test_compile_multi_scale_is_static_with_a_graph_per_size(monkeypatch):
+    """Per-batch multi-scale compiles static graphs and fits every size."""
+    import torch._dynamo
+
+    config = torch._dynamo.config
+    name = (
+        "recompile_limit" if hasattr(config, "recompile_limit") else "cache_size_limit"
+    )
+    monkeypatch.setattr(config, name, 8)
+    net = torch.nn.Linear(2, 2)
+    calls = []
+    monkeypatch.setattr(net, "compile", lambda **kw: calls.append(kw))
+    sizes = [(s, s) for s in range(416, 737, 32)]
+    stub = SimpleNamespace(
+        config=_cfg(compile=True),
+        lightning_model=SimpleNamespace(model=net, multi_scale_sizes=sizes),
+    )
+    ModelTrainer._maybe_compile_model(stub)
+    assert calls == [{"mode": "default", "dynamic": False}]
+    assert getattr(config, name) == len(sizes) + 8
+
+
 @pytest.mark.parametrize("value", [False, None])
 def test_compile_off_is_a_no_op(value):
     net = torch.nn.Linear(2, 2)

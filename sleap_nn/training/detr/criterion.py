@@ -82,6 +82,24 @@ def _matched_targets(
     return torch.cat([t[key][tgt] for t, (_, tgt) in zip(targets, indices)])
 
 
+def _indices_to(
+    all_indices: List[MatchIndices], device: torch.device
+) -> List[MatchIndices]:
+    """Every layer's match indices on ``device``, in one host-to-device copy.
+
+    The loss terms index device tensors with them; CPU indices would cost one small
+    transfer per indexing op.
+    """
+    flat = [x for layer in all_indices for pair in layer for x in pair]
+    if device.type == "cpu" or not flat:
+        return all_indices
+    host = torch.cat(flat)
+    if device.type == "cuda":
+        host = host.pin_memory()
+    parts = iter(host.to(device, non_blocking=True).split([x.numel() for x in flat]))
+    return [[(next(parts), next(parts)) for _ in layer] for layer in all_indices]
+
+
 @register_loss_term("labels")
 def loss_labels(
     criterion: "SetCriterion",
@@ -313,9 +331,14 @@ class SetCriterion(nn.Module):
         if num_boxes is None:
             num_boxes = self.num_boxes(targets, outputs["pred_logits"].device)
 
+        all_indices = _indices_to(
+            self.matcher.match_layers(
+                [layer for _, layer in layers], targets, group_detr=groups
+            ),
+            outputs["pred_logits"].device,
+        )
         losses = {}
-        for suffix, layer in layers:
-            indices = self.matcher(layer, targets, group_detr=groups)
+        for (suffix, layer), indices in zip(layers, all_indices):
             for name in self.losses:
                 terms = LOSS_TERMS[name](self, layer, targets, indices, num_boxes)
                 losses.update({key + suffix: value for key, value in terms.items()})
