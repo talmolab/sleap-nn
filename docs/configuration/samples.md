@@ -79,6 +79,10 @@ Box detectors trained on the labels' boxes, or on boxes derived from poses / mas
 |--------|----------|-------|
 | [bbox_centernet_unet](https://github.com/talmolab/sleap-nn/blob/main/docs/sample_configs/config_bbox_centernet_unet.yaml) | UNet | CenterNet-style: center heatmap + size + offset at stride 4 |
 | [bbox_ssd_unet](https://github.com/talmolab/sleap-nn/blob/main/docs/sample_configs/config_bbox_ssd_unet.yaml) | UNet | SSD-style: anchors over strides 8/16/32, auto-sized from the training boxes |
+| [bbox_detr_dinov3_s_mouse](https://github.com/talmolab/sleap-nn/blob/main/docs/sample_configs/config_bbox_detr_dinov3_s_mouse.yaml) | DINOv3 ViT-S (pretrained) | `bbox_detr` for animals: fresh decoder, one class, 100 queries, token-width input size, 200 epochs ([guide](../guides/bbox-detr.md)) |
+| [bbox_detr_dinov3_b_person](https://github.com/talmolab/sleap-nn/blob/main/docs/sample_configs/config_bbox_detr_dinov3_b_person.yaml) | DINOv3 ViT-B (pretrained) | Human detector, stage 1: Objects365 + Open Images person boxes, 704 px |
+| [bbox_detr_dinov3_b_person_stage2](https://github.com/talmolab/sleap-nn/blob/main/docs/sample_configs/config_bbox_detr_dinov3_b_person_stage2.yaml) | DINOv3 ViT-B | Human detector, stage 2: from stage 1 on 5 pose datasets mixed per sample |
+| [bbox_detr_rfdetr_m_person](https://github.com/talmolab/sleap-nn/blob/main/docs/sample_configs/config_bbox_detr_rfdetr_m_person.yaml) | RF-DETR-M (imported) | Fine-tune an imported RF-DETR-M to one class (`sleap-nn import-rfdetr medium` first) |
 
 ---
 

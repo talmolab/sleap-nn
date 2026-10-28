@@ -232,6 +232,34 @@ def test_multi_scale_sizes_match_rfdetr():
     ]
 
 
+def test_multi_scale_drops_sizes_with_too_few_tokens():
+    """A training size never has fewer tokens than num_queries (top-k proposals)."""
+    from sleap_nn.data.custom_datasets import detr_multi_scale_sizes
+
+    cfg = OmegaConf.create(
+        {
+            "data_config": {
+                "use_augmentations_train": True,
+                "preprocessing": {"max_height": 256, "max_width": 256},
+                "augmentation_config": {
+                    "detr": {"multi_scale": True, "multi_scale_steps": 5}
+                },
+            },
+            "model_config": {
+                "backbone_config": {"pretrained": {"max_stride": 32}},
+                "head_configs": {
+                    "bbox_detr": {"detr": {"output_stride": 16, "num_queries": 100}}
+                },
+            },
+        }
+    )
+    sizes = detr_multi_scale_sizes(cfg)
+    # 96 x 96 (36 tokens) and 128 x 128 (64) are dropped; 160 x 160 has 100.
+    assert sizes[0] == (160, 160) and sizes[-1] == (416, 416)
+    cfg.model_config.head_configs.bbox_detr.detr.num_queries = 30
+    assert detr_multi_scale_sizes(cfg)[0] == (96, 96)
+
+
 def test_batch_scale_is_step_deterministic():
     import random
 

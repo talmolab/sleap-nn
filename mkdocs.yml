@@ -142,6 +142,7 @@ nav:
       - Distillation: guides/distillation.md
       - Supervised ID: guides/supervised-id.md
       - Tiling (High-Res): guides/tiling.md
+      - DETR Box Detector: guides/bbox-detr.md
     - Inference:
       - Overview: guides/inference/overview.md
       - Running Inference: guides/inference-guide.md

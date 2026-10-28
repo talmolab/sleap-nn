@@ -51,8 +51,9 @@ For top-down pipelines, this creates two config files:
 - `config_centered_instance.yaml`
 
 The box-detector top-down pipelines (`--pipeline topdown_bbox_centernet` /
-`topdown_bbox_ssd`) write `config_bbox_centernet.yaml` (or `config_bbox_ssd.yaml`)
-and a `config_centered_instance.yaml` with box-scaled crops (`crop_mode: bbox`); see
+`topdown_bbox_ssd` / `topdown_bbox_detr`) write `config_bbox_centernet.yaml` (or
+`config_bbox_ssd.yaml`, `config_bbox_detr.yaml`) and a `config_centered_instance.yaml`
+with box-scaled crops (`crop_mode: bbox`); see
 [Top-down pose with a box detector](bbox-topdown.md).
 
 ---
@@ -63,7 +64,8 @@ and a `config_centered_instance.yaml` with box-scaled crops (`crop_mode: bbox`);
 |--------|-------|-------------|---------|
 | `--output` | `-o` | Output path for config file(s) | `<slp_name>_config.yaml` |
 | `--auto` | | Auto-generate without interactive TUI | `false` |
-| `--pipeline` | | Pipeline: `single_instance`, `bottomup`, `topdown`, `multi_class_bottomup`, `multi_class_topdown`, `centroid`, `bbox_centernet`, `bbox_ssd`, `topdown_bbox_centernet` or `topdown_bbox_ssd` | Auto-detected |
+| `--pipeline` | | Pipeline: `single_instance`, `bottomup`, `topdown`, `multi_class_bottomup`, `multi_class_topdown`, `centroid`, `bbox_centernet`, `bbox_ssd`, `bbox_detr`, `topdown_bbox_centernet`, `topdown_bbox_ssd` or `topdown_bbox_detr` | Auto-detected |
+| `--gpu_memory_gb` | | GPU memory (GB) of the training machine, or `auto`; lets the recommender pick `topdown_bbox_detr` when it fits | Not considered |
 | `--show-yaml` | | Print YAML to stdout instead of saving | `false` |
 
 ---
@@ -152,6 +154,8 @@ config = (
 | `.crop_size(size)` | Set crop size (centered_instance) |
 | `.anchor_part(name)` | Set anchor part (top-down) |
 | `.centroid_method(method, fallback=None)` | How the centroid / crop center is derived: `center_of_mass`, `bbox_center`, `geometric_median`, `anchor` (#586) |
+| `.detr(preset, num_queries, init_from, max_side)` | `bbox_detr` backbone / decoder preset (`dinov3_s`, `dinov3_b`, `rfdetr_n\|s\|m\|l`), queries, a checkpoint to start from, and a fixed input side |
+| `.detr_resolution()` | The `bbox_detr` input size the token-width rule picks for the data |
 
 ### Get Recommendations
 
@@ -189,8 +193,19 @@ The config generator analyzes your data to recommend a pipeline:
 | `topdown` | Multiple animals, need centroids + instances |
 | `multi_class_bottomup` | Multiple animals with identity classes |
 | `multi_class_topdown` | Multiple animals with classes, top-down approach |
-| `bbox_centernet` / `bbox_ssd` | A bounding-box detector (boxes derived from the poses) |
-| `topdown_bbox_centernet` / `topdown_bbox_ssd` | Top-down with a box detector as stage 1 and box-scaled crops |
+| `bbox_centernet` / `bbox_ssd` / `bbox_detr` | A bounding-box detector (boxes derived from the poses) |
+| `topdown_bbox_centernet` / `topdown_bbox_ssd` / `topdown_bbox_detr` | Top-down with a box detector as stage 1 and box-scaled crops |
+
+**`bbox_detr`** is recommended (as `topdown_bbox_detr`) for multi-animal top-down
+data when the recommender knows the GPU and the default DETR run fits in 80% of
+it: always in the TUI (it reads the GPU), with `--gpu_memory_gb` on the CLI,
+`gpu_memory_gb=` in `auto()` / `recommend()`. Otherwise the centroid pair stays the
+recommendation, `topdown_bbox_detr` is listed as an alternative, and a warning
+suggests it when animals touch in at least 5% of frames (GT boxes intersect):
+DETR has no NMS step that could merge touching animals. Its defaults (DINOv3
+ViT-S, 100 queries, the input size that keeps small animals 3 tokens wide, 200
+epochs) and the presets' parameter / memory estimates are in the
+[DETR box detector guide](bbox-detr.md).
 
 The recommendation is based on:
 

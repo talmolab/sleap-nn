@@ -13,10 +13,12 @@ from omegaconf import OmegaConf
 
 from sleap_nn.config_generator.analyzer import DatasetStats, ViewType, analyze_slp
 from sleap_nn.config_generator.architecture_estimates import (
+    DEFAULT_DETR_PRESET,
     compute_max_stride_for_animal_size,
     compute_receptive_field,
     compute_suggested_crop_size,
     encoder_blocks as _encoder_blocks,
+    estimate_detr_params,
     estimate_unet_params,
     recommend_default_max_stride,
 )
@@ -27,6 +29,7 @@ from sleap_nn.config_generator.recommender import (
     BackboneType,
     ConfigRecommendation,
     PipelineType,
+    detect_gpu_memory_gb,
     recommend_config,
 )
 
@@ -305,6 +308,14 @@ class ConfigState:
         # restored when a pose model is picked again.
         self._pre_bbox_settings: Optional[Dict[str, Any]] = None
 
+        # bbox_detr detector: preset (``DETR_PRESETS``), queries, an optional
+        # checkpoint to start from, and the padding of pose-derived boxes (set
+        # when a bbox_detr pipeline is picked; shared by both stages of a pair).
+        self._detr_preset: str = DEFAULT_DETR_PRESET
+        self._detr_num_queries: Optional[int] = None  # None: 100 (300 for an import)
+        self._detr_init_from: str = ""
+        self._bbox_padding: float = 0.0
+
         # Observers for reactive updates
         self._observers: List[Callable[[], None]] = []
 
@@ -319,7 +330,11 @@ class ConfigState:
     def recommendation(self) -> ConfigRecommendation:
         """Get configuration recommendation."""
         if self._recommendation is None:
-            self._recommendation = recommend_config(self.stats, self._view_type)
+            # The TUI runs where training will run: a GPU that fits bbox_detr gets
+            # it recommended for multi-animal top-down data.
+            self._recommendation = recommend_config(
+                self.stats, self._view_type, gpu_memory_gb=detect_gpu_memory_gb()
+            )
         return self._recommendation
 
     @property
@@ -352,6 +367,11 @@ class ConfigState:
         Also the suffix of its config file (``{base}_{first_stage_name}.yaml``).
         """
         return TOPDOWN_BBOX_DETECTORS.get(self._pipeline, "centroid")
+
+    @property
+    def is_detr(self) -> bool:
+        """Check if the pipeline (or a top-down pair's first stage) is bbox_detr."""
+        return TOPDOWN_BBOX_DETECTORS.get(self._pipeline, self._pipeline) == "bbox_detr"
 
     @property
     def is_bottomup(self) -> bool:
@@ -392,6 +412,11 @@ class ConfigState:
     @property
     def model_params_estimate(self) -> int:
         """Estimate total model parameters based on architecture."""
+        if self.is_detr:
+            self._apply_to_generator(self._generator, ci_mode=False)
+            return estimate_detr_params(
+                self._detr_preset, num_queries=self._generator.detr_num_queries
+            )["total"]
         return self._estimate_params(
             self._backbone, self._filters, self._filters_rate, self._max_stride
         )
@@ -548,9 +573,10 @@ class ConfigState:
             self._output_stride = 2
             if self.is_topdown_bbox:
                 # Box detector stage 1: CenterNet heads at stride 4, SSD at 8
-                # (its anchor levels at 8/16/32 need max_stride 32, below).
-                self._output_stride = (
-                    4 if self.first_stage_name == "bbox_centernet" else 8
+                # (its anchor levels at 8/16/32 need max_stride 32, below),
+                # bbox_detr at its ViT's token stride 16.
+                self._output_stride = {"bbox_centernet": 4, "bbox_detr": 16}.get(
+                    self.first_stage_name, 8
                 )
 
             # The web app does NOT recompute max_stride after switching to
@@ -563,7 +589,7 @@ class ConfigState:
                 scaled_max_animal_size
             )
             self._max_stride = max(self._max_stride, coverage_stride)
-            if self.first_stage_name == "bbox_ssd":
+            if self.first_stage_name in ("bbox_ssd", "bbox_detr"):
                 self._max_stride = max(self._max_stride, 32)
 
             # Centered instance model defaults
@@ -584,7 +610,11 @@ class ConfigState:
         self.notify_observers()
 
     def memory_estimate(self) -> MemoryEstimate:
-        """Get memory estimate for current configuration."""
+        """Get memory estimate for current configuration (the detector's for DETR)."""
+        if self.is_detr:
+            self._apply_to_generator(self._generator, ci_mode=False)
+            self._generator._pipeline = "bbox_detr"
+            return self._generator.memory_estimate()
         return estimate_memory(
             self.stats,
             self._backbone,
@@ -662,6 +692,10 @@ class ConfigState:
         gen._view_type = self._view_type
         gen._ensure_rgb = self._ensure_rgb
         gen._ensure_grayscale = self._ensure_grayscale
+        gen._bbox_padding = self._bbox_padding
+        gen._detr_preset = self._detr_preset
+        gen._detr_num_queries = self._detr_num_queries
+        gen._detr_init_from = self._detr_init_from or None
 
         # Model
         gen._backbone = self._ci_backbone if ci_mode else self._backbone

@@ -6950,7 +6950,9 @@ def detr_multi_scale_sizes(config: DictConfig) -> Optional[List[Tuple[int, int]]
     On when training augmentation is on and ``augmentation_config.detr.multi_scale``
     is set: ``max_height x max_width`` +/- ``multi_scale_steps`` multiples of the
     backbone's ``max_stride`` (:func:`~sleap_nn.data.detr_augmentation.
-    multi_scale_sizes`). ``None`` otherwise.
+    multi_scale_sizes`), without the sizes whose token map has fewer tokens than
+    ``num_queries`` (the two-stage proposals pick ``num_queries`` tokens; a small
+    input with many queries would fail at that step). ``None`` otherwise.
     """
     detr_aug = OmegaConf.select(
         config, "data_config.augmentation_config.detr", default=None
@@ -6964,11 +6966,23 @@ def detr_multi_scale_sizes(config: DictConfig) -> Optional[List[Tuple[int, int]]
     preprocessing = config.data_config.preprocessing
     backbone_type = get_backbone_type_from_cfg(config)
     block = int(config.model_config.backbone_config[backbone_type].max_stride)
-    return multi_scale_sizes(
+    sizes = multi_scale_sizes(
         (int(preprocessing.max_height), int(preprocessing.max_width)),
         block,
         int(detr_aug.multi_scale_steps),
     )
+    detr = OmegaConf.select(config, "model_config.head_configs.bbox_detr.detr")
+    if detr is None:
+        return sizes
+    stride, queries = int(detr.output_stride), int(detr.num_queries)
+    kept = [(h, w) for h, w in sizes if (h // stride) * (w // stride) >= queries]
+    if len(kept) < len(sizes):
+        logger.info(
+            f"bbox_detr multi-scale: dropped {len(sizes) - len(kept)} sizes with "
+            f"fewer than num_queries={queries} tokens; training sizes "
+            f"{kept[0] if kept else None}..{kept[-1] if kept else None}."
+        )
+    return kept or sizes
 
 
 def detr_dataset_kwargs(config: DictConfig) -> Tuple[Dict, Dict]:

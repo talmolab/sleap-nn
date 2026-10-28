@@ -1,0 +1,132 @@
+# bbox_detr M3, arm A, stage 2: fine-tune the stage-1 person detector
+# (config_bbox_detr_dinov3_b_person.yaml: DINOv3 ViT-B/16, fresh projector and
+# 4-layer decoder, Objects365 + Open Images person boxes) on the pose datasets'
+# domains: COCO train2017 + CrowdHuman + CrowdPose + JRDB-Pose + Human-Art,
+# validated on COCO val2017. Every tensor starts from stage 1 (`init_from`).
+#
+# Mixing: each training sample's file is drawn with the `balanced_sampler`
+# weights below (COCO 0.4, CrowdHuman 0.2, CrowdPose 0.1, JRDB-Pose 0.1,
+# Human-Art 0.2), so the 5 files mix at any batch size; an epoch is 3,125 steps
+# summed over ranks (100K samples at 4 x 8 per step).
+#
+#   sleap-nn train config_bbox_detr_dinov3_b_person_stage2.yaml
+#
+# LR schedule: constant here. Step: lr_scheduler.multi_step_lr: {milestones: [42],
+# gamma: 0.1}. Cosine: lr_scheduler.cosine_annealing_warmup: {warmup_steps: 0,
+# eta_min: 0.0}.
+data_config:
+  train_labels_path:
+    - /scr/talmo/code/2026-10-22-sleap-nn-human/datasets/_slp3/coco_train2017.slp
+    - /scr/talmo/code/2026-10-22-sleap-nn-human/datasets/_slp3/crowdhuman_train.dedup.slp
+    - /scr/talmo/code/2026-10-22-sleap-nn-human/datasets/_slp3/crowdpose_train_union.dedup.slp
+    - /scr/talmo/code/2026-10-22-sleap-nn-human/datasets/_slp3/jrdb_pose_train_union.dedup.slp
+    - /scr/talmo/code/2026-10-22-sleap-nn-human/datasets/_slp3/human_art_train_union.dedup.slp
+  val_labels_path:
+    - /scr/talmo/code/2026-10-22-sleap-nn-human/datasets/_slp3/coco_val2017.slp
+  bbox_source: bboxes
+  preprocessing:
+    ensure_rgb: true
+    max_height: 704
+    max_width: 704
+    # Our own weights: one scale per frame, padded bottom/right (as pose crops).
+    resize_mode: letterbox
+  use_augmentations_train: true
+  augmentation_config:
+    intensity: null
+    geometric: null
+    # RF-DETR: 50/50 resize vs resize + crop, flip, per-batch multi-scale
+    # 704 +/- 5 x 32 (544..864).
+    detr:
+      crop_p: 0.5
+      shortest_sides: [400, 500, 600]
+      crop_range: [384, 600]
+      flip_p: 0.5
+      multi_scale: true
+      multi_scale_steps: 5
+model_config:
+  init_weights: default
+  # The stage-1 run (its best.ckpt): backbone, projector, decoder and heads.
+  init_from:
+    path: runs/dinov3_b_person_stage1
+  backbone_config:
+    pretrained:
+      source: hf
+      model_name: timm/vit_base_patch16_dinov3.lvd1689m
+      weights: true
+      # The bbox_detr backbone returns the tapped token maps ("auto" -> "tokens").
+      mode: tokens
+      # Blocks 3, 6, 9, 12 (the default for a 12-block ViT), each through the
+      # pretrained final norm.
+      layers: [3, 6, 9, 12]
+      drop_path_rate: 0.1
+      in_channels: 3
+      output_stride: 16
+      # Multi-scale step and input padding (global attention needs only 16).
+      max_stride: 32
+  head_configs:
+    bbox_detr:
+      detr:
+        categories: [person]
+        hidden_dim: 256
+        num_queries: 300
+        group_detr: 13
+        dec_layers: 4
+        sa_nheads: 8
+        ca_nheads: 16
+        dec_n_points: 2
+        dim_feedforward: 2048
+        num_select: 300
+        lr_component_decay: 0.7
+trainer_config:
+  # 4 GPUs x 8 images = 32 per step; RF-DETR's fine-tuning lr 1e-4.
+  trainer_devices: 4
+  trainer_accelerator: gpu
+  trainer_strategy: ddp
+  train_data_loader:
+    batch_size: 8
+    num_workers: 16
+    shuffle: true
+  val_data_loader:
+    batch_size: 8
+    num_workers: 4
+  max_epochs: 50
+  train_steps_per_epoch: 3125
+  min_train_steps_per_epoch: 1
+  precision: bf16-mixed
+  gradient_clip_val: 0.1
+  optimizer_name: AdamW
+  optimizer:
+    lr: 1.0e-4
+    weight_decay: 1.0e-4
+    # Backbone: lr x 1.5 x 0.7^2, times 0.8 per block below the top tap.
+    encoder_lr_scale: 1.5
+    layer_decay: 0.8
+  lr_scheduler:
+    reduce_lr_on_plateau: null
+  early_stopping:
+    stop_training_on_plateau: false
+  ema:
+    enabled: true
+    decay: 0.993
+    warmup_steps: 100
+  eval:
+    enabled: true
+    frequency: 1
+  model_ckpt:
+    save_top_k: 1
+    save_last: true
+  save_ckpt: true
+  ckpt_dir: runs
+  run_name: dinov3_b_person_stage2
+  visualize_preds_during_training: false
+  throughput_log_every_n_steps: 50
+  use_wandb: true
+  wandb:
+    entity: talmolab
+    project: sleap-nn-human
+    group: bbox-detr
+    name: null
+    viz_enabled: false
+  balanced_sampler:
+    per_sample: true
+    weights: [0.4, 0.2, 0.1, 0.1, 0.2]

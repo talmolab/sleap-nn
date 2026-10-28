@@ -2,8 +2,10 @@
 
 Train a whole-frame **object detector** that predicts one axis-aligned box (and a
 class) per animal, and write the predictions to `.slp` as
-`sio.PredictedBoundingBox` on `LabeledFrame.bboxes`. Two detection styles share one
-data pipeline, one output type and one COCO-style evaluation:
+`sio.PredictedBoundingBox` on `LabeledFrame.bboxes`. Two dense detection styles share one
+data pipeline, one output type and one COCO-style evaluation (a third,
+`bbox_detr`, predicts a set of boxes with a pretrained ViT and no NMS: see the
+[DETR box detector guide](bbox-detr.md)):
 
 | | `bbox_centernet` (CenterNet-style) | `bbox_ssd` (SSD-style) |
 |---|---|---|
