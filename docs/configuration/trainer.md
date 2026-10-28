@@ -780,6 +780,7 @@ Only one scheduler is used. Priority: `cosine_annealing_warmup` >
 | `oks_sigmas` | str / float / list | `null` | Per-node OKS sigmas for post-training eval (`coco`, `crowdpose`, `ochuman`, `provenance`, `auto`, or one per node); overrides `oks_stddev` there |
 | `coco_metrics` | bool | `false` | Add COCOeval-faithful `coco.*` metrics to post-training eval; top-down models then predict with `peak_threshold` 0 and mmpose rescoring. See [COCO-Style Evaluation](../guides/coco-evaluation.md) |
 | `match_threshold` | float | `50.0` | Max distance (px) for centroid matching (centroid models only) |
+| `file_nodes` | dict | `null` | With several validation files: the nodes each file is scored on, keyed by its display name (`data_config.val_names`), as a node list or a name prefix. Unlisted files are scored on the model nodes their skeleton has. See [Per-file validation](../guides/warp-data-path.md#per-file-validation) |
 
 !!! info "Model-Type-Dependent Evaluation"
     SLEAP-NN automatically selects the appropriate evaluation callback based on model type:

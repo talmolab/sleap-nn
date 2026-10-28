@@ -717,6 +717,7 @@ class DataConfig:
     Attributes:
         train_labels_path: (List[str]) List of paths to training data (`.slp` file(s)). *Default*: `None`.
         val_labels_path: (List[str]) List of paths to validation data (`.slp` file(s)). *Default*: `None`.
+        val_names: (List[str]) Display names of the validation labels files, one per file of `val_labels_path` (or per training file when the validation set is split from them). With several validation files, each gets its own metrics: `val/<name>/loss` (warp centered-instance pipeline) and `eval/<name>/*` (epoch-end evaluation), plus their unweighted means `val/macro/loss` and `eval/macro/*`. Names must be unique, without `/`, and not `val` or `macro`. `None` uses each file's stem (`.slp`/`.pkg` stripped; repeats get a `-<i>` suffix). *Default*: `None`.
         validation_fraction: (float) Float between 0 and 1 specifying the fraction of the training set to sample for generating the validation set. The remaining labeled frames will be left in the training set. If the `validation_labels` are already specified, this has no effect. *Default*: `0.1`.
         use_same_data_for_val: (bool) If `True`, use the same data for both training and validation (train = val). Useful for intentional overfitting on small datasets. When enabled, `val_labels_path` and `validation_fraction` are ignored. *Default*: `False`.
         test_file_path: (str or List[str]) Path or list of paths to test dataset(s) (`.slp` file(s) or `.mp4` file(s)). *Note*: This is used only with CLI to get evaluation on test set after training is completed. *Default*: `None`.
@@ -796,6 +797,7 @@ class DataConfig:
 
     train_labels_path: Optional[List[str]] = None
     val_labels_path: Optional[List[str]] = None  # TODO : revisit MISSING!
+    val_names: Optional[List[str]] = None
     validation_fraction: float = 0.1
     use_same_data_for_val: bool = False
     test_file_path: Optional[Any] = field(

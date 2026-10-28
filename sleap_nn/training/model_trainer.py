@@ -806,6 +806,154 @@ class ModelTrainer:
             for labels in label_list or []:
                 add_bboxes_to_labels(labels, source=source, padding=padding)
 
+    # Metric-name segments a val file's display name may not take: they would
+    # collide with the pooled (`eval/val/*`) and macro (`*/macro/*`) keys.
+    _RESERVED_VAL_NAMES = ("val", "macro")
+
+    def _val_file_names(self) -> Optional[List[str]]:
+        """One display name per val labels file, or ``None`` with a single file.
+
+        ``data_config.val_names`` when set (one per file, unique); otherwise each
+        file's stem (``.slp`` / ``.pkg`` stripped) from ``val_labels_path`` (or
+        ``train_labels_path`` when the val files are split from the training
+        files), falling back to the labels' ``provenance["filename"]`` and then to
+        ``val<i>``. Default names that repeat or are reserved get a ``-<i>``
+        suffix. Names become metric keys (``val/<name>/loss``,
+        ``eval/<name>/*``), so they may not contain ``/``.
+
+        Raises:
+            ValueError: If ``val_names`` has the wrong length, repeats a name, uses
+                a reserved name (``val``, ``macro``) or contains ``/``.
+        """
+        n = len(self.val_labels)
+        if n <= 1:
+            return None
+        names = OmegaConf.select(self.config, "data_config.val_names", default=None)
+        if names is not None:
+            names = [str(x) for x in names]
+            if len(names) != n:
+                raise ValueError(
+                    f"data_config.val_names has {len(names)} names for {n} "
+                    "validation labels files."
+                )
+            bad = [x for x in names if "/" in x or x in self._RESERVED_VAL_NAMES]
+            if bad or len(set(names)) != n:
+                raise ValueError(
+                    f"data_config.val_names must be unique, without '/', and not "
+                    f"{list(self._RESERVED_VAL_NAMES)}; got {names}."
+                )
+            return names
+
+        def _paths(key):
+            paths = OmegaConf.select(self.config, key, default=None)
+            if isinstance(paths, str):
+                paths = [paths]
+            return list(paths) if paths is not None and len(paths) == n else None
+
+        paths = _paths("data_config.val_labels_path") or _paths(
+            "data_config.train_labels_path"
+        )
+        names = []
+        for i, labels in enumerate(self.val_labels):
+            path = paths[i] if paths else None
+            if path is None:
+                path = (getattr(labels, "provenance", None) or {}).get("filename")
+            if path is None:
+                names.append(f"val{i}")
+                continue
+            stem = Path(str(path)).name
+            for ext in (".slp", ".pkg"):
+                if stem.endswith(ext):
+                    stem = stem[: -len(ext)]
+            names.append(stem.replace("/", "_") or f"val{i}")
+        out = []
+        for i, name in enumerate(names):
+            if names.count(name) > 1 or name in self._RESERVED_VAL_NAMES:
+                name = f"{name}-{i}"
+            out.append(name)
+        if out != names:
+            logger.warning(
+                f"Validation file names repeat or are reserved; using {out}. Set "
+                "data_config.val_names to name them."
+            )
+        return out
+
+    def _check_per_file_monitor(self, monitor: str) -> None:
+        """Fail fast on a per-file/macro checkpoint monitor that is never logged.
+
+        ``val/macro/loss`` and ``val/<name>/loss`` need several val files and the
+        warp centered-instance pipeline (whose batches carry ``labels_idx``);
+        ``eval/macro/*`` and ``eval/<name>/*`` need several val files and
+        ``trainer_config.eval.enabled``.
+        """
+        parts = monitor.split("/")
+        if len(parts) < 3 or parts[0] not in ("val", "eval") or parts[1] == "val":
+            return
+        names = self._val_file_names() or []
+        if parts[1] != "macro" and parts[1] not in names:
+            return
+        where = f"model_ckpt.monitor={monitor!r}"
+        if not names:
+            raise ValueError(f"{where} needs several validation files.")
+        if parts[0] == "val" and not self._uses_warp_pipeline():
+            raise ValueError(
+                f"{where}: per-file validation loss is only logged by "
+                "centered_instance with preprocessing.crop_pipeline='warp'."
+            )
+        if parts[0] == "eval" and not self.config.trainer_config.eval.enabled:
+            raise ValueError(f"{where} needs trainer_config.eval.enabled=true.")
+
+    def _val_files(self) -> Optional[List["ValFile"]]:
+        """Per-file epoch-end evaluation specs (:class:`ValFile`), or ``None``.
+
+        Each file is scored on the model nodes its skeleton has, or on
+        ``trainer_config.eval.file_nodes[<name>]`` (a node list or a name prefix).
+
+        Raises:
+            ValueError: If ``eval.file_nodes`` names an unknown file or a node the
+                file is not scored on.
+        """
+        from sleap_nn.training.callbacks import ValFile, select_nodes
+
+        names = self._val_file_names()
+        if names is None:
+            return None
+        model_nodes = list(self.skeletons[0].node_names)
+        file_nodes = OmegaConf.select(
+            self.config, "trainer_config.eval.file_nodes", default=None
+        )
+        file_nodes = (
+            OmegaConf.to_container(file_nodes)
+            if OmegaConf.is_config(file_nodes)
+            else dict(file_nodes or {})
+        )
+        unknown = sorted(set(file_nodes) - set(names))
+        if unknown:
+            raise ValueError(
+                f"trainer_config.eval.file_nodes names unknown validation files "
+                f"{unknown}; the files are {names}."
+            )
+        files = []
+        for name, labels in zip(names, self.val_labels):
+            own = {n for sk in labels.skeletons for n in sk.node_names}
+            nodes = [n for n in model_nodes if n in own]
+            spec = file_nodes.get(name)
+            if spec is not None:
+                try:
+                    nodes = select_nodes(nodes, spec)
+                except ValueError as e:
+                    raise ValueError(
+                        f"trainer_config.eval.file_nodes[{name!r}]: {e}"
+                    ) from None
+            if not nodes:
+                raise ValueError(
+                    f"Validation file {name!r} has no model node to score."
+                )
+            files.append(
+                ValFile(name=name, videos=list(labels.videos), node_names=nodes)
+            )
+        return files
+
     # Box metrics a `bbox_*` model can select checkpoints on (all higher-is-better).
     _BBOX_SELECT_METRICS = ("bbox_mAP", "bbox_AP50", "bbox_AP75", "bbox_AR", "bbox_f1")
 
@@ -2452,6 +2600,7 @@ class ModelTrainer:
         if user_monitor:
             ckpt_monitor = self.config.trainer_config.model_ckpt.monitor
             ckpt_mode = self.config.trainer_config.model_ckpt.mode
+            self._check_per_file_monitor(ckpt_monitor)
 
         if self.config.trainer_config.save_ckpt:
             ckpt_dirpath = (
@@ -2725,6 +2874,23 @@ class ModelTrainer:
                             "eval/val/visibility_recall",
                         ]
                     )
+            # Several val files: per-file and macro columns (every macro eval
+            # metric; per file the loss, mOKS, OKS mAP and mean distance).
+            val_names = self._val_file_names()
+            if val_names is not None and self._uses_warp_pipeline():
+                csv_log_keys.extend(
+                    [f"val/{name}/loss" for name in val_names] + ["val/macro/loss"]
+                )
+            if val_names is not None and "eval/val/mOKS" in csv_log_keys:
+                pooled = [k for k in csv_log_keys if k.startswith("eval/val/")]
+                csv_log_keys.extend(
+                    [k.replace("eval/val/", "eval/macro/", 1) for k in pooled]
+                    + [
+                        f"eval/{name}/{metric}"
+                        for name in val_names
+                        for metric in ("mOKS", "oks_voc_mAP", "distance/avg")
+                    ]
+                )
             csv_logger = CSVLoggerCallback(
                 filepath=Path(self.config.trainer_config.ckpt_dir)
                 / self.config.trainer_config.run_name
@@ -2954,6 +3120,8 @@ class ModelTrainer:
                         eval_frequency=self.config.trainer_config.eval.frequency,
                         oks_stddev=self.config.trainer_config.eval.oks_stddev,
                         oks_scale=self.config.trainer_config.eval.oks_scale,
+                        # Several val files: each file's own videos and nodes.
+                        val_files=self._val_files(),
                     )
                 )
 
@@ -3342,6 +3510,9 @@ class ModelTrainer:
         self.lightning_model = LightningModel.get_lightning_model_from_config(
             config=self.config,
         )
+        # Several val files: per-file val loss (`val/<name>/loss`, batches with
+        # `labels_idx`) and `val/macro/loss`.
+        self.lightning_model.val_file_names = self._val_file_names()
         logger.info(f"Backbone model: {self.lightning_model.model.backbone}")
         logger.info(f"Head model: {self.lightning_model.model.head_layers}")
         total_params = sum(p.numel() for p in self.lightning_model.parameters())
