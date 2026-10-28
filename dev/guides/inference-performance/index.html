@@ -8291,7 +8291,8 @@ and can be re-run to validate your own setup.</p>
   GPU: about 2× on a top-down pair (see
   <a href="#batches-on-the-gpu-upload_batches">Batches on the GPU</a>).</li>
 <li><strong>On NVIDIA, channels-last</strong> (<code>--memory_format channels_last</code>)
-  roughly doubled a top-down pair's speed on an A100 (see
+  roughly doubled a top-down pair's speed on an A100. It changes
+  results slightly (about as much as TF32 does), not accuracy (see
   <a href="#channels-last-memory_format">Channels-last</a>).</li>
 </ul>
 </div>
@@ -8556,20 +8557,65 @@ setting it on a built backend converts the model right away.</p>
 <td style="text-align: right;">493</td>
 </tr>
 <tr>
-<td><code>use_fp16</code>, batch 16</td>
-<td style="text-align: right;">244</td>
-<td style="text-align: right;">640</td>
+<td>fp32, batch 64</td>
+<td style="text-align: right;">190</td>
+<td style="text-align: right;">570</td>
 </tr>
 <tr>
-<td><code>use_fp16</code>, batch 64</td>
-<td style="text-align: right;">–</td>
-<td style="text-align: right;">801</td>
+<td>fp32, batch 16, TF32 off</td>
+<td style="text-align: right;">191</td>
+<td style="text-align: right;">251</td>
 </tr>
 </tbody>
 </table>
-<p>On this GPU fp16 only pays off once the model is channels-last. The fp16
-rows used a peak-finding fix for fp16 confidence maps whose top is two
-equal pixels (#782); without it fp16 loses about 0.8% of the animals.</p>
+<p><strong>It changes results slightly.</strong> On Ampere and newer NVIDIA GPUs, PyTorch
+lets cuDNN run fp32 convolutions in TF32 by default
+(<code>torch.backends.cudnn.allow_tf32</code>), so the default layout already uses
+TF32, and the channels-last kernels round differently. Over 6,000 frames
+(29,322 animals), compared with the default layout:</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th style="text-align: right;">animals not found again</th>
+<th style="text-align: right;">keypoints moved &gt; 1 px</th>
+<th style="text-align: right;">keypoints bit-identical</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>channels-last</td>
+<td style="text-align: right;">18</td>
+<td style="text-align: right;">3.7%</td>
+<td style="text-align: right;">0%</td>
+</tr>
+<tr>
+<td>default layout with TF32 off</td>
+<td style="text-align: right;">22</td>
+<td style="text-align: right;">3.7%</td>
+<td style="text-align: right;">0%</td>
+</tr>
+<tr>
+<td>channels-last vs default layout, both TF32 off</td>
+<td style="text-align: right;">1</td>
+<td style="text-align: right;">0.18%</td>
+<td style="text-align: right;">78%</td>
+</tr>
+</tbody>
+</table>
+<p>So channels-last changes results about as much as turning TF32 off does.
+A keypoint that moves by more than 1 px moves by one confidence-map pixel
+(about 3.4 px here); the median keypoint moves 0.006 px. Accuracy is the
+same: on 100 hand-labelled frames, all four (either layout, TF32 on or
+off) had a median error of 3.81–3.83 px and missed the same 8 animals.</p>
+<p>There is no bit-identical channels-last mode. With TF32 off it is still
+faster than the default layout with TF32 off (251 vs 191 fps) and much
+closer to it, but not identical: with TF32 off, even changing the batch
+size from 16 to 64 moves 1.8% of keypoints by more than 1 px (no animal
+lost). To turn TF32 off, set <code>torch.backends.cudnn.allow_tf32 = False</code> in
+Python before predicting, or run <code>NVIDIA_TF32_OVERRIDE=0 sleap-nn predict ...</code>
+(an NVIDIA library setting: same speed as the Python setting, 99% of
+keypoints bit-identical to it).</p>
 <table>
 <thead>
 <tr>
@@ -8580,6 +8626,10 @@ equal pixels (#782); without it fp16 loses about 0.8% of the animals.</p>
 <tbody>
 <tr>
 <td>NVIDIA GPUs (tensor-core convolutions)</td>
+<td>Results must match earlier runs bit for bit</td>
+</tr>
+<tr>
+<td></td>
 <td>AMD (ROCm): no difference measured</td>
 </tr>
 <tr>
@@ -8588,9 +8638,6 @@ equal pixels (#782); without it fp16 loses about 0.8% of the animals.</p>
 </tr>
 </tbody>
 </table>
-<p>The channels-last kernels can differ from the default ones in the last
-bits (fp32, TF32 when allowed), about as much as running the same model
-on a different GPU.</p>
 <h3 id="fuse_layers-conv-bn-fusion"><code>fuse_layers</code> (Conv-BN fusion)<a class="headerlink" href="#fuse_layers-conv-bn-fusion" title="Permanent link">&para;</a></h3>
 <p>Disabled by default. The post-PR-26 measurement on every fixture in this
 repo shows a 1.00× speedup — i.e., <strong>no measurable benefit on these
