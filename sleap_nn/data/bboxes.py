@@ -27,6 +27,7 @@ pose keypoints (a pixel's center is at its integer coordinate).
 from __future__ import annotations
 
 import math
+from collections import Counter
 from typing import Dict, List, Optional, Sequence, Tuple
 
 import attrs
@@ -236,14 +237,25 @@ def instance_crop_bbox(
 
 
 def frame_bbox_arrays(
-    lf: sio.LabeledFrame, categories: Sequence[str]
+    lf: sio.LabeledFrame,
+    categories: Sequence[str],
+    skipped: Optional[Counter] = None,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """A frame's user boxes as ``(n, 4)`` float32 xyxy and ``(n,)`` int64 class ids.
 
-    Boxes whose category is not in ``categories`` are skipped (with a single-class
-    detector every box is class 0).
+    Boxes whose category is not in ``categories`` are skipped, so a ``["person"]``
+    detector trained on a file that also boxes faces, hands or crowds sees only the
+    people. Two exceptions keep class-agnostic training working: with
+    ``categories == ["object"]`` every box is class 0, and with any single category
+    a box WITHOUT a category is class 0.
+
+    Args:
+        lf: The labeled frame.
+        categories: Ordered class names.
+        skipped: If given, counts the skipped boxes by category name.
     """
     index = {name: i for i, name in enumerate(categories)}
+    class_agnostic = list(categories) == [DEFAULT_BBOX_CATEGORY]
     single_class = len(categories) == 1
     xyxy, classes = [], []
     for box in frame_user_bboxes(lf):
@@ -251,8 +263,14 @@ def frame_bbox_arrays(
             x1, y1, x2, y2 = box.bounds
         else:
             x1, y1, x2, y2 = box.xyxy
-        cls = 0 if single_class else index.get(bbox_category_name(box))
+        name = bbox_category_name(box)
+        if class_agnostic or (single_class and name == DEFAULT_BBOX_CATEGORY):
+            cls = 0
+        else:
+            cls = index.get(name)
         if cls is None:
+            if skipped is not None:
+                skipped[name] += 1
             continue
         xyxy.append([x1, y1, x2, y2])
         classes.append(cls)

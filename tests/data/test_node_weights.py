@@ -77,9 +77,11 @@ def test_node_weights_active(minimal_instance):
 
 def test_carry_labeled_nodes(minimal_instance):
     source = _labels(minimal_instance, labeled_nodes=["A"])
-    # sleap-io's splits build fresh provenance (the trap this guards against).
+    # Splits with a fresh provenance (the group-aware splitter, sleap-io before
+    # talmolab/sleap-io#579) lose the key: the trap this guards against.
     train, val = source.make_training_splits(n_train=0.5, n_val=0.5, seed=0)
-    assert "labeled_nodes" not in train.provenance
+    for split in (train, val):
+        split.provenance.pop("labeled_nodes", None)
     carry_labeled_nodes(source, train, val)
     assert train.provenance["labeled_nodes"] == ["A"]
     assert val.provenance["labeled_nodes"] == ["A"]

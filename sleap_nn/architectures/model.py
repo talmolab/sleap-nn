@@ -79,7 +79,7 @@ def get_backbone(
         "pretrained": PretrainedBackbone,
     }
 
-    if backbone in DETR_BACKBONES:
+    if backbone in DETR_BACKBONES and backbone not in backbones:
         message = f"The {backbone} backbone is only supported for bbox_detr models."
         logger.error(message)
         raise KeyError(message)

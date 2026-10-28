@@ -193,10 +193,10 @@ def node_weights_active(
 def carry_labeled_nodes(source: sio.Labels, *splits: sio.Labels) -> None:
     """Copy ``provenance["labeled_nodes"]`` from ``source`` onto its splits.
 
-    ``sio.Labels.split`` / ``make_training_splits`` (sleap-io 0.9.x) and the
-    group-aware splitter build new ``Labels`` with a fresh provenance, which would
-    silently turn the file's node mask off. Splits that already carry the key are
-    left alone.
+    ``sio.Labels.split`` / ``make_training_splits`` (sleap-io before
+    talmolab/sleap-io#579) and the group-aware splitter build new ``Labels`` with a
+    fresh provenance, which would silently turn the file's node mask off. Splits
+    that already carry the key are left alone.
 
     Args:
         source: The labels the splits were made from.
