@@ -113,7 +113,9 @@ Notes:
   Prefer **little or no rotation**: the axis-aligned box of rotated corners is larger
   than the rotated animal, so rotation inflates the targets. Scale, translation and
   `flip_p` are exact.
-- **Tiling** is not supported for detectors yet (a clear error is raised).
+- **Tiling** is not supported for detectors in `sleap-nn predict` yet (a clear error
+  is raised). `sleap-nn detect-boxes --tile_width` has a full-height tiled mode for
+  wide panoramas (see [detector-box crops](warp-data-path.md#detector-box-crops)).
 
 ## Training and monitoring
 

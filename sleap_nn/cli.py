@@ -235,6 +235,7 @@ def cli():
     eval     - Run evaluation workflow
     system   - Display system information and GPU status
     import-rfdetr - Import an RF-DETR checkpoint as a bbox_detr model
+    detect-boxes - Write detector boxes into training labels
     """
     pass
 
@@ -4561,6 +4562,210 @@ def import_rfdetr(model, output_dir, revision, overwrite):
     except (FileExistsError, ValueError) as e:
         raise click.ClickException(str(e)) from e
     click.echo(f"Wrote {out}")
+
+
+@cli.command("detect-boxes", context_settings=CONTEXT_SETTINGS)
+@click.option(
+    "--data_path", "-i", type=str, required=True, help="Input labels file (.slp)."
+)
+@click.option(
+    "--output_path",
+    "-o",
+    type=str,
+    default=None,
+    help="Output .slp (default: <input name>.<tag>.slp next to the input).",
+)
+@click.option(
+    "--model_path",
+    "-m",
+    type=str,
+    default=None,
+    help="bbox_* model directory to run over the labeled frames.",
+)
+@click.option(
+    "--detections",
+    type=str,
+    default=None,
+    help="COCO detection-results JSON, matched to frames by file_name or image_id.",
+)
+@click.option(
+    "--detection_chunks",
+    type=str,
+    default=None,
+    help="Directory of chunk_*.npz files of the human project's detector pass.",
+)
+@click.option(
+    "--image_list",
+    type=str,
+    default=None,
+    help="Image list (one path per line) the --detection_chunks pass ran over.",
+)
+@click.option(
+    "--detector_id",
+    type=str,
+    default=None,
+    help="Box `source` (default: model directory name, JSON stem or chunk model id).",
+)
+@click.option(
+    "--tag",
+    type=str,
+    default=None,
+    help="Output name tag (default: bboxdetr for a model, dets otherwise).",
+)
+@click.option(
+    "--category",
+    type=str,
+    default="person",
+    show_default=True,
+    help="Person category: GT boxes, detector class and the new boxes' category.",
+)
+@click.option(
+    "--score_threshold",
+    type=float,
+    default=0.3,
+    show_default=True,
+    help="Detections scoring at least this are matched and stored.",
+)
+@click.option(
+    "--min_iou",
+    type=float,
+    default=0.1,
+    show_default=True,
+    help="Matched pairs with IoU above this are kept.",
+)
+@click.option(
+    "--json_category_id",
+    type=int,
+    default=1,
+    show_default=True,
+    help="COCO category id kept from --detections.",
+)
+@click.option("--device", type=str, default="auto", show_default=True)
+@click.option(
+    "--batch_size",
+    type=int,
+    default=8,
+    show_default=True,
+    help="Frames (or tiles) per forward pass.",
+)
+@click.option(
+    "--min_score",
+    type=float,
+    default=0.01,
+    show_default=True,
+    help="Detector score floor (model runs; what --save_detections keeps).",
+)
+@click.option(
+    "--max_detections",
+    type=int,
+    default=300,
+    show_default=True,
+    help="Detections per image (model runs; per tile and per merged frame).",
+)
+@click.option(
+    "--tile_width",
+    type=int,
+    default=None,
+    help="Detect in full-height tiles this wide (wide panoramas; model runs).",
+)
+@click.option("--tile_stride", type=int, default=390, show_default=True)
+@click.option(
+    "--tile_nms_iou",
+    type=float,
+    default=0.6,
+    show_default=True,
+    help="Tile merge: suppress boxes with IoU above this with a kept box.",
+)
+@click.option(
+    "--tile_contain",
+    type=float,
+    default=0.7,
+    show_default=True,
+    help="Tile merge: suppress inner-edge boxes this much inside a kept box.",
+)
+@click.option(
+    "--replace_predicted",
+    is_flag=True,
+    default=False,
+    help="Remove existing predicted boxes first (re-boxing a file).",
+)
+@click.option(
+    "--save_detections",
+    type=str,
+    default=None,
+    help="Also write the raw detections as a COCO results JSON.",
+)
+@click.option(
+    "--dry_run", is_flag=True, default=False, help="Print match statistics only."
+)
+@click.option(
+    "--overwrite", is_flag=True, default=False, help="Replace an existing output."
+)
+def detect_boxes(**kwargs):
+    """Write detector boxes into a training labels file (detector-box crops).
+
+    Runs a bbox_* model over every labeled frame (or reads a COCO results JSON or
+    detector chunk files), matches the detections to each frame's GT people
+    (Hungarian on IoU over detections scoring >= --score_threshold, pairs with
+    IoU > --min_iou kept; GT people are the non-crowd person user boxes plus the
+    keypoint extent of pose instances without a linked box) and writes a copy of
+    the labels with one PredictedBoundingBox per detection, linked to its matched
+    pose instance. Train on it with `preprocessing.crop_bbox_source: detector`.
+    Match statistics go into provenance["detector_boxes"] and <output>.json.
+
+    Examples:
+        sleap-nn detect-boxes -i coco_val2017.slp -m models/rfdetr-medium
+
+        sleap-nn detect-boxes -i coco_val2017.slp --detections dets.json
+
+        sleap-nn detect-boxes -i jrdb_train.slp -m models/person --tile_width 640
+    """
+    from sleap_nn.inference.detect_boxes import TileSpec, detect_boxes as run
+
+    tiling = None
+    if kwargs["tile_width"] is not None:
+        tiling = TileSpec(
+            width=kwargs["tile_width"],
+            stride=kwargs["tile_stride"],
+            nms_iou=kwargs["tile_nms_iou"],
+            contain=kwargs["tile_contain"],
+        )
+    model = kwargs["model_path"]
+    try:
+        stats, out = run(
+            kwargs["data_path"],
+            kwargs["output_path"],
+            model=model,
+            detections=kwargs["detections"],
+            detection_chunks=kwargs["detection_chunks"],
+            image_list=kwargs["image_list"],
+            detector=kwargs["detector_id"],
+            tag=kwargs["tag"],
+            category=kwargs["category"],
+            score_threshold=kwargs["score_threshold"],
+            min_iou=kwargs["min_iou"],
+            json_category_id=kwargs["json_category_id"],
+            device=_resolve_device(kwargs["device"]) if model else "cpu",
+            batch_size=kwargs["batch_size"],
+            min_score=kwargs["min_score"],
+            max_detections=kwargs["max_detections"],
+            tiling=tiling,
+            replace_predicted=kwargs["replace_predicted"],
+            save_detections=kwargs["save_detections"],
+            dry_run=kwargs["dry_run"],
+            overwrite=kwargs["overwrite"],
+        )
+    except (FileExistsError, ValueError) as e:
+        raise click.ClickException(str(e)) from e
+    keys = ("people", "matched", "unmatched", "boxes_added", "boxes_linked")
+    click.echo(", ".join(f"{k} {stats[k]}" for k in keys))
+    click.echo(
+        f"recall@IoU0.5 {100 * stats['recall_iou50']:.1f}%, "
+        f"@0.75 {100 * stats['recall_iou75']:.1f}%, "
+        f"mean IoU {stats['mean_iou_matched']:.3f}"
+    )
+    if out is not None:
+        click.echo(f"Wrote {out}")
 
 
 def _require_finite(ctx, param, value):
