@@ -42,6 +42,7 @@ from sleap_nn.training.losses import (
     compute_ohkm_loss,
     compute_weighted_mse_loss,
     compute_weighted_ohkm_loss,
+    per_node_mse,
     compute_bce_dice_loss,
     compute_masked_smooth_l1,
     build_contrastive_masks,
@@ -318,6 +319,13 @@ class LightningModel(L.LightningModule):
         self.val_predictions: List[Dict] = []
         self.val_ground_truth: List[Dict] = []
         self._collect_val_predictions: bool = False
+
+        # Multi-file validation: one display name per validation labels file (set
+        # by the trainer when there are several). Batches carrying `labels_idx`
+        # then also log `val/<name>/loss` and `val/macro/loss`.
+        self.val_file_names: Optional[List[str]] = None
+        self._val_file_num: Optional[torch.Tensor] = None
+        self._val_file_den: Optional[torch.Tensor] = None
 
         # Initialization for encoder and decoder stacks.
         if self.init_weights == "xavier":
@@ -762,9 +770,11 @@ class LightningModel(L.LightningModule):
         # Clear accumulated predictions for new epoch
         self.val_predictions = []
         self.val_ground_truth = []
+        self._val_file_num = self._val_file_den = None
 
     def on_validation_epoch_end(self):
         """Configure the val timer at the end of every epoch."""
+        self._log_per_file_val_loss()
         val_time = time.time() - self.val_start_time
         if not self.trainer.sanity_checking:
             self._epoch_val_time += val_time
@@ -981,6 +991,78 @@ class LightningModel(L.LightningModule):
             min_hard_keypoints=self.min_hard_keypoints,
             max_hard_keypoints=self.max_hard_keypoints,
             loss_scale=self.loss_scale,
+        )
+
+    def _accumulate_per_file_val_loss(
+        self, y_preds: torch.Tensor, y: torch.Tensor, batch: Dict
+    ) -> None:
+        """Add a val batch's masked confmap MSE to its files' running sums.
+
+        Only with several validation files (:attr:`val_file_names`) and batches that
+        carry ``labels_idx`` (the warp centered-instance pipeline); otherwise a
+        no-op. Each file accumulates ``sum(w * mse)`` and ``sum(w)`` over its
+        samples and nodes, so ``val/<name>/loss`` (logged at epoch end by
+        :meth:`_log_per_file_val_loss`) is
+        :func:`~sleap_nn.training.losses.compute_weighted_mse_loss` over the file's
+        whole val set: per node, normalized by the node-weight sum, without OHKM.
+        """
+        names = self.val_file_names
+        labels_idx = batch.get("labels_idx", None)
+        if not names or labels_idx is None:
+            return
+        mse = per_node_mse(y_preds.detach().float(), y.float())  # (B, C)
+        w = self._get_node_weights(batch, mse.shape[1], mse.device)
+        if w is None:
+            w = torch.ones_like(mse)
+        idx = torch.as_tensor(labels_idx, device=mse.device).reshape(-1).long()
+        if self._val_file_num is None:
+            n = len(names)
+            self._val_file_num = torch.zeros(n, device=mse.device, dtype=torch.float64)
+            self._val_file_den = torch.zeros(n, device=mse.device, dtype=torch.float64)
+        self._val_file_num.index_add_(0, idx, (w * mse).sum(1).double())
+        self._val_file_den.index_add_(0, idx, w.sum(1).double())
+
+    def _log_per_file_val_loss(self) -> None:
+        """Log ``val/<name>/loss`` per val file and their mean ``val/macro/loss``.
+
+        A collective under DDP (the sums are reduced across ranks), so every rank
+        calls it, including ranks that saw no batch with ``labels_idx``. Files
+        with no weighted node this epoch are left out of the macro average.
+        """
+        names = self.val_file_names
+        if not names:
+            return
+        num, den = self._val_file_num, self._val_file_den
+        if num is None:
+            num = torch.zeros(len(names), device=self.device, dtype=torch.float64)
+            den = torch.zeros_like(num)
+        trainer = getattr(self, "_trainer", None)
+        if trainer is not None and getattr(trainer, "world_size", 1) > 1:
+            num = trainer.strategy.reduce(num, reduce_op="sum")
+            den = trainer.strategy.reduce(den, reduce_op="sum")
+        self._val_file_num = self._val_file_den = None
+        if not bool((den > 0).any()):
+            return
+        losses = []
+        for name, n, d in zip(names, num.tolist(), den.tolist()):
+            if d <= 0:
+                continue
+            losses.append(n / d)
+            self.log(
+                f"val/{name}/loss",
+                n / d,
+                prog_bar=False,
+                on_step=False,
+                on_epoch=True,
+                sync_dist=False,
+            )
+        self.log(
+            "val/macro/loss",
+            float(np.mean(losses)),
+            prog_bar=False,
+            on_step=False,
+            on_epoch=True,
+            sync_dist=False,
         )
 
     def _log_unmasked_val_loss(
@@ -2082,6 +2164,7 @@ class TopDownCenteredInstanceLightningModule(LightningModel):
             sync_dist=True,
         )
         self._log_unmasked_val_loss(y_preds, y, batch)
+        self._accumulate_per_file_val_loss(y_preds, y, batch)
 
         # Collect predictions for epoch-end evaluation if enabled
         if self._collect_val_predictions:
@@ -2133,8 +2216,16 @@ class TopDownCenteredInstanceLightningModule(LightningModel):
                 # own GT instance (a frame holds several crops, each in its own
                 # crop coordinates, so they must not be pooled by frame).
                 crop_id = len(self.val_ground_truth)
+                # Multi-file validation keys entries by (labels_idx, video_idx,
+                # frame_idx): `video_idx` indexes that file's own videos.
+                file_key = (
+                    {"labels_idx": int(batch["labels_idx"][i])}
+                    if "labels_idx" in batch
+                    else {}
+                )
                 self.val_predictions.append(
                     {
+                        **file_key,
                         "video_idx": batch["video_idx"][i].item(),
                         "frame_idx": batch["frame_idx"][i].item(),
                         "crop_id": crop_id,
@@ -2146,6 +2237,7 @@ class TopDownCenteredInstanceLightningModule(LightningModel):
                 )
                 self.val_ground_truth.append(
                     {
+                        **file_key,
                         "video_idx": batch["video_idx"][i].item(),
                         "frame_idx": batch["frame_idx"][i].item(),
                         "crop_id": crop_id,

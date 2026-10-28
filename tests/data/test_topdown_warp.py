@@ -456,3 +456,20 @@ def test_warp_model_predicts_mixed_frame_sizes(warp_run):
             assert len(finite) > 0
             assert (finite[:, 0] >= -1).all() and (finite[:, 0] <= w).all()
             assert (finite[:, 1] >= -1).all() and (finite[:, 1] <= h).all()
+
+
+def test_warp_training_logs_per_file_val_metrics(warp_run):
+    """Two val files: per-file loss/eval columns named by file stem, plus macro."""
+    import pandas as pd
+
+    log = pd.read_csv(warp_run["dir"] / "training_log.csv")
+    assert len(log) == 3
+    for name in ("minimal_instance", "small"):
+        assert log[f"val/{name}/loss"].notna().all()
+        assert log[f"eval/{name}/mOKS"].notna().all()
+        assert log[f"eval/{name}/distance/avg"].notna().all()
+    files = log[["val/minimal_instance/loss", "val/small/loss"]].mean(axis=1)
+    assert np.allclose(log["val/macro/loss"], files)
+    assert log["val/loss"].notna().all() and log["eval/val/mOKS"].notna().all()
+    mean_oks = log[["eval/minimal_instance/mOKS", "eval/small/mOKS"]].mean(axis=1)
+    assert np.allclose(log["eval/macro/mOKS"], mean_oks)

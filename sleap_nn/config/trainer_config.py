@@ -7,7 +7,7 @@ the parameters required to initialize the trainer config.
 from attrs import define, field, validators
 from pathlib import Path
 import time
-from typing import Optional, List, Any
+from typing import Optional, List, Any, Dict
 from loguru import logger
 import re
 
@@ -530,6 +530,11 @@ class EvalConfig:
             when ``enabled`` and on ``val/loss`` otherwise. Box and retrieval
             metrics are checked on evaluation epochs only. Ignored by every other
             model type, which selects on ``val/loss``. *Default*: `"rank1"`.
+        file_nodes: (dict) With several validation files, the nodes each file is
+            scored on by the epoch-end evaluation, keyed by the file's display name
+            (``data_config.val_names``): a list of node names, or a string prefix
+            such as ``"hcm-2025/"``. Files not listed are scored on the model nodes
+            their skeleton has. *Default*: `None`.
     """
 
     enabled: bool = False
@@ -545,6 +550,7 @@ class EvalConfig:
     # the mode table in `model_trainer` was dead for config users and selection was
     # always rank-1. The valid names are validated there (one table, one place).
     select_metric: str = "rank1"
+    file_nodes: Optional[Dict[str, Any]] = None
 
 
 @define

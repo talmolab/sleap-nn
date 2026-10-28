@@ -95,6 +95,44 @@ so any number of files mixes at any batch size (e.g. 5 files at 8 per GPU). The
 `bbox_*` detectors use the same sampler; see the [DETR box detector
 guide](bbox-detr.md#our-human-detector-two-stages).
 
+### Per-file validation
+
+With several validation files (`val_labels_path`, or one split from each training
+file), each file is also measured on its own:
+
+- `val/<name>/loss`: the masked confmap MSE of that file's validation crops (its
+  own nodes, as in training, without the OHKM term), and `val/macro/loss`, their
+  unweighted mean. `val/loss` stays the loss pooled over every file.
+- With `trainer_config.eval.enabled`, `eval/<name>/*` (mOKS, OKS mAP/mAR, PCK,
+  distances, ...): each file's predictions are scored against that file's own
+  ground truth and videos, on its own nodes only, so the channels of other
+  datasets neither count as misses nor as false positives. `eval/macro/*` is the
+  unweighted mean over files, and `eval/val/*` is the pooled score on every node.
+
+`<name>` is the file stem (`.slp` / `.pkg` stripped; repeated stems get a `-<i>`
+suffix) or `data_config.val_names`. A file is scored on the model nodes its skeleton
+has, or on `trainer_config.eval.file_nodes[<name>]` (a node list or a prefix):
+
+```yaml
+data_config:
+  val_labels_path: [hcm/val.pkg.slp, tye/val.pkg.slp]
+  val_names: [hcm-2025, tye-valence]
+trainer_config:
+  eval:
+    enabled: true
+    file_nodes:   # score hcm-2025 on two of its nodes only
+      hcm-2025: [hcm-2025/nose, hcm-2025/tail_base]
+  model_ckpt:
+    monitor: eval/macro/oks_voc_mAP  # or val/macro/loss with mode: min
+    mode: max
+```
+
+Any of these keys can select checkpoints and drive early stopping through
+`model_ckpt.monitor`. They are written to `training_log.csv` too (per file: the
+loss, mOKS, OKS mAP and mean distance; every macro metric). Per-file losses need the
+`labels_idx` the warp pipeline puts in each batch; other pipelines log the pooled
+metrics only.
+
 ## Crop boxes and filters
 
 - `crop_bbox_categories` keeps only linked user boxes of those categories as crop

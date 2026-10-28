@@ -4,7 +4,8 @@ import math
 import zmq
 import jsonpickle
 import torch
-from typing import Callable, Optional, Union
+from dataclasses import dataclass
+from typing import Callable, List, Optional, Sequence, Union
 from lightning.pytorch.callbacks import Callback, EarlyStopping, ModelCheckpoint
 from lightning.pytorch.callbacks.progress import TQDMProgressBar
 from loguru import logger
@@ -1586,6 +1587,51 @@ def _eval_frame_idx(entry: dict) -> int:
     return int(crop_id) if crop_id is not None else int(entry["frame_idx"])
 
 
+@dataclass
+class ValFile:
+    """One validation labels file, for per-file epoch-end evaluation.
+
+    Attributes:
+        name: Display name; metrics are logged as ``eval/<name>/*``.
+        videos: The file's own ``labels.videos`` (val entries' ``video_idx``
+            indexes them).
+        node_names: The model nodes this file is scored on, in model order.
+    """
+
+    name: str
+    videos: list
+    node_names: List[str]
+
+
+def select_nodes(
+    node_names: Sequence[str], spec: Union[str, Sequence[str], None]
+) -> List[str]:
+    """The nodes of ``node_names`` a node spec picks, in ``node_names`` order.
+
+    ``spec`` is a list of node names, or a string prefix (e.g. ``"hcm-2025/"``)
+    selecting every node whose name starts with it; ``None`` selects every node.
+
+    Raises:
+        ValueError: If a listed node is not in ``node_names`` or nothing is
+            selected.
+    """
+    if spec is None:
+        return list(node_names)
+    if isinstance(spec, str):
+        out = [n for n in node_names if n.startswith(spec)]
+        if not out:
+            raise ValueError(f"No node name starts with the prefix {spec!r}.")
+        return out
+    spec = list(spec)
+    missing = [n for n in spec if n not in node_names]
+    if missing:
+        raise ValueError(f"Nodes {missing} are not model nodes.")
+    if not spec:
+        raise ValueError("An empty node list selects no node.")
+    keep = set(spec)
+    return [n for n in node_names if n in keep]
+
+
 class EpochEndEvaluationCallback(Callback):
     """Callback to run full evaluation metrics at end of validation epochs.
 
@@ -1619,20 +1665,48 @@ class EpochEndEvaluationCallback(Callback):
         oks_stddev: float = 0.025,
         oks_scale: Optional[float] = None,
         metrics_to_log: Optional[list] = None,
+        val_files: Optional[List["ValFile"]] = None,
     ):
         """Initialize the callback.
 
         Args:
             skeleton: sio.Skeleton for creating instances.
-            videos: List of sio.Video objects.
+            videos: List of sio.Video objects (of the first val file when there
+                are several; ``val_files`` then carries every file's own).
             eval_frequency: Run evaluation every N epochs (default: 1).
             oks_stddev: OKS standard deviation (default: 0.025).
             oks_scale: Optional OKS scale override.
             metrics_to_log: List of metric keys to log. If None, logs all available.
+            val_files: One :class:`ValFile` per validation labels file, when there
+                are several. Entries carrying ``labels_idx`` are then keyed by
+                ``(labels_idx, video_idx, frame_idx)`` against their own file's
+                videos; the pooled ``eval/val/*`` metrics cover every file on the
+                full skeleton, and each file is also scored alone on its own nodes
+                (``eval/<name>/*``) with the unweighted mean over files logged as
+                ``eval/macro/*``.
         """
+        import numpy as np
+        import sleap_io as sio
+
         super().__init__()
         self.skeleton = skeleton
         self.videos = videos
+        self.val_files = list(val_files) if val_files and len(val_files) > 1 else None
+        if self.val_files is not None:
+            # Pooled labels hold every file's videos: file `f`'s video `v` is
+            # `self.videos[self._video_offsets[f] + v]`.
+            self._video_offsets = np.cumsum(
+                [0] + [len(f.videos) for f in self.val_files[:-1]]
+            ).tolist()
+            self.videos = [v for f in self.val_files for v in f.videos]
+            self._file_node_idx = [
+                [skeleton.node_names.index(n) for n in f.node_names]
+                for f in self.val_files
+            ]
+            self._file_skeletons = [
+                sio.Skeleton(nodes=list(f.node_names), name=f.name)
+                for f in self.val_files
+            ]
         self.eval_frequency = eval_frequency
         self.oks_stddev = oks_stddev
         self.oks_scale = oks_scale
@@ -1671,12 +1745,19 @@ class EpochEndEvaluationCallback(Callback):
         gts, preds = pl_module.val_ground_truth, pl_module.val_predictions
         if scored:
             gts, preds = _gather_val_entries(trainer, gts, preds)
-        metrics = None
+        metrics = file_metrics = None
         if scored and trainer.is_global_zero:
             metrics = self._evaluate(gts, preds, trainer.current_epoch)
+            if self.val_files is not None:
+                file_metrics = self._evaluate_files(gts, preds, trainer.current_epoch)
         if scored:
             metrics = trainer.strategy.broadcast(metrics, src=0)
             self._log_metrics(trainer, metrics or {}, trainer.current_epoch)
+            if self.val_files is not None:
+                file_metrics = trainer.strategy.broadcast(file_metrics, src=0)
+                self._log_file_metrics(
+                    trainer, file_metrics or {}, trainer.current_epoch
+                )
 
         # Every rank clears its own lists (they only fill on scored epochs).
         pl_module._collect_val_predictions = False
@@ -1686,19 +1767,30 @@ class EpochEndEvaluationCallback(Callback):
         # Sync all processes - barrier must be reached by ALL ranks
         trainer.strategy.barrier()
 
-    def _evaluate(self, gts: list, preds: list, epoch: int) -> Optional[dict]:
-        """Score the val entries; the metrics ``_log_metrics`` reads, or None."""
+    def _evaluate(
+        self,
+        gts: list,
+        preds: list,
+        epoch: int,
+        file_idx: Optional[int] = None,
+    ) -> Optional[dict]:
+        """Score the val entries; the metrics ``_log_metrics`` reads, or None.
+
+        With ``file_idx`` the entries are one val file's, scored on that file's
+        nodes only (:class:`ValFile`).
+        """
         import sleap_io as sio
         import numpy as np
         from sleap_nn.evaluation import Evaluator
 
+        where = "" if file_idx is None else f" ({self.val_files[file_idx].name})"
         if not preds or not gts:
-            logger.warning("No predictions collected for epoch-end evaluation")
+            logger.warning(f"No predictions collected for epoch-end evaluation{where}")
             return None
         try:
             # Build sio.Labels from accumulated predictions and ground truth
-            pred_labels = self._build_pred_labels(preds, sio, np)
-            gt_labels = self._build_gt_labels(gts, sio, np)
+            pred_labels = self._build_pred_labels(preds, sio, np, file_idx)
+            gt_labels = self._build_gt_labels(gts, sio, np, file_idx)
 
             # Check if we have valid frames to evaluate
             if len(pred_labels) == 0:
@@ -1716,13 +1808,13 @@ class EpochEndEvaluationCallback(Callback):
             )
             metrics = evaluator.evaluate()
             logger.info(
-                f"Epoch {epoch} evaluation: "
+                f"Epoch {epoch} evaluation{where}: "
                 f"PCK@5={metrics['pck_metrics']['PCK@5']:.4f}, "
                 f"mOKS={metrics['mOKS']['mOKS']:.4f}, "
                 f"mAP={metrics['voc_metrics']['oks_voc.mAP']:.4f}"
             )
         except Exception as e:
-            logger.warning(f"Epoch-end evaluation failed: {e}")
+            logger.warning(f"Epoch-end evaluation failed{where}: {e}")
             return None
         # Only the scalars `_log_metrics` reads cross the broadcast (the full result
         # also holds per-instance arrays).
@@ -1731,12 +1823,65 @@ class EpochEndEvaluationCallback(Callback):
             for group, keys in self._LOGGED_METRICS.items()
         }
 
-    def _build_pred_labels(self, predictions: list, sio, np) -> "sio.Labels":
-        """Convert prediction dicts to sio.Labels."""
+    def _evaluate_files(self, gts: list, preds: list, epoch: int) -> Optional[dict]:
+        """Score each val file alone: ``{name: metrics or None}``, or None.
+
+        Only entries that carry ``labels_idx`` can be attributed to a file; when
+        none does (a pipeline that does not emit it), only the pooled metrics are
+        logged.
+        """
+        if not any("labels_idx" in g for g in gts):
+            if not getattr(self, "_warned_no_labels_idx", False):
+                logger.warning(
+                    "Per-file epoch-end evaluation needs `labels_idx` in the val "
+                    "batches (the warp centered-instance pipeline emits it); logging "
+                    "pooled eval/val/* metrics only."
+                )
+                self._warned_no_labels_idx = True
+            return None
+        out = {}
+        for f, val_file in enumerate(self.val_files):
+            f_gts = [g for g in gts if g.get("labels_idx") == f]
+            f_preds = [p for p in preds if p.get("labels_idx") == f]
+            out[val_file.name] = (
+                self._evaluate(f_gts, f_preds, epoch, file_idx=f) if f_gts else None
+            )
+        return out
+
+    def _entry_video(self, entry: dict):
+        """The ``sio.Video`` of an entry: its own file's when it has ``labels_idx``."""
+        v = int(entry["video_idx"])
+        if self.val_files is not None:
+            v += self._video_offsets[int(entry.get("labels_idx", 0))]
+        return self.videos[v]
+
+    def _file_skeleton(self, file_idx: Optional[int]):
+        """The skeleton entries are scored on: a val file's nodes, or all."""
+        return self.skeleton if file_idx is None else self._file_skeletons[file_idx]
+
+    def _file_view(self, points, file_idx: Optional[int], skeleton):
+        """``(points, skeleton)`` restricted to a val file's nodes (last axis -2)."""
+        if file_idx is None or points is None:
+            return points, skeleton
+        return (
+            points[..., self._file_node_idx[file_idx], :],
+            self._file_skeletons[file_idx],
+        )
+
+    def _build_pred_labels(
+        self, predictions: list, sio, np, file_idx: Optional[int] = None
+    ) -> "sio.Labels":
+        """Convert prediction dicts to sio.Labels (on one file's nodes if given)."""
+        skeleton = self.skeleton
         labeled_frames = []
         for pred in predictions:
             pred_peaks = pred["pred_peaks"]
             pred_scores = pred["pred_scores"]
+            if file_idx is not None and pred_peaks is not None:
+                node_idx = self._file_node_idx[file_idx]
+                pred_peaks, skeleton = self._file_view(pred_peaks, file_idx, skeleton)
+                if pred_scores is not None:
+                    pred_scores = pred_scores[..., node_idx]
 
             # Handle NaN/missing predictions
             if pred_peaks is None or (
@@ -1761,7 +1906,7 @@ class EpochEndEvaluationCallback(Callback):
 
                 inst = sio.PredictedInstance.from_numpy(
                     points_data=inst_points,
-                    skeleton=self.skeleton,
+                    skeleton=skeleton,
                     point_scores=(
                         inst_scores
                         if inst_scores is not None
@@ -1777,7 +1922,7 @@ class EpochEndEvaluationCallback(Callback):
 
             if instances:
                 lf = sio.LabeledFrame(
-                    video=self.videos[pred["video_idx"]],
+                    video=self._entry_video(pred),
                     frame_idx=_eval_frame_idx(pred),
                     instances=instances,
                 )
@@ -1785,16 +1930,21 @@ class EpochEndEvaluationCallback(Callback):
 
         return sio.Labels(
             videos=self.videos,
-            skeletons=[self.skeleton],
+            skeletons=[self._file_skeleton(file_idx)],
             labeled_frames=labeled_frames,
         )
 
-    def _build_gt_labels(self, ground_truth: list, sio, np) -> "sio.Labels":
-        """Convert ground truth dicts to sio.Labels."""
+    def _build_gt_labels(
+        self, ground_truth: list, sio, np, file_idx: Optional[int] = None
+    ) -> "sio.Labels":
+        """Convert ground truth dicts to sio.Labels (on one file's nodes if given)."""
+        skeleton = self.skeleton
         labeled_frames = []
         for gt in ground_truth:
             instances = []
-            gt_instances = gt["gt_instances"]
+            gt_instances, skeleton = self._file_view(
+                gt["gt_instances"], file_idx, self.skeleton
+            )
 
             # Handle shape variations
             if len(gt_instances.shape) == 2:
@@ -1807,13 +1957,13 @@ class EpochEndEvaluationCallback(Callback):
                     continue
                 inst = sio.Instance.from_numpy(
                     points_data=inst_data,
-                    skeleton=self.skeleton,
+                    skeleton=skeleton,
                 )
                 instances.append(inst)
 
             if instances:
                 lf = sio.LabeledFrame(
-                    video=self.videos[gt["video_idx"]],
+                    video=self._entry_video(gt),
                     frame_idx=_eval_frame_idx(gt),
                     instances=instances,
                 )
@@ -1821,16 +1971,46 @@ class EpochEndEvaluationCallback(Callback):
 
         return sio.Labels(
             videos=self.videos,
-            skeletons=[self.skeleton],
+            skeletons=[self._file_skeleton(file_idx)],
             labeled_frames=labeled_frames,
         )
 
-    def _log_metrics(self, trainer, metrics: dict, epoch: int):
+    def _log_file_metrics(self, trainer, file_metrics: dict, epoch: int):
+        """Log each val file's metrics as ``eval/<name>/*`` and their mean.
+
+        ``eval/macro/*`` is the unweighted mean over the files that were scored
+        (NaN values skipped), so each file counts once whatever its size. A file
+        whose evaluation failed or was empty gets the worst values under its own
+        name and is left out of the mean.
+        """
+        import numpy as np
+
+        scored = []
+        for val_file in self.val_files:
+            m = file_metrics.get(val_file.name)
+            self._log_metrics(trainer, m or {}, epoch, prefix=f"eval/{val_file.name}")
+            if m:
+                scored.append(m)
+        macro = {}
+        for group, keys in self._LOGGED_METRICS.items():
+            macro[group] = {}
+            for key in keys:
+                vals = [
+                    float(m[group][key])
+                    for m in scored
+                    if m.get(group, {}).get(key) is not None
+                    and np.isfinite(m[group][key])
+                ]
+                macro[group][key] = float(np.mean(vals)) if vals else float("nan")
+        self._log_metrics(trainer, macro if scored else {}, epoch, prefix="eval/macro")
+
+    def _log_metrics(self, trainer, metrics: dict, epoch: int, prefix="eval/val"):
         """Populate callback_metrics for ModelCheckpoint, then log to WandB.
 
         Runs on every rank (each rank's checkpointer reads ``callback_metrics``);
         wandb logging happens on rank 0 only. An empty ``metrics`` (a failed or
-        empty evaluation) sets every tracked key to its worst value.
+        empty evaluation) sets every tracked key to its worst value. Keys are
+        ``<prefix>/<metric>`` (``eval/val/mOKS``, ...).
         """
         import numpy as np
         import torch
@@ -1841,55 +2021,60 @@ class EpochEndEvaluationCallback(Callback):
 
         # (metrics_to_log name, callback/wandb key, raw value, higher_is_better)
         candidates = [
-            ("mOKS", "eval/val/mOKS", _get(metrics, "mOKS", "mOKS"), True),
+            ("mOKS", f"{prefix}/mOKS", _get(metrics, "mOKS", "mOKS"), True),
             (
                 "oks_voc.mAP",
-                "eval/val/oks_voc_mAP",
+                f"{prefix}/oks_voc_mAP",
                 _get(metrics, "voc_metrics", "oks_voc.mAP"),
                 True,
             ),
             (
                 "oks_voc.mAR",
-                "eval/val/oks_voc_mAR",
+                f"{prefix}/oks_voc_mAR",
                 _get(metrics, "voc_metrics", "oks_voc.mAR"),
                 True,
             ),
             (
                 "distance/avg",
-                "eval/val/distance/avg",
+                f"{prefix}/distance/avg",
                 _get(metrics, "distance_metrics", "avg"),
                 False,
             ),
             (
                 "distance/p50",
-                "eval/val/distance/p50",
+                f"{prefix}/distance/p50",
                 _get(metrics, "distance_metrics", "p50"),
                 False,
             ),
             (
                 "distance/p95",
-                "eval/val/distance/p95",
+                f"{prefix}/distance/p95",
                 _get(metrics, "distance_metrics", "p95"),
                 False,
             ),
             (
                 "distance/p99",
-                "eval/val/distance/p99",
+                f"{prefix}/distance/p99",
                 _get(metrics, "distance_metrics", "p99"),
                 False,
             ),
-            ("mPCK", "eval/val/mPCK", _get(metrics, "pck_metrics", "mPCK"), True),
-            ("PCK@5", "eval/val/PCK_5", _get(metrics, "pck_metrics", "PCK@5"), True),
-            ("PCK@10", "eval/val/PCK_10", _get(metrics, "pck_metrics", "PCK@10"), True),
+            ("mPCK", f"{prefix}/mPCK", _get(metrics, "pck_metrics", "mPCK"), True),
+            ("PCK@5", f"{prefix}/PCK_5", _get(metrics, "pck_metrics", "PCK@5"), True),
+            (
+                "PCK@10",
+                f"{prefix}/PCK_10",
+                _get(metrics, "pck_metrics", "PCK@10"),
+                True,
+            ),
             (
                 "visibility_precision",
-                "eval/val/visibility_precision",
+                f"{prefix}/visibility_precision",
                 _get(metrics, "visibility_metrics", "precision"),
                 True,
             ),
             (
                 "visibility_recall",
-                "eval/val/visibility_recall",
+                f"{prefix}/visibility_recall",
                 _get(metrics, "visibility_metrics", "recall"),
                 True,
             ),

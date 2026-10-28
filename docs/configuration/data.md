@@ -21,6 +21,7 @@ data_config:
 |--------|-------------|---------|
 | `train_labels_path` | Training data files | Required |
 | `val_labels_path` | Validation data files | `null` |
+| `val_names` | Display names of the validation files, one per file; with several files each gets `val/<name>/loss` and `eval/<name>/*` (see [Per-file validation](../guides/warp-data-path.md#per-file-validation)) | file stems |
 | `validation_fraction` | Fraction for auto-split | `0.1` |
 | `test_file_path` | Test data for evaluation | `null` |
 | `user_instances_only` | Only use user-labeled instances | `true` |
