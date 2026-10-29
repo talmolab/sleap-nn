@@ -217,6 +217,10 @@ def test_sample_table_kinds_do_not_depend_on_proportions():
     assert kind == "scalar" and array.dtype == np.int64
     assert other_idx.tolist() == list(range(1, 7))
     assert [s["lf_idx"] for s in table] == lf_idx
+    assert table.column("lf_idx") is array
+    # Only scalar columns come out as one array.
+    with pytest.raises(ValueError, match="is str, not scalar"):
+        SampleTable.from_dicts([{"path": "a.jpg"}]).column("path")
     # Mixed numeric types are not coerced.
     assert SampleTable._column([1, 2.5])[0] == "object"
 
