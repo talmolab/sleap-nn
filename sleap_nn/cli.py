@@ -429,10 +429,6 @@ def _adjust_train_config(cfg, overrides, resume_target, dry_run: bool):
         ):
             cfg.trainer_config.wandb.name = None
         _check_epochs_left(ckpt, cfg.trainer_config.max_epochs)
-        logger.info(
-            f"Resuming from {ckpt.as_posix()} into new run folder "
-            f"{(Path(cfg.trainer_config.ckpt_dir) / cfg.trainer_config.run_name).as_posix()}"
-        )
 
     if dry_run and _get_num_devices_from_config(cfg) > 1:
         logger.info("Dry run: using a single device.")
@@ -667,6 +663,13 @@ def train(
     with hydra.initialize_config_dir(config_dir=config_dir, version_base=None):
         cfg = hydra.compose(config_name=config_name, overrides=overrides)
         cfg = _adjust_train_config(cfg, overrides, resume_target, dry_run)
+        # Logged here, not in `_adjust_train_config`: every route below composes
+        # the config again.
+        if resume_target is not None:
+            logger.info(
+                f"Resuming from {cfg.trainer_config.resume_ckpt_path} into new run "
+                f"folder {(Path(cfg.trainer_config.ckpt_dir) / cfg.trainer_config.run_name).as_posix()}"
+            )
 
         # Validate config
         if not hasattr(cfg, "model_config") or not cfg.model_config:

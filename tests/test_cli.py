@@ -1473,6 +1473,50 @@ class TestTrainResume:
         )
         assert not (ckpt_dir / "orig-3").exists()
 
+    def test_dry_run_of_a_late_checkpoint_runs_one_batch(self, sample_config, tmp_path):
+        from sleap_nn.training.model_trainer import ModelTrainer
+
+        ckpt_dir = tmp_path / "runs"
+        sample_config.trainer_config.ckpt_dir = ckpt_dir.as_posix()
+        sample_config.trainer_config.run_name = "orig"
+        config_path = tmp_path / "config.yaml"
+        OmegaConf.save(sample_config, config_path.as_posix())
+        self._train([config_path.as_posix()])
+        run_dir = ckpt_dir / "orig"
+
+        # Make the checkpoint look like one saved late in a long run (Lightning
+        # restores the epoch from the fit loop's progress). Restoring its trainer
+        # state under `fast_dev_run` used to fail (Lightning refuses
+        # current_epoch > max_epochs=1) or, from an early epoch, run no batch.
+        ckpt = torch.load(run_dir / "best.ckpt", weights_only=False)
+        ckpt["epoch"] = 5
+        for counts in ckpt["loops"]["fit_loop"]["epoch_progress"].values():
+            counts.update({k: 5 for k in counts})
+        late = run_dir / "late.ckpt"
+        torch.save(ckpt, late)
+
+        def dry_run(ckpt_path):
+            cfg = OmegaConf.load(run_dir / "training_config.yaml")
+            cfg.trainer_config.resume_ckpt_path = ckpt_path.as_posix()
+            cfg.trainer_config.max_epochs = 10
+            cfg.trainer_config.run_name = "dry"
+            cfg.trainer_config.trainer_accelerator = "cpu"
+            trainer = ModelTrainer.get_model_trainer_from_config(cfg)
+            trainer.train(dry_run=True)
+            return trainer
+
+        # Exactly one fresh step ran, from the checkpoint's weights.
+        assert dry_run(late).trainer.global_step == 1
+        assert not (ckpt_dir / "dry").exists()
+
+        # Weights that don't fit the model fail the dry run.
+        name = next(k for k, v in ckpt["state_dict"].items() if v.ndim == 4)
+        ckpt["state_dict"][name] = ckpt["state_dict"][name][:1]
+        bad = run_dir / "bad.ckpt"
+        torch.save(ckpt, bad)
+        with pytest.raises(RuntimeError, match="size mismatch"):
+            dry_run(bad)
+
 
 class TestResolveResumeTarget:
     """Argument handling for `--resume`, without training."""

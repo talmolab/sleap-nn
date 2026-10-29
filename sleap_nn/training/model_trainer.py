@@ -3218,6 +3218,18 @@ class ModelTrainer:
 
         self.trainer.strategy.barrier()
 
+        resume_ckpt_path = self.config.trainer_config.resume_ckpt_path
+        if dry_run and resume_ckpt_path is not None:
+            # `fast_dev_run` caps the run at one step and one epoch, so restoring the
+            # checkpoint's trainer state would leave no batch to run (and Lightning
+            # refuses a checkpoint past epoch 1 outright). Load its weights strictly
+            # instead: that checks the checkpoint fits this model, and the one
+            # training batch then runs from them.
+            logger.info(f"Dry run: loading weights from {resume_ckpt_path}")
+            ckpt = torch.load(resume_ckpt_path, map_location="cpu", weights_only=False)
+            self.lightning_model.load_state_dict(ckpt["state_dict"])
+            resume_ckpt_path = None
+
         # Flag to track if training was interrupted (not completed normally)
         training_interrupted = False
 
@@ -3231,7 +3243,7 @@ class ModelTrainer:
                 self.lightning_model,
                 train_dataloader,
                 val_dataloader,
-                ckpt_path=self.config.trainer_config.resume_ckpt_path,
+                ckpt_path=resume_ckpt_path,
             )
 
         except KeyboardInterrupt:
