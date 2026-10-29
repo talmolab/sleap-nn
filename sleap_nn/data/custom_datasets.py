@@ -418,6 +418,122 @@ class ParallelCacheFiller:
                     pass
 
 
+class SampleTable:
+    """A read-only list of sample dicts stored as a few numpy arrays.
+
+    A dataset's sample list as Python dicts is millions of small objects for a
+    large dataset. A forked dataloader worker shares them with its parent
+    copy-on-write, but reading an object writes its reference count, so every
+    sample a worker reads copies that object's memory page into the worker. Over
+    many shuffled epochs each persistent worker ends up with its own copy of the
+    whole list (Objects365 + Open Images: ~1 GB per worker per epoch, which ran a
+    4-GPU x 16-worker run out of host memory). Here each key is one array, read
+    without touching per-sample objects:
+
+    - ints, floats and bools: one array (values of another type, e.g. a negative
+      frame's ``"neg_..."`` ``lf_idx``, are kept in a small exceptions dict);
+    - arrays (e.g. boxes): concatenated along the first axis, with row offsets;
+    - strings (``None`` allowed): one fixed-width UTF-8 bytes array;
+    - all ``None``: no storage;
+    - anything else: an object array (copied per read like a list).
+
+    ``table[i]`` builds a new dict whose arrays are copies, so nothing written to a
+    sample reaches the shared arrays.
+
+    Attributes:
+        columns: Key -> ``(kind, data)``, in the first sample's key order.
+    """
+
+    # Scalar column types, most specific first (bool is an int subclass).
+    _scalar_types = (
+        ((bool, np.bool_), bool),
+        ((int, np.integer), np.int64),
+        ((float, np.floating), np.float64),
+    )
+
+    def __init__(self, columns: Dict[str, Tuple[str, Any]], length: int):
+        """Initialize from columns built by :meth:`from_dicts`."""
+        self.columns = columns
+        self._len = length
+
+    @classmethod
+    def from_dicts(cls, samples: List[Dict]) -> "SampleTable":
+        """Build a table from sample dicts that all have the same keys."""
+        columns = {}
+        for key in samples[0] if samples else []:
+            columns[key] = cls._column([s[key] for s in samples])
+        return cls(columns, len(samples))
+
+    @classmethod
+    def _column(cls, values: List[Any]) -> Tuple[str, Any]:
+        """The ``(kind, data)`` storage of one key's values."""
+        if all(v is None for v in values):
+            return "none", None
+        if all(v is None or isinstance(v, str) for v in values):
+            encoded = [b"" if v is None else os.fsencode(v) for v in values]
+            valid = np.array([v is not None for v in values], dtype=bool)
+            return "str", (np.array(encoded, dtype=bytes), valid)
+        if all(isinstance(v, np.ndarray) and v.ndim >= 1 for v in values):
+            if len({(v.dtype, v.shape[1:]) for v in values}) == 1:
+                offsets = np.zeros(len(values) + 1, dtype=np.int64)
+                np.cumsum([len(v) for v in values], out=offsets[1:])
+                return "ragged", (np.concatenate(values), offsets)
+        for types, dtype in cls._scalar_types:
+            typed = [
+                isinstance(v, types) and (dtype is bool or not isinstance(v, bool))
+                for v in values
+            ]
+            if 2 * sum(typed) >= len(values):
+                array = np.array(
+                    [v if t else 0 for v, t in zip(values, typed)], dtype=dtype
+                )
+                other = {i: v for i, (v, t) in enumerate(zip(values, typed)) if not t}
+                return "scalar", (array, other)
+        array = np.empty(len(values), dtype=object)
+        array[:] = values
+        return "object", array
+
+    def column(self, key: str) -> np.ndarray:
+        """All values of a scalar key as one array (exceptions read as 0)."""
+        kind, data = self.columns[key]
+        if kind != "scalar":
+            raise ValueError(f"Column {key!r} is {kind}, not scalar.")
+        return data[0]
+
+    def __len__(self) -> int:
+        """Number of samples."""
+        return self._len
+
+    def __getitem__(self, index: int) -> Dict:
+        """A new dict of sample ``index``."""
+        index = int(index)
+        if index < 0:
+            index += self._len
+        if not 0 <= index < self._len:
+            raise IndexError(f"Sample {index} out of range ({self._len}).")
+        sample = {}
+        for key, (kind, data) in self.columns.items():
+            if kind == "none":
+                sample[key] = None
+            elif kind == "scalar":
+                array, other = data
+                sample[key] = other[index] if index in other else array[index].item()
+            elif kind == "ragged":
+                array, offsets = data
+                sample[key] = array[offsets[index] : offsets[index + 1]].copy()
+            elif kind == "str":
+                encoded, valid = data
+                sample[key] = os.fsdecode(encoded[index]) if valid[index] else None
+            else:
+                sample[key] = data[index]
+        return sample
+
+    def __iter__(self) -> Iterator[Dict]:
+        """Iterate over new sample dicts."""
+        for i in range(self._len):
+            yield self[i]
+
+
 class BaseDataset(Dataset):
     """Base class for custom torch Datasets.
 
@@ -5617,11 +5733,14 @@ class BBoxDataset(BaseDataset):
         if hasattr(self.target_encoder, "max_targets"):
             self.target_encoder.max_targets = self.max_instances
 
-    def _get_lf_idx_list(self, labels: List[sio.Labels]) -> List[Dict]:
+    def _get_lf_idx_list(self, labels: List[sio.Labels]) -> SampleTable:
         """Return samples for frames with user boxes (+ negative frames if enabled).
 
         The boxes are captured into each sample as plain arrays so ``__getitem__``
-        needs no live ``Labels`` handle (the image-caching paths drop it).
+        needs no live ``Labels`` handle (the image-caching paths drop it), as is
+        the image file of a frame of an image-list video (``image_path``, else
+        ``None``). The samples are stored as a :class:`SampleTable`, so persistent
+        dataloader workers don't copy them as they read them.
         """
         lf_idx_list = []
         max_boxes = 0
@@ -5660,10 +5779,18 @@ class BBoxDataset(BaseDataset):
                     f"to {len(lf_idx_list)} positive samples."
                 )
                 lf_idx_list.extend(neg_samples)
+        for sample in lf_idx_list:
+            video = labels[sample["labels_idx"]].videos[sample["video_idx"]]
+            filename = video.filename
+            sample["image_path"] = (
+                str(filename[sample["frame_idx"]])
+                if isinstance(filename, list)
+                else None
+            )
         # GT boxes are padded to this many slots per sample (collation needs one
         # shape). Overrides the pose-instance count `BaseDataset` computed.
         self.max_instances = max(max_boxes, 1)
-        return lf_idx_list
+        return SampleTable.from_dicts(lf_idx_list)
 
     def _read_image(self, sample: Dict) -> np.ndarray:
         """The sample's frame as ``(H, W, C)``, from the cache or the video."""
@@ -5686,6 +5813,8 @@ class BBoxDataset(BaseDataset):
     @property
     def labels_idx(self) -> np.ndarray:
         """The training file of every sample."""
+        if isinstance(self.lf_idx_list, SampleTable):
+            return self.lf_idx_list.column("labels_idx").astype(np.int64)
         return np.asarray([s["labels_idx"] for s in self.lf_idx_list], dtype=np.int64)
 
     def _read_frame(
@@ -5774,8 +5903,9 @@ class DetrBBoxDataset(BBoxDataset):
     than the training size (CrowdHuman photos up to 10,800 px, JRDB-Pose
     panoramas) is decoded at 1/2, 1/4 or 1/8 scale in the DCT domain (PIL
     ``draft``) whenever that is still at least as large as the frame's next resize
-    target (:meth:`min_decode_scale`); the boxes are scaled to match. Other frames
-    are read through sleap-io as usual.
+    target (:meth:`min_decode_scale`); the boxes are scaled to match. Other JPEGs
+    of image-list videos are decoded from their files at full size, and all other
+    frames are read through sleap-io as usual.
 
     Attributes:
         resize_mode: ``"squash"`` or ``"letterbox"``.
@@ -5833,32 +5963,31 @@ class DetrBBoxDataset(BBoxDataset):
             scale = max(scale, side / min(height, width))
         return scale
 
-    def _image_path(self, sample: Dict) -> Optional[str]:
-        """The image file of a sample read from an image-list video, else ``None``."""
-        if self.cache_img is not None or self.labels_list is None:
-            return None
-        video = self.labels_list[sample["labels_idx"]].videos[sample["video_idx"]]
-        filename = video.filename
-        if not isinstance(filename, list):
-            return None
-        return str(filename[sample["frame_idx"]])
-
     def _read_frame(
         self, sample: Dict
     ) -> Tuple[np.ndarray, Optional[Tuple[float, float]]]:
-        """The frame, decoded at 1/2, 1/4 or 1/8 size when that loses nothing."""
-        path = self._image_path(sample) if self.reduced_decode else None
+        """The frame, decoded at 1/2, 1/4 or 1/8 size when that loses nothing.
+
+        An RGB or grayscale JPEG of an image-list video is decoded from its file
+        with PIL, at full size or reduced; nothing per frame is read from the
+        ``Labels`` (see :class:`SampleTable`). Other frames go through sleap-io.
+        """
+        path = sample["image_path"] if self.cache_img is None else None
         if path is None or not path.lower().endswith((".jpg", ".jpeg")):
             return super()._read_frame(sample)
         with Image.open(path) as im:
+            if im.format != "JPEG" or im.mode not in ("RGB", "L"):
+                return super()._read_frame(sample)
             width, height = im.size
             scale = self.min_decode_scale(height, width)
-            if im.format != "JPEG" or im.mode not in ("RGB", "L") or scale > 0.5:
-                return super()._read_frame(sample)
-            im.draft(im.mode, (math.ceil(width * scale), math.ceil(height * scale)))
+            if self.reduced_decode and scale <= 0.5:
+                size = (math.ceil(width * scale), math.ceil(height * scale))
+                im.draft(im.mode, size)
             img = np.asarray(im)
         if img.ndim == 2:
             img = img[..., None]
+        if img.shape[:2] == (height, width):
+            return img, None
         return img, (img.shape[1] / width, img.shape[0] / height)
 
     def _apply_common_preprocessing(self, sample: Dict) -> Dict:
