@@ -393,3 +393,39 @@ class TestSchedulerIntegration:
         assert lrs[1] < lrs[2]  # Warmup: increasing
         assert lrs[2] > lrs[5]  # Decay: decreasing
         assert lrs[5] > lrs[9]  # Decay: decreasing
+
+
+@pytest.mark.parametrize(
+    "scheduler_cls, end_kwarg",
+    [
+        (LinearWarmupCosineAnnealingLR, "eta_min"),
+        (LinearWarmupLinearDecayLR, "end_lr"),
+    ],
+)
+def test_skip_warmup_start(optimizer, scheduler_cls, end_kwarg):
+    """`skip_warmup_start` drops only the ramp's start point.
+
+    Warmup step ``t`` runs at ``(t + 1) / (warmup + 1)`` of the way from
+    ``warmup_start_lr`` to the base LR, so the first epoch of a per-epoch
+    schedule does not train at the default ``warmup_start_lr=0``. The decay
+    phase is the same as without it.
+    """
+    kwargs = dict(warmup_epochs=3, max_epochs=10, warmup_start_lr=1e-4)
+    kwargs[end_kwarg] = 1e-5
+
+    def run(**extra):
+        opt = torch.optim.Adam(nn.Linear(2, 1).parameters(), lr=1e-3)
+        sched = scheduler_cls(opt, **kwargs, **extra)
+        lrs = []
+        for _ in range(12):
+            lrs.append(sched.get_last_lr()[0])
+            opt.step()
+            sched.step()
+        return lrs
+
+    default, skipped = run(), run(skip_warmup_start=True)
+    assert default[0] == pytest.approx(1e-4)  # unchanged default behavior
+    assert skipped[:4] == pytest.approx(
+        [1e-4 + (t + 1) / 4 * (1e-3 - 1e-4) for t in range(4)]
+    )
+    assert skipped[3:] == pytest.approx(default[3:])

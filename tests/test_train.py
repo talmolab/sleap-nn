@@ -271,6 +271,59 @@ def test_train_skips_eval_when_zero_predicted_instances(
     assert not (run_path / "metrics.train.0.npz").exists()
 
 
+def test_train_evaluates_every_file_with_fewer_val_than_train_files(
+    minimal_instance, tmp_path, monkeypatch
+):
+    """Two train files and one val file: post-training eval covers all three.
+
+    The GT files used to be saved by zipping the train and val lists (so
+    ``labels_gt.train.1.slp`` was never written) and then read per train index
+    for both splits, which crashed on the missing files after training.
+    """
+    import sleap_nn.inference.run as run_mod
+    import sleap_nn.train as train_mod
+
+    predicted = []
+
+    def fake_predict(source, *, output_path=None, **kwargs):
+        predicted.append(Path(source).name)
+        labels = sio.load_slp(source)
+        if output_path is not None:
+            labels.save(str(output_path))
+        return labels
+
+    evaluated = []
+    run_evaluation = train_mod.run_evaluation
+
+    def recording_eval(ground_truth_path, predicted_path, **kwargs):
+        evaluated.append(Path(ground_truth_path).name)
+        return run_evaluation(ground_truth_path, predicted_path, **kwargs)
+
+    monkeypatch.setattr(run_mod, "predict", fake_predict)
+    monkeypatch.setattr(train_mod, "run_evaluation", recording_eval)
+
+    train(
+        train_labels_path=[minimal_instance, minimal_instance],
+        val_labels_path=[minimal_instance],
+        max_epochs=1,
+        trainer_num_devices=1,
+        trainer_accelerator="cpu",
+        head_configs="centered_instance",
+        save_ckpt=True,
+        ckpt_dir=Path(tmp_path).as_posix(),
+        run_name="test_fewer_val_files",
+        min_train_steps_per_epoch=1,
+    )
+
+    run_path = Path(tmp_path) / "test_fewer_val_files"
+    expected = ["labels_gt.train.0.slp", "labels_gt.train.1.slp", "labels_gt.val.0.slp"]
+    for name in expected:
+        assert (run_path / name).exists()
+    assert not (run_path / "labels_gt.val.1.slp").exists()
+    assert sorted(predicted) == expected
+    assert sorted(evaluated) == expected
+
+
 @pytest.fixture
 def sample_cfg(minimal_instance, tmp_path):
     config = DictConfig(

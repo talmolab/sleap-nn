@@ -209,7 +209,10 @@ class CosineAnnealingWarmupConfig:
         warmup_epochs: (int) Number of epochs for linear warmup phase. *Default*: `5`.
         max_epochs: (int) Total number of training epochs. Will be overridden by
             trainer's max_epochs if not specified. *Default*: `None`.
-        warmup_start_lr: (float) Learning rate at start of warmup. *Default*: `0.0`.
+        warmup_start_lr: (float) Learning rate the warmup ramp starts from. The ramp
+            leaves out its start point: epoch `e` of the warmup trains at
+            `(e + 1) / (warmup_epochs + 1)` of the way to the base learning rate, so
+            the first epoch does not train at `warmup_start_lr`. *Default*: `0.0`.
         eta_min: (float) Minimum learning rate at end of cosine decay. *Default*: `0.0`.
     """
 
@@ -230,7 +233,10 @@ class LinearWarmupLinearDecayConfig:
         warmup_epochs: (int) Number of epochs for linear warmup phase. *Default*: `5`.
         max_epochs: (int) Total number of training epochs. Will be overridden by
             trainer's max_epochs if not specified. *Default*: `None`.
-        warmup_start_lr: (float) Learning rate at start of warmup. *Default*: `0.0`.
+        warmup_start_lr: (float) Learning rate the warmup ramp starts from. The ramp
+            leaves out its start point: epoch `e` of the warmup trains at
+            `(e + 1) / (warmup_epochs + 1)` of the way to the base learning rate, so
+            the first epoch does not train at `warmup_start_lr`. *Default*: `0.0`.
         end_lr: (float) Learning rate at end of training. *Default*: `0.0`.
     """
 

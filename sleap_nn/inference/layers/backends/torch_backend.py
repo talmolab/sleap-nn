@@ -19,6 +19,8 @@ Defaults (from `12-design-review-and-revised-plan.md` §2 + CUDA validation):
 - ``use_compile      = False`` — opt-in
 - ``use_fp16         = False`` — opt-in; tensor-core only, regresses at
   small batch on CUDA (0.65× FP32 at batch=1, 1.5× at batch=16)
+- ``memory_format    = "contiguous"`` — opt-in ``"channels_last"``; 2.2× on
+  a top-down UNet pair on an NVIDIA A100, no change on AMD ROCm
 
 Warnings emitted on construction (verified by tests):
 
@@ -42,6 +44,13 @@ import torch.nn as nn
 # ──────────────────────────────────────────────────────────────────────────
 
 
+def _on_set_memory_format(backend: "TorchBackend", attribute: Any, value: str) -> str:
+    """``on_setattr`` hook: convert the model when ``memory_format`` changes."""
+    if value != backend.memory_format:
+        backend._apply_memory_format(value)
+    return value
+
+
 @attrs.define(eq=False, slots=False)
 class TorchBackend:
     """PyTorch ``nn.Module`` backend with opt-in compile / FP16 / fusion.
@@ -60,6 +69,14 @@ class TorchBackend:
             CUDA-only; counter-productive at batch < 4. Emits a drift warning.
         fuse_layers: Fold ``Conv2d → BatchNorm2d`` pairs in-place. Negligible
             speedup on the test UNets; opt-in.
+        memory_format: ``"contiguous"`` (default, channels-first) or
+            ``"channels_last"``: the memory layout of the model's weights.
+            cuDNN's fast convolution kernels on NVIDIA GPUs want the
+            channels last, so a channels-first model has its activations
+            converted around every convolution. ``"channels_last"`` ran a
+            top-down UNet pair 2.2× faster on an A100 (fp32) and made no
+            difference on AMD (ROCm). Can also be set after construction;
+            the model is converted right away.
         warmup_iterations: Number of dummy forwards to run inside
             :meth:`warmup`. ``1`` is enough on MPS / CUDA.
 
@@ -76,6 +93,11 @@ class TorchBackend:
     use_fp16: bool = False
     fuse_layers: bool = False
     warmup_iterations: int = 1
+    memory_format: str = attrs.field(
+        default="contiguous",
+        validator=attrs.validators.in_(("contiguous", "channels_last")),
+        on_setattr=attrs.setters.pipe(attrs.setters.validate, _on_set_memory_format),
+    )
 
     # Internal state, not part of the public surface.
     _compiled: Optional[nn.Module] = attrs.field(default=None, init=False, repr=False)
@@ -87,6 +109,9 @@ class TorchBackend:
 
         if self.fuse_layers:
             self._fuse_conv_bn()
+
+        if self.memory_format != "contiguous":
+            self._apply_memory_format(self.memory_format)
 
         # FP16 is applied at forward time via ``torch.autocast`` (CUDA only) —
         # see ``__call__``. We deliberately do NOT call ``model.half()``: a
@@ -169,6 +194,25 @@ class TorchBackend:
     # ──────────────────────────────────────────────────────────────────
     # Internals
     # ──────────────────────────────────────────────────────────────────
+
+    def _apply_memory_format(self, memory_format: str) -> None:
+        """Convert the model's weights to ``memory_format`` (in place).
+
+        Only the weights are converted. Inputs keep their layout: PyTorch
+        runs a convolution channels-last when its weight is, and the
+        activations stay channels-last from there. An existing compiled
+        wrapper is rebuilt for the new layout.
+        """
+        fmt = (
+            torch.channels_last
+            if memory_format == "channels_last"
+            else torch.contiguous_format
+        )
+        self.model.to(memory_format=fmt)
+        if self._compiled is not None:
+            self._compiled = torch.compile(
+                self.model, mode=self.compile_mode, dynamic=False
+            )
 
     def _validate_device_features(self) -> None:
         """Warn-and-disable feature combinations that don't work cleanly.

@@ -270,6 +270,7 @@ sleap-nn eval --ground_truth_path GT --predicted_path PRED [OPTIONS]
 | `--match_method` | | Matcher: `oks`, `centroid`, `mask`, `auto` | `CHOICE` | `auto` |
 | `--anchor_part` | | GT node for centroid-mode GT centroids | `STR` | None |
 | `--user_labels_only` / `--no-user_labels_only` | | Only evaluate user-labeled | Flag | `True` |
+| `--count_unmatched_as_fp` / `--no-count_unmatched_as_fp` | | Count unmatched predictions as false positives in `oks_voc.*` | Flag | off |
 
 ### Example
 

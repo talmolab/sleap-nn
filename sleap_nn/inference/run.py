@@ -412,6 +412,10 @@ def predict(
     polygon_epsilon: float = 0.01,
     # Bounding-box detector knob (construction-time; bbox_* models only)
     bbox_nms_iou: Optional[float] = None,
+    # Copy each uint8 batch to the GPU before preprocessing (CUDA, checkpoints only)
+    upload_batches: bool = False,
+    # Weight layout of every model ("channels_last": faster convs on NVIDIA GPUs)
+    memory_format: str = "contiguous",
     # SAM prompted-mask producer (explicit, no default; PLAN L2). When set, masks
     # are produced from the existing poses in ``source`` (no trained seg model).
     mask_backend: Optional[str] = None,
@@ -428,7 +432,7 @@ def predict(
     centroid_threshold: Optional[float] = None,
     keypoint_threshold: Optional[float] = None,
     max_instances: Optional[int] = None,
-    integral_refinement: Optional[str] = None,
+    integral_refinement: Optional[str] = "keep",
     integral_patch_size: Optional[int] = None,
     return_confmaps: bool = False,
     return_crops: bool = False,
@@ -525,6 +529,15 @@ def predict(
             (``None``: the style default, 0.45 for SSD / off for CenterNet; ``1.0``
             disables it). ``peak_threshold`` is their score threshold and
             ``max_instances`` their per-frame detection cap.
+        upload_batches: Copy each ``uint8`` batch to the GPU before
+            preprocessing when ``device`` is CUDA, so resizing and cropping run
+            there (faster; results differ slightly from the default ``False``).
+            Trained checkpoints only; ignored, with a warning, for an exported
+            model directory.
+        memory_format: Weight layout of every model: ``"contiguous"`` (default)
+            or ``"channels_last"`` (faster cuDNN convolutions on NVIDIA GPUs;
+            no change on AMD ROCm). Trained checkpoints only; ignored, with a
+            warning, for an exported model directory.
         mask_backend: **Explicit** SAM mask backend (PLAN L2): ``"sam"`` (SAM1) /
             ``"sam3"`` (PR-B). When set, ``source`` is treated as a pose ``.slp``
             and masks are predicted from its existing instances (no trained seg
@@ -543,7 +556,9 @@ def predict(
         centroid_threshold: Override centroid-stage threshold (top-down).
         keypoint_threshold: Override centered-instance threshold (top-down).
         max_instances: Cap on instances per frame.
-        integral_refinement: ``"integral"`` or ``"none"``.
+        integral_refinement: ``"integral"``, ``"local"``, or ``"none"`` / ``None``
+            (no refinement). The default, ``"keep"``, keeps the model's
+            refinement (``"integral"``).
         integral_patch_size: Refinement patch size.
         return_confmaps: Keep confidence maps on Outputs.
         return_crops: Keep per-instance crops on Outputs (top-down).
@@ -744,6 +759,8 @@ def predict(
         build_kwargs["full_res_masks"] = full_res_masks
         build_kwargs["mask_output"] = mask_output
         build_kwargs["polygon_epsilon"] = polygon_epsilon
+        build_kwargs["upload_batches"] = upload_batches
+        build_kwargs["memory_format"] = memory_format
         predictor = Predictor.from_model_paths(model_paths, **build_kwargs)
     else:
         # Exported ONNX/TRT models bake most post-processing into the graph at
@@ -754,6 +771,16 @@ def predict(
         build_kwargs["emit_centroid"] = emit_centroid
         if max_instances is not None:
             build_kwargs["max_instances"] = max_instances
+        if upload_batches:
+            logger.warning(
+                "upload_batches is ignored for an exported model directory; "
+                "it applies to trained checkpoints only."
+            )
+        if memory_format != "contiguous":
+            logger.warning(
+                f"memory_format={memory_format!r} is ignored for an exported "
+                "model directory; it applies to trained checkpoints only."
+            )
         predictor = Predictor.from_export_dir(export_dir, **build_kwargs)
 
     # Run inference with prediction-time overrides

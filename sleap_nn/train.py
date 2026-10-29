@@ -538,14 +538,17 @@ def run_training(
                 Path(trainer.config.trainer_config.ckpt_dir)
                 / trainer.config.trainer_config.run_name
             )
-            for index, _ in enumerate(trainer.train_labels):
-                logger.info(f"Run path for index {index}: {run_path.as_posix()}")
-                data_paths[f"train.{index}"] = (
-                    run_path / f"labels_gt.train.{index}.slp"
-                ).as_posix()
-                data_paths[f"val.{index}"] = (
-                    run_path / f"labels_gt.val.{index}.slp"
-                ).as_posix()
+            # One entry per saved GT file. There can be fewer val files than train
+            # files (e.g. two train files and one val file), so count each split.
+            for split, label_list in (
+                ("train", trainer.train_labels),
+                ("val", trainer.val_labels),
+            ):
+                for index, _ in enumerate(label_list):
+                    data_paths[f"{split}.{index}"] = (
+                        run_path / f"labels_gt.{split}.{index}.slp"
+                    ).as_posix()
+            logger.info(f"Run path: {run_path.as_posix()}")
 
             # Handle test_file_path as either a string or list of strings
             test_file_path = OmegaConf.select(

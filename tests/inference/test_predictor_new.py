@@ -162,6 +162,57 @@ def test_predict_streaming_interleaved_calls_do_not_clobber_overrides():
     assert predictor.layer.postprocess_config.peak_threshold == 0.2
 
 
+class _EchoRefinementLayer:
+    """Layer that records the refinement each ``predict`` call decodes with."""
+
+    def __init__(self):
+        from sleap_nn.inference.layers.configs import PostprocessConfig
+
+        self.postprocess_config = PostprocessConfig()
+        self.seen = []
+
+    def predict(self, image, **kwargs) -> Outputs:
+        self.seen.append(self.postprocess_config.effective_refinement)
+        b = image.shape[0]
+        return Outputs(
+            pred_keypoints=torch.zeros(b, 1, 4, 2),
+            pred_peak_values=torch.ones(b, 1, 4),
+            instance_scores=torch.ones(b, 1),
+        )
+
+
+@pytest.mark.parametrize(
+    "kwargs, expected",
+    [
+        ({}, "integral"),  # no override keeps the predictor's refinement
+        ({"integral_refinement": None}, None),
+        ({"integral_refinement": "none"}, None),
+        ({"integral_refinement": "local"}, "local"),
+    ],
+)
+def test_predict_integral_refinement_none_turns_refinement_off(kwargs, expected):
+    """``predict(integral_refinement=None)`` disables refinement for the call.
+
+    ``None`` used to mean "no override", so it silently kept ``"integral"``,
+    while ``from_model_paths(integral_refinement=None)`` turned it off.
+    """
+    layer = _EchoRefinementLayer()
+    predictor = Predictor(layer=layer)
+    images = np.zeros((2, 1, 8, 8), dtype=np.float32)
+    predictor.predict(
+        NumpyProvider(images=images, batch_size=2), make_labels=False, **kwargs
+    )
+    list(
+        predictor.predict_streaming(
+            NumpyProvider(images=images, batch_size=2), **kwargs
+        )
+    )
+    # Both calls decode with the override (the scoped copy shares `seen`)...
+    assert layer.seen == [expected] * 2
+    # ...and the shared layer keeps its own setting.
+    assert predictor.layer.postprocess_config.refinement == "integral"
+
+
 # ─────────────────────────────────────────────────────────────────────────
 # 4. FilterPipeline propagation
 # ─────────────────────────────────────────────────────────────────────────
@@ -305,3 +356,267 @@ def test_batch_size_stored_on_predictor():
 def test_batch_size_default():
     predictor = Predictor(layer=_StubLayer())
     assert predictor.batch_size == 4
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# upload_batches: numpy batches copied to the GPU before layer.predict
+# ─────────────────────────────────────────────────────────────────────────
+
+
+class _RecordingLayer(_StubLayer):
+    """``_StubLayer`` that remembers what ``predict`` was handed."""
+
+    def __init__(self) -> None:
+        self.seen: list = []
+
+    def predict(self, image, **kwargs) -> Outputs:
+        """Record the input, then return the stub's outputs."""
+        self.seen.append(image)
+        return super().predict(image, **kwargs)
+
+
+@pytest.mark.parametrize(
+    "device, upload_batches",
+    [(None, True), ("cpu", True), ("cuda", False), ("cuda:0", False), ("cuda", None)],
+)
+def test_batches_stay_numpy_unless_uploading_to_cuda(device, upload_batches):
+    """No upload without a CUDA device, or unless ``upload_batches`` is set."""
+    kwargs = {} if upload_batches is None else {"upload_batches": upload_batches}
+    layer = _RecordingLayer()
+    predictor = Predictor(layer=layer, batch_size=2, device=device, **kwargs)
+    images = np.zeros((4, 8, 8, 1), dtype=np.uint8)
+    predictor.predict(NumpyProvider(images=images, batch_size=2), make_labels=False)
+
+    assert len(layer.seen) == 2
+    for seen in layer.seen:
+        assert isinstance(seen, np.ndarray)
+        assert seen.dtype == np.uint8
+
+
+def test_upload_batches_default_off():
+    """``upload_batches`` is opt-in: results stay as before unless asked."""
+    assert Predictor(layer=_StubLayer()).upload_batches is False
+
+
+def test_upload_batches_copies_uint8_batch_to_cuda_device(monkeypatch):
+    """With a CUDA device the numpy batch is copied there, still uint8.
+
+    Runs without a GPU: ``Tensor.to`` is stood in for so the copy is recorded
+    (and the tensor stays on the CPU). ``tests/inference/test_cuda.py`` does
+    the real copy on a CUDA host.
+    """
+    calls = []
+    real_to = torch.Tensor.to
+
+    def fake_to(self, *args, **kwargs):
+        if args and args[0] == "cuda":
+            calls.append((self.dtype, tuple(self.shape), kwargs))
+            return self
+        return real_to(self, *args, **kwargs)
+
+    monkeypatch.setattr(torch.Tensor, "to", fake_to)
+    layer = _RecordingLayer()
+    predictor = Predictor(layer=layer, batch_size=2, device="cuda", upload_batches=True)
+    images = np.arange(4 * 8 * 8, dtype=np.uint8).reshape(4, 8, 8, 1)
+    predictor.predict(NumpyProvider(images=images, batch_size=2), make_labels=False)
+
+    assert calls == [(torch.uint8, (2, 8, 8, 1), {"non_blocking": True})] * 2
+    for i, seen in enumerate(layer.seen):
+        assert isinstance(seen, torch.Tensor)
+        np.testing.assert_array_equal(seen.numpy(), images[2 * i : 2 * i + 2])
+
+
+def test_from_model_paths_upload_batches_is_set_and_logged():
+    """``from_model_paths(upload_batches=True)`` sets it; off CUDA it warns instead."""
+    from pathlib import Path
+
+    from loguru import logger
+
+    ckpt = (
+        Path(__file__).resolve().parents[1]
+        / "assets"
+        / "model_ckpts"
+        / "minimal_instance_single_instance"
+    )
+    if not ckpt.exists():
+        pytest.skip("single-instance checkpoint not present")
+    messages = []
+    sink = logger.add(messages.append, format="{message}", level="INFO")
+    try:
+        on = Predictor.from_model_paths([str(ckpt)], device="cpu", upload_batches=True)
+        off = Predictor.from_model_paths([str(ckpt)], device="cpu")
+    finally:
+        logger.remove(sink)
+    assert on.upload_batches is True and off.upload_batches is False
+    # On the CPU it is a no-op: not in the log line, and a warning says so.
+    loaded = [m for m in messages if "Loaded inference model" in m]
+    assert len(loaded) == 2
+    assert all("upload_batches" not in m for m in loaded)
+    assert sum("upload_batches=True has no effect" in m for m in messages) == 1
+
+
+class _InlinePafPool:
+    """In-process stand-in for ``PafGroupingPool``: no worker processes."""
+
+    def __init__(self, n_workers, grouping_params):
+        self._done = []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def submit(self, ordinal, scored):
+        b = scored
+        self._done.append(
+            (
+                ordinal,
+                Outputs(
+                    pred_keypoints=torch.zeros(b, 1, 4, 2),
+                    pred_peak_values=torch.ones(b, 1, 4),
+                ),
+            )
+        )
+
+    def __len__(self):
+        return len(self._done)
+
+    def drain_one(self):
+        return self._done.pop(0) if self._done else None
+
+
+class _PipelinedStubLayer:
+    """The parts of ``BottomUpLayer`` the pipelined path calls."""
+
+    def __init__(self):
+        self.seen = []
+
+    def grouping_params(self):
+        return None
+
+    def preprocess(self, images):
+        self.seen.append(images)
+        return images, None
+
+    def backend(self, x):
+        return x
+
+    def _score_pafs_on_gpu(self, raw, info):
+        return int(raw.shape[0])
+
+
+@pytest.mark.parametrize("upload", [False, True])
+def test_pipelined_bottomup_path_uploads_like_inline_path(monkeypatch, upload):
+    """The ``paf_workers > 0`` path hands ``preprocess`` the same batch as inline.
+
+    Uses an in-process pool (real worker pools hang in CI; see
+    ``test_paf_worker_pool.py``) and a stand-in for ``Tensor.to``.
+    """
+    import sleap_nn.inference.streaming as streaming
+
+    monkeypatch.setattr(streaming, "PafGroupingPool", _InlinePafPool)
+    calls = []
+    real_to = torch.Tensor.to
+
+    def fake_to(self, *args, **kwargs):
+        if args and args[0] == "cuda":
+            calls.append(self.dtype)
+            return self
+        return real_to(self, *args, **kwargs)
+
+    monkeypatch.setattr(torch.Tensor, "to", fake_to)
+    layer = _PipelinedStubLayer()
+    predictor = Predictor(
+        layer=layer, paf_workers=2, device="cuda", upload_batches=upload
+    )
+    images = np.zeros((6, 8, 8, 1), dtype=np.uint8)
+    outputs = list(
+        predictor._predict_streaming_pipelined(
+            NumpyProvider(images=images, batch_size=2)
+        )
+    )
+
+    assert len(outputs) == 3 and len(layer.seen) == 3
+    if upload:
+        assert calls == [torch.uint8] * 3
+        assert all(isinstance(x, torch.Tensor) for x in layer.seen)
+    else:
+        assert calls == []
+        assert all(isinstance(x, np.ndarray) for x in layer.seen)
+
+
+def test_upload_batches_off_cuda_warns_and_does_nothing():
+    """Off a CUDA device ``upload_batches`` is a logged no-op."""
+    from loguru import logger
+
+    messages = []
+    sink = logger.add(messages.append, format="{message}", level="WARNING")
+    try:
+        predictor = Predictor(layer=_StubLayer(), device="cpu", upload_batches=True)
+        quiet = Predictor(layer=_StubLayer(), device="cpu")
+    finally:
+        logger.remove(sink)
+    assert predictor._upload_device is None and quiet._upload_device is None
+    assert sum("upload_batches=True has no effect" in m for m in messages) == 1
+
+
+def test_upload_device_follows_the_models_backend(monkeypatch):
+    """Frames go to the device the (first) model runs on, not ``Predictor.device``."""
+    import types
+
+    import sleap_nn.inference.predictor as predictor_mod
+
+    monkeypatch.setattr(
+        predictor_mod,
+        "_torch_backends",
+        lambda layer: [types.SimpleNamespace(device="cuda:1")],
+    )
+    predictor = Predictor(layer=_StubLayer(), device="cuda", upload_batches=True)
+    assert predictor._upload_device == "cuda:1"
+
+
+def test_from_model_paths_memory_format_reaches_every_backend():
+    """``memory_format`` converts both top-down models (and is logged)."""
+    from pathlib import Path
+
+    from loguru import logger
+
+    from sleap_nn.inference.predictor import _torch_backends
+
+    ckpts = Path(__file__).resolve().parents[1] / "assets" / "model_ckpts"
+    paths = [
+        ckpts / "minimal_instance_centroid",
+        ckpts / "minimal_instance_centered_instance",
+    ]
+    if not all(p.exists() for p in paths):
+        pytest.skip("top-down checkpoints not present")
+    messages = []
+    sink = logger.add(messages.append, format="{message}", level="INFO")
+    try:
+        cl = Predictor.from_model_paths(
+            [str(p) for p in paths], device="cpu", memory_format="channels_last"
+        )
+        default = Predictor.from_model_paths([str(p) for p in paths], device="cpu")
+    finally:
+        logger.remove(sink)
+
+    def conv_weights(backend):
+        return [
+            m.weight for m in backend.model.modules() if isinstance(m, torch.nn.Conv2d)
+        ]
+
+    backends = _torch_backends(cl.layer)
+    assert len(backends) == 2
+    for backend in backends:
+        assert backend.memory_format == "channels_last"
+        assert all(
+            w.is_contiguous(memory_format=torch.channels_last)
+            for w in conv_weights(backend)
+        )
+    assert [b.memory_format for b in _torch_backends(default.layer)] == [
+        "contiguous"
+    ] * 2
+    loaded = [m for m in messages if "Loaded inference model" in m]
+    assert "memory_format=channels_last" in loaded[0]
+    assert "memory_format" not in loaded[1]

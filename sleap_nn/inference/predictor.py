@@ -70,12 +70,18 @@ from sleap_nn.inference.layers.topdown_segmentation import (
     TopDownSegmentationLayer,
 )
 from sleap_nn.inference.outputs import Outputs
-from sleap_nn.inference.providers import Provider
+from sleap_nn.inference.providers import Batch, Provider
 from sleap_nn.inference.tracking import (
     TrackerConfig,
     apply_tracking,
     tracker_config_params,
 )
+
+#: Default of the per-call ``integral_refinement`` override on
+#: :meth:`Predictor.predict` / :meth:`Predictor.predict_streaming`: keep the
+#: predictor's refinement. ``None`` is a real value there (turn refinement
+#: off), as it is for :meth:`Predictor.from_model_paths`.
+KEEP_REFINEMENT = "keep"
 
 
 class _CentroidPackaging(NamedTuple):
@@ -104,6 +110,37 @@ def _safe_len(provider: Any) -> int:
         return len(provider)
     except TypeError:
         return -1
+
+
+def _torch_backends(layer: Any) -> List[TorchBackend]:
+    """Every :class:`TorchBackend` in a layer composition, stage 1 first.
+
+    Walks the layer's attributes (``backend``, ``centroid_layer``,
+    ``centered_instance_layer``, a tiled layer's ``inner``, ...) so callers need
+    not know each composition's shape. Exported layers hold no ``TorchBackend``.
+    """
+    found: List[TorchBackend] = []
+    seen: set = set()
+
+    def walk(obj: Any) -> None:
+        if id(obj) in seen:
+            return
+        seen.add(id(obj))
+        if isinstance(obj, TorchBackend):
+            found.append(obj)
+            return
+        cls = type(obj)
+        if not cls.__module__.startswith("sleap_nn.inference.layers"):
+            return
+        if attrs.has(cls):  # e.g. the slotted exported layers
+            values = [getattr(obj, f.name, None) for f in attrs.fields(cls)]
+        else:
+            values = list(getattr(obj, "__dict__", {}).values())
+        for value in values:
+            walk(value)
+
+    walk(layer)
+    return found
 
 
 def _safe_num_frames(provider: Any) -> int:
@@ -1201,6 +1238,15 @@ class Predictor:
             :meth:`predict` runs the tracker on the resulting
             ``sio.Labels`` (requires ``make_labels=True``) before
             returning.
+        upload_batches: When ``True`` and the layer's (first) model runs on a
+            CUDA device, each numpy batch from the provider is copied to that
+            GPU (still ``uint8``) before ``layer.predict``, so resizing and
+            top-down cropping run on the GPU instead of the CPU (2.2x faster
+            for a top-down pair on an A100; peak finding is on the GPU either
+            way). The GPU's ``uint8`` resize rounds some pixels the other way
+            by 1 grey level, so results differ slightly from the default
+            ``False``, which hands the layer the numpy batch. Off a CUDA device
+            it has no effect (with a logged warning).
 
     Notes:
         Keeps no state across calls — same predictor can be reused on
@@ -1221,9 +1267,12 @@ class Predictor:
     # Centroid-only output representation: "instance" (default; single-node
     # PredictedInstance), "centroid" (sio.PredictedCentroid), or "both".
     emit_centroid: str = "instance"
+    upload_batches: bool = False
+    # Where ``upload_batches`` copies frames (resolved in __attrs_post_init__).
+    _upload_device: Optional[str] = attrs.field(default=None, init=False, repr=False)
 
     def __attrs_post_init__(self) -> None:
-        """Warn (once) if ``paf_workers`` was set on a layer that can't use it.
+        """Warn (once) if ``paf_workers`` / ``upload_batches`` can't take effect.
 
         ``paf_workers > 0`` only pipelines the CPU-bound grouping stage for
         plain bottom-up (:class:`BottomUpLayer`); every other layer type
@@ -1239,6 +1288,19 @@ class Predictor:
                 f"layer={type(self.layer).__name__} will run the inline "
                 "(unpipelined) path; paf_workers has no effect here."
             )
+        if self.upload_batches:
+            # Upload to the device the (first) model runs on, not
+            # ``self.device``: a layer built by hand may live elsewhere.
+            backends = _torch_backends(self.layer)
+            device = backends[0].device if backends else self.device
+            if device is not None and torch.device(device).type == "cuda":
+                self._upload_device = str(device)
+            else:
+                logger.warning(
+                    f"upload_batches=True has no effect on device={device}: it "
+                    "copies frames to a CUDA device running a trained "
+                    "checkpoint."
+                )
 
     @property
     def filter_pipeline(self) -> FilterPipeline:
@@ -1291,6 +1353,8 @@ class Predictor:
         mask_output: str = "mask",
         polygon_epsilon: float = 0.01,
         bbox_nms_iou: Optional[float] = None,
+        upload_batches: bool = False,
+        memory_format: str = "contiguous",
     ) -> "Predictor":
         """Build a :class:`Predictor` from one or more checkpoint paths.
 
@@ -1308,7 +1372,8 @@ class Predictor:
             peak_threshold: Default peak threshold. ``List[float]`` for
                 top-down (``[centroid_thresh, keypoint_thresh]``). Can be
                 overridden per-call via ``predict(peak_threshold=...)``.
-            integral_refinement: ``"integral"`` or ``"none"``.
+            integral_refinement: ``"integral"``, ``"local"``, or ``"none"`` /
+                ``None`` (no refinement).
             integral_patch_size: Refinement patch size.
             max_instances: Cap on instances per frame.
             return_confmaps: Return confidence maps on Outputs.
@@ -1369,6 +1434,12 @@ class Predictor:
             bbox_nms_iou: Class-wise IoU-NMS threshold for ``bbox_*`` detectors.
                 ``None`` (default) uses the style's default (0.45 for SSD, off for
                 CenterNet, whose peak NMS already dedupes); ``1.0`` disables it.
+            upload_batches: Copy each ``uint8`` batch to the GPU before
+                preprocessing when ``device`` is CUDA (faster; results differ
+                slightly from the default ``False``). See :class:`Predictor`.
+            memory_format: Weight layout of every model in the composition:
+                ``"contiguous"`` (default) or ``"channels_last"`` (faster cuDNN
+                convolutions on NVIDIA GPUs). See :class:`TorchBackend`.
         """
         from sleap_nn.inference.loaders import load_model_assets
         from sleap_nn.system_info import get_startup_info_string
@@ -1423,6 +1494,8 @@ class Predictor:
             )
         else:
             layer = _select_layer(loaded, model_types, device)
+        for backend in _torch_backends(layer):
+            backend.memory_format = memory_format
 
         skeleton = loaded.skeletons[0] if loaded.skeletons else None
         kwargs: dict = {
@@ -1433,6 +1506,7 @@ class Predictor:
             "model_paths": [str(p) for p in model_paths],
             "device": device,
             "emit_centroid": emit_centroid,
+            "upload_batches": upload_batches,
         }
         if filter_config is not None:
             kwargs["filter_config"] = filter_config
@@ -1453,6 +1527,10 @@ class Predictor:
             f"integral_refinement={integral_refinement}",
             f"paf_workers={paf_workers}",
         ]
+        if upload_batches and torch.device(device).type == "cuda":
+            spec.append("upload_batches=True")
+        if memory_format != "contiguous":
+            spec.append(f"memory_format={memory_format}")
         if "bottomup_segmentation" in model_types:
             spec.append(f"fg_threshold={fg_threshold}")
             spec.append(f"min_mask_area={min_mask_area}")
@@ -1981,7 +2059,7 @@ class Predictor:
         centroid_threshold: Optional[float] = None,
         keypoint_threshold: Optional[float] = None,
         max_instances: Optional[int] = None,
-        integral_refinement: Optional[str] = None,
+        integral_refinement: Optional[str] = KEEP_REFINEMENT,
         integral_patch_size: Optional[int] = None,
         return_confmaps: Optional[bool] = None,
         return_crops: Optional[bool] = None,
@@ -2025,7 +2103,9 @@ class Predictor:
             keypoint_threshold: Override peak threshold for the centered-
                 instance stage only (top-down models).
             max_instances: Override max instances per frame.
-            integral_refinement: ``"integral"`` or ``"none"``.
+            integral_refinement: Override the refinement: ``"integral"``,
+                ``"local"``, or ``"none"`` / ``None`` (no refinement). The
+                default, ``"keep"``, keeps the predictor's refinement.
             integral_patch_size: Override integral refinement patch size.
             return_confmaps: Override whether to return confidence maps.
             return_crops: Override whether to return per-instance crops
@@ -2151,7 +2231,11 @@ class Predictor:
                 "centroid_threshold": centroid_threshold,
                 "keypoint_threshold": keypoint_threshold,
                 "max_instances": max_instances,
-                "integral_refinement": integral_refinement,
+                "integral_refinement": (
+                    None
+                    if integral_refinement == KEEP_REFINEMENT
+                    else integral_refinement or "none"
+                ),
                 "integral_patch_size": integral_patch_size,
                 "batch_size": self.batch_size,
                 **self._preprocess_provenance_params(),
@@ -2200,7 +2284,7 @@ class Predictor:
         centroid_threshold: Optional[float] = None,
         keypoint_threshold: Optional[float] = None,
         max_instances: Optional[int] = None,
-        integral_refinement: Optional[str] = None,
+        integral_refinement: Optional[str] = KEEP_REFINEMENT,
         integral_patch_size: Optional[int] = None,
         return_confmaps: Optional[bool] = None,
         return_crops: Optional[bool] = None,
@@ -2221,7 +2305,9 @@ class Predictor:
             centroid_threshold: Override centroid stage threshold (top-down).
             keypoint_threshold: Override centered-instance threshold (top-down).
             max_instances: Override max instances per frame.
-            integral_refinement: ``"integral"`` or ``"none"``.
+            integral_refinement: Override the refinement: ``"integral"``,
+                ``"local"``, or ``"none"`` / ``None`` (no refinement). The
+                default, ``"keep"``, keeps the predictor's refinement.
             integral_patch_size: Override integral refinement patch size.
             return_confmaps: Override whether to return confidence maps.
             return_crops: Override whether to return per-instance crops
@@ -2391,6 +2477,21 @@ class Predictor:
     # Internals
     # ──────────────────────────────────────────────────────────────────
 
+    def _batch_images(self, batch: Batch) -> Any:
+        """Return ``batch.images``, copied to the model's GPU if ``upload_batches``.
+
+        Providers yield ``uint8`` numpy frames. Handed to a layer as numpy,
+        they stay on the CPU through preprocessing (sizematcher, input
+        scale, top-down crops), and only reach the device inside the
+        backend's forward. Copying the ``uint8`` batch first moves that work
+        to the GPU and copies the fewest bytes (before any float
+        conversion).
+        """
+        images = batch.images
+        if self._upload_device is not None and isinstance(images, np.ndarray):
+            images = torch.from_numpy(images).to(self._upload_device, non_blocking=True)
+        return images
+
     def _batch_iter(
         self,
         provider: Provider,
@@ -2435,7 +2536,7 @@ class Predictor:
                     if isinstance(boxes, torch.Tensor)
                     else torch.from_numpy(boxes)
                 )
-            outputs = layer.predict(batch.images, **kwargs)
+            outputs = layer.predict(self._batch_images(batch), **kwargs)
             outputs = pipeline(outputs)
             outputs = self._stamp_metadata(outputs, batch)
             yield outputs
@@ -2494,7 +2595,7 @@ class Predictor:
             n_workers=self.paf_workers, grouping_params=params
         ) as pool:
             for ordinal, batch in enumerate(provider):
-                x, info = layer.preprocess(batch.images)
+                x, info = layer.preprocess(self._batch_images(batch))
                 raw = layer.backend(x)
                 scored = layer._score_pafs_on_gpu(raw, info)
                 pool.submit(ordinal, scored)
@@ -2826,7 +2927,7 @@ class Predictor:
         centroid_threshold: Optional[float] = None,
         keypoint_threshold: Optional[float] = None,
         max_instances: Optional[int] = None,
-        integral_refinement: Optional[str] = None,
+        integral_refinement: Optional[str] = KEEP_REFINEMENT,
         integral_patch_size: Optional[int] = None,
         return_confmaps: Optional[bool] = None,
         return_crops: Optional[bool] = None,
@@ -2859,14 +2960,14 @@ class Predictor:
         """
         from sleap_nn.inference.layers.topdown import TopDownLayer
 
-        has_any = any(
+        keep_refinement = integral_refinement == KEEP_REFINEMENT
+        has_any = not keep_refinement or any(
             v is not None
             for v in (
                 peak_threshold,
                 centroid_threshold,
                 keypoint_threshold,
                 max_instances,
-                integral_refinement,
                 integral_patch_size,
                 return_confmaps,
                 return_crops,
@@ -2909,8 +3010,9 @@ class Predictor:
                 overrides["peak_threshold"] = t
             if max_instances is not None and hasattr(old_cfg, "max_instances"):
                 overrides["max_instances"] = max_instances
-            if integral_refinement is not None:
-                overrides["refinement"] = integral_refinement
+            if not keep_refinement:
+                # `None` turns refinement off, like `from_model_paths(None)`.
+                overrides["refinement"] = integral_refinement or "none"
             if integral_patch_size is not None:
                 overrides["integral_patch_size"] = integral_patch_size
             if return_confmaps is not None:

@@ -238,9 +238,11 @@ def test_find_global_peaks(minimal_cms):
     assert torch.equal(gt_rough_peaks, rough_peaks)
     assert torch.equal(gt_peak_vals, peak_vals)
 
-    rough_peaks, peak_vals = find_global_peaks(
-        cms, refinement="invalid_input", threshold=0.2
-    )
+    # Unknown refinement names used to fall through to grid peaks silently.
+    with pytest.raises(ValueError, match="Unknown peak refinement"):
+        find_global_peaks(cms, refinement="invalid_input", threshold=0.2)
+
+    rough_peaks, peak_vals = find_global_peaks(cms, refinement="none", threshold=0.2)
 
     assert rough_peaks.shape == (1, 13, 2)
     assert peak_vals.shape == (1, 13)
@@ -405,8 +407,12 @@ def test_find_local_peaks(minimal_cms):
     assert torch.equal(gt_peak_sample_inds, peak_sample_inds)
     assert torch.equal(gt_peak_channel_inds, peak_channel_inds)
 
+    # Unknown refinement names used to fall through to grid peaks silently.
+    with pytest.raises(ValueError, match="Unknown peak refinement"):
+        find_local_peaks(cms, refinement="invalid_input")
+
     peak_points, peak_vals, peak_sample_inds, peak_channel_inds = find_local_peaks(
-        cms, refinement="invalid_input"
+        cms, refinement="none"
     )
 
     assert peak_points.shape == (13, 2)
@@ -694,3 +700,78 @@ def test_find_local_peaks_rough_fp16_ties():
     assert strict <= found
     assert found - strict  # fp16 ties do happen
     assert sorted(found) == _reference_peaks(cms)
+
+
+def _gaussian_cms(points, height=32, width=32, sigma=2.0):
+    """``(1, N, H, W)`` Gaussian confmaps centered on ``(N, 2)`` ``(x, y)`` points."""
+    yy, xx = torch.meshgrid(
+        torch.arange(height, dtype=torch.float32),
+        torch.arange(width, dtype=torch.float32),
+        indexing="ij",
+    )
+    pts = torch.as_tensor(points, dtype=torch.float32)
+    d2 = (xx - pts[:, 0, None, None]) ** 2 + (yy - pts[:, 1, None, None]) ** 2
+    return torch.exp(-d2 / (2 * sigma**2))[None]
+
+
+def test_find_global_peaks_local_refinement_is_quarter_step():
+    """`refinement="local"` moves each peak a quarter pixel uphill.
+
+    The documented option used to be a silent no-op (grid peaks).
+    """
+    cms = _gaussian_cms([[10.4, 20.7], [5.0, 6.0]])
+    peaks, vals = find_global_peaks(cms, threshold=0.1, refinement="local")
+    # 10.4 rounds to 10 with its higher neighbor at 11; 20.7 to 21 with 20 higher.
+    assert torch.allclose(peaks[0, 0], torch.tensor([10.25, 20.75]))
+    # A peak exactly on the grid has equal neighbors and stays put.
+    assert torch.allclose(peaks[0, 1], torch.tensor([5.0, 6.0]))
+    rough, rough_vals = find_global_peaks_rough(cms, threshold=0.1)
+    assert torch.equal(vals, rough_vals)
+    assert not torch.equal(peaks, rough)
+
+
+def test_find_global_peaks_local_refinement_keeps_missing_peaks_nan():
+    cms = _gaussian_cms([[10.4, 20.7], [5.0, 6.0]])
+    cms[0, 1] = 0.0
+    peaks, vals = find_global_peaks(cms, threshold=0.2, refinement="local")
+    assert torch.isnan(peaks[0, 1]).all()
+    assert torch.isfinite(peaks[0, 0]).all()
+    assert vals[0, 1] == 0
+
+
+def test_find_local_peaks_local_refinement_is_quarter_step():
+    """Bottom-up / centroid peaks get the same quarter-pixel step."""
+    cms = _gaussian_cms([[10.4, 20.7]]) + _gaussian_cms([[25.6, 5.2]])
+    peaks, vals, sample_inds, channel_inds = find_local_peaks(
+        cms, threshold=0.1, refinement="local"
+    )
+    order = torch.argsort(peaks[:, 0])
+    assert torch.allclose(peaks[order], torch.tensor([[10.25, 20.75], [25.75, 5.25]]))
+    rough = find_local_peaks_rough(cms, threshold=0.1)
+    assert torch.equal(vals, rough[1])
+
+
+def test_find_local_peaks_local_refinement_keeps_flat_top_mean():
+    """A 2-pixel flat top's fractional coordinate is not stepped again."""
+    cms = torch.zeros(1, 1, 8, 8)
+    cms[0, 0, 3, 3] = cms[0, 0, 3, 4] = 1.0
+    cms[0, 0, 2, 3] = 0.5  # higher neighbor above, along y
+    peaks, *_ = find_local_peaks(cms, threshold=0.1, refinement="local")
+    assert torch.allclose(peaks, torch.tensor([[3.5, 2.75]]))
+
+
+@pytest.mark.parametrize("finder", ["global", "local"])
+def test_refinement_names(finder):
+    """`None`, `"none"` and `"None"` disable refinement; unknown names raise.
+
+    Unknown names used to fall through to grid peaks silently.
+    """
+    cms = _gaussian_cms([[10.4, 20.7]])
+    find = find_global_peaks if finder == "global" else find_local_peaks
+    rough = find(cms, threshold=0.1)
+    for off in ("none", "None"):
+        for a, b in zip(rough, find(cms, threshold=0.1, refinement=off)):
+            assert torch.equal(a, b)
+    for bad in ("bogus", "Integral", "dark"):
+        with pytest.raises(ValueError, match="Unknown peak refinement"):
+            find(cms, threshold=0.1, refinement=bad)

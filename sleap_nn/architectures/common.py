@@ -108,13 +108,15 @@ class MaxPool2dWithSamePadding(nn.MaxPool2d):
 
         Returns:
             int: The calculated padding value.
+
+        Note:
+            Integer arithmetic (``-(-i // s)`` is ``ceil(i / s)``), not a tensor
+            + ``.item()``: the sizes are Python ints, and ``Tensor.item()`` makes
+            ``torch.compile`` split the graph at every pooling layer (and fail
+            with ``fullgraph=True`` on PyTorch 2.6). No float division either,
+            so it stays exact and symbolic under ``torch.compile(dynamic=True)``.
         """
-        return int(
-            max(
-                (torch.ceil(torch.tensor(i / s)).item() - 1) * s + (k - 1) * d + 1 - i,
-                0,
-            )
-        )
+        return max((-(-i // s) - 1) * s + (k - 1) * d + 1 - i, 0)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward pass through the MaxPool2dWithSamePadding module.
@@ -125,7 +127,8 @@ class MaxPool2dWithSamePadding(nn.MaxPool2d):
         Returns:
             torch.Tensor: Output tensor after applying the MaxPool2d operation.
         """
-        if self.padding == "same":
+        padding = self.padding
+        if padding == "same":
             ih, iw = x.size()[-2:]
 
             pad_h = self._calc_same_pad(
@@ -153,13 +156,15 @@ class MaxPool2dWithSamePadding(nn.MaxPool2d):
                 x = F.pad(
                     x, (pad_w // 2, pad_w - pad_w // 2, pad_h // 2, pad_h - pad_h // 2)
                 )
-            self.padding = 0
+            # A local, not ``self.padding = 0``: mutating the module made "same"
+            # padding apply on the first forward only.
+            padding = 0
 
         return F.max_pool2d(
             x,
             self.kernel_size,
             self.stride,
-            self.padding,
+            padding,
             self.dilation,
             ceil_mode=self.ceil_mode,
             return_indices=self.return_indices,
