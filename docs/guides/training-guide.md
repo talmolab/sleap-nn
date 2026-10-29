@@ -91,8 +91,9 @@ sleap-nn train --config config.yaml trainer_config.optimizer.lr=0.0005
 # Change batch size
 sleap-nn train --config config.yaml trainer_config.train_data_loader.batch_size=8
 
-# Set training data
-sleap-nn train --config config.yaml "data_config.train_labels_path=[train.slp]"
+# Set training data (and, optionally, validation data)
+sleap-nn train --config config.yaml --labels train.slp
+sleap-nn train --config config.yaml --labels train.slp --val-labels val.slp
 
 # Set number of GPUs
 sleap-nn train --config config.yaml trainer_config.trainer_devices=1
@@ -164,12 +165,10 @@ Top-down models need two separate training runs. See [Model Types](../reference/
 
 ```bash
 # Train centroid model
-sleap-nn train -d /path/to/configs -c centroid_unet \
-    "data_config.train_labels_path=[labels.pkg.slp]"
+sleap-nn train -d /path/to/configs -c centroid_unet --labels labels.pkg.slp
 
 # Train centered instance model
-sleap-nn train -d /path/to/configs -c centered_instance_unet \
-    "data_config.train_labels_path=[labels.pkg.slp]"
+sleap-nn train -d /path/to/configs -c centered_instance_unet --labels labels.pkg.slp
 ```
 
 ---

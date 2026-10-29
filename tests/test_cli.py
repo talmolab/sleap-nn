@@ -1402,6 +1402,80 @@ class TestTrainDryRun:
         assert cfg.trainer_config.trainer_device_indices is None
 
 
+class TestTrainLabelsOption:
+    """`sleap-nn train --labels` / `--val-labels`."""
+
+    def test_labels_fill_a_config_without_them(
+        self, sample_config, tmp_path, minimal_instance
+    ):
+        sample_config.data_config.train_labels_path = None
+        sample_config.data_config.val_labels_path = None
+        sample_config.trainer_config.ckpt_dir = (tmp_path / "runs").as_posix()
+        config_path = tmp_path / "config.yaml"
+        OmegaConf.save(sample_config, config_path.as_posix())
+
+        result = subprocess.run(
+            [
+                *sleap_nn_cli(),
+                "train",
+                config_path.as_posix(),
+                "-l",
+                f"{minimal_instance}",
+                "--val-labels",
+                f"{minimal_instance}",
+                "--dry-run",
+            ],
+            capture_output=True,
+            text=True,
+            env=cpu_only_env(),
+        )
+        assert result.returncode == 0, result.stderr[-3000:]
+        output = _strip_ansi_codes(result.stdout + result.stderr)
+        assert "Dry run passed" in output
+        assert "Labeled frames:      1 train, 1 val" in output
+
+    def test_paths_are_made_absolute(self, tmp_path, monkeypatch):
+        from sleap_nn.cli import _resolve_labels_option
+
+        (tmp_path / "labels.slp").touch()
+        monkeypatch.chdir(tmp_path)
+        assert _resolve_labels_option(
+            ("labels.slp",), "--labels", "data_config.train_labels_path", []
+        ) == [(tmp_path / "labels.slp").resolve().as_posix()]
+
+    def test_replaces_config_paths(self, sample_config):
+        from sleap_nn.cli import _adjust_train_config
+
+        cfg = _adjust_train_config(
+            sample_config, [], None, False, ["/a/train.slp"], ["/a/val.slp"]
+        )
+        assert list(cfg.data_config.train_labels_path) == ["/a/train.slp"]
+        assert list(cfg.data_config.val_labels_path) == ["/a/val.slp"]
+
+    @pytest.mark.parametrize(
+        "overrides,match",
+        [
+            ([], "--labels file not found"),
+            (["data_config.train_labels_path=[x.slp]"], "not both"),
+        ],
+        ids=["missing", "with-override"],
+    )
+    def test_errors(self, tmp_path, overrides, match):
+        import click
+        from sleap_nn.cli import _resolve_labels_option
+
+        path = tmp_path / "labels.slp"
+        if overrides:
+            path.touch()
+        with pytest.raises(click.UsageError, match=match):
+            _resolve_labels_option(
+                (path.as_posix(),),
+                "--labels",
+                "data_config.train_labels_path",
+                overrides,
+            )
+
+
 class TestTrainResume:
     """`sleap-nn train --resume <run_dir | ckpt>`."""
 

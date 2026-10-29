@@ -46,6 +46,8 @@ sleap-nn train --config CONFIG_PATH [OPTIONS] [OVERRIDES]
 | `--video-paths` | `-v` | Replace video paths (multiple allowed) |
 | `--video-path-map` | | Map old path to new (OLD NEW) |
 | `--prefix-map` | | Map path prefix (OLD_PREFIX NEW_PREFIX) |
+| `--labels` | `-l` | Training labels `.slp`, replacing `data_config.train_labels_path` (multiple allowed) |
+| `--val-labels` | | Validation labels `.slp`, replacing `data_config.val_labels_path` (multiple allowed) |
 | `--resume` | | Resume a run from its folder or a `.ckpt` file (writes to a new `<run_name>-1` folder) |
 | `--dry-run` | | Check the config and data (setup + one train/val batch), write nothing, print a summary |
 
@@ -60,6 +62,10 @@ sleap-nn train -d /configs -c my_config
 
 # Override values
 sleap-nn train --config config.yaml trainer_config.max_epochs=200
+
+# Train a config on a different labels file
+sleap-nn train config.yaml --labels labels.slp
+sleap-nn train config.yaml -l train.slp --val-labels val.slp
 
 # Remap video paths
 sleap-nn train --config config.yaml --prefix-map /old/data /new/data
