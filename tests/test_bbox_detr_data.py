@@ -208,22 +208,42 @@ def test_sample_table_round_trip():
         table[2]
 
 
+def test_sample_table_kinds_do_not_depend_on_proportions():
+    # Mostly negative frames: `lf_idx` stays an int array plus string exceptions,
+    # never an object array of per-sample Python objects.
+    lf_idx = [0] + [f"neg_0_{i}" for i in range(5)] + [None]
+    table = SampleTable.from_dicts([{"lf_idx": v} for v in lf_idx])
+    kind, (array, other_idx, _) = table.columns["lf_idx"]
+    assert kind == "scalar" and array.dtype == np.int64
+    assert other_idx.tolist() == list(range(1, 7))
+    assert [s["lf_idx"] for s in table] == lf_idx
+    # Mixed numeric types are not coerced.
+    assert SampleTable._column([1, 2.5])[0] == "object"
+
+
+def test_sample_table_needs_the_same_keys():
+    with pytest.raises(ValueError, match="Sample 1 has keys"):
+        SampleTable.from_dicts([{"a": 1, "b": 2}, {"a": 3}])
+    with pytest.raises(ValueError, match="Sample 1 has keys"):
+        SampleTable.from_dicts([{"a": 1}, {"a": 3, "c": 4}])
+
+
 def test_bbox_samples_are_a_table(tmp_path):
     boxes = [(10, 10, 60, 90), (70, 20, 120, 100)]
     labels = _image_labels(tmp_path, "img", (128, 160), boxes)
     ds = _detr_dataset([labels], hw=(128, 160))
     assert isinstance(ds.lf_idx_list, SampleTable)
     sample = ds.lf_idx_list[0]
-    assert sample["image_path"] == labels.videos[0].filename[0]
     xyxy, classes = frame_bbox_arrays(labels[0], ["person"])
     np.testing.assert_array_equal(sample["bboxes"], xyxy)
     np.testing.assert_array_equal(sample["bbox_classes"], classes)
-    # The JPEG is decoded from its file at full size: sleap-io's picture.
+    np.testing.assert_array_equal(ds.labels_idx, [0])
+    want = labels[0].image
+    # Frames are read through the video, never the `LabeledFrame`s.
+    labels.labeled_frames.clear()
     img, scale = ds._read_frame(sample)
     assert scale is None
-    want = labels[0].image
-    assert img.shape == want.shape
-    assert np.abs(img.astype(int) - want.astype(int)).mean() < 1.0
+    np.testing.assert_array_equal(img, want)
 
 
 # --------------------------------------------------------------------------- #

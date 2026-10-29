@@ -148,27 +148,30 @@ _SIZEMATCHER_WARNED_KEYS: set = set()
 def _warn_size_mismatch(
     img_height: int, img_width: int, max_height: int, max_width: int
 ) -> None:
-    """Emit a one-time warning per unique (input, target) size combination.
+    """Emit a one-time warning per target size and resize direction.
 
     `apply_sizematcher` is called per frame, so dedup is required to avoid
-    flooding the log when every frame of a video hits the same size mismatch.
+    flooding the log. The key leaves out the input size: an image-list dataset
+    (e.g. Objects365) has tens of thousands of distinct frame sizes, which would
+    each warn once per process.
     """
-    key = (int(img_height), int(img_width), int(max_height), int(max_width))
-    if key in _SIZEMATCHER_WARNED_KEYS:
-        return
-    _SIZEMATCHER_WARNED_KEYS.add(key)
     direction = (
         "downscaled"
         if (img_height > max_height or img_width > max_width)
         else "upscaled"
     )
+    key = (int(max_height), int(max_width), direction)
+    if key in _SIZEMATCHER_WARNED_KEYS:
+        return
+    _SIZEMATCHER_WARNED_KEYS.add(key)
     logger.warning(
         f"Input image size ({img_height}x{img_width}, HxW) does not match "
         f"the configured max_height/max_width ({max_height}x{max_width}); "
         f"frames will be {direction} and padded on every call, which is "
         f"slower than running on natively-sized inputs. To eliminate this "
         f"overhead, set max_height/max_width in your config to match the "
-        f"input dimensions."
+        f"input dimensions. Other input sizes {direction} to "
+        f"{max_height}x{max_width} are not reported."
     )
 
 
@@ -210,8 +213,13 @@ def apply_sizematcher(
     image: torch.Tensor,
     max_height: Optional[int] = None,
     max_width: Optional[int] = None,
+    warn: bool = True,
 ):
-    """Apply scaling and padding to image to (max_height, max_width) shape."""
+    """Apply scaling and padding to image to (max_height, max_width) shape.
+
+    ``warn=False`` skips the size-mismatch warning, for callers that resize every
+    frame to a fixed size by design (e.g. ``bbox_detr``'s letterbox).
+    """
     img_height, img_width = image.shape[-2:]
     # pad images to max_height and max_width
     if max_height is None:
@@ -219,7 +227,8 @@ def apply_sizematcher(
     if max_width is None:
         max_width = img_width
     if img_height != max_height or img_width != max_width:
-        _warn_size_mismatch(img_height, img_width, max_height, max_width)
+        if warn:
+            _warn_size_mismatch(img_height, img_width, max_height, max_width)
         eff_scale_ratio = compute_eff_scale(
             (img_height, img_width), (max_height, max_width)
         )

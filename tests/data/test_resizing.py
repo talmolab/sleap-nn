@@ -136,3 +136,24 @@ def test_apply_sizematcher_warns_once_per_size(caplog, minimal_instance):
         apply_sizematcher(ex["image"], 100, 480)
     matches = [r for r in caplog.records if "100x480" in r.message]
     assert len(matches) == 1
+
+
+def test_apply_sizematcher_warns_once_per_target(caplog):
+    """Frames of many sizes fitted to one target warn once per direction."""
+    resizing._SIZEMATCHER_WARNED_KEYS.clear()
+    caplog.clear()
+    for h, w in [(300, 400), (310, 420), (500, 640), (90, 100), (80, 120)]:
+        apply_sizematcher(torch.zeros(1, 3, h, w), 256, 256)
+    warned = [r for r in caplog.records if "256x256" in r.message]
+    assert len(warned) == 2
+    assert any("downscaled" in r.message for r in warned)
+    assert any("upscaled" in r.message for r in warned)
+
+
+def test_apply_sizematcher_warn_false(caplog):
+    """``warn=False`` resizes without the size-mismatch warning."""
+    resizing._SIZEMATCHER_WARNED_KEYS.clear()
+    caplog.clear()
+    image, _ = apply_sizematcher(torch.zeros(1, 3, 300, 400), 256, 256, warn=False)
+    assert image.shape[-2:] == (256, 256)
+    assert not [r for r in caplog.records if "256x256" in r.message]

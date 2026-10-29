@@ -428,20 +428,25 @@ class SampleTable:
     many shuffled epochs each persistent worker ends up with its own copy of the
     whole list (Objects365 + Open Images: ~1 GB per worker per epoch, which ran a
     4-GPU x 16-worker run out of host memory). Here each key is one array, read
-    without touching per-sample objects:
+    without touching per-sample objects. A key's storage follows from the types of
+    its values:
 
-    - ints, floats and bools: one array (values of another type, e.g. a negative
-      frame's ``"neg_..."`` ``lf_idx``, are kept in a small exceptions dict);
-    - arrays (e.g. boxes): concatenated along the first axis, with row offsets;
+    - bools, ints or floats, optionally mixed with strings or ``None`` (e.g. a
+      negative frame's ``"neg_..."`` ``lf_idx``): one array, plus the indices and
+      fixed-width bytes of those other values;
+    - arrays of one dtype and trailing shape (e.g. boxes): concatenated along the
+      first axis, with row offsets;
     - strings (``None`` allowed): one fixed-width UTF-8 bytes array;
     - all ``None``: no storage;
-    - anything else: an object array (copied per read like a list).
+    - anything else: an object array. Its values are returned as stored (shared
+      with the table and the other workers), so this kind does not avoid the
+      copies and is only a fallback.
 
     ``table[i]`` builds a new dict whose arrays are copies, so nothing written to a
-    sample reaches the shared arrays.
+    sample's arrays reaches the table.
 
     Attributes:
-        columns: Key -> ``(kind, data)``, in the first sample's key order.
+        columns: Key -> ``(kind, data)``, in the samples' key order.
     """
 
     # Scalar column types, most specific first (bool is an int subclass).
@@ -459,10 +464,23 @@ class SampleTable:
     @classmethod
     def from_dicts(cls, samples: List[Dict]) -> "SampleTable":
         """Build a table from sample dicts that all have the same keys."""
-        columns = {}
-        for key in samples[0] if samples else []:
-            columns[key] = cls._column([s[key] for s in samples])
+        keys = list(samples[0]) if samples else []
+        key_set = set(keys)
+        for i, sample in enumerate(samples):
+            if sample.keys() != key_set:
+                raise ValueError(
+                    f"Sample {i} has keys {sorted(sample)}, but sample 0 has "
+                    f"{sorted(keys)}; every sample needs the same keys."
+                )
+        columns = {key: cls._column([s[key] for s in samples]) for key in keys}
         return cls(columns, len(samples))
+
+    @staticmethod
+    def _strings(values: List[Optional[str]]) -> Tuple[np.ndarray, np.ndarray]:
+        """Strings (or ``None``) as ``(fixed-width bytes, is-not-None)`` arrays."""
+        encoded = [b"" if v is None else os.fsencode(v) for v in values]
+        valid = np.array([v is not None for v in values], dtype=bool)
+        return np.array(encoded, dtype=bytes), valid
 
     @classmethod
     def _column(cls, values: List[Any]) -> Tuple[str, Any]:
@@ -470,9 +488,7 @@ class SampleTable:
         if all(v is None for v in values):
             return "none", None
         if all(v is None or isinstance(v, str) for v in values):
-            encoded = [b"" if v is None else os.fsencode(v) for v in values]
-            valid = np.array([v is not None for v in values], dtype=bool)
-            return "str", (np.array(encoded, dtype=bytes), valid)
+            return "str", cls._strings(values)
         if all(isinstance(v, np.ndarray) and v.ndim >= 1 for v in values):
             if len({(v.dtype, v.shape[1:]) for v in values}) == 1:
                 offsets = np.zeros(len(values) + 1, dtype=np.int64)
@@ -483,18 +499,25 @@ class SampleTable:
                 isinstance(v, types) and (dtype is bool or not isinstance(v, bool))
                 for v in values
             ]
-            if 2 * sum(typed) >= len(values):
+            others = [i for i, t in enumerate(typed) if not t]
+            if len(others) < len(values) and all(
+                values[i] is None or isinstance(values[i], str) for i in others
+            ):
                 array = np.array(
                     [v if t else 0 for v, t in zip(values, typed)], dtype=dtype
                 )
-                other = {i: v for i, (v, t) in enumerate(zip(values, typed)) if not t}
-                return "scalar", (array, other)
+                other_idx = np.array(others, dtype=np.int64)
+                return "scalar", (
+                    array,
+                    other_idx,
+                    cls._strings([values[i] for i in others]),
+                )
         array = np.empty(len(values), dtype=object)
         array[:] = values
         return "object", array
 
     def column(self, key: str) -> np.ndarray:
-        """All values of a scalar key as one array (exceptions read as 0)."""
+        """All values of a scalar key as one array (other values read as 0)."""
         kind, data = self.columns[key]
         if kind != "scalar":
             raise ValueError(f"Column {key!r} is {kind}, not scalar.")
@@ -516,8 +539,12 @@ class SampleTable:
             if kind == "none":
                 sample[key] = None
             elif kind == "scalar":
-                array, other = data
-                sample[key] = other[index] if index in other else array[index].item()
+                array, other_idx, (encoded, valid) = data
+                j = int(np.searchsorted(other_idx, index))
+                if j < len(other_idx) and other_idx[j] == index:
+                    sample[key] = os.fsdecode(encoded[j]) if valid[j] else None
+                else:
+                    sample[key] = array[index].item()
             elif kind == "ragged":
                 array, offsets = data
                 sample[key] = array[offsets[index] : offsets[index + 1]].copy()
@@ -4874,9 +4901,16 @@ class InfiniteDataLoader(DataLoader):
     This dataloader extends the PyTorch DataLoader to provide infinite recycling of workers, which improves efficiency
     for training loops that need to iterate through the dataset multiple times without recreating workers.
 
+    The iterator (and with it the workers) is created on the first ``__iter__``,
+    not in ``__init__``, so the first pass over the sampler uses the epoch
+    Lightning set for it (e.g. the resumed epoch). Each later pass advances an
+    epoch-aware sampler itself (see :class:`_RepeatSampler`), because the workers
+    prefetch the next pass's first batches before Lightning's ``set_epoch``.
+
     Attributes:
         batch_sampler (_RepeatSampler): A sampler that repeats indefinitely.
-        iterator (Iterator): The iterator from the parent DataLoader.
+        iterator (Optional[Iterator]): The iterator from the parent DataLoader
+            (``None`` until the first ``__iter__``).
         len_dataloader (Optional[int]): Number of minibatches to be generated. If `None`, this is set to len(dataset)/batch_size.
 
     Methods:
@@ -4899,7 +4933,7 @@ class InfiniteDataLoader(DataLoader):
         """Initialize the InfiniteDataLoader with the same arguments as DataLoader."""
         super().__init__(*args, **kwargs)
         object.__setattr__(self, "batch_sampler", _RepeatSampler(self.batch_sampler))
-        self.iterator = super().__iter__()
+        self.iterator = None
         self.len_dataloader = len_dataloader
 
     def __len__(self) -> int:
@@ -4917,6 +4951,8 @@ class InfiniteDataLoader(DataLoader):
 
     def __iter__(self) -> Iterator:
         """Create an iterator that yields indefinitely from the underlying iterator."""
+        if self.iterator is None:
+            self.iterator = super().__iter__()
         while True:
             yield next(self.iterator)
 
@@ -4943,6 +4979,13 @@ class _RepeatSampler:
     This sampler wraps another sampler and yields its contents indefinitely, allowing for infinite iteration
     over a dataset without recreating the sampler.
 
+    An epoch-aware sampler (one with ``set_epoch``, e.g. ``DistributedSampler``,
+    either this sampler or the one inside its ``BatchSampler``) is set to one epoch
+    more for each pass: pass ``k`` uses the epoch it had when iteration started,
+    plus ``k``. Persistent workers start a pass a few batches before Lightning's
+    ``set_epoch`` for that epoch, so waiting for Lightning would repeat the
+    previous epoch's order.
+
     Attributes:
         sampler (Dataset.sampler): The sampler to repeat.
 
@@ -4955,7 +4998,14 @@ class _RepeatSampler:
 
     def __iter__(self) -> Iterator:
         """Iterate over the sampler indefinitely, yielding its contents."""
+        inner = self.sampler
+        if not hasattr(inner, "set_epoch"):
+            inner = getattr(inner, "sampler", None)
+        epoch = getattr(inner, "epoch", None) if hasattr(inner, "set_epoch") else None
         while True:
+            if epoch is not None:
+                inner.set_epoch(epoch)
+                epoch += 1
             yield from iter(self.sampler)
 
 
@@ -5737,10 +5787,9 @@ class BBoxDataset(BaseDataset):
         """Return samples for frames with user boxes (+ negative frames if enabled).
 
         The boxes are captured into each sample as plain arrays so ``__getitem__``
-        needs no live ``Labels`` handle (the image-caching paths drop it), as is
-        the image file of a frame of an image-list video (``image_path``, else
-        ``None``). The samples are stored as a :class:`SampleTable`, so persistent
-        dataloader workers don't copy them as they read them.
+        needs no live ``Labels`` handle (the image-caching paths drop it). The
+        samples are stored as a :class:`SampleTable`, so persistent dataloader
+        workers don't copy them as they read them.
         """
         lf_idx_list = []
         max_boxes = 0
@@ -5779,21 +5828,18 @@ class BBoxDataset(BaseDataset):
                     f"to {len(lf_idx_list)} positive samples."
                 )
                 lf_idx_list.extend(neg_samples)
-        for sample in lf_idx_list:
-            video = labels[sample["labels_idx"]].videos[sample["video_idx"]]
-            filename = video.filename
-            sample["image_path"] = (
-                str(filename[sample["frame_idx"]])
-                if isinstance(filename, list)
-                else None
-            )
         # GT boxes are padded to this many slots per sample (collation needs one
         # shape). Overrides the pose-instance count `BaseDataset` computed.
         self.max_instances = max(max_boxes, 1)
         return SampleTable.from_dicts(lf_idx_list)
 
     def _read_image(self, sample: Dict) -> np.ndarray:
-        """The sample's frame as ``(H, W, C)``, from the cache or the video."""
+        """The sample's frame as ``(H, W, C)``, from the cache or the video.
+
+        Frames are read from the ``Video`` by ``frame_idx``, not through the
+        ``LabeledFrame``: reading a frame's ``LabeledFrame`` in a forked worker
+        copies its memory page into the worker (see :class:`SampleTable`).
+        """
         labels_idx, lf_idx = sample["labels_idx"], sample["lf_idx"]
         if self.cache_img == "disk":
             img = np.array(
@@ -5801,11 +5847,9 @@ class BBoxDataset(BaseDataset):
             )
         elif self.cache_img == "memory":
             img = self.cache[(labels_idx, lf_idx)].copy()
-        elif sample["is_negative"]:
+        else:
             video = self.labels_list[labels_idx].videos[sample["video_idx"]]
             img = video[sample["frame_idx"]]
-        else:
-            img = self.labels_list[labels_idx][lf_idx].image
         if img.ndim == 2:
             img = np.expand_dims(img, axis=2)
         return img
@@ -5813,9 +5857,7 @@ class BBoxDataset(BaseDataset):
     @property
     def labels_idx(self) -> np.ndarray:
         """The training file of every sample."""
-        if isinstance(self.lf_idx_list, SampleTable):
-            return self.lf_idx_list.column("labels_idx").astype(np.int64)
-        return np.asarray([s["labels_idx"] for s in self.lf_idx_list], dtype=np.int64)
+        return self.lf_idx_list.column("labels_idx").copy()
 
     def _read_frame(
         self, sample: Dict
@@ -5903,9 +5945,8 @@ class DetrBBoxDataset(BBoxDataset):
     than the training size (CrowdHuman photos up to 10,800 px, JRDB-Pose
     panoramas) is decoded at 1/2, 1/4 or 1/8 scale in the DCT domain (PIL
     ``draft``) whenever that is still at least as large as the frame's next resize
-    target (:meth:`min_decode_scale`); the boxes are scaled to match. Other JPEGs
-    of image-list videos are decoded from their files at full size, and all other
-    frames are read through sleap-io as usual.
+    target (:meth:`min_decode_scale`); the boxes are scaled to match. Other frames
+    are read through sleap-io as usual.
 
     Attributes:
         resize_mode: ``"squash"`` or ``"letterbox"``.
@@ -5963,31 +6004,32 @@ class DetrBBoxDataset(BBoxDataset):
             scale = max(scale, side / min(height, width))
         return scale
 
+    def _image_path(self, sample: Dict) -> Optional[str]:
+        """The image file of a sample read from an image-list video, else ``None``."""
+        if self.cache_img is not None or self.labels_list is None:
+            return None
+        video = self.labels_list[sample["labels_idx"]].videos[sample["video_idx"]]
+        filename = video.filename
+        if not isinstance(filename, list):
+            return None
+        return str(filename[sample["frame_idx"]])
+
     def _read_frame(
         self, sample: Dict
     ) -> Tuple[np.ndarray, Optional[Tuple[float, float]]]:
-        """The frame, decoded at 1/2, 1/4 or 1/8 size when that loses nothing.
-
-        An RGB or grayscale JPEG of an image-list video is decoded from its file
-        with PIL, at full size or reduced; nothing per frame is read from the
-        ``Labels`` (see :class:`SampleTable`). Other frames go through sleap-io.
-        """
-        path = sample["image_path"] if self.cache_img is None else None
+        """The frame, decoded at 1/2, 1/4 or 1/8 size when that loses nothing."""
+        path = self._image_path(sample) if self.reduced_decode else None
         if path is None or not path.lower().endswith((".jpg", ".jpeg")):
             return super()._read_frame(sample)
         with Image.open(path) as im:
-            if im.format != "JPEG" or im.mode not in ("RGB", "L"):
-                return super()._read_frame(sample)
             width, height = im.size
             scale = self.min_decode_scale(height, width)
-            if self.reduced_decode and scale <= 0.5:
-                size = (math.ceil(width * scale), math.ceil(height * scale))
-                im.draft(im.mode, size)
+            if im.format != "JPEG" or im.mode not in ("RGB", "L") or scale > 0.5:
+                return super()._read_frame(sample)
+            im.draft(im.mode, (math.ceil(width * scale), math.ceil(height * scale)))
             img = np.asarray(im)
         if img.ndim == 2:
             img = img[..., None]
-        if img.shape[:2] == (height, width):
-            return img, None
         return img, (img.shape[1] / width, img.shape[0] / height)
 
     def _apply_common_preprocessing(self, sample: Dict) -> Dict:
