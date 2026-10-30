@@ -564,7 +564,13 @@ class ModelTrainer:
         logger.info(f"Creating train-val split...")
         total_train_lfs = 0
         total_val_lfs = 0
-        self.skeletons = labels[0].skeletons
+        # Bounding-box detectors train on boxes only and never read keypoints, so
+        # their files may carry any skeletons (COCO-17, a union skeleton, none):
+        # the model has no skeleton, whatever order the files are listed in.
+        if self.model_type in BBOX_MODEL_TYPES:
+            self.skeletons = []
+        else:
+            self.skeletons = labels[0].skeletons
 
         # Mask-only labels: derive the centroid annotations a centroid model needs
         # from the segmentation masks. Must run BEFORE splitting and counting —
@@ -605,7 +611,8 @@ class ModelTrainer:
                 )
             self.skeletons = [merged_skeleton(labels, list(node_names))]
         # check if all `.slp` file shave same skeleton structure (if multiple slp file paths are provided)
-        # Mask-only labels (e.g. instance segmentation) may carry no skeleton.
+        # Mask-only labels (e.g. instance segmentation) may carry no skeleton, and
+        # bounding-box models have none (see above), so neither is checked.
         elif self.skeletons:
             skeleton = self.skeletons[0]
             for split, label_list in (("training", labels), ("validation", val_labels)):
