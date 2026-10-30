@@ -376,6 +376,49 @@ def test_bbox_detr_train_predict_eval(config, minimal_instance, tmp_path):
     assert m is not None and 0.0 <= m["bbox_mAP"] <= 1.0
 
 
+def _other_skeleton_labels(minimal_instance, tmp_path):
+    """A copy of ``minimal_instance`` whose skeleton has different node names."""
+    labels = sio.load_slp(minimal_instance.as_posix())
+    skeleton = labels.skeletons[0]
+    skeleton.rename_nodes({n: f"{n}_other" for n in skeleton.node_names})
+    path = tmp_path / "other_skeleton.pkg.slp"
+    labels.save(path.as_posix(), embed="user")
+    return path.as_posix()
+
+
+@pytest.mark.parametrize("other_first", [False, True], ids=["fly-first", "other-first"])
+def test_bbox_detr_files_may_have_different_skeletons(
+    config, minimal_instance, tmp_path, other_first
+):
+    """A box model trains on files with different skeletons and has none itself."""
+    from sleap_nn.training.model_trainer import ModelTrainer
+
+    other = _other_skeleton_labels(minimal_instance, tmp_path)
+    train = [minimal_instance.as_posix(), other]
+    if other_first:
+        train.reverse()
+    cfg = _detr_train_config(config, tmp_path)
+    cfg.data_config.train_labels_path = train
+    cfg.data_config.val_labels_path = [other]
+    trainer = ModelTrainer.get_model_trainer_from_config(cfg)
+    assert trainer.skeletons == []
+    assert list(trainer.config.data_config.skeletons) == []
+
+
+def test_pose_files_must_share_skeleton(config, minimal_instance, tmp_path):
+    """Pose models still require every file to carry the first file's skeleton."""
+    from sleap_nn.training.model_trainer import ModelTrainer
+
+    cfg = config.copy()
+    cfg.data_config.train_labels_path = [
+        minimal_instance.as_posix(),
+        _other_skeleton_labels(minimal_instance, tmp_path),
+    ]
+    cfg.trainer_config.ckpt_dir = str(tmp_path)
+    with pytest.raises(ValueError, match="labels: 2 does not match the skeleton"):
+        ModelTrainer.get_model_trainer_from_config(cfg)
+
+
 # --------------------------------------------------------------------------- #
 # Lightning module: optimizer groups, class-subset init, config round-trip
 # --------------------------------------------------------------------------- #
