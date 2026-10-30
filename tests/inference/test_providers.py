@@ -552,3 +552,82 @@ def test_predictor_predict_to_file_end_to_end(tmp_path):
     labels = sio.load_slp(str(out_path))
     # 6 frames in / 2 per batch / 1 instance per frame → 6 LabeledFrames
     assert len(labels.labeled_frames) == 6
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# LabelsProvider(group_by_shape=True) + Predictor order restore
+# ─────────────────────────────────────────────────────────────────────────
+
+
+def _interleaved_two_size_labels(tmp_path, n_per_video: int = 3):
+    """Two image-list videos of different sizes, labeled frames interleaved.
+
+    The layout of an image-list dataset whose GT file is shuffled: one
+    ``sio.Video`` per image size, and consecutive labeled frames alternate sizes.
+    """
+    import imageio.v3 as iio
+
+    videos = []
+    for name, hw in (("small", (10, 12)), ("large", (14, 16))):
+        paths = []
+        for i in range(n_per_video):
+            p = tmp_path / f"{name}_{i}.png"
+            iio.imwrite(p, np.full((*hw, 3), i, dtype=np.uint8))
+            paths.append(str(p))
+        videos.append(sio.Video.from_filename(paths))
+    lfs = [
+        sio.LabeledFrame(video=videos[v], frame_idx=i)
+        for i in range(n_per_video)
+        for v in (0, 1)
+    ]
+    skel = sio.Skeleton(nodes=["n0", "n1"])
+    return sio.Labels(videos=videos, skeletons=[skel], labeled_frames=lfs)
+
+
+def test_labels_provider_group_by_shape_fills_batches(tmp_path):
+    """Interleaved sizes batch one frame at a time unless grouped by size."""
+    labels = _interleaved_two_size_labels(tmp_path)
+
+    plain = list(LabelsProvider(labels=labels, batch_size=4, prefetch=False))
+    assert [b.images.shape[0] for b in plain] == [1] * 6
+
+    provider = LabelsProvider(
+        labels=labels, batch_size=4, prefetch=False, group_by_shape=True
+    )
+    batches = list(provider)
+    assert [b.images.shape[0] for b in batches] == [3, 3]
+    # Each video's frames keep their order.
+    for b in batches:
+        assert b.frame_indices.tolist() == [0, 1, 2]
+    # source_positions maps each yielded frame to its interleaved position.
+    assert provider.source_positions == {
+        (v, i): 2 * i + v for i in range(3) for v in (0, 1)
+    }
+
+
+def test_labels_provider_group_by_shape_noop_keeps_no_positions(tmp_path):
+    """Already-grouped frames report no reordering."""
+    labels = _interleaved_two_size_labels(tmp_path)
+    labels.labeled_frames.sort(key=lambda lf: (labels.videos.index(lf.video),))
+    provider = LabelsProvider(labels=labels, batch_size=4, group_by_shape=True)
+    assert provider.source_positions is None
+
+
+def test_predictor_predict_returns_frames_in_source_order(tmp_path):
+    """``Predictor.predict`` batches by size but returns the source frame order."""
+    labels = _interleaved_two_size_labels(tmp_path)
+    source_order = [(labels.videos.index(lf.video), lf.frame_idx) for lf in labels]
+
+    batch_sizes = []
+
+    class _CountingStub(_StubLayer):
+        def predict(self, image, **kwargs) -> Outputs:
+            batch_sizes.append(image.shape[0])
+            return super().predict(image, **kwargs)
+
+    predictor = Predictor(layer=_CountingStub(), batch_size=4)
+    out = predictor.predict(labels, skeleton=labels.skeletons[0])
+    assert batch_sizes == [3, 3]
+    assert [
+        (out.videos.index(lf.video), lf.frame_idx) for lf in out.labeled_frames
+    ] == source_order

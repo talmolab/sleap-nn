@@ -534,3 +534,45 @@ def test_fuse_layers_does_not_misfuse_on_reordered_forward():
     # Tight (not 0): the buggy mis-fuse produced ~1.7 abs diff, while
     # cross-platform BLAS (macOS Accelerate) differs from eager by ~ULP.
     torch.testing.assert_close(out["output"], ref, atol=1e-5, rtol=1e-4)
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# autocast_dtype (bf16 / fp16 forward, e.g. post-training eval)
+# ─────────────────────────────────────────────────────────────────────────
+
+
+def test_autocast_dtype_takes_precedence_over_use_fp16():
+    """``autocast_dtype`` wins over ``use_fp16``; neither set means fp32."""
+    backend = TorchBackend(model=_TinyConvModel(), device="cpu")
+    assert backend._forward_autocast_dtype() is None
+    backend.use_fp16 = True
+    assert backend._forward_autocast_dtype() == torch.float16
+    backend.autocast_dtype = torch.bfloat16
+    assert backend._forward_autocast_dtype() == torch.bfloat16
+
+
+def test_autocast_dtype_is_a_noop_on_cpu():
+    """Autocast is CUDA-only: on CPU the forward stays fp32 and bit-exact."""
+    torch.manual_seed(0)
+    model = _TinyConvModel().eval()
+    x = torch.rand(2, 1, 8, 8)
+    ref = TorchBackend(model=model, device="cpu")(x)["output"]
+    out = TorchBackend(model=model, device="cpu", autocast_dtype=torch.bfloat16)(x)[
+        "output"
+    ]
+    assert out.dtype == torch.float32
+    torch.testing.assert_close(out, ref, atol=0, rtol=0)
+
+
+@pytest.mark.skipif(not _has_cuda(), reason="CUDA not available")
+def test_cuda_bf16_autocast_outputs_fp32_close_to_fp32():
+    """bf16 autocast runs on CUDA and hands fp32 outputs to postprocessing."""
+    torch.manual_seed(0)
+    model = _TinyConvModel().eval()
+    x = torch.rand(2, 1, 16, 16)
+    ref = TorchBackend(model=model, device="cuda")(x)["output"]
+    out = TorchBackend(model=model, device="cuda", autocast_dtype=torch.bfloat16)(x)[
+        "output"
+    ]
+    assert out.dtype == torch.float32
+    torch.testing.assert_close(out, ref, atol=5e-2, rtol=5e-2)

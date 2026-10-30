@@ -60,6 +60,12 @@ class TorchBackend:
             CUDA-only; counter-productive at batch < 4. Emits a drift warning.
         fuse_layers: Fold ``Conv2d → BatchNorm2d`` pairs in-place. Negligible
             speedup on the test UNets; opt-in.
+        autocast_dtype: Run the forward under ``torch.autocast`` with this
+            dtype (``torch.bfloat16`` or ``torch.float16``; CUDA only, outputs
+            cast back to fp32). Takes precedence over ``use_fp16``. Set by
+            ``Predictor.from_model_paths(precision=...)``; no warning is
+            emitted, as the caller asked for it (e.g. a model trained under
+            ``bf16-mixed`` predicting as it was validated).
         warmup_iterations: Number of dummy forwards to run inside
             :meth:`warmup`. ``1`` is enough on MPS / CUDA.
 
@@ -75,6 +81,7 @@ class TorchBackend:
     compile_mode: str = "reduce-overhead"
     use_fp16: bool = False
     fuse_layers: bool = False
+    autocast_dtype: Optional[torch.dtype] = None
     warmup_iterations: int = 1
 
     # Internal state, not part of the public surface.
@@ -122,16 +129,18 @@ class TorchBackend:
         # ``.float()``, etc.) — a destructive ``model.half()`` would instead
         # raise an Input/weight dtype mismatch on those. Outputs are cast back
         # to fp32 below so downstream peak-finding sees fp32 confmaps.
-        use_autocast = self.use_fp16 and "cuda" in self.device
+        dtype = self._forward_autocast_dtype()
+        use_autocast = dtype is not None and "cuda" in self.device
         with torch.inference_mode():
             if use_autocast:
-                with torch.autocast(device_type="cuda", dtype=torch.float16):
+                with torch.autocast(device_type="cuda", dtype=dtype):
                     out = model(x)
             else:
                 out = model(x)
 
+        half = (torch.float16, torch.bfloat16)
         if isinstance(out, torch.Tensor):
-            if use_autocast and out.dtype == torch.float16:
+            if use_autocast and out.dtype in half:
                 out = out.float()
             return {"output": out}
 
@@ -140,7 +149,7 @@ class TorchBackend:
                 out = {
                     k: (
                         v.float()
-                        if isinstance(v, torch.Tensor) and v.dtype == torch.float16
+                        if isinstance(v, torch.Tensor) and v.dtype in half
                         else v
                     )
                     for k, v in out.items()
@@ -169,6 +178,12 @@ class TorchBackend:
     # ──────────────────────────────────────────────────────────────────
     # Internals
     # ──────────────────────────────────────────────────────────────────
+
+    def _forward_autocast_dtype(self) -> Optional[torch.dtype]:
+        """Autocast dtype of the forward: ``autocast_dtype``, else fp16 if ``use_fp16``."""
+        if self.autocast_dtype is not None:
+            return self.autocast_dtype
+        return torch.float16 if self.use_fp16 else None
 
     def _validate_device_features(self) -> None:
         """Warn-and-disable feature combinations that don't work cleanly.

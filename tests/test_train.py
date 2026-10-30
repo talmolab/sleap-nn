@@ -1048,3 +1048,124 @@ def test_main(sample_cfg, minimal_instance):
         .joinpath("labels_pr.test.0.slp")
         .exists()
     )
+
+
+def test_post_train_predict_settings_defaults_and_overrides():
+    """Batch size follows the val loader (4 for crop models), precision `fit`'s."""
+    from sleap_nn.train import _post_train_predict_settings
+
+    cfg = OmegaConf.create(
+        {
+            "trainer_config": {
+                "val_data_loader": {"batch_size": 8},
+                "precision": "bf16-mixed",
+                "eval": {},
+            }
+        }
+    )
+    assert _post_train_predict_settings(cfg, "bbox_detr") == {
+        "batch_size": 8,
+        "precision": "bf16",
+    }
+    assert _post_train_predict_settings(cfg, "centered_instance")["batch_size"] == 4
+    cfg.trainer_config.precision = "16-mixed"
+    assert _post_train_predict_settings(cfg, "bottomup")["precision"] == "fp16"
+    cfg.trainer_config.precision = 32
+    assert _post_train_predict_settings(cfg, "bottomup")["precision"] == "32"
+
+    cfg.trainer_config.eval = {
+        "post_train_batch_size": 2,
+        "post_train_precision": "32",
+    }
+    cfg.trainer_config.precision = "bf16-mixed"
+    assert _post_train_predict_settings(cfg, "centered_instance") == {
+        "batch_size": 2,
+        "precision": "32",
+    }
+
+
+def test_post_train_progress_logs_rate_and_final_count(monkeypatch):
+    """The callback is throttled but always logs the last batch."""
+    import sleap_nn.train as train_mod
+
+    messages = []
+    monkeypatch.setattr(train_mod.logger, "info", messages.append)
+    callback = train_mod._post_train_progress("train.0", interval=3600)
+    callback(4, 12)  # within the interval: not logged
+    callback(12, 12)  # final: logged
+    assert len(messages) == 1
+    assert "train.0" in messages[0] and "12/12 frames" in messages[0]
+
+
+def test_subsample_labels_keeps_file_order(tmp_path):
+    """A random subset in file order; the path itself when it has few frames."""
+    from sleap_nn.train import _subsample_labels
+
+    video = sio.Video(filename="video.mp4", open_backend=False)
+    skel = sio.Skeleton(nodes=["a"])
+    labels = sio.Labels(
+        videos=[video],
+        skeletons=[skel],
+        labeled_frames=[sio.LabeledFrame(video, i) for i in range(20)],
+    )
+    path = (tmp_path / "gt.slp").as_posix()
+    labels.save(path)
+
+    sub = _subsample_labels(path, 5, seed=0, d_name="train.0")
+    idx = [lf.frame_idx for lf in sub]
+    assert len(idx) == 5 and idx == sorted(idx)
+    assert idx == [lf.frame_idx for lf in _subsample_labels(path, 5, 0, "train.0")]
+    assert _subsample_labels(path, 20, seed=0, d_name="train.0") == path
+
+
+def test_run_evaluation_accepts_ground_truth_labels(minimal_instance, tmp_path):
+    """``run_evaluation`` scores an in-memory GT subset like a GT file."""
+    from sleap_nn.evaluation import run_evaluation
+
+    gt = sio.load_slp(minimal_instance)
+    pred_path = (tmp_path / "pr.slp").as_posix()
+    gt.save(pred_path)
+    from_path = run_evaluation(minimal_instance.as_posix(), pred_path)
+    from_labels = run_evaluation(sio.load_slp(minimal_instance), pred_path)
+    assert from_labels["mOKS"] == from_path["mOKS"]
+
+
+def test_post_train_eval_runs_selected_splits_held_out_first(
+    sample_cfg, minimal_instance, tmp_path, monkeypatch
+):
+    """`post_train_splits` picks splits, val/test run before train, and every
+    predict call gets the batch size, precision and progress callback."""
+    import sleap_nn.inference.run as run_mod
+    import sleap_nn.train as train_mod
+
+    calls = []
+
+    def fake_predict(source, *, output_path=None, **kwargs):
+        calls.append((Path(output_path).name, kwargs))
+        labels = sio.load_slp(source)
+        labels.save(str(output_path))
+        return labels
+
+    monkeypatch.setattr(run_mod, "predict", fake_predict)
+    monkeypatch.setattr(
+        train_mod,
+        "run_evaluation",
+        lambda *a, **kw: {
+            "voc_metrics": {"oks_voc.mAP": 0.0},
+            "distance_metrics": {"avg": 0.0, "p90": 0.0, "p50": 0.0},
+        },
+    )
+
+    sample_cfg.trainer_config.trainer_accelerator = "cpu"
+    sample_cfg.trainer_config.max_epochs = 1
+    sample_cfg.data_config.test_file_path = minimal_instance.as_posix()
+    sample_cfg.trainer_config.eval = {"post_train_splits": ["train", "test"]}
+    main(sample_cfg)
+
+    names = [name for name, _ in calls]
+    assert names == ["labels_pr.test.0.slp", "labels_pr.train.0.slp"]
+    for _, kwargs in calls:
+        # centered_instance validates on crops, so frames go 4 per batch.
+        assert kwargs["batch_size"] == 4
+        assert kwargs["precision"] == "32"
+        assert callable(kwargs["progress_callback"])

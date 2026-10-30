@@ -376,6 +376,23 @@ class VideoProvider:
         return [self._sio_video] if self._sio_video is not None else []
 
 
+def _recorded_frame_hw(video: "sio.Video") -> tuple:
+    """``(height, width)`` a video records for its frames, or ``(0, 0)``.
+
+    Read from the saved backend metadata, else from an already-open backend, so
+    no frame is decoded and no backend is opened.
+    """
+    shape = (getattr(video, "backend_metadata", None) or {}).get("shape")
+    if shape is None and getattr(video, "backend", None) is not None:
+        try:
+            shape = video.shape
+        except Exception:  # noqa: BLE001 - a size hint only
+            shape = None
+    if shape is None or len(shape) < 3:
+        return (0, 0)
+    return (int(shape[1]), int(shape[2]))
+
+
 @attrs.define
 class LabelsProvider:
     """Yield batches from a ``.slp`` file with GT instances attached.
@@ -438,6 +455,13 @@ class LabelsProvider:
             giving the boxes that seed a top-down model's stage 1 on each frame;
             when set, batches carry ``frame_boxes`` / ``frame_box_scores``. See
             :func:`predicted_frame_boxes`.
+        group_by_shape: Yield the frames grouped by their video's frame size
+            (a stable sort, so each video's frames keep their order). A batch
+            only holds frames of one size, so a file that interleaves sizes
+            (e.g. an image-list dataset stored as one ``sio.Video`` per image
+            size, then shuffled) otherwise yields batches of about one frame.
+            :attr:`source_positions` then maps each yielded frame back to its
+            position in the unsorted order.
     """
 
     labels: "Union[str, sio.Labels]"
@@ -452,11 +476,15 @@ class LabelsProvider:
     frames: Optional[list] = None
     instance_box_fn: Optional[Any] = None
     frame_box_fn: Optional[Any] = None
+    group_by_shape: bool = False
 
     _sio_labels: "Optional[sio.Labels]" = attrs.field(
         default=None, init=False, repr=False
     )
     _labeled_frames: list = attrs.field(factory=list, init=False, repr=False)
+    _source_positions: Optional[dict] = attrs.field(
+        default=None, init=False, repr=False
+    )
 
     def __attrs_post_init__(self) -> None:
         """Resolve the labels source and pre-filter the labeled frames."""
@@ -520,6 +548,47 @@ class LabelsProvider:
             self._labeled_frames = [
                 lf for i, lf in enumerate(self._labeled_frames) if i in positions
             ]
+
+        if self.group_by_shape:
+            self._group_frames_by_shape()
+
+    def _group_frames_by_shape(self) -> None:
+        """Stable-sort the frames by (recorded frame size, video index).
+
+        The size is the one the video records (``backend_metadata["shape"]``,
+        else the open backend's shape), so nothing is decoded. Frames whose size
+        is unknown sort by video only. Records the pre-sort positions in
+        ``_source_positions`` when the order changed.
+        """
+        vid_index = {id(v): i for i, v in enumerate(self._sio_labels.videos)}
+        hw_by_video = {id(v): _recorded_frame_hw(v) for v in self._sio_labels.videos}
+
+        def key(lf) -> tuple:
+            return (
+                hw_by_video.get(id(lf.video), (0, 0)),
+                vid_index.get(id(lf.video), -1),
+            )
+
+        order = sorted(
+            range(len(self._labeled_frames)),
+            key=lambda i: key(self._labeled_frames[i]),
+        )
+        if order == list(range(len(order))):
+            return
+        self._source_positions = {
+            (vid_index.get(id(lf.video), -1), lf.frame_idx): i
+            for i, lf in enumerate(self._labeled_frames)
+        }
+        self._labeled_frames = [self._labeled_frames[i] for i in order]
+
+    @property
+    def source_positions(self) -> Optional[dict]:
+        """``(video index, frame_idx) -> position`` before ``group_by_shape``.
+
+        ``None`` when the frames are yielded in their original order (grouping
+        off, or it changed nothing). The video index is into :attr:`videos`.
+        """
+        return self._source_positions
 
     def _frame_instances(self, lf) -> list:
         """Instances to expose as GT for a frame.

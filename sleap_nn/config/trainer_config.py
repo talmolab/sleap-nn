@@ -535,6 +535,24 @@ class EvalConfig:
             (``data_config.val_names``): a list of node names, or a string prefix
             such as ``"hcm-2025/"``. Files not listed are scored on the model nodes
             their skeleton has. *Default*: `None`.
+        post_train_splits: (list) Splits that the post-training evaluation (after
+            `fit`, with `save_ckpt`) predicts and scores, any of `"val"`, `"test"`
+            and `"train"`. They run in that order, so the held-out metrics land
+            first. `None` runs all three. *Default*: `None`.
+        post_train_max_train_frames: (int) Predict and score only this many
+            randomly chosen frames (seeded by `trainer_config.seed`) of each train
+            file in the post-training evaluation. Val and test files always run in
+            full. `None` uses every train frame. *Default*: `None`.
+        post_train_batch_size: (int) Frames per batch for the post-training
+            predictions. `None` uses `val_data_loader.batch_size` for models whose
+            validation batches are whole frames, and 4 for the crop-based top-down
+            models (`centered_instance`, `multi_class_topdown`,
+            `centered_instance_segmentation`), whose validation batches are crops.
+            *Default*: `None`.
+        post_train_precision: (str) Precision of the post-training predictions on
+            CUDA: `"32"`, `"bf16"` or `"fp16"` (autocast). `None` follows
+            `precision` (`bf16-mixed` -> `"bf16"`, `16-mixed` -> `"fp16"`), so the
+            predictions run as the validation steps did. *Default*: `None`.
     """
 
     enabled: bool = False
@@ -551,6 +569,32 @@ class EvalConfig:
     # always rank-1. The valid names are validated there (one table, one place).
     select_metric: str = "rank1"
     file_nodes: Optional[Dict[str, Any]] = None
+    post_train_splits: Optional[List[str]] = field(
+        default=None,
+        validator=lambda inst, attr, val: EvalConfig.validate_post_train_splits(val),
+    )
+    post_train_max_train_frames: Optional[int] = field(
+        default=None, validator=validators.optional(validators.ge(1))
+    )
+    post_train_batch_size: Optional[int] = field(
+        default=None, validator=validators.optional(validators.ge(1))
+    )
+    post_train_precision: Optional[str] = field(
+        default=None,
+        validator=validators.optional(validators.in_(["32", "bf16", "fp16"])),
+    )
+
+    @staticmethod
+    def validate_post_train_splits(value):
+        """Check that `post_train_splits` only names `train`, `val` and `test`."""
+        if value is None:
+            return
+        unknown = set(value) - {"train", "val", "test"}
+        if unknown:
+            raise ValueError(
+                f"trainer_config.eval.post_train_splits: unknown split(s) "
+                f"{sorted(unknown)}; use any of 'val', 'test', 'train'."
+            )
 
 
 @define

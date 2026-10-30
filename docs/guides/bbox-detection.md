@@ -150,7 +150,11 @@ config; it takes `bbox_source=` / `bbox_padding=` and, like `sleap-nn train`, de
 
 After training, every split (and `data_config.test_file_path`) is predicted and
 evaluated automatically; metrics are saved as `metrics.<split>.npz/.json` and
-logged to the wandb summary as `eval/<split>/bbox_*` (plus `predict_fps`).
+logged to the wandb summary as `eval/<split>/bbox_*` (plus `predict_fps`). Val and
+test run first. For a large training set, skip the train split
+(`trainer_config.eval.post_train_splits: [val, test]`) or score a sample of it
+(`post_train_max_train_frames`); see the
+[EvalConfig reference](../configuration/trainer.md#evalconfig).
 
 ## Inference
 

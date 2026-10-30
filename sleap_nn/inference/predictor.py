@@ -1227,6 +1227,70 @@ def _select_export_layer(
     raise ValueError(f"Unrecognized model_type {model_type!r} in export_metadata.json.")
 
 
+_AUTOCAST_DTYPES = {"bf16": torch.bfloat16, "fp16": torch.float16}
+
+
+def _set_autocast_precision(layer: Any, precision: str) -> None:
+    """Set ``autocast_dtype`` on every ``TorchBackend`` reachable from ``layer``.
+
+    Composed layers (top-down, box-seeded, multi-stage) hold their stage layers
+    and backends as attributes, so this walks the ``sleap_nn.inference`` objects
+    reachable through instance attributes (and lists / tuples / dicts of them).
+    """
+    from sleap_nn.inference.layers.backends.torch_backend import TorchBackend
+
+    if precision == "32":
+        return
+    if precision not in _AUTOCAST_DTYPES:
+        raise ValueError(
+            f"precision must be '32', 'bf16' or 'fp16'; got {precision!r}."
+        )
+    dtype = _AUTOCAST_DTYPES[precision]
+    seen: set = set()
+    stack = [layer]
+    while stack:
+        obj = stack.pop()
+        if id(obj) in seen:
+            continue
+        seen.add(id(obj))
+        if isinstance(obj, TorchBackend):
+            obj.autocast_dtype = dtype
+            continue
+        if isinstance(obj, (list, tuple)):
+            stack.extend(obj)
+        elif isinstance(obj, dict):
+            stack.extend(obj.values())
+        elif type(obj).__module__.startswith("sleap_nn.inference") and hasattr(
+            obj, "__dict__"
+        ):
+            stack.extend(vars(obj).values())
+
+
+def _restore_source_order(
+    labels: "sio.Labels",
+    videos: Optional[List["sio.Video"]],
+    source_positions: Optional[dict],
+) -> None:
+    """Sort ``labels.labeled_frames`` back into the provider's source order.
+
+    ``source_positions`` (from ``LabelsProvider.source_positions``) maps
+    ``(video index, frame_idx)`` to the frame's position before the provider
+    grouped frames by size; ``None`` means the order was never changed. Frames
+    it does not list keep their relative order, after the listed ones.
+    """
+    if not source_positions:
+        return
+    video_index = {id(v): i for i, v in enumerate(videos or [])}
+    end = len(source_positions)
+
+    def key(lf) -> int:
+        return source_positions.get(
+            (video_index.get(id(lf.video), -1), lf.frame_idx), end
+        )
+
+    labels.labeled_frames.sort(key=key)
+
+
 @attrs.define
 class Predictor:
     """High-level orchestrator: layer + source dispatch + filter pipeline.
@@ -1365,6 +1429,7 @@ class Predictor:
         box_score_threshold: float = 0.0,
         node_filter: Optional[Union[str, List[str]]] = None,
         strip_prefix: Optional[Union[bool, str]] = None,
+        precision: str = "32",
     ) -> "Predictor":
         """Build a :class:`Predictor` from one or more checkpoint paths.
 
@@ -1453,6 +1518,10 @@ class Predictor:
                 average the confmaps (symmetric nodes swapped using the skeleton
                 symmetries) before peak finding. Doubles the centered-instance
                 compute.
+            precision: ``"32"`` (the default; strict fp32), ``"bf16"`` or
+                ``"fp16"``: run every model's forward under ``torch.autocast``
+                with that dtype (CUDA only; ignored on CPU / MPS). Outputs are
+                cast back to fp32 before postprocessing.
             boxes: Seed a top-down crop model's stage 1 from boxes instead of a
                 centroid model or detector: ``"gt"`` (the GT boxes of a ``.slp``
                 source, scored 1) or ``"given"`` (each frame's
@@ -1530,6 +1599,7 @@ class Predictor:
             layer = _seed_from_boxes(
                 layer, loaded, model_types, device, boxes, box_score_threshold
             )
+        _set_autocast_precision(layer, precision)
 
         skeleton = loaded.skeletons[0] if loaded.skeletons else None
         kwargs: dict = {
@@ -1562,6 +1632,8 @@ class Predictor:
         ]
         if flip_test:
             spec.append("flip_test=True")
+        if precision != "32":
+            spec.append(f"precision={precision}")
         if node_filter is not None:
             spec.append(f"node_filter={node_filter!r}")
         if "bottomup_segmentation" in model_types:
@@ -1917,12 +1989,15 @@ class Predictor:
         self,
         source: Any,
         frames: Optional[List[int]] = None,
+        group_by_shape: bool = False,
         **provider_kwargs: Any,
     ) -> tuple["Provider", Optional[List["sio.Video"]]]:
         """Wrap a source into a ``Provider`` + extract videos for label packaging.
 
         Returns ``(provider, videos)`` where ``videos`` is a list of
         ``sio.Video`` when derivable from the source, else ``None``.
+        ``group_by_shape`` is forwarded to a ``LabelsProvider`` built here
+        (``.slp`` path or ``sio.Labels`` source); other providers ignore it.
         """
         import sleap_io as sio
 
@@ -1991,6 +2066,7 @@ class Predictor:
                     labels=labels,
                     batch_size=self.batch_size,
                     frames=frames,
+                    group_by_shape=group_by_shape,
                     **provider_kwargs,
                 )
                 return provider, (list(labels.videos) if labels.videos else None)
@@ -2022,6 +2098,7 @@ class Predictor:
                 labels=source,
                 batch_size=self.batch_size,
                 frames=frames,
+                group_by_shape=group_by_shape,
                 **provider_kwargs,
             )
             videos = list(source.videos) if source.videos else None
@@ -2223,7 +2300,11 @@ class Predictor:
         # LabeledFrame.masks; apply_tracking auto-detects the mask-only labels
         # and tracks them by pixel mask-IoU (#619), so tracking is supported.
 
-        provider, auto_videos = self._make_provider(source, frames=frames)
+        # Frames of one size are batched together; `to_labels` output is put
+        # back in source order below.
+        provider, auto_videos = self._make_provider(
+            source, frames=frames, group_by_shape=True
+        )
         if videos is None:
             videos = auto_videos
 
@@ -2285,6 +2366,9 @@ class Predictor:
             outputs_list,
             videos=videos,
             keep_empty_frames=True,
+        )
+        _restore_source_order(
+            labels, videos, getattr(provider, "source_positions", None)
         )
         if self.tracker_config is not None:
             labels = apply_tracking(

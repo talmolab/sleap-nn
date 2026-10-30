@@ -2752,7 +2752,7 @@ def _run_bbox_evaluation(
 
 
 def run_evaluation(
-    ground_truth_path: str,
+    ground_truth_path: Union[str, sio.Labels],
     predicted_path: str,
     oks_stddev: float = 0.025,
     oks_scale: Optional[float] = None,
@@ -2774,7 +2774,8 @@ def run_evaluation(
     """Evaluate SLEAP-NN model predictions against ground truth labels.
 
     Args:
-        ground_truth_path: Path to the ground-truth ``.slp`` file.
+        ground_truth_path: Path to the ground-truth ``.slp`` file, or the
+            ground-truth ``sio.Labels`` (e.g. a subset of a file's frames).
         predicted_path: Path to the predicted ``.slp`` file.
         oks_stddev: OKS standard deviation (OKS mode only).
         oks_scale: OKS scale override (OKS mode only).
@@ -2845,7 +2846,11 @@ def run_evaluation(
         ``save_metrics`` file is written.
     """
     logger.info("Loading ground truth labels...")
-    ground_truth_instances = sio.load_slp(ground_truth_path)
+    ground_truth_instances = (
+        ground_truth_path
+        if isinstance(ground_truth_path, sio.Labels)
+        else sio.load_slp(ground_truth_path)
+    )
     logger.info(
         f"  Ground truth: {len(ground_truth_instances.videos)} videos, "
         f"{len(ground_truth_instances.labeled_frames)} frames"
