@@ -61,14 +61,15 @@ jobs:
     # jobs (slow VMs + torch-on-Windows); ubuntu ~10-13 min. 35 gives headroom
     # for load variance while still catching genuine hangs. (The mac job used
     # to blow past 45 min because MPS compute intermittently hangs / OOMs on
-    # the virtualized macos-14 runner; that is now neutralized by
-    # SLEAP_NN_DISABLE_MPS below.)
+    # the virtualized macOS runner (macos-14 at the time, now macos-15); that
+    # is now neutralized by SLEAP_NN_DISABLE_MPS below.)
     timeout-minutes: 35
     env:
       CUDA_VISIBLE_DEVICES: ""
       USE_CUDA: "0"
       UV_FROZEN: "1"
-      # Disable Apple Metal (MPS): the macos-14 runner reports MPS available
+      # Disable Apple Metal (MPS): the macos-15 runner (arm64, like the
+      # macos-14 one it replaced) reports MPS available
       # but real MPS compute intermittently hangs / raises "MPS backend out of
       # memory". Set here at the job level so both pytest and the `sleap-nn`
       # CLI subprocesses it spawns inherit it (honored in sleap_nn/__init__.py).
@@ -84,7 +85,9 @@ jobs:
           - os: windows
             runs-on: windows-latest
           - os: mac
-            runs-on: macos-14
+            # Pinned (not macos-latest) so an image change never silently
+            # moves CI. macos-14 is retired 2026-11-02 (actions/runner-images#13518).
+            runs-on: macos-15
           # - os: self-hosted-gpu
           #   runs-on: [self-hosted, puma, gpu, 2xgpu]
         python: [3.13]
