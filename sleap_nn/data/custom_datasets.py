@@ -5901,9 +5901,7 @@ class BBoxDataset(BaseDataset):
         downscale = self._decode_downscale(height, width)
         if downscale == 1:
             return self._read_image(sample), None
-        img = video.get_frame(frame_idx, downscale=downscale)
-        if img.ndim == 2:
-            img = img[..., None]
+        img = video.get_frame(frame_idx, downscale=downscale)  # (H, W, C)
         if img.shape[:2] == (height, width):
             return img, None  # This format/backend has no reduced decode.
         return img, (img.shape[1] / width, img.shape[0] / height)
