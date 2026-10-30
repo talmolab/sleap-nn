@@ -5713,18 +5713,27 @@ class BBoxDataset(BaseDataset):
     the image; afterwards each box is the extent of its corners, clipped to the
     frame, and dropped when too little of it remains visible.
 
+    With ``reduced_decode`` on, a frame much larger than it ends up in training is
+    read at 1/2, 1/4 or 1/8 size (``sio.Video.get_frame(downscale=...)``, libjpeg
+    DCT scaling for JPEG image lists; other frames come back full size) whenever
+    that is still at least :meth:`min_decode_scale` of the frame; the boxes are
+    scaled to match.
+
     Attributes:
         target_encoder: Callable ``(boxes (n, 4), classes (n,), img_hw) -> dict`` of
             target tensors (``CenterNetTargetEncoder`` / ``SSDTargetEncoder``).
         categories: Ordered class names; box class ids index into it.
         min_visible_fraction: A box keeping less of its area than this inside the
             frame after augmentation is dropped from the targets.
+        reduced_decode: Read large frames at reduced size (see above). Off here;
+            subclasses that know how small a frame gets turn it on.
     """
 
     _flip_needs_symmetries = False
     # Box clipping after augmentation (see `clip_bboxes`).
     _min_box_size = 2.0
     _edge_coords = False
+    reduced_decode = False
 
     def __init__(
         self,
@@ -5859,14 +5868,45 @@ class BBoxDataset(BaseDataset):
         """The training file of every sample."""
         return self.lf_idx_list.column("labels_idx").copy()
 
+    def min_decode_scale(self, height: int, width: int) -> float:
+        """Smallest scale of a ``height x width`` frame that no later step enlarges.
+
+        ``1.0`` here (always read full size); see :attr:`reduced_decode`.
+        """
+        return 1.0
+
+    def _decode_downscale(self, height: int, width: int) -> int:
+        """Largest of 8, 4, 2 (else 1) that keeps the frame at ``min_decode_scale``.
+
+        Mirrors PIL ``draft``: the reduced frame must still be at least
+        ``ceil(size * scale)`` on both axes.
+        """
+        scale = self.min_decode_scale(height, width)
+        need_h, need_w = math.ceil(height * scale), math.ceil(width * scale)
+        for downscale in (8, 4, 2):
+            if height >= downscale * need_h and width >= downscale * need_w:
+                return downscale
+        return 1
+
     def _read_frame(
         self, sample: Dict
     ) -> Tuple[np.ndarray, Optional[Tuple[float, float]]]:
-        """The sample's frame and, if it was decoded smaller, its ``(sx, sy)`` scale.
-
-        The base dataset always decodes at full size (scale ``None``).
-        """
-        return self._read_image(sample), None
+        """The sample's frame and, if it was decoded smaller, its ``(sx, sy)`` scale."""
+        if not self.reduced_decode or self.cache_img is not None:
+            return self._read_image(sample), None
+        video = self.labels_list[sample["labels_idx"]].videos[sample["video_idx"]]
+        frame_idx = sample["frame_idx"]
+        # Image lists read this from the file header, other videos from `shape`.
+        height, width = video.get_frame_size(frame_idx)
+        downscale = self._decode_downscale(height, width)
+        if downscale == 1:
+            return self._read_image(sample), None
+        img = video.get_frame(frame_idx, downscale=downscale)
+        if img.ndim == 2:
+            img = img[..., None]
+        if img.shape[:2] == (height, width):
+            return img, None  # This format/backend has no reduced decode.
+        return img, (img.shape[1] / width, img.shape[0] / height)
 
     def __getitem__(self, index) -> Dict:
         """Return the image, padded GT boxes and detection targets for ``index``."""
@@ -5941,18 +5981,16 @@ class DetrBBoxDataset(BBoxDataset):
     box with a positive area). Targets come from the
     :class:`~sleap_nn.data.bboxes.SetTargetEncoder`.
 
-    Every step of that chain starts by shrinking the frame, so a JPEG much larger
-    than the training size (CrowdHuman photos up to 10,800 px, JRDB-Pose
-    panoramas) is decoded at 1/2, 1/4 or 1/8 scale in the DCT domain (PIL
-    ``draft``) whenever that is still at least as large as the frame's next resize
-    target (:meth:`min_decode_scale`); the boxes are scaled to match. Other frames
-    are read through sleap-io as usual.
+    Every step of that chain starts by shrinking the frame, so ``reduced_decode``
+    is on: a JPEG much larger than the training size (CrowdHuman photos up to
+    10,800 px, JRDB-Pose panoramas) is decoded at 1/2, 1/4 or 1/8 scale whenever
+    that is still at least as large as the frame's next resize target
+    (:meth:`min_decode_scale`; see :class:`BBoxDataset`).
 
     Attributes:
         resize_mode: ``"squash"`` or ``"letterbox"``.
         train_hw: ``(height, width)`` frames are fitted to.
         detr_aug: The ``augmentation_config.detr`` options (``None``: none).
-        reduced_decode: Decode large JPEGs at reduced size (see above).
     """
 
     _min_box_size = 0.0
@@ -6003,34 +6041,6 @@ class DetrBBoxDataset(BBoxDataset):
             side = max(int(v) for v in aug["shortest_sides"])
             scale = max(scale, side / min(height, width))
         return scale
-
-    def _image_path(self, sample: Dict) -> Optional[str]:
-        """The image file of a sample read from an image-list video, else ``None``."""
-        if self.cache_img is not None or self.labels_list is None:
-            return None
-        video = self.labels_list[sample["labels_idx"]].videos[sample["video_idx"]]
-        filename = video.filename
-        if not isinstance(filename, list):
-            return None
-        return str(filename[sample["frame_idx"]])
-
-    def _read_frame(
-        self, sample: Dict
-    ) -> Tuple[np.ndarray, Optional[Tuple[float, float]]]:
-        """The frame, decoded at 1/2, 1/4 or 1/8 size when that loses nothing."""
-        path = self._image_path(sample) if self.reduced_decode else None
-        if path is None or not path.lower().endswith((".jpg", ".jpeg")):
-            return super()._read_frame(sample)
-        with Image.open(path) as im:
-            width, height = im.size
-            scale = self.min_decode_scale(height, width)
-            if im.format != "JPEG" or im.mode not in ("RGB", "L") or scale > 0.5:
-                return super()._read_frame(sample)
-            im.draft(im.mode, (math.ceil(width * scale), math.ceil(height * scale)))
-            img = np.asarray(im)
-        if img.ndim == 2:
-            img = img[..., None]
-        return img, (img.shape[1] / width, img.shape[0] / height)
 
     def _apply_common_preprocessing(self, sample: Dict) -> Dict:
         """Channels, RF-DETR geometry + fit to ``train_hw``, pad, then stock aug."""
