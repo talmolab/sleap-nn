@@ -11626,7 +11626,7 @@ default) keeps that channel off, and no ZMQ callback is attached.</p>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>Polling timeout in microseconds specified as an integer. This controls how long the poller should wait to receive a response and should be set to a small value to minimize the impact on training speed. Only used when <code>controller_port</code> is set. <em>Default</em>: <code>10</code>.</p>
+                <p>Polling timeout in microseconds specified as an integer. This controls how long the controller waits for a command after each training batch and should be set to a small value to minimize the impact on training speed. It is rounded down to whole milliseconds (pyzmq's unit), so values under 1000 check without waiting; commands sent in the meantime are queued and still received. Only used when <code>controller_port</code> is set. <em>Default</em>: <code>10</code>.</p>
               </div>
             </td>
           </tr>
@@ -11686,7 +11686,7 @@ default) keeps that channel off, and no ZMQ callback is attached.</p>
 </span><span id="__span-0-354"><a id="__codelineno-0-354" name="__codelineno-0-354"></a>
 </span><span id="__span-0-355"><a id="__codelineno-0-355" name="__codelineno-0-355"></a><span class="sd">    Attributes:</span>
 </span><span id="__span-0-356"><a id="__codelineno-0-356" name="__codelineno-0-356"></a><span class="sd">        controller_port: Port number of the endpoint to listen for command messages from, i.e. &quot;tcp://127.0.0.1:{port_number}&quot;. Leave as `None` to disable the controller (the default). *Default*: `None`.</span>
-</span><span id="__span-0-357"><a id="__codelineno-0-357" name="__codelineno-0-357"></a><span class="sd">        controller_polling_timeout: Polling timeout in microseconds specified as an integer. This controls how long the poller should wait to receive a response and should be set to a small value to minimize the impact on training speed. Only used when `controller_port` is set. *Default*: `10`.</span>
+</span><span id="__span-0-357"><a id="__codelineno-0-357" name="__codelineno-0-357"></a><span class="sd">        controller_polling_timeout: Polling timeout in microseconds specified as an integer. This controls how long the controller waits for a command after each training batch and should be set to a small value to minimize the impact on training speed. It is rounded down to whole milliseconds (pyzmq&#39;s unit), so values under 1000 check without waiting; commands sent in the meantime are queued and still received. Only used when `controller_port` is set. *Default*: `10`.</span>
 </span><span id="__span-0-358"><a id="__codelineno-0-358" name="__codelineno-0-358"></a><span class="sd">        publish_port: Port number of the endpoint to publish updates to, i.e. &quot;tcp://127.0.0.1:{port_number}&quot;. Leave as `None` to disable progress publishing (the default). *Default*: `None`.</span>
 </span><span id="__span-0-359"><a id="__codelineno-0-359" name="__codelineno-0-359"></a><span class="sd">    &quot;&quot;&quot;</span>
 </span><span id="__span-0-360"><a id="__codelineno-0-360" name="__codelineno-0-360"></a>

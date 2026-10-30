@@ -9415,7 +9415,7 @@ commands on <code>tcp://127.0.0.1:{controller_port}</code>. Each is enabled inde
 <td><code>controller_polling_timeout</code></td>
 <td>int</td>
 <td><code>10</code></td>
-<td>Polling timeout in microseconds</td>
+<td>Polling timeout in microseconds, rounded down to whole milliseconds; values under 1000 check without waiting</td>
 </tr>
 </tbody>
 </table>
