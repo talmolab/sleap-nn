@@ -2770,7 +2770,17 @@ class ModelTrainer:
             controller_address = "tcp://127.0.0.1:" + str(
                 self.config.trainer_config.zmq.controller_port
             )
-            callbacks.append(TrainingControllerZMQ(address=controller_address))
+            # `controller_polling_timeout` is documented in microseconds, while
+            # pyzmq's `poll` takes milliseconds: convert, rounding down, so the
+            # default 10 us polls without waiting instead of waiting 10 ms per batch.
+            poll_timeout_ms = (
+                self.config.trainer_config.zmq.controller_polling_timeout // 1000
+            )
+            callbacks.append(
+                TrainingControllerZMQ(
+                    address=controller_address, poll_timeout=poll_timeout_ms
+                )
+            )
         if self.config.trainer_config.zmq.publish_port is not None:
             publish_address = "tcp://127.0.0.1:" + str(
                 self.config.trainer_config.zmq.publish_port

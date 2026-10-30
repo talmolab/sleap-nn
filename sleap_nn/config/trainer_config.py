@@ -354,7 +354,7 @@ class ZMQConfig:
 
     Attributes:
         controller_port: Port number of the endpoint to listen for command messages from, i.e. "tcp://127.0.0.1:{port_number}". Leave as `None` to disable the controller (the default). *Default*: `None`.
-        controller_polling_timeout: Polling timeout in microseconds specified as an integer. This controls how long the poller should wait to receive a response and should be set to a small value to minimize the impact on training speed. Only used when `controller_port` is set. *Default*: `10`.
+        controller_polling_timeout: Polling timeout in microseconds specified as an integer. This controls how long the controller waits for a command after each training batch and should be set to a small value to minimize the impact on training speed. It is rounded down to whole milliseconds (pyzmq's unit), so values under 1000 check without waiting; commands sent in the meantime are queued and still received. Only used when `controller_port` is set. *Default*: `10`.
         publish_port: Port number of the endpoint to publish updates to, i.e. "tcp://127.0.0.1:{port_number}". Leave as `None` to disable progress publishing (the default). *Default*: `None`.
     """
 

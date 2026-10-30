@@ -505,4 +505,4 @@ Only one scheduler should be set at a time.
 |--------|------|---------|-------------|
 | `publish_port` | int | `null` | Port for publishing updates |
 | `controller_port` | int | `null` | Port for receiving commands |
-| `controller_polling_timeout` | int | `10` | Polling timeout in microseconds |
+| `controller_polling_timeout` | int | `10` | Polling timeout in microseconds, rounded down to whole milliseconds; values under 1000 check without waiting |
