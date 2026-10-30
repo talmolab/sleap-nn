@@ -1401,6 +1401,19 @@ class TestTrainDryRun:
         assert cfg.trainer_config.trainer_devices == 1
         assert cfg.trainer_config.trainer_device_indices is None
 
+    def test_dry_run_reads_images_directly(self, sample_config, tmp_path):
+        from sleap_nn.train import run_training
+
+        sample_config.trainer_config.ckpt_dir = (tmp_path / "runs").as_posix()
+        sample_config.trainer_config.run_name = "dry"
+        sample_config.data_config.data_pipeline_fw = "torch_dataset_cache_img_disk"
+        sample_config.data_config.cache_img_path = (tmp_path / "cache").as_posix()
+
+        run_training(sample_config, dry_run=True)
+        # Neither an image cache nor a run folder was written.
+        assert not (tmp_path / "cache").exists()
+        assert not (tmp_path / "runs").exists()
+
 
 class TestTrainLabelsOption:
     """`sleap-nn train --labels` / `--val-labels`."""
@@ -1442,6 +1455,7 @@ class TestTrainLabelsOption:
         assert _resolve_labels_option(
             ("labels.slp",), "--labels", "data_config.train_labels_path", []
         ) == [(tmp_path / "labels.slp").resolve().as_posix()]
+        assert _resolve_labels_option((), "--labels", "key", []) == []
 
     def test_replaces_config_paths(self, sample_config):
         from sleap_nn.cli import _adjust_train_config
@@ -1671,3 +1685,84 @@ class TestResolveResumeTarget:
 
         cfg = _adjust_train_config(sample_config.copy(), [], target, False)
         assert cfg.trainer_config.run_name == "run-1"
+
+    def test_checkpoint_at_max_epochs_is_refused(self, tmp_path):
+        import click
+        from sleap_nn.cli import _check_epochs_left
+
+        ckpt = tmp_path / "last.ckpt"
+        torch.save({"epoch": 1}, ckpt)  # saved after the 2nd epoch
+        _check_epochs_left(ckpt, 3)
+        with pytest.raises(click.UsageError, match="nothing left to train"):
+            _check_epochs_left(ckpt, 2)
+
+    @pytest.mark.parametrize("original_name,expected", [(None, None), ("mine", "mine")])
+    def test_wandb_name_follows_the_new_run_unless_set(
+        self, tmp_path, original_name, expected
+    ):
+        from sleap_nn.cli import _adjust_train_config
+
+        run_dir = self._run_dir(tmp_path)
+        OmegaConf.save(
+            {"trainer_config": {"wandb": {"name": original_name}}},
+            run_dir / "initial_config.yaml",
+        )
+        # training_config.yaml carries the name the original run resolved to.
+        cfg = OmegaConf.create(
+            {
+                "trainer_config": {
+                    "ckpt_dir": None,
+                    "run_name": "run",
+                    "resume_ckpt_path": None,
+                    "max_epochs": 5,
+                    "wandb": {"name": original_name or "run"},
+                }
+            }
+        )
+        cfg = _adjust_train_config(cfg, [], (run_dir, run_dir / "best.ckpt"), False)
+        assert cfg.trainer_config.wandb.name == expected
+
+
+class TestTrainCommandInProcess:
+    """The `train` command's option handling, in-process with `run_training`
+    mocked (the end-to-end runs above use a subprocess)."""
+
+    @staticmethod
+    def _invoke(args):
+        with patch("sleap_nn.train.run_training") as run_training:
+            result = CliRunner().invoke(cli, ["train", *args])
+        assert result.exit_code == 0, result.output
+        return run_training.call_args.kwargs
+
+    def test_labels_and_dry_run(self, sample_config, tmp_path, minimal_instance):
+        sample_config.data_config.train_labels_path = None
+        config_path = tmp_path / "config.yaml"
+        OmegaConf.save(sample_config, config_path.as_posix())
+
+        kwargs = self._invoke(
+            [config_path.as_posix(), "-l", f"{minimal_instance}", "--dry-run"]
+        )
+        assert kwargs["dry_run"] is True
+        cfg = kwargs["config"]
+        assert list(cfg.data_config.train_labels_path) == [
+            Path(minimal_instance).resolve().as_posix()
+        ]
+        # Without --val-labels, the config's validation labels are kept.
+        assert list(cfg.data_config.val_labels_path) == [f"{minimal_instance}"]
+
+    def test_resume(self, sample_config, tmp_path):
+        run_dir = tmp_path / "orig"
+        run_dir.mkdir()
+        OmegaConf.save(sample_config, (run_dir / "training_config.yaml").as_posix())
+        torch.save({"epoch": 0}, run_dir / "last.ckpt")
+
+        kwargs = self._invoke(
+            ["--resume", run_dir.as_posix(), "trainer_config.max_epochs=3"]
+        )
+        assert kwargs["dry_run"] is False
+        cfg = kwargs["config"]
+        assert cfg.trainer_config.resume_ckpt_path == (
+            (run_dir / "last.ckpt").resolve().as_posix()
+        )
+        assert cfg.trainer_config.run_name == "orig-1"
+        assert cfg.trainer_config.max_epochs == 3
