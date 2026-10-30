@@ -19,6 +19,7 @@ from PIL import Image
 
 from sleap_nn.data.bboxes import SetTargetEncoder, frame_bbox_arrays
 from sleap_nn.data.custom_datasets import (
+    BBoxDataset,
     DetrBBoxDataset,
     SampleTable,
     get_train_val_dataloaders,
@@ -95,8 +96,8 @@ def test_per_sample_mixing_sampler():
         BalancedBatchSampler(groups, None, 4, weights=[1, 1, 1, 1], batch_size=4)
 
 
-def _image_labels(tmp_path, name, size_hw, boxes, seed=0):
-    """A one-frame Labels on a JPEG of ``size_hw`` with person boxes."""
+def _image_labels(tmp_path, name, size_hw, boxes, seed=0, ext="jpg"):
+    """A one-frame Labels on an image (JPEG by default) of ``size_hw``, with boxes."""
     h, w = size_hw
     rng = np.random.default_rng(seed)
     yy, xx = np.mgrid[0:h, 0:w]
@@ -105,8 +106,8 @@ def _image_labels(tmp_path, name, size_hw, boxes, seed=0):
     ).astype(np.uint8)
     for x1, y1, x2, y2 in boxes:
         img[int(y1) : int(y2), int(x1) : int(x2)] = rng.integers(0, 255, 3)
-    path = tmp_path / f"{name}.jpg"
-    Image.fromarray(img).save(path, quality=95)
+    path = tmp_path / f"{name}.{ext}"
+    Image.fromarray(img).save(path, **({"quality": 95} if ext == "jpg" else {}))
     video = sio.Video.from_filename([str(path)])
     lf = sio.LabeledFrame(video=video, frame_idx=0)
     lf.bboxes = [_box(*b, "person") for b in boxes]
@@ -291,6 +292,37 @@ def test_reduced_decode_only_when_nothing_is_lost(tmp_path):
     assert ds.min_decode_scale(1400, 1400) == pytest.approx(600 / 1400)
     img, scale = ds._read_frame(ds.lf_idx_list[0])
     assert img.shape[0] >= 600 and scale == (0.5, 0.5)
+
+
+def test_reduced_decode_picks_the_largest_lossless_downscale(tmp_path):
+    labels = _image_labels(tmp_path, "img", (128, 160), [(10, 10, 60, 90)])
+    ds = _detr_dataset([labels])
+    # 256 / 2048 = 1/8 exactly; one pixel less and only 1/4 keeps 256.
+    assert ds._decode_downscale(2048, 2048) == 8
+    assert ds._decode_downscale(2047, 2047) == 4
+    assert ds._decode_downscale(512, 512) == 2
+    assert ds._decode_downscale(511, 511) == 1
+    # Odd sizes: the scale is what the decoder returned, per axis.
+    odd = _image_labels(tmp_path, "odd", (1001, 2050), [(10, 10, 100, 100)])
+    ds = _detr_dataset([odd])
+    img, scale = ds._read_frame(ds.lf_idx_list[0])
+    assert img.shape[:2] == (251, 513)  # ceil(size / 4)
+    assert scale == (513 / 2050, 251 / 1001)
+
+
+def test_reduced_decode_falls_back_to_full_frames(tmp_path):
+    # PNG has no reduced decode: the full frame, scale None.
+    labels = _image_labels(
+        tmp_path, "big", (1024, 2048), [(10, 10, 100, 100)], ext="png"
+    )
+    ds = _detr_dataset([labels])
+    want = labels.videos[0][0]
+    img, scale = ds._read_frame(ds.lf_idx_list[0])
+    assert scale is None
+    np.testing.assert_array_equal(img, want)
+    # Plain `BBoxDataset` never reduces.
+    assert BBoxDataset.reduced_decode is False
+    assert BBoxDataset.min_decode_scale(ds, 1024, 2048) == 1.0
 
 
 # --------------------------------------------------------------------------- #
