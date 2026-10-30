@@ -418,6 +418,149 @@ class ParallelCacheFiller:
                     pass
 
 
+class SampleTable:
+    """A read-only list of sample dicts stored as a few numpy arrays.
+
+    A dataset's sample list as Python dicts is millions of small objects for a
+    large dataset. A forked dataloader worker shares them with its parent
+    copy-on-write, but reading an object writes its reference count, so every
+    sample a worker reads copies that object's memory page into the worker. Over
+    many shuffled epochs each persistent worker ends up with its own copy of the
+    whole list (Objects365 + Open Images: ~1 GB per worker per epoch, which ran a
+    4-GPU x 16-worker run out of host memory). Here each key is one array, read
+    without touching per-sample objects. A key's storage follows from the types of
+    its values:
+
+    - bools, ints or floats, optionally mixed with strings or ``None`` (e.g. a
+      negative frame's ``"neg_..."`` ``lf_idx``): one array, plus the indices and
+      fixed-width bytes of those other values;
+    - arrays of one dtype and trailing shape (e.g. boxes): concatenated along the
+      first axis, with row offsets;
+    - strings (``None`` allowed): one fixed-width UTF-8 bytes array;
+    - all ``None``: no storage;
+    - anything else: an object array. Its values are returned as stored (shared
+      with the table and the other workers), so this kind does not avoid the
+      copies and is only a fallback.
+
+    ``table[i]`` builds a new dict whose arrays are copies, so nothing written to a
+    sample's arrays reaches the table.
+
+    Attributes:
+        columns: Key -> ``(kind, data)``, in the samples' key order.
+    """
+
+    # Scalar column types, most specific first (bool is an int subclass).
+    _scalar_types = (
+        ((bool, np.bool_), bool),
+        ((int, np.integer), np.int64),
+        ((float, np.floating), np.float64),
+    )
+
+    def __init__(self, columns: Dict[str, Tuple[str, Any]], length: int):
+        """Initialize from columns built by :meth:`from_dicts`."""
+        self.columns = columns
+        self._len = length
+
+    @classmethod
+    def from_dicts(cls, samples: List[Dict]) -> "SampleTable":
+        """Build a table from sample dicts that all have the same keys."""
+        keys = list(samples[0]) if samples else []
+        key_set = set(keys)
+        for i, sample in enumerate(samples):
+            if sample.keys() != key_set:
+                raise ValueError(
+                    f"Sample {i} has keys {sorted(sample)}, but sample 0 has "
+                    f"{sorted(keys)}; every sample needs the same keys."
+                )
+        columns = {key: cls._column([s[key] for s in samples]) for key in keys}
+        return cls(columns, len(samples))
+
+    @staticmethod
+    def _strings(values: List[Optional[str]]) -> Tuple[np.ndarray, np.ndarray]:
+        """Strings (or ``None``) as ``(fixed-width bytes, is-not-None)`` arrays."""
+        encoded = [b"" if v is None else os.fsencode(v) for v in values]
+        valid = np.array([v is not None for v in values], dtype=bool)
+        return np.array(encoded, dtype=bytes), valid
+
+    @classmethod
+    def _column(cls, values: List[Any]) -> Tuple[str, Any]:
+        """The ``(kind, data)`` storage of one key's values."""
+        if all(v is None for v in values):
+            return "none", None
+        if all(v is None or isinstance(v, str) for v in values):
+            return "str", cls._strings(values)
+        if all(isinstance(v, np.ndarray) and v.ndim >= 1 for v in values):
+            if len({(v.dtype, v.shape[1:]) for v in values}) == 1:
+                offsets = np.zeros(len(values) + 1, dtype=np.int64)
+                np.cumsum([len(v) for v in values], out=offsets[1:])
+                return "ragged", (np.concatenate(values), offsets)
+        for types, dtype in cls._scalar_types:
+            typed = [
+                isinstance(v, types) and (dtype is bool or not isinstance(v, bool))
+                for v in values
+            ]
+            others = [i for i, t in enumerate(typed) if not t]
+            if len(others) < len(values) and all(
+                values[i] is None or isinstance(values[i], str) for i in others
+            ):
+                array = np.array(
+                    [v if t else 0 for v, t in zip(values, typed)], dtype=dtype
+                )
+                other_idx = np.array(others, dtype=np.int64)
+                return "scalar", (
+                    array,
+                    other_idx,
+                    cls._strings([values[i] for i in others]),
+                )
+        array = np.empty(len(values), dtype=object)
+        array[:] = values
+        return "object", array
+
+    def column(self, key: str) -> np.ndarray:
+        """All values of a scalar key as one array (other values read as 0)."""
+        kind, data = self.columns[key]
+        if kind != "scalar":
+            raise ValueError(f"Column {key!r} is {kind}, not scalar.")
+        return data[0]
+
+    def __len__(self) -> int:
+        """Number of samples."""
+        return self._len
+
+    def __getitem__(self, index: int) -> Dict:
+        """A new dict of sample ``index``."""
+        index = int(index)
+        if index < 0:
+            index += self._len
+        if not 0 <= index < self._len:
+            raise IndexError(f"Sample {index} out of range ({self._len}).")
+        sample = {}
+        for key, (kind, data) in self.columns.items():
+            if kind == "none":
+                sample[key] = None
+            elif kind == "scalar":
+                array, other_idx, (encoded, valid) = data
+                j = int(np.searchsorted(other_idx, index))
+                if j < len(other_idx) and other_idx[j] == index:
+                    sample[key] = os.fsdecode(encoded[j]) if valid[j] else None
+                else:
+                    sample[key] = array[index].item()
+            elif kind == "ragged":
+                array, offsets = data
+                sample[key] = array[offsets[index] : offsets[index + 1]].copy()
+            elif kind == "str":
+                encoded, valid = data
+                sample[key] = os.fsdecode(encoded[index]) if valid[index] else None
+            else:
+                sample[key] = data[index]
+        return sample
+
+    def __iter__(self) -> Iterator[Dict]:
+        """Iterate over new sample dicts."""
+        for i in range(self._len):
+            yield self[i]
+
+
 class BaseDataset(Dataset):
     """Base class for custom torch Datasets.
 
@@ -4758,9 +4901,16 @@ class InfiniteDataLoader(DataLoader):
     This dataloader extends the PyTorch DataLoader to provide infinite recycling of workers, which improves efficiency
     for training loops that need to iterate through the dataset multiple times without recreating workers.
 
+    The iterator (and with it the workers) is created on the first ``__iter__``,
+    not in ``__init__``, so the first pass over the sampler uses the epoch
+    Lightning set for it (e.g. the resumed epoch). Each later pass advances an
+    epoch-aware sampler itself (see :class:`_RepeatSampler`), because the workers
+    prefetch the next pass's first batches before Lightning's ``set_epoch``.
+
     Attributes:
         batch_sampler (_RepeatSampler): A sampler that repeats indefinitely.
-        iterator (Iterator): The iterator from the parent DataLoader.
+        iterator (Optional[Iterator]): The iterator from the parent DataLoader
+            (``None`` until the first ``__iter__``).
         len_dataloader (Optional[int]): Number of minibatches to be generated. If `None`, this is set to len(dataset)/batch_size.
 
     Methods:
@@ -4783,7 +4933,7 @@ class InfiniteDataLoader(DataLoader):
         """Initialize the InfiniteDataLoader with the same arguments as DataLoader."""
         super().__init__(*args, **kwargs)
         object.__setattr__(self, "batch_sampler", _RepeatSampler(self.batch_sampler))
-        self.iterator = super().__iter__()
+        self.iterator = None
         self.len_dataloader = len_dataloader
 
     def __len__(self) -> int:
@@ -4801,6 +4951,8 @@ class InfiniteDataLoader(DataLoader):
 
     def __iter__(self) -> Iterator:
         """Create an iterator that yields indefinitely from the underlying iterator."""
+        if self.iterator is None:
+            self.iterator = super().__iter__()
         while True:
             yield next(self.iterator)
 
@@ -4827,6 +4979,13 @@ class _RepeatSampler:
     This sampler wraps another sampler and yields its contents indefinitely, allowing for infinite iteration
     over a dataset without recreating the sampler.
 
+    An epoch-aware sampler (one with ``set_epoch``, e.g. ``DistributedSampler``,
+    either this sampler or the one inside its ``BatchSampler``) is set to one epoch
+    more for each pass: pass ``k`` uses the epoch it had when iteration started,
+    plus ``k``. Persistent workers start a pass a few batches before Lightning's
+    ``set_epoch`` for that epoch, so waiting for Lightning would repeat the
+    previous epoch's order.
+
     Attributes:
         sampler (Dataset.sampler): The sampler to repeat.
 
@@ -4839,7 +4998,14 @@ class _RepeatSampler:
 
     def __iter__(self) -> Iterator:
         """Iterate over the sampler indefinitely, yielding its contents."""
+        inner = self.sampler
+        if not hasattr(inner, "set_epoch"):
+            inner = getattr(inner, "sampler", None)
+        epoch = getattr(inner, "epoch", None) if hasattr(inner, "set_epoch") else None
         while True:
+            if epoch is not None:
+                inner.set_epoch(epoch)
+                epoch += 1
             yield from iter(self.sampler)
 
 
@@ -5617,11 +5783,13 @@ class BBoxDataset(BaseDataset):
         if hasattr(self.target_encoder, "max_targets"):
             self.target_encoder.max_targets = self.max_instances
 
-    def _get_lf_idx_list(self, labels: List[sio.Labels]) -> List[Dict]:
+    def _get_lf_idx_list(self, labels: List[sio.Labels]) -> SampleTable:
         """Return samples for frames with user boxes (+ negative frames if enabled).
 
         The boxes are captured into each sample as plain arrays so ``__getitem__``
-        needs no live ``Labels`` handle (the image-caching paths drop it).
+        needs no live ``Labels`` handle (the image-caching paths drop it). The
+        samples are stored as a :class:`SampleTable`, so persistent dataloader
+        workers don't copy them as they read them.
         """
         lf_idx_list = []
         max_boxes = 0
@@ -5663,10 +5831,15 @@ class BBoxDataset(BaseDataset):
         # GT boxes are padded to this many slots per sample (collation needs one
         # shape). Overrides the pose-instance count `BaseDataset` computed.
         self.max_instances = max(max_boxes, 1)
-        return lf_idx_list
+        return SampleTable.from_dicts(lf_idx_list)
 
     def _read_image(self, sample: Dict) -> np.ndarray:
-        """The sample's frame as ``(H, W, C)``, from the cache or the video."""
+        """The sample's frame as ``(H, W, C)``, from the cache or the video.
+
+        Frames are read from the ``Video`` by ``frame_idx``, not through the
+        ``LabeledFrame``: reading a frame's ``LabeledFrame`` in a forked worker
+        copies its memory page into the worker (see :class:`SampleTable`).
+        """
         labels_idx, lf_idx = sample["labels_idx"], sample["lf_idx"]
         if self.cache_img == "disk":
             img = np.array(
@@ -5674,11 +5847,9 @@ class BBoxDataset(BaseDataset):
             )
         elif self.cache_img == "memory":
             img = self.cache[(labels_idx, lf_idx)].copy()
-        elif sample["is_negative"]:
+        else:
             video = self.labels_list[labels_idx].videos[sample["video_idx"]]
             img = video[sample["frame_idx"]]
-        else:
-            img = self.labels_list[labels_idx][lf_idx].image
         if img.ndim == 2:
             img = np.expand_dims(img, axis=2)
         return img
@@ -5686,7 +5857,7 @@ class BBoxDataset(BaseDataset):
     @property
     def labels_idx(self) -> np.ndarray:
         """The training file of every sample."""
-        return np.asarray([s["labels_idx"] for s in self.lf_idx_list], dtype=np.int64)
+        return self.lf_idx_list.column("labels_idx").copy()
 
     def _read_frame(
         self, sample: Dict

@@ -4,8 +4,8 @@ Covers the person-only ground truth of multi-category box files (Objects365 /
 Open Images / CrowdHuman store faces, heads, crowds and ignore regions as other
 box categories), the per-sample weighted mixing of several training files by
 ``trainer_config.balanced_sampler`` (sampler, bbox loaders, and an end-to-end CPU
-run on a tiny DINOv3 ``pretrained`` backbone), and the DCT-domain reduced decode of
-large JPEGs.
+run on a tiny DINOv3 ``pretrained`` backbone), the DCT-domain reduced decode of
+large JPEGs, and the array-backed sample list (``SampleTable``).
 """
 
 from collections import Counter
@@ -18,7 +18,11 @@ from omegaconf import OmegaConf
 from PIL import Image
 
 from sleap_nn.data.bboxes import SetTargetEncoder, frame_bbox_arrays
-from sleap_nn.data.custom_datasets import DetrBBoxDataset, get_train_val_dataloaders
+from sleap_nn.data.custom_datasets import (
+    DetrBBoxDataset,
+    SampleTable,
+    get_train_val_dataloaders,
+)
 from sleap_nn.data.topdown_warp import BalancedBatchSampler, BalancedDataLoader
 
 
@@ -144,6 +148,106 @@ def test_bbox_balanced_loader_mixes_files(tmp_path):
     assert isinstance(train, BalancedDataLoader)
     seen = Counter(int(i) for b in train for i in b["labels_idx"])
     assert set(seen) == {0, 2} and sum(seen.values()) == 60
+
+
+# --------------------------------------------------------------------------- #
+# Array-backed sample list
+# --------------------------------------------------------------------------- #
+def test_sample_table_round_trip():
+    samples = [
+        {
+            "labels_idx": 0,
+            "lf_idx": 5,
+            "frame_idx": np.int64(7),
+            "is_negative": False,
+            "instances": None,
+            "bboxes": np.arange(8, dtype=np.float32).reshape(2, 4),
+            "bbox_classes": np.array([0, 1]),
+            "image_path": "/data/a.jpg",
+            "extra": {"k": 1},
+        },
+        {
+            "labels_idx": 1,
+            "lf_idx": "neg_1_0",
+            "frame_idx": 3,
+            "is_negative": True,
+            "instances": None,
+            "bboxes": np.zeros((0, 4), dtype=np.float32),
+            "bbox_classes": np.zeros((0,), dtype=np.int64),
+            "image_path": None,
+            "extra": [2],
+        },
+    ]
+    table = SampleTable.from_dicts(samples)
+    kinds = {k: kind for k, (kind, _) in table.columns.items()}
+    assert kinds == {
+        "labels_idx": "scalar",
+        "lf_idx": "scalar",
+        "frame_idx": "scalar",
+        "is_negative": "scalar",
+        "instances": "none",
+        "bboxes": "ragged",
+        "bbox_classes": "ragged",
+        "image_path": "str",
+        "extra": "object",
+    }
+    assert len(table) == 2 and table.column("labels_idx").tolist() == [0, 1]
+    for got, want in zip(table, samples):
+        assert list(got) == list(want)
+        for key, value in want.items():
+            if isinstance(value, np.ndarray):
+                assert got[key].dtype == value.dtype
+                np.testing.assert_array_equal(got[key], value)
+            else:
+                assert got[key] == value and type(got[key]) is not np.int64
+    assert table[-1]["lf_idx"] == "neg_1_0"
+    # Reads are copies: writing a sample leaves the table unchanged.
+    table[0]["bboxes"][:] = -1
+    np.testing.assert_array_equal(table[0]["bboxes"], samples[0]["bboxes"])
+    with pytest.raises(IndexError):
+        table[2]
+
+
+def test_sample_table_kinds_do_not_depend_on_proportions():
+    # Mostly negative frames: `lf_idx` stays an int array plus string exceptions,
+    # never an object array of per-sample Python objects.
+    lf_idx = [0] + [f"neg_0_{i}" for i in range(5)] + [None]
+    table = SampleTable.from_dicts([{"lf_idx": v} for v in lf_idx])
+    kind, (array, other_idx, _) = table.columns["lf_idx"]
+    assert kind == "scalar" and array.dtype == np.int64
+    assert other_idx.tolist() == list(range(1, 7))
+    assert [s["lf_idx"] for s in table] == lf_idx
+    assert table.column("lf_idx") is array
+    # Only scalar columns come out as one array.
+    with pytest.raises(ValueError, match="is str, not scalar"):
+        SampleTable.from_dicts([{"path": "a.jpg"}]).column("path")
+    # Mixed numeric types are not coerced.
+    assert SampleTable._column([1, 2.5])[0] == "object"
+
+
+def test_sample_table_needs_the_same_keys():
+    with pytest.raises(ValueError, match="Sample 1 has keys"):
+        SampleTable.from_dicts([{"a": 1, "b": 2}, {"a": 3}])
+    with pytest.raises(ValueError, match="Sample 1 has keys"):
+        SampleTable.from_dicts([{"a": 1}, {"a": 3, "c": 4}])
+
+
+def test_bbox_samples_are_a_table(tmp_path):
+    boxes = [(10, 10, 60, 90), (70, 20, 120, 100)]
+    labels = _image_labels(tmp_path, "img", (128, 160), boxes)
+    ds = _detr_dataset([labels], hw=(128, 160))
+    assert isinstance(ds.lf_idx_list, SampleTable)
+    sample = ds.lf_idx_list[0]
+    xyxy, classes = frame_bbox_arrays(labels[0], ["person"])
+    np.testing.assert_array_equal(sample["bboxes"], xyxy)
+    np.testing.assert_array_equal(sample["bbox_classes"], classes)
+    np.testing.assert_array_equal(ds.labels_idx, [0])
+    want = labels[0].image
+    # Frames are read through the video, never the `LabeledFrame`s.
+    labels.labeled_frames.clear()
+    img, scale = ds._read_frame(sample)
+    assert scale is None
+    np.testing.assert_array_equal(img, want)
 
 
 # --------------------------------------------------------------------------- #

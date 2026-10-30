@@ -1674,6 +1674,40 @@ def test_infinite_dataloader(minimal_instance, tmp_path):
     assert len(dl) == 15
 
 
+class _IndexDataset(torch.utils.data.Dataset):
+    """Returns its index (module level so spawn-start workers can pickle it)."""
+
+    def __len__(self):
+        return 16
+
+    def __getitem__(self, index):
+        return index
+
+
+@pytest.mark.parametrize("num_workers", [0, 2])
+def test_infinite_dataloader_new_order_every_epoch(num_workers):
+    """Each epoch gets its own DistributedSampler order, even with prefetching."""
+    dataset = _IndexDataset()
+    sampler = torch.utils.data.DistributedSampler(dataset, num_replicas=1, rank=0)
+    reference = torch.utils.data.DistributedSampler(dataset, num_replicas=1, rank=0)
+    # Resumed at epoch 2: Lightning sets the epoch before the first iteration.
+    sampler.set_epoch(2)
+    dl = InfiniteDataLoader(
+        dataset=dataset,
+        sampler=sampler,
+        batch_size=4,
+        num_workers=num_workers,
+        persistent_workers=num_workers > 0,
+        len_dataloader=4,
+    )
+    for epoch in range(2, 6):
+        sampler.set_epoch(epoch)  # as Lightning does at each epoch start
+        it = iter(dl)
+        order = torch.cat([next(it) for _ in range(len(dl))]).tolist()
+        reference.set_epoch(epoch)
+        assert order == list(reference), f"epoch {epoch}"
+
+
 def test_uint8_pipeline_bottomup(minimal_instance):
     """Test that BottomUpDataset returns uint8 images for GPU normalization."""
     confmap_head = DictConfig({"sigma": 1.5, "output_stride": 2})

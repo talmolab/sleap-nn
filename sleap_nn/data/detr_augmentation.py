@@ -99,8 +99,9 @@ def resize_frame(
         if in_hw != tuple(out_hw):
             image = tvf.resize(image, size=[int(out_hw[0]), int(out_hw[1])])
     elif mode == "letterbox":
+        # Fitting every frame to `out_hw` is the design here, not a slow path.
         image, eff = apply_sizematcher(
-            image, max_height=int(out_hw[0]), max_width=int(out_hw[1])
+            image, max_height=int(out_hw[0]), max_width=int(out_hw[1]), warn=False
         )
         sx = sy = float(eff)
     else:
