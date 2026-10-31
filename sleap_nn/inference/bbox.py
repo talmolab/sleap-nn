@@ -79,7 +79,7 @@ def clip_boxes_to_frame(
     boxes: torch.Tensor,
     scores: torch.Tensor,
     classes: torch.Tensor,
-    frame_hw: Tuple[int, int],
+    frame_hw: Union[Tuple[int, int], torch.Tensor],
 ) -> _Decoded:
     """Clip padded ``(B, K, 4)`` boxes to the original frame.
 
@@ -87,14 +87,22 @@ def clip_boxes_to_frame(
     can still reach into the stride padding or the size-matcher's letterbox. Boxes
     left with no area (predicted wholly outside the frame) become empty slots
     (NaN box and score, class ``-1``).
+
+    ``frame_hw`` is one ``(height, width)`` for the batch, or a ``(B, 2)`` tensor
+    of each frame's (a batch of frames of different sizes fitted to the model
+    input before batching).
     """
-    h, w = frame_hw
+    if isinstance(frame_hw, torch.Tensor):
+        hw = frame_hw.to(device=boxes.device, dtype=boxes.dtype)
+        h, w = hw[:, 0, None] - 1, hw[:, 1, None] - 1
+    else:
+        h, w = frame_hw[0] - 1, frame_hw[1] - 1
     clipped = torch.stack(
         [
-            boxes[..., 0].clamp(0, w - 1),
-            boxes[..., 1].clamp(0, h - 1),
-            boxes[..., 2].clamp(0, w - 1),
-            boxes[..., 3].clamp(0, h - 1),
+            torch.clamp(boxes[..., 0], min=0).clamp(max=w),
+            torch.clamp(boxes[..., 1], min=0).clamp(max=h),
+            torch.clamp(boxes[..., 2], min=0).clamp(max=w),
+            torch.clamp(boxes[..., 3], min=0).clamp(max=h),
         ],
         dim=-1,
     )

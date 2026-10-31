@@ -183,6 +183,13 @@ labels = predictor.predict("video.mp4")
 boxes = labels[0].bboxes
 ```
 
+On a `.slp` input, a detector with a fixed input size (`max_height` and
+`max_width`) reads its frames already fitted to that size. Large JPEGs of an image
+list are decoded at 1/2, 1/4 or 1/8 size, as in `bbox_detr` training. Each frame is
+then letterboxed (or squashed) on the CPU, on 8 threads for image lists. Every
+frame comes out the same size, so batches fill whatever the mix of image sizes.
+The boxes are mapped back to each frame's original pixels.
+
 Tracking is not supported for detector output (the tracker works on poses and
 masks). The legacy `sleap-nn track` / `run_inference` pipeline refuses detectors and
 points to `sleap-nn predict`.

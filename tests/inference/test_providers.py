@@ -7,6 +7,7 @@ and the streaming writer.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import numpy as np
@@ -631,3 +632,166 @@ def test_predictor_predict_returns_frames_in_source_order(tmp_path):
     assert [
         (out.videos.index(lf.video), lf.frame_idx) for lf in out.labeled_frames
     ] == source_order
+
+
+def _gradient_jpeg(path, hw, seed=0):
+    """A smooth RGB JPEG of ``hw``: reduced decode and resize then agree closely."""
+    import imageio.v3 as iio
+
+    h, w = hw
+    yy, xx = np.mgrid[0:h, 0:w]
+    phase = seed * 0.7
+    img = np.stack(
+        [
+            127 + 120 * np.sin(xx / w * 3 + phase),
+            127 + 120 * np.cos(yy / h * 2 + phase),
+            127 + 120 * np.sin((xx + yy) / (h + w) * 4 + phase),
+        ],
+        axis=-1,
+    ).astype(np.uint8)
+    iio.imwrite(path, img, quality=95)
+    return img
+
+
+def test_frame_fit_downscale_leaves_at_least_the_fitted_size():
+    """The largest of 8/4/2 whose reduced frame is still >= the fitted size."""
+    from sleap_nn.inference.providers import FrameFit
+
+    letterbox = FrameFit(704, 704)
+    assert letterbox.downscale(6000, 4000) == 8  # fitted 704 x 470
+    assert letterbox.downscale(1500, 1000) == 2
+    assert letterbox.downscale(800, 600) == 1
+    assert letterbox.downscale(300, 200) == 1  # upscaled: never reduced
+    # Squash fits each axis on its own, so the larger ratio limits the decode.
+    assert FrameFit(704, 704, "squash").downscale(6000, 4000) == 4
+
+
+@pytest.mark.parametrize("resize_mode", ["letterbox", "squash"])
+def test_frame_fit_read_matches_full_size_fit(tmp_path, resize_mode):
+    """A reduced decode + CPU fit ~= the full frame through the layer's resize."""
+    from sleap_nn.data.resizing import apply_sizematcher, apply_squash_resize
+    from sleap_nn.inference.providers import FrameFit
+
+    path = tmp_path / "big.jpg"
+    _gradient_jpeg(path, (400, 640))
+    video = sio.Video.from_filename([str(path)])
+    fit = FrameFit(64, 64, resize_mode)
+    assert fit.downscale(400, 640) > 1
+
+    image, scale, size = fit.read(video, 0)
+    assert size == (400, 640)
+    assert image.shape == (3, 64, 64) and image.dtype == np.uint8
+
+    full = torch.from_numpy(np.ascontiguousarray(video[0].transpose(2, 0, 1)))
+    if resize_mode == "squash":
+        ref, ref_xy = apply_squash_resize(full, 64, 64)
+    else:
+        ref, s = apply_sizematcher(full, 64, 64, warn=False)
+        ref_xy = (s, s)
+    np.testing.assert_allclose(scale, ref_xy, rtol=0.02)
+    diff = np.abs(image.astype(np.float32) - ref.numpy().astype(np.float32))
+    assert diff.mean() < 3.0
+
+
+def _interleaved_jpeg_labels(tmp_path, sizes=((40, 60), (300, 200), (90, 90))):
+    """One JPEG image-list video per size, two frames each, labeled interleaved."""
+    videos = []
+    for v, hw in enumerate(sizes):
+        paths = []
+        for i in range(2):
+            p = tmp_path / f"v{v}_{i}.jpg"
+            _gradient_jpeg(p, hw, seed=v * 2 + i)
+            paths.append(str(p))
+        videos.append(sio.Video.from_filename(paths))
+    lfs = [
+        sio.LabeledFrame(video=videos[v], frame_idx=i)
+        for i in range(2)
+        for v in range(len(sizes))
+    ]
+    skel = sio.Skeleton(nodes=["n0", "n1"])
+    return sio.Labels(videos=videos, skeletons=[skel], labeled_frames=lfs)
+
+
+@pytest.mark.parametrize("prefetch", [False, True])
+def test_labels_provider_fit_fills_batches_in_source_order(tmp_path, prefetch):
+    """With ``fit`` every frame is model-sized, so batches fill in source order."""
+    from sleap_nn.inference.providers import FrameFit
+
+    labels = _interleaved_jpeg_labels(tmp_path)
+    provider = LabelsProvider(
+        labels=labels,
+        batch_size=4,
+        prefetch=prefetch,
+        group_by_shape=True,  # ignored: nothing to group
+        fit=FrameFit(32, 32),
+    )
+    assert provider._fit_workers() == min(8, os.cpu_count())  # read in parallel
+    batches = list(provider)
+    assert [b.images.shape for b in batches] == [(4, 3, 32, 32), (2, 3, 32, 32)]
+    assert provider.source_positions is None
+
+    sizes = np.concatenate([b.frame_sizes for b in batches])
+    scales = np.concatenate([b.frame_scales for b in batches])
+    videos = np.concatenate([b.video_indices for b in batches])
+    frame_idxs = np.concatenate([b.frame_indices for b in batches])
+    assert [(int(v), int(f)) for v, f in zip(videos, frame_idxs)] == [
+        (labels.videos.index(lf.video), lf.frame_idx) for lf in labels
+    ]
+    expected_hw = [[40, 60], [300, 200], [90, 90]] * 2
+    assert sizes.tolist() == expected_hw
+    for (h, w), (sx, sy) in zip(expected_hw, scales):
+        s = min(32 / h, 32 / w)
+        assert sx == pytest.approx(s, rel=0.02) and sy == pytest.approx(s, rel=0.02)
+
+
+def test_labels_provider_fit_skips_unreadable_and_reads_other_backends_serially(
+    tmp_path, caplog
+):
+    """A frame that can't be read is skipped; non-image-list videos use 1 thread."""
+    from loguru import logger
+
+    from sleap_nn.inference.providers import FrameFit
+
+    labels = _interleaved_jpeg_labels(tmp_path, sizes=((40, 60),))
+    labels.labeled_frames.append(
+        sio.LabeledFrame(video=labels.videos[0], frame_idx=7)  # no such image
+    )
+    handler = logger.add(caplog.handler, level="WARNING")
+    try:
+        batches = list(
+            LabelsProvider(labels=labels, batch_size=8, fit=FrameFit(16, 16))
+        )
+    finally:
+        logger.remove(handler)
+    assert sum(b.images.shape[0] for b in batches) == 2
+    assert "could not be read" in caplog.text
+
+    media = sio.Labels(
+        videos=[sio.Video(filename="clip.mp4", open_backend=False)], labeled_frames=[]
+    )
+    assert LabelsProvider(labels=media, fit=FrameFit(16, 16))._fit_workers() == 1
+
+
+def test_labels_provider_fit_batches_grayscale_with_color_frames(tmp_path):
+    """A grayscale and a color image-list video batch together as RGB.
+
+    sleap-io reads a video grayscale when its first frame is, so the channels
+    differ between videos (an image-list dataset has one per image size).
+    """
+    import imageio.v3 as iio
+
+    from sleap_nn.inference.providers import FrameFit
+
+    gray = tmp_path / "gray.jpg"
+    iio.imwrite(gray, np.full((40, 60), 200, np.uint8))
+    color = tmp_path / "color.jpg"
+    _gradient_jpeg(color, (50, 60))
+    videos = [sio.Video.from_filename([str(p)]) for p in (gray, color)]
+    labels = sio.Labels(
+        videos=videos,
+        labeled_frames=[sio.LabeledFrame(video=v, frame_idx=0) for v in videos],
+    )
+    (batch,) = LabelsProvider(labels=labels, batch_size=4, fit=FrameFit(16, 16))
+    assert batch.images.shape == (2, 3, 16, 16)
+    gray_fit = batch.images[0][:, :10]  # inside the letterboxed content
+    assert (gray_fit[0] == gray_fit[1]).all() and (gray_fit[1] == gray_fit[2]).all()

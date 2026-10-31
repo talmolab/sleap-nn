@@ -1068,3 +1068,128 @@ def test_bbox_split_eval_skips_without_boxes(monkeypatch, tmp_path):
         device="cpu",
     )
     assert out is None and not called and not metrics_path.exists()
+
+
+def _tiny_ssd_layer(resize_mode="letterbox", max_hw=(128, 128)):
+    from sleap_nn.inference.layers.backends import TorchBackend
+    from sleap_nn.inference.layers.bbox import BBoxLayer
+    from sleap_nn.inference.layers.configs import PostprocessConfig, PreprocessConfig
+
+    module = _tiny_ssd_module()
+    decoder = BBoxDecoder.from_head_configs(
+        "bbox_ssd", module.head_configs, score_threshold=0.0, max_detections=20
+    )
+    return BBoxLayer(
+        backend=TorchBackend(model=module, device="cpu"),
+        decoder=decoder,
+        output_stride=8,
+        max_stride=16,
+        preprocess_config=PreprocessConfig(
+            max_height=max_hw[0], max_width=max_hw[1], resize_mode=resize_mode
+        ),
+        postprocess_config=PostprocessConfig(peak_threshold=0.0, max_instances=20),
+    )
+
+
+def _png_labels(tmp_path, sizes):
+    """One PNG image-list video per size (lossless, so no reduced decode)."""
+    import imageio.v3 as iio
+
+    rng = np.random.default_rng(0)
+    videos, frames = [], []
+    for v, hw in enumerate(sizes):
+        img = (rng.random((*hw, 1)) * 255).astype(np.uint8)
+        path = tmp_path / f"f{v}.png"
+        iio.imwrite(path, img[..., 0])
+        videos.append(sio.Video.from_filename([str(path)]))
+        frames.append(img)
+    lfs = [sio.LabeledFrame(video=v, frame_idx=0) for v in videos]
+    return sio.Labels(videos=videos, labeled_frames=lfs), frames
+
+
+@pytest.mark.parametrize("resize_mode", ["letterbox", "squash"])
+def test_bbox_layer_on_prefit_frames_matches_native(tmp_path, resize_mode):
+    """Frames fitted by the provider give the boxes the layer's own resize gives.
+
+    Two frame sizes in one batch: each frame's boxes map back with its own scale
+    and are clipped to its own size.
+    """
+    from sleap_nn.inference.providers import FrameFit
+
+    layer = _tiny_ssd_layer(resize_mode)
+    sizes = [(150, 230), (90, 60)]
+    labels, frames = _png_labels(tmp_path, sizes)
+    fit = FrameFit(128, 128, resize_mode)
+    reads = [fit.read(v, 0) for v in labels.videos]
+    fitted = layer.predict(
+        np.stack([r[0] for r in reads]),
+        frame_scales=np.stack([r[1] for r in reads]),
+        frame_sizes=np.asarray([r[2] for r in reads]),
+    )
+    for b, (frame, (h, w)) in enumerate(zip(frames, sizes)):
+        native = layer.predict(torch.from_numpy(frame[None]).permute(0, 3, 1, 2))
+        ok = torch.isfinite(native.pred_bbox_scores[0])
+        assert ok.any()
+        torch.testing.assert_close(
+            fitted.pred_bboxes[b][ok], native.pred_bboxes[0][ok], atol=1e-3, rtol=0
+        )
+        torch.testing.assert_close(
+            fitted.pred_bbox_scores[b][ok], native.pred_bbox_scores[0][ok]
+        )
+        boxes = fitted.pred_bboxes[b][torch.isfinite(fitted.pred_bbox_scores[b])]
+        assert boxes[:, [0, 2]].max() <= w - 1 and boxes[:, [1, 3]].max() <= h - 1
+
+
+def test_bbox_layer_rejects_frame_scales_on_unfitted_frames():
+    """``frame_scales`` with frames that still need resizing is an error."""
+    layer = _tiny_ssd_layer()
+    frame = np.zeros((1, 1, 90, 60), np.uint8)
+    with pytest.raises(ValueError, match="not at the model input size"):
+        layer.predict(
+            frame, frame_scales=np.ones((1, 2)), frame_sizes=np.array([[90, 60]])
+        )
+
+
+def test_predictor_fits_detector_frames_on_cpu(tmp_path, monkeypatch):
+    """``Predictor.predict`` reads a detector's frames fitted to the model input.
+
+    Batches fill whatever the frame sizes, with the boxes of the layer's own fit.
+    """
+    from sleap_nn.inference.predictor import Predictor
+    from sleap_nn.inference.providers import FrameFit
+
+    layer = _tiny_ssd_layer()
+    sizes = [(150, 230), (90, 60), (128, 128), (70, 200)]
+    labels, _ = _png_labels(tmp_path, sizes)
+
+    batch_sizes = []
+    predict = type(layer).predict
+
+    def counting(self, image, frame_scales=None, frame_sizes=None):
+        batch_sizes.append(image.shape[0])
+        return predict(self, image, frame_scales, frame_sizes)
+
+    monkeypatch.setattr(type(layer), "predict", counting)
+    predictor = Predictor(layer=layer, batch_size=4)
+    assert predictor._frame_fit() == FrameFit(128, 128, "letterbox")
+    fitted = predictor.predict(labels)
+    assert batch_sizes == [4]
+
+    monkeypatch.setattr(Predictor, "_frame_fit", lambda self: None)
+    batch_sizes.clear()
+    native = predictor.predict(labels)
+    assert batch_sizes == [1, 1, 1, 1]  # one frame per size
+
+    for a, b in zip(fitted.labeled_frames, native.labeled_frames):
+        assert (a.video, a.frame_idx) == (b.video, b.frame_idx)
+        xa = np.array([bb.xyxy for bb in a.bboxes])
+        xb = np.array([bb.xyxy for bb in b.bboxes])
+        np.testing.assert_allclose(xa, xb, atol=1e-3)
+
+
+def test_frame_fit_only_for_whole_frame_detectors_with_fixed_size():
+    """No ``FrameFit`` without a fixed input size or for a non-detector layer."""
+    from sleap_nn.inference.predictor import Predictor
+
+    assert Predictor(layer=_tiny_ssd_layer(max_hw=(None, None)))._frame_fit() is None
+    assert Predictor(layer=_tiny_ssd_layer(max_hw=(128, None)))._frame_fit() is None
