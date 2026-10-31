@@ -242,3 +242,54 @@ def test_factory_rejects_unrecognized_model_type():
 # of the stack via the PR 0 goldens; per-layer parity vs legacy is
 # development-time scaffolding that locks in legacy behaviour
 # (including ULP-drift quirks) and triples CI runtime.
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# precision= (autocast dtype on every stage's TorchBackend)
+# ─────────────────────────────────────────────────────────────────────────
+
+
+def _torch_backends(layer) -> list:
+    """Every TorchBackend reachable from a (possibly composed) layer."""
+    from sleap_nn.inference.layers.backends.torch_backend import TorchBackend
+
+    found, seen, stack = [], set(), [layer]
+    while stack:
+        obj = stack.pop()
+        if id(obj) in seen:
+            continue
+        seen.add(id(obj))
+        if isinstance(obj, TorchBackend):
+            found.append(obj)
+        elif type(obj).__module__.startswith("sleap_nn.inference") and hasattr(
+            obj, "__dict__"
+        ):
+            stack.extend(vars(obj).values())
+    return found
+
+
+@pytest.mark.parametrize(
+    "ckpts,n_backends",
+    [([SINGLE_CKPT], 1), ([CENTROID_CKPT, CENTERED_CKPT], 2)],
+    ids=["single_instance", "topdown"],
+)
+def test_from_model_paths_precision_sets_autocast_on_every_stage(ckpts, n_backends):
+    """``precision="bf16"`` reaches both stages of a top-down model; "32" none."""
+    if not all(c.exists() for c in ckpts):
+        pytest.skip("checkpoint fixtures not present")
+    paths = [str(c) for c in ckpts]
+    p = Predictor.from_model_paths(paths, device="cpu", precision="bf16")
+    backends = _torch_backends(p.layer)
+    assert len(backends) == n_backends
+    assert all(b.autocast_dtype == torch.bfloat16 for b in backends)
+
+    p32 = Predictor.from_model_paths(paths, device="cpu")
+    assert all(b.autocast_dtype is None for b in _torch_backends(p32.layer))
+
+
+def test_from_model_paths_rejects_unknown_precision():
+    """Only "32", "bf16" and "fp16" are accepted."""
+    if not SINGLE_CKPT.exists():
+        pytest.skip("checkpoint fixture not present")
+    with pytest.raises(ValueError, match="precision"):
+        Predictor.from_model_paths([str(SINGLE_CKPT)], device="cpu", precision="16")

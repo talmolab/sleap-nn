@@ -76,14 +76,117 @@ def _post_training_predict_kwargs(config: DictConfig, model_type: str) -> dict:
     return {"peak_threshold": 0.2}
 
 
+# Post-training eval runs the held-out splits first, so their metrics land even
+# if a long train-split prediction is stopped.
+_POST_TRAIN_SPLIT_ORDER = ("val", "test", "train")
+
+# Top-down crop models validate on batches of crops, so their validation batch
+# size says nothing about how many whole frames fit in a prediction batch.
+_CROP_MODEL_TYPES = (
+    "centered_instance",
+    "multi_class_topdown",
+    "centered_instance_segmentation",
+)
+
+_TRAINING_TO_PREDICT_PRECISION = {
+    "bf16-mixed": "bf16",
+    "bf16-true": "bf16",
+    "bf16": "bf16",
+    "16-mixed": "fp16",
+    "16-true": "fp16",
+    "16": "fp16",
+}
+
+
+def _post_train_predict_settings(config: DictConfig, model_type: str) -> dict:
+    """``batch_size`` and ``precision`` for the post-training predictions.
+
+    ``trainer_config.eval.post_train_batch_size`` /
+    ``post_train_precision`` when set. Otherwise the validation batch size (4 for
+    the crop-based top-down models) and the training precision, so prediction
+    runs as the validation steps did: a ``bf16-mixed`` model predicts under bf16
+    autocast instead of strict fp32.
+    """
+    batch_size = OmegaConf.select(
+        config, "trainer_config.eval.post_train_batch_size", default=None
+    )
+    if batch_size is None:
+        batch_size = (
+            4
+            if model_type in _CROP_MODEL_TYPES
+            else OmegaConf.select(
+                config, "trainer_config.val_data_loader.batch_size", default=None
+            )
+            or 4
+        )
+    precision = OmegaConf.select(
+        config, "trainer_config.eval.post_train_precision", default=None
+    )
+    if precision is None:
+        training_precision = OmegaConf.select(
+            config, "trainer_config.precision", default="32"
+        )
+        precision = _TRAINING_TO_PREDICT_PRECISION.get(str(training_precision), "32")
+    return {"batch_size": int(batch_size), "precision": str(precision)}
+
+
+def _post_train_progress(d_name: str, interval: float = 60.0):
+    """A ``predict`` progress callback that logs frames, rate and ETA.
+
+    Logs at most once per ``interval`` seconds, plus once at the end, so a
+    multi-hour prediction of a large split is visible in the training log.
+    """
+    start = time()
+    last = [start]
+
+    def callback(done: int, total: int) -> None:
+        now = time()
+        if done < total and now - last[0] < interval:
+            return
+        last[0] = now
+        rate = done / max(now - start, 1e-9)
+        eta = (total - done) / rate / 60 if rate > 0 and total >= done else 0.0
+        logger.info(
+            f"Predicting `{d_name}`: {done}/{total} frames "
+            f"({rate:.1f} frames/s, ETA {eta:.1f} min)"
+        )
+
+    return callback
+
+
+def _subsample_labels(
+    path: str, max_frames: int, seed: Optional[int], d_name: str
+) -> Union[str, sio.Labels]:
+    """``max_frames`` random labeled frames of ``path``, or ``path`` if it has fewer.
+
+    The frames keep their file order. The subset shares the loaded frames and
+    videos (no copy) and is used both as the prediction source and as the ground
+    truth, so evaluation scores only the frames that were predicted.
+    """
+    import numpy as np
+
+    labels = sio.load_slp(path)
+    n_frames = len(labels.labeled_frames)
+    if max_frames >= n_frames:
+        return path
+    rng = np.random.default_rng(0 if seed is None else seed)
+    inds = np.sort(rng.choice(n_frames, size=max_frames, replace=False))
+    logger.info(
+        f"Post-training eval of `{d_name}` on {max_frames} random frames of "
+        f"{n_frames} (trainer_config.eval.post_train_max_train_frames)."
+    )
+    return labels.extract(inds.tolist(), copy=False)
+
+
 def _run_centroid_split_eval(
     config: DictConfig,
     d_name: str,
-    path: str,
+    path: Union[str, sio.Labels],
     run_path: Path,
     pred_path: Path,
     metrics_path: Path,
     device: str,
+    predict_kwargs: Optional[dict] = None,
 ):
     """Run post-training eval for a single split of a centroid-only model.
 
@@ -98,11 +201,15 @@ def _run_centroid_split_eval(
     Args:
         config: Training configuration.
         d_name: Split name, e.g. ``"train.0"``/``"val.0"``/``"test.0"``.
-        path: Path to the ground-truth ``.slp`` for this split.
+        path: Path to the ground-truth ``.slp`` for this split, or the GT
+            ``Labels`` themselves (a subset of the train frames).
         run_path: The ``<ckpt_dir>/<run_name>`` directory (the centroid model).
         pred_path: Output path for the predicted ``.slp``.
         metrics_path: Output path for the saved metrics ``.npz``.
         device: Torch device string to run inference on.
+        predict_kwargs: Extra ``predict`` arguments (``batch_size``,
+            ``precision``, ``progress_callback``); see
+            ``_post_train_predict_settings``.
 
     Returns:
         The metrics dict returned by ``run_evaluation`` (centroid mode), or
@@ -120,6 +227,7 @@ def _run_centroid_split_eval(
         peak_threshold=0.2,
         device=device,
         output_path=pred_path,
+        **(predict_kwargs or {}),
     )
 
     if not len(pred_labels):
@@ -188,12 +296,13 @@ def _run_centroid_split_eval(
 def _run_segmentation_split_eval(
     config: DictConfig,
     d_name: str,
-    path: str,
+    path: Union[str, sio.Labels],
     run_path: Path,
     pred_path: Path,
     metrics_path: Path,
     device: str,
     match_method: str = "mask",
+    predict_kwargs: Optional[dict] = None,
 ):
     """Run post-training eval for a single split of a segmentation model.
 
@@ -216,11 +325,14 @@ def _run_segmentation_split_eval(
     Args:
         config: Training configuration.
         d_name: Split name, e.g. ``"train.0"``/``"val.0"``/``"test.0"``.
-        path: Path to the ground-truth ``.slp`` for this split.
+        path: Path to the ground-truth ``.slp`` for this split, or the GT
+            ``Labels`` themselves (a subset of the train frames).
         run_path: The ``<ckpt_dir>/<run_name>`` directory (the seg model).
         pred_path: Output path for the predicted ``.slp``.
         metrics_path: Output path for the saved metrics ``.npz``.
         device: Torch device string to run inference on.
+        predict_kwargs: Extra ``predict`` arguments; see
+            ``_post_train_predict_settings``.
         match_method: ``"mask"`` (per-instance mask-IoU, for
             ``bottomup_segmentation`` / ``centered_instance_segmentation``) or
             ``"semantic"`` (matching-free whole-frame foreground IoU/clDice, for
@@ -240,6 +352,7 @@ def _run_segmentation_split_eval(
         peak_threshold=0.2,
         device=device,
         output_path=pred_path,
+        **(predict_kwargs or {}),
     )
 
     if not len(pred_labels):
@@ -361,11 +474,12 @@ def _run_segmentation_split_eval(
 def _run_bbox_split_eval(
     config,
     d_name: str,
-    path: str,
+    path: Union[str, sio.Labels],
     run_path: Path,
     pred_path: Path,
     metrics_path: Path,
     device: str,
+    predict_kwargs: Optional[dict] = None,
 ):
     """Run post-training eval for a single split of a ``bbox_*`` detector.
 
@@ -391,6 +505,7 @@ def _run_bbox_split_eval(
         peak_threshold=0.05,
         device=device,
         output_path=pred_path,
+        **(predict_kwargs or {}),
     )
     elapsed = time.perf_counter() - start
     if not len(pred_labels) or not any(len(lf.bboxes) for lf in pred_labels):
@@ -438,7 +553,7 @@ def _run_bbox_split_eval(
 def _run_embedding_split_eval(
     config: DictConfig,
     d_name: str,
-    path: str,
+    path: Union[str, sio.Labels],
     run_path: Path,
     metrics_path: Path,
     device: str,
@@ -464,7 +579,8 @@ def _run_embedding_split_eval(
     Args:
         config: Training configuration.
         d_name: Split name, e.g. ``"train.0"``/``"val.0"``/``"test.0"``.
-        path: Path to the ground-truth ``.slp`` for this split.
+        path: Path to the ground-truth ``.slp`` for this split, or the GT
+            ``Labels`` themselves (a subset of the train frames).
         run_path: The ``<ckpt_dir>/<run_name>`` directory (the embedding model).
         metrics_path: Output path for the saved metrics ``.npz``.
         device: Torch device string to run inference on.
@@ -478,7 +594,7 @@ def _run_embedding_split_eval(
     from sleap_nn.inference.embedding import embed_labels_for_eval
 
     try:
-        labels = sio.load_slp(path)
+        labels = path if isinstance(path, sio.Labels) else sio.load_slp(path)
         emb, group_ids = embed_labels_for_eval(
             run_path.as_posix(), labels, device=device
         )
@@ -552,46 +668,80 @@ def run_training(
     if rank in [0, -1]:
         # run inference on val dataset
         if trainer.config.trainer_config.save_ckpt:
-            data_paths = {}
             run_path = (
                 Path(trainer.config.trainer_config.ckpt_dir)
                 / trainer.config.trainer_config.run_name
             )
             # One entry per saved GT file. There can be fewer val files than train
             # files (e.g. two train files and one val file), so count each split.
-            for split, label_list in (
-                ("train", trainer.train_labels),
-                ("val", trainer.val_labels),
-            ):
-                for index, _ in enumerate(label_list):
-                    data_paths[f"{split}.{index}"] = (
-                        run_path / f"labels_gt.{split}.{index}.slp"
-                    ).as_posix()
+            split_paths = {
+                split: [
+                    (run_path / f"labels_gt.{split}.{index}.slp").as_posix()
+                    for index in range(len(label_list))
+                ]
+                for split, label_list in (
+                    ("train", trainer.train_labels),
+                    ("val", trainer.val_labels),
+                )
+            }
             logger.info(f"Run path: {run_path.as_posix()}")
 
             # Handle test_file_path as either a string or list of strings
             test_file_path = OmegaConf.select(
                 config, "data_config.test_file_path", default=None
             )
-            if test_file_path is not None:
-                # Normalize to list of strings
-                if isinstance(test_file_path, str):
-                    test_paths = [test_file_path]
-                else:
-                    test_paths = list(test_file_path)
-                # Add each test path to data_paths (always use index for consistency)
-                for idx, test_path in enumerate(test_paths):
-                    data_paths[f"test.{idx}"] = test_path
+            if isinstance(test_file_path, str):
+                split_paths["test"] = [test_file_path]
+            elif test_file_path is not None:
+                split_paths["test"] = list(test_file_path)
+
+            # Held-out splits first; `post_train_splits` picks which ones run.
+            post_train_splits = OmegaConf.select(
+                trainer.config, "trainer_config.eval.post_train_splits", default=None
+            )
+            data_paths = {
+                f"{split}.{index}": path
+                for split in _POST_TRAIN_SPLIT_ORDER
+                if post_train_splits is None or split in post_train_splits
+                for index, path in enumerate(split_paths.get(split, []))
+            }
+            max_train_frames = OmegaConf.select(
+                trainer.config,
+                "trainer_config.eval.post_train_max_train_frames",
+                default=None,
+            )
 
             # Determine the model type once before the per-split eval loop so
             # centroid-only models can route to the NEW inference + centroid
             # evaluation flow (the legacy predictors path is not used for them).
             model_type = get_model_type_from_cfg(trainer.config)
+            predict_settings = _post_train_predict_settings(trainer.config, model_type)
+            logger.info(
+                f"Post-training eval of {list(data_paths)} | "
+                f"batch_size={predict_settings['batch_size']} | "
+                f"precision={predict_settings['precision']}"
+            )
+            # TF32 matmuls (`float32_matmul_precision`) for the predictions too,
+            # as during `fit`; restored after the eval.
+            prev_matmul_precision = trainer._set_float32_matmul_precision()
 
             for d_name, path in data_paths.items():
                 # d_name is now in format: "train.0", "val.0", "test.0", etc.
                 pred_path = run_path / f"labels_pr.{d_name}.slp"
                 metrics_path = run_path / f"metrics.{d_name}.npz"
+                if d_name.startswith("train.") and max_train_frames is not None:
+                    path = _subsample_labels(
+                        path,
+                        max_train_frames,
+                        OmegaConf.select(
+                            trainer.config, "trainer_config.seed", default=None
+                        ),
+                        d_name,
+                    )
+                predict_kwargs = {
+                    **predict_settings,
+                    "progress_callback": _post_train_progress(d_name),
+                }
 
                 if model_type == "embedding":
                     # Skeleton-less re-ID model: retrieval eval over appearance
@@ -616,6 +766,7 @@ def run_training(
                         pred_path=pred_path,
                         metrics_path=metrics_path,
                         device=str(trainer.trainer.strategy.root_device),
+                        predict_kwargs=predict_kwargs,
                     )
                     continue
 
@@ -628,6 +779,7 @@ def run_training(
                         pred_path=pred_path,
                         metrics_path=metrics_path,
                         device=str(trainer.trainer.strategy.root_device),
+                        predict_kwargs=predict_kwargs,
                     )
                     continue
 
@@ -656,6 +808,7 @@ def run_training(
                             if model_type == "semantic_segmentation"
                             else "mask"
                         ),
+                        predict_kwargs=predict_kwargs,
                     )
                     continue
 
@@ -674,6 +827,7 @@ def run_training(
                     device=str(trainer.trainer.strategy.root_device),
                     output_path=pred_path,
                     **_post_training_predict_kwargs(config, model_type),
+                    **predict_kwargs,
                 )
 
                 if not len(pred_labels) or not any(
@@ -746,6 +900,11 @@ def run_training(
                                 ][f"coco.{key}"]
                         for key, value in summary_metrics.items():
                             wandb.run.summary[key] = value
+
+            if prev_matmul_precision is not None:
+                import torch
+
+                torch.set_float32_matmul_precision(prev_matmul_precision)
 
             # Finish wandb run and cleanup after all evaluation is complete
             if trainer.config.trainer_config.use_wandb:

@@ -447,6 +447,7 @@ def predict(
     # Construction-time (model/device)
     device: str = "auto",
     batch_size: int = 4,
+    precision: str = "32",
     runtime: str = "auto",
     backbone_ckpt_path: Optional[str] = None,
     head_ckpt_path: Optional[str] = None,
@@ -539,6 +540,10 @@ def predict(
             to ``model_paths``).
         device: ``"auto"``, ``"cpu"``, ``"cuda"``, ``"mps"``, etc.
         batch_size: Frames per batch.
+        precision: ``"32"`` (strict fp32, the default), ``"bf16"`` or ``"fp16"``:
+            run the model forward under ``torch.autocast`` with that dtype
+            (CUDA only). Checkpoint models only; exported models keep the
+            precision they were exported with.
         runtime: Runtime for an exported model: ``"auto"`` (prefer TensorRT,
             fall back to ONNX), ``"onnx"``, or ``"tensorrt"``. Ignored when
             ``model_paths`` is given (checkpoints).
@@ -774,6 +779,13 @@ def predict(
         "batch_size": batch_size,
         "paf_workers": paf_workers,
     }
+    if precision != "32":
+        if export_dir:
+            raise ValueError(
+                "precision is not available for exported (ONNX/TensorRT) models; "
+                "export them at the precision you want instead."
+            )
+        build_kwargs["precision"] = precision
     if filter_config is not None:
         build_kwargs["filter_config"] = filter_config
     if tracker_config is not None:

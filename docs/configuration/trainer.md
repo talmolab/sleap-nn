@@ -781,6 +781,27 @@ Only one scheduler is used. Priority: `cosine_annealing_warmup` >
 | `coco_metrics` | bool | `false` | Add COCOeval-faithful `coco.*` metrics to post-training eval; top-down models then predict with `peak_threshold` 0 and mmpose rescoring. See [COCO-Style Evaluation](../guides/coco-evaluation.md) |
 | `match_threshold` | float | `50.0` | Max distance (px) for centroid matching (centroid models only) |
 | `file_nodes` | dict | `null` | With several validation files: the nodes each file is scored on, keyed by its display name (`data_config.val_names`), as a node list or a name prefix. Unlisted files are scored on the model nodes their skeleton has. See [Per-file validation](../guides/warp-data-path.md#per-file-validation) |
+| `post_train_splits` | list | `null` | Splits the post-training evaluation predicts and scores, any of `val`, `test`, `train` (always run in that order). `null` = all three |
+| `post_train_max_train_frames` | int | `null` | Score only this many random frames (seeded by `seed`) of each train file after training. Val and test always run in full |
+| `post_train_batch_size` | int | `null` | Frames per prediction batch after training. `null` = `val_data_loader.batch_size`, or 4 for the crop-based top-down models |
+| `post_train_precision` | str | `null` | `"32"`, `"bf16"` or `"fp16"` (CUDA autocast) for the post-training predictions. `null` follows `precision` (`bf16-mixed` -> bf16) |
+
+!!! tip "Post-training evaluation on large training sets"
+    After `fit`, the run predicts every saved GT file (`labels_gt.<split>.N.slp`)
+    and the test files, and scores them (`metrics.<split>.N.npz`). The held-out
+    splits run first. Predicting a large training set can take hours and adds
+    little; skip it or score a sample:
+
+    ```yaml
+    trainer_config:
+      eval:
+        post_train_splits: [val, test]       # or keep train and sample it:
+        post_train_max_train_frames: 5000
+    ```
+
+    The predictions log their progress (frames, frames/s, ETA) every minute, run
+    at the training precision, and keep `float32_matmul_precision` (TF32) as
+    during `fit`.
 
 !!! info "Model-Type-Dependent Evaluation"
     SLEAP-NN automatically selects the appropriate evaluation callback based on model type:
