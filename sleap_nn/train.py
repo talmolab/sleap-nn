@@ -489,6 +489,7 @@ def run_training(
     config: DictConfig,
     train_labels: Optional[List[sio.Labels]] = None,
     val_labels: Optional[List[sio.Labels]] = None,
+    dry_run: bool = False,
 ):
     """Create ModelTrainer instance and start training.
 
@@ -497,7 +498,18 @@ def run_training(
         train_labels: List of Labels objects for training.
         val_labels: List of Labels objects for validation.
             If not provided, the labels will be loaded from paths in the config.
+        dry_run: If True, run all setup plus one training and one validation
+            batch, write nothing to disk, and skip post-training evaluation. See
+            `ModelTrainer.train`.
     """
+    if dry_run:
+        logger.info(get_startup_info_string())
+        trainer = ModelTrainer.get_model_trainer_from_config(
+            config, train_labels=train_labels, val_labels=val_labels
+        )
+        trainer.train(dry_run=True)
+        return
+
     start_train_time = time()
     start_timestamp = str(datetime.now())
     logger.info(f"Started training at: {start_timestamp}")

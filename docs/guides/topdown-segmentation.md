@@ -66,7 +66,7 @@ labels.save("poses_masked.pkg.slp", embed=True)   # embed to keep it self-contai
 
 ```bash
 sleap-nn train --config-name config_topdown_centered_instance_segmentation_unet \
-  data_config.train_labels_path=[train.pkg.slp] data_config.val_labels_path=[val.pkg.slp]
+  --labels train.pkg.slp --val-labels val.pkg.slp
 ```
 
 ## Inference

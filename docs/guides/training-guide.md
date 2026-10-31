@@ -30,6 +30,26 @@ sleap-nn train --config-dir /path/to/configs --config-name my_config
 
 See the [CLI Reference](../reference/cli.md) for all available parameters.
 
+### Checking a Config First
+
+Add `--dry-run` to check a config before a long run:
+
+```bash
+sleap-nn train --config config.yaml --dry-run
+```
+
+It loads the labels, resolves and validates the config, builds the datasets
+and model, and runs one training batch and one validation batch on a single
+device. Then it prints a summary (model type, frame counts, steps per epoch,
+parameter count, run folder) and exits. Nothing is written to disk. Config and
+data errors show up in seconds instead of after training has started.
+
+A dry run reads images straight from the labels instead of caching them, and
+uses one device, so it doesn't check that the image cache fits in memory or
+that multi-GPU setup works.
+
+To resume an interrupted run, see [Resume & Fine-Tune](resume-finetune.md).
+
 ### Using Python API
 
 ```python
@@ -71,8 +91,9 @@ sleap-nn train --config config.yaml trainer_config.optimizer.lr=0.0005
 # Change batch size
 sleap-nn train --config config.yaml trainer_config.train_data_loader.batch_size=8
 
-# Set training data
-sleap-nn train --config config.yaml "data_config.train_labels_path=[train.slp]"
+# Set training data (and, optionally, validation data)
+sleap-nn train --config config.yaml --labels train.slp
+sleap-nn train --config config.yaml --labels train.slp --val-labels val.slp
 
 # Set number of GPUs
 sleap-nn train --config config.yaml trainer_config.trainer_devices=1
@@ -144,12 +165,10 @@ Top-down models need two separate training runs. See [Model Types](../reference/
 
 ```bash
 # Train centroid model
-sleap-nn train -d /path/to/configs -c centroid_unet \
-    "data_config.train_labels_path=[labels.pkg.slp]"
+sleap-nn train -d /path/to/configs -c centroid_unet --labels labels.pkg.slp
 
 # Train centered instance model
-sleap-nn train -d /path/to/configs -c centered_instance_unet \
-    "data_config.train_labels_path=[labels.pkg.slp]"
+sleap-nn train -d /path/to/configs -c centered_instance_unet --labels labels.pkg.slp
 ```
 
 ---

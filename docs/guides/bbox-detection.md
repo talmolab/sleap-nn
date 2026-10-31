@@ -119,7 +119,7 @@ Notes:
 
 ```bash
 sleap-nn train --config config_bbox_centernet_unet.yaml \
-  data_config.train_labels_path=[train.pkg.slp] data_config.val_labels_path=[val.pkg.slp]
+  --labels train.pkg.slp --val-labels val.pkg.slp
 ```
 
 Logged per epoch: `train|val/center_loss, size_loss, offset_loss` (CenterNet) or

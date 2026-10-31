@@ -243,8 +243,7 @@ Train exactly as usual — the backbone is selected purely from config:
 
 ```bash
 sleap-nn train config.yaml \
-  data_config.train_labels_path="[train.pkg.slp]" \
-  data_config.val_labels_path="[val.pkg.slp]"
+  --labels train.pkg.slp --val-labels val.pkg.slp
 ```
 
 Ready-to-edit samples:

@@ -64,6 +64,9 @@ Or grab a [sample config](../configuration/samples.md) for your model type.
 sleap-nn train --config config.yaml
 ```
 
+!!! tip "Check first, or train on another file"
+    `sleap-nn train --config config.yaml --dry-run` runs setup plus one training batch in seconds and writes nothing, so config and data errors show up before a long run. Add `--labels other.slp` to train the same config on a different labels file.
+
 That's it! Training will:
 
 1. Load your data
