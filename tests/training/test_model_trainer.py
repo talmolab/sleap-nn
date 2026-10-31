@@ -3031,3 +3031,39 @@ def test_computed_crop_size_is_reported_with_its_provenance(config, caplog):
         record.levelname == "WARNING" and "Computed crop size" in record.message
         for record in caplog.records
     )
+
+
+@pytest.mark.parametrize(
+    "polling_timeout_us, expected_ms",
+    [(10, 0), (999, 0), (2500, 2)],
+)
+def test_controller_polling_timeout_is_microseconds(
+    config, tmp_path, minimal_instance, polling_timeout_us, expected_ms
+):
+    """`zmq.controller_polling_timeout` is documented in microseconds; pyzmq's
+    `poll` takes milliseconds, so the trainer must convert (rounding down). The
+    default 10 us must not become a 10 ms wait after every training batch."""
+    from sleap_nn.training.callbacks import TrainingControllerZMQ
+
+    cfg = config.copy()
+    OmegaConf.update(cfg, "trainer_config.ckpt_dir", f"{tmp_path}")
+    OmegaConf.update(cfg, "trainer_config.run_name", "zmq_poll_timeout_test")
+    OmegaConf.update(cfg, "trainer_config.zmq.controller_port", 9011)
+    OmegaConf.update(
+        cfg, "trainer_config.zmq.controller_polling_timeout", polling_timeout_us
+    )
+
+    labels = sio.load_slp(minimal_instance)
+    trainer = ModelTrainer.get_model_trainer_from_config(
+        cfg, train_labels=[labels], val_labels=[labels]
+    )
+    _, callbacks = trainer._setup_loggers_callbacks(
+        viz_train_dataset=None, viz_val_dataset=None
+    )
+    controllers = [c for c in callbacks if isinstance(c, TrainingControllerZMQ)]
+    try:
+        assert len(controllers) == 1
+        assert controllers[0].timeout == expected_ms
+    finally:
+        for c in controllers:
+            c.teardown(None, None, "fit")

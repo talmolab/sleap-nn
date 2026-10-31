@@ -1323,10 +1323,13 @@ class TrainingControllerZMQ(Callback):
     Attributes:
         address: ZMQ socket address to subscribe to.
         topic: Topic filter for messages.
-        timeout: Poll timeout in milliseconds when checking for new messages.
+        timeout: Poll timeout in milliseconds (pyzmq's unit) when checking for new
+            messages after each training batch. The default, 0, checks without
+            waiting: a message published since the last check is already queued on
+            the socket, so nothing is missed, and training never sits idle here.
     """
 
-    def __init__(self, address="tcp://127.0.0.1:9000", topic="", poll_timeout=10):
+    def __init__(self, address="tcp://127.0.0.1:9000", topic="", poll_timeout=0):
         """Initialize the controller callback by connecting to the specified ZMQ PUB socket."""
         super().__init__()
         self.address = address

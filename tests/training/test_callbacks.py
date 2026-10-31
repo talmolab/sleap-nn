@@ -1260,6 +1260,60 @@ class TestTrainingControllerZMQ:
 
             assert mock_trainer.should_stop is False
 
+    def test_default_poll_does_not_wait(self):
+        """By default each batch-end check polls with a 0 ms timeout (no waiting)."""
+        with patch("sleap_nn.training.callbacks.zmq") as mock_zmq:
+            mock_context = MagicMock()
+            mock_socket = MagicMock()
+            mock_zmq.Context.instance.return_value = mock_context
+            mock_context.socket.return_value = mock_socket
+            mock_zmq.POLLIN = 1
+
+            callback = TrainingControllerZMQ()
+            assert callback.timeout == 0
+
+            mock_trainer = MagicMock()
+            mock_trainer.is_global_zero = True
+            mock_trainer.should_stop = False
+            mock_trainer.strategy.reduce_boolean_decision.side_effect = (
+                lambda decision, all=False: decision
+            )
+            mock_socket.poll.return_value = False
+
+            callback.on_train_batch_end(mock_trainer, MagicMock(), {}, {}, 0)
+
+            mock_socket.poll.assert_called_once_with(0, 1)
+
+    def test_stop_published_between_batches_is_received_without_waiting(self):
+        """A real PUB/SUB pair: a stop sent while a batch runs is queued on the
+        socket and picked up by the next 0 ms poll, as the SLEAP GUI's stop is."""
+        import zmq
+
+        context = zmq.Context.instance()
+        publisher = context.socket(zmq.PUB)
+        port = publisher.bind_to_random_port("tcp://127.0.0.1")
+        callback = TrainingControllerZMQ(address=f"tcp://127.0.0.1:{port}")
+        assert callback.timeout == 0
+
+        mock_trainer = MagicMock()
+        mock_trainer.is_global_zero = True
+        mock_trainer.should_stop = False
+        mock_trainer.strategy.reduce_boolean_decision.side_effect = (
+            lambda decision, all=False: decision
+        )
+        try:
+            # A SUB socket only receives messages published after its subscription
+            # reaches the publisher, so keep publishing until one gets through.
+            deadline = time.time() + 5
+            while not mock_trainer.should_stop and time.time() < deadline:
+                publisher.send_string(jsonpickle.encode({"command": "stop"}))
+                time.sleep(0.02)  # a "batch"
+                callback.on_train_batch_end(mock_trainer, MagicMock(), {}, {}, 0)
+            assert mock_trainer.should_stop is True
+        finally:
+            callback.teardown(None, None, "fit")
+            publisher.close(linger=0)
+
     def test_del_closes_socket(self):
         """Destructor closes the socket once and leaves the shared context alone."""
         with patch("sleap_nn.training.callbacks.zmq") as mock_zmq:
