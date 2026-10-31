@@ -456,11 +456,8 @@ class FrameFit:
 
         # Image lists read this from the file header, other videos from `shape`.
         height, width = video.get_frame_size(frame_idx)
-        img = np.asarray(
-            video.get_frame(frame_idx, downscale=self.downscale(height, width))
-        )
-        if img.ndim == 2:
-            img = img[..., None]
+        # (H, W, C), whatever the backend.
+        img = video.get_frame(frame_idx, downscale=self.downscale(height, width))
         read_h, read_w = img.shape[:2]  # Full size if there was no reduced decode.
         x = torch.from_numpy(np.ascontiguousarray(img.transpose(2, 0, 1)))
         if self.resize_mode == "squash":

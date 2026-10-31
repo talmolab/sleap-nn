@@ -1148,6 +1148,10 @@ def test_bbox_layer_rejects_frame_scales_on_unfitted_frames():
         layer.predict(
             frame, frame_scales=np.ones((1, 2)), frame_sizes=np.array([[90, 60]])
         )
+    with pytest.raises(ValueError, match="frame_scales needs frame_sizes"):
+        layer.predict(
+            np.zeros((1, 1, 128, 128), np.uint8), frame_scales=np.ones((1, 2))
+        )
 
 
 def test_predictor_fits_detector_frames_on_cpu(tmp_path, monkeypatch):

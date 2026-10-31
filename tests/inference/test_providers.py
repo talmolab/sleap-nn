@@ -795,3 +795,13 @@ def test_labels_provider_fit_batches_grayscale_with_color_frames(tmp_path):
     assert batch.images.shape == (2, 3, 16, 16)
     gray_fit = batch.images[0][:, :10]  # inside the letterboxed content
     assert (gray_fit[0] == gray_fit[1]).all() and (gray_fit[1] == gray_fit[2]).all()
+
+
+def test_predictor_rejects_fitted_frames_for_a_layer_without_frame_scales(tmp_path):
+    """Only a layer that maps outputs back with ``frame_scales`` gets fitted frames."""
+    from sleap_nn.inference.providers import FrameFit
+
+    labels = _interleaved_jpeg_labels(tmp_path, sizes=((40, 60),))
+    provider = LabelsProvider(labels=labels, batch_size=2, fit=FrameFit(16, 16))
+    with pytest.raises(ValueError, match="cannot take frames the provider"):
+        list(Predictor(layer=_StubLayer())._batch_iter(provider))
