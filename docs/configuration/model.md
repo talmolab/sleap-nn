@@ -522,7 +522,7 @@ model_config:
 | `include` | list | `null` | Selectors of weights to load (`null` = all): `all`, `backbone`, `encoder`, `decoder`, `neck`, `head`, `embeddings`, `blocks[a:b]`, globs |
 | `exclude` | list | `null` | Selectors of weights to leave at their init |
 | `remap_nodes` | bool | `true` | Copy per-node head channels by node name |
-| `node_map` | dict | `null` | `{target node: source node}` overrides. For `bbox_detr` the class-head rows are matched by class name the same way (the never-positive extra logit is `__extra__`); classes the source lacks start fresh |
+| `node_map` | dict | `null` | `{target node: source node}` overrides. For `bbox_detr` the class-head rows are matched by class name the same way (the never-positive extra logit is `__extra__`; leave it unmapped so it takes the source's own); classes the source lacks start fresh |
 | `source_part_names` | list | `null` | Source node names, for checkpoints that record none |
 | `interpolate_pos_embed` | bool | `true` | Resize learned positional embeddings to the new token grid |
 | `reinit` | list | `null` | Selectors re-initialized after loading |

@@ -217,10 +217,9 @@ data_config:
 model_config:
   init_from:
     path: models/rfdetr-medium
-    # Optional: seed rows from related source classes, {target: source}.
-    # __extra__ is the never-positive extra logit; RF-DETR's person row is a good seed.
-    node_map:
-      __extra__: person
+    # Optional: seed new classes from related source classes, {target: source}.
+    # node_map:
+    #   mouse: cat
   backbone_config:
     dinov2_windowed: {...}       # as in the imported model's training_config.yaml
   head_configs:
@@ -231,6 +230,14 @@ model_config:
         num_queries: 300         # RF-DETR's; fewer and its query embeddings start fresh
         num_select: 300
 ```
+
+Don't map `__extra__`, the never-positive extra logit. Unmapped, it takes the
+source's own extra logit, which is never positive either. Seeded from a real class
+(`{__extra__: person}`), it starts out scoring like that class, so at every object
+the loss pushes it down through the same decoder features that score the class. On
+RF-DETR-L fine-tuned on COCO persons, this term was 4.6 of the 7.8 step-0
+classification loss, and its gradient on the shared weights was 2.5x the person
+gradient.
 
 The config generator writes this for you (an `rfdetr_*` preset with `init_from`
 switches to squash and 300 queries):

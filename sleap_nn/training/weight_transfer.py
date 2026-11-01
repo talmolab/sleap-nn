@@ -592,6 +592,16 @@ def transfer_state_dict(
                     f"{len(copied)}/{len(t_names)} class rows copied by name "
                     f"from {len(s_names)} source rows"
                 )
+                seed = (node_map or {}).get(DETR_EXTRA_LOGIT, DETR_EXTRA_LOGIT)
+                note = (
+                    f"node_map seeds the never-positive {DETR_EXTRA_LOGIT} logit "
+                    f"from the source class '{seed}'. It then scores like that class, "
+                    "and the loss pushes it down at every object through the shared "
+                    "decoder features, which costs AP early in fine-tuning. Leave "
+                    f"{DETR_EXTRA_LOGIT} unmapped to take the source's own extra logit."
+                )
+                if seed != DETR_EXTRA_LOGIT and note not in report.warnings:
+                    report.warnings.append(note)
                 if fresh and "detr (classes)" not in fresh_reported:
                     fresh_reported.add("detr (classes)")
                     report.reinitialized[f"{prefix}detr (classes)"] = (

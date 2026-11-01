@@ -571,14 +571,18 @@ def test_class_subset_init_from_imported_rfdetr(tiny_import):
     report = module.transfer_reports[-1]
     assert any("class rows copied by name" in v for v in report.remapped.values())
     assert not report.skipped
+    # Seeding the never-positive logit from a real class is reported.
+    assert any("never-positive __extra__" in w for w in report.warnings)
 
     # Default: the extra logit comes from the source's own extra logit.
     cfg.model_config.init_from = {"path": tiny_import.as_posix()}
-    state = _module(cfg).state_dict()
+    module = _module(cfg)
+    state = module.state_dict()
     torch.testing.assert_close(
         state["model.detr.class_embed.bias"],
         source["model.detr.class_embed.bias"][[3, 1, 5]],
     )
+    assert not module.transfer_reports[-1].warnings
 
 
 def test_checkpoint_records_detr_class_rows(tiny_import, tmp_path):
@@ -618,7 +622,7 @@ def test_bbox_detr_training_config_round_trip(tmp_path):
     assert list(detr_aug.crop_range) == [384, 600]
     detr = cfg.model_config.head_configs.bbox_detr.detr
     assert detr.lr_component_decay == 0.7 and list(detr.categories) == ["person"]
-    assert cfg.model_config.init_from.node_map == {"__extra__": "person"}
+    assert cfg.model_config.init_from.node_map is None
     assert cfg.trainer_config.ema.decay == 0.993
     assert cfg.trainer_config.ema.warmup_steps == 100
     assert cfg.trainer_config.gradient_clip_val == 0.1

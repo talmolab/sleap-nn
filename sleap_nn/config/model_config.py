@@ -2159,8 +2159,10 @@ class InitFromConfig:
             to seed a new node from a related source node. For ``bbox_detr`` the
             class heads' rows (``categories`` plus the never-positive extra logit,
             named ``__extra__``) are matched by class name the same way, so a
-            subset of the source classes keeps their rows and ``{__extra__:
-            person}`` seeds the extra logit from the source's ``person`` row.
+            subset of the source classes keeps their rows and the extra logit
+            takes the source's own. Leave ``__extra__`` unmapped: seeding it from
+            a real class (e.g. ``{__extra__: person}``) makes it score like that
+            class, and the loss then fights it at every object.
             *Default*: ``None``.
         source_part_names: (List[str]) Source node names, for checkpoints that do
             not record them. *Default*: ``None``.
