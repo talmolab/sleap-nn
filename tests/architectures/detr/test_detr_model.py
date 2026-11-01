@@ -157,6 +157,23 @@ def test_init_matches_rf_detr():
         assert head.enc_out_class_embed[g].weight is not head.class_embed.weight
 
 
+def test_init_matches_rf_detr_attention_and_enc_output():
+    """Self-attention as nn.MultiheadAttention, enc_output Xavier (rfdetr @ d7d7e4c)."""
+    _, head = _tiny()
+    d = TINY["hidden_dim"]
+    packed_bound = (6 / (3 * d + d)) ** 0.5  # Xavier over the packed (3d, d) q/k/v
+    square_bound = (6 / (d + d)) ** 0.5  # Xavier over a (d, d) matrix
+    default_bound = 1 / d**0.5  # nn.Linear's default
+    for layer in head.decoder.layers:
+        attn = layer.self_attn
+        for proj in (attn.q_proj, attn.k_proj, attn.v_proj):
+            assert proj.weight.abs().max() <= packed_bound
+            assert torch.all(proj.bias == 0)
+        assert torch.all(attn.o_proj.bias == 0)
+    for proj in head.enc_output:
+        assert default_bound < proj.weight.abs().max() <= square_bound
+
+
 def test_too_few_tokens_raises():
     backbone, head = _tiny(num_queries=50)
     with pytest.raises(ValueError, match="fewer tokens than num_queries"):

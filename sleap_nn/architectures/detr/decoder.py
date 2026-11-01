@@ -127,6 +127,24 @@ class GroupSelfAttention(nn.Module):
         self.k_proj = nn.Linear(d_model, d_model)
         self.v_proj = nn.Linear(d_model, d_model)
         self.o_proj = nn.Linear(d_model, d_model)
+        self.reset_parameters()
+
+    @torch.no_grad()
+    def reset_parameters(self):
+        """``nn.MultiheadAttention``'s init (RF-DETR's self-attention).
+
+        Xavier over the packed ``(3 * d_model, d_model)`` q/k/v projection (not over
+        each third), and zero q/k/v/output biases. The output weight is left as is.
+        """
+        d_model = self.q_proj.weight.shape[1]
+        packed = torch.empty(3 * d_model, d_model, device=self.q_proj.weight.device)
+        nn.init.xavier_uniform_(packed)
+        for proj, weight in zip(
+            (self.q_proj, self.k_proj, self.v_proj), packed.chunk(3)
+        ):
+            proj.weight.copy_(weight)
+        for proj in (self.q_proj, self.k_proj, self.v_proj, self.o_proj):
+            nn.init.zeros_(proj.bias)
 
     def forward(
         self, hidden_states: torch.Tensor, query_pos: torch.Tensor, num_groups: int = 1
