@@ -12,6 +12,8 @@ from __future__ import annotations
 
 from typing import List, Optional, Tuple
 
+import attrs
+import numpy as np
 import torch
 
 from sleap_nn.inference.bbox import BBoxDecoder, clip_boxes_to_frame
@@ -61,6 +63,46 @@ class BBoxLayer(InferenceLayer):
         """Ordered class names (``Outputs.pred_bbox_classes`` indexes into it)."""
         return self.decoder.categories
 
+    def predict(
+        self,
+        image,
+        frame_scales: Optional[np.ndarray | torch.Tensor] = None,
+        frame_sizes: Optional[np.ndarray | torch.Tensor] = None,
+    ) -> Outputs:
+        """Detect boxes on a batch of frames.
+
+        Args:
+            image: Batch of frames.
+            frame_scales: Optional ``(B, 2)`` ``(x, y)`` scale from each original
+                frame to ``image``, for frames the provider already fitted to the
+                model input (``Batch.frame_scales``, ``LabelsProvider(fit=...)``).
+                The size matcher then has nothing left to do, and the boxes are
+                mapped back with these scales instead.
+            frame_sizes: ``(B, 2)`` original ``(height, width)`` of each frame,
+                required with ``frame_scales``; the boxes are clipped to them.
+
+        Returns:
+            The decoded ``Outputs`` (see :meth:`postprocess`).
+        """
+        x, info = self.preprocess(image)
+        if frame_scales is not None:
+            if frame_sizes is None:
+                raise ValueError("frame_scales needs frame_sizes.")
+            if not torch.all(info.eff_scale == 1.0):
+                raise ValueError(
+                    "frame_scales was given, but the frames are not at the model "
+                    f"input size ({self.preprocess_config.max_height}x"
+                    f"{self.preprocess_config.max_width}), so the size matcher "
+                    "resized them again."
+                )
+            info = attrs.evolve(
+                info,
+                eff_scale=torch.as_tensor(frame_scales, dtype=torch.float32),
+                original_sizes=torch.as_tensor(frame_sizes),
+            )
+        raw = self.backend(x)
+        return self.postprocess(raw, info)
+
     def postprocess(self, raw_out: dict, info: PreprocInfo) -> Outputs:
         """Decode the head outputs into boxes in original-image pixels.
 
@@ -85,7 +127,14 @@ class BBoxLayer(InferenceLayer):
         corners = undo_eff_scale(corners, info.eff_scale)
         boxes = corners.reshape(boxes.shape)
         boxes, scores, classes = clip_boxes_to_frame(
-            boxes, scores, classes, info.original_size
+            boxes,
+            scores,
+            classes,
+            (
+                info.original_size
+                if info.original_sizes is None
+                else info.original_sizes
+            ),
         )
         return Outputs(
             pred_bboxes=boxes.detach(),

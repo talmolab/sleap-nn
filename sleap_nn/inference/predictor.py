@@ -72,7 +72,7 @@ from sleap_nn.inference.layers.topdown_segmentation import (
     TopDownSegmentationLayer,
 )
 from sleap_nn.inference.outputs import Outputs
-from sleap_nn.inference.providers import Provider
+from sleap_nn.inference.providers import FrameFit, Provider
 from sleap_nn.inference.tracking import (
     TrackerConfig,
     apply_tracking,
@@ -1990,14 +1990,16 @@ class Predictor:
         source: Any,
         frames: Optional[List[int]] = None,
         group_by_shape: bool = False,
+        fit: Optional[FrameFit] = None,
         **provider_kwargs: Any,
     ) -> tuple["Provider", Optional[List["sio.Video"]]]:
         """Wrap a source into a ``Provider`` + extract videos for label packaging.
 
         Returns ``(provider, videos)`` where ``videos`` is a list of
         ``sio.Video`` when derivable from the source, else ``None``.
-        ``group_by_shape`` is forwarded to a ``LabelsProvider`` built here
-        (``.slp`` path or ``sio.Labels`` source); other providers ignore it.
+        ``group_by_shape`` and ``fit`` are forwarded to a ``LabelsProvider`` built
+        here (``.slp`` path or ``sio.Labels`` source); other providers ignore
+        them.
         """
         import sleap_io as sio
 
@@ -2067,6 +2069,7 @@ class Predictor:
                     batch_size=self.batch_size,
                     frames=frames,
                     group_by_shape=group_by_shape,
+                    fit=fit,
                     **provider_kwargs,
                 )
                 return provider, (list(labels.videos) if labels.videos else None)
@@ -2099,6 +2102,7 @@ class Predictor:
                 batch_size=self.batch_size,
                 frames=frames,
                 group_by_shape=group_by_shape,
+                fit=fit,
                 **provider_kwargs,
             )
             videos = list(source.videos) if source.videos else None
@@ -2300,10 +2304,13 @@ class Predictor:
         # LabeledFrame.masks; apply_tracking auto-detects the mask-only labels
         # and tracks them by pixel mask-IoU (#619), so tracking is supported.
 
-        # Frames of one size are batched together; `to_labels` output is put
-        # back in source order below.
+        # A whole-frame detector reads its frames already fitted to the model
+        # input, so batches fill whatever the frame sizes. Otherwise frames of
+        # one size are batched together, and the `to_labels` output is put back
+        # in source order below.
+        fit = self._frame_fit()
         provider, auto_videos = self._make_provider(
-            source, frames=frames, group_by_shape=True
+            source, frames=frames, group_by_shape=fit is None, fit=fit
         )
         if videos is None:
             videos = auto_videos
@@ -2652,10 +2659,12 @@ class Predictor:
             layer_accepts_instances = "instances" in sig.parameters
             layer_accepts_boxes = "instance_boxes" in sig.parameters
             layer_accepts_frame_boxes = "frame_boxes" in sig.parameters
+            layer_accepts_frame_scales = "frame_scales" in sig.parameters
         except (TypeError, ValueError):  # pragma: no cover — non-introspectable
             layer_accepts_instances = False
             layer_accepts_boxes = False
             layer_accepts_frame_boxes = False
+            layer_accepts_frame_scales = False
 
         pipeline = self.filter_pipeline
         total = _safe_num_frames(provider)
@@ -2679,6 +2688,17 @@ class Predictor:
             if frame_boxes is not None and layer_accepts_frame_boxes:
                 kwargs["frame_boxes"] = torch.as_tensor(frame_boxes)
                 kwargs["frame_box_scores"] = torch.as_tensor(batch.frame_box_scores)
+            frame_scales = getattr(batch, "frame_scales", None)
+            if frame_scales is not None:
+                # Frames fitted to the model input before batching: only a layer
+                # that maps its outputs back with these can take them.
+                if not layer_accepts_frame_scales:
+                    raise ValueError(
+                        f"{type(layer).__name__} cannot take frames the provider "
+                        "already fitted to the model input (LabelsProvider(fit=...))."
+                    )
+                kwargs["frame_scales"] = frame_scales
+                kwargs["frame_sizes"] = batch.frame_sizes
             outputs = layer.predict(batch.images, **kwargs)
             outputs = pipeline(outputs)
             outputs = self._stamp_metadata(outputs, batch)
@@ -2966,6 +2986,27 @@ class Predictor:
                 TiledSegmentationLayer,
                 TiledSemanticSegmentationLayer,
             ),
+        )
+
+    def _frame_fit(self) -> Optional[FrameFit]:
+        """How a whole-frame detector's frames are fitted while they are read.
+
+        A :class:`BBoxLayer` (not a top-down stage) with a fixed input size
+        (``max_height`` and ``max_width``) only ever sees each frame resized to
+        it, so the provider can decode and resize on the CPU (``FrameFit``).
+        ``None`` for every other layer: they work at the frame's own resolution
+        (top-down crops, keypoint and mask outputs) or have no fixed input size.
+        """
+        layer = self.layer
+        if not isinstance(layer, BBoxLayer) or isinstance(layer, BBoxStageLayer):
+            return None
+        cfg = layer.preprocess_config
+        if cfg.max_height is None or cfg.max_width is None:
+            return None
+        return FrameFit(
+            max_height=int(cfg.max_height),
+            max_width=int(cfg.max_width),
+            resize_mode=cfg.resize_mode,
         )
 
     def _is_bbox_layer(self) -> bool:

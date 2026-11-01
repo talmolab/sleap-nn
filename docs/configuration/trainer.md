@@ -801,7 +801,8 @@ Only one scheduler is used. Priority: `cosine_annealing_warmup` >
 
     The predictions log their progress (frames, frames/s, ETA) every minute, run
     at the training precision, and keep `float32_matmul_precision` (TF32) as
-    during `fit`.
+    during `fit`. Box detectors read their frames already fitted to the model
+    input (see [Bounding-box detection](../guides/bbox-detection.md#inference)).
 
 !!! info "Model-Type-Dependent Evaluation"
     SLEAP-NN automatically selects the appropriate evaluation callback based on model type:

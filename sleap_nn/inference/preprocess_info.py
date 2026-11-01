@@ -41,6 +41,11 @@ class PreprocInfo:
             shape. Currently informational; not used in coord ops.
         crop_offsets: ``(B*I, 2)`` top-left corner of each crop bbox, only
             populated by top-down stage 2. ``None`` for non-top-down layers.
+        original_sizes: ``(B, 2)`` ``(height, width)`` of each original frame,
+            when the frames were fitted to the model input before batching
+            (``Batch.frame_sizes``), so a batch mixes frame sizes and
+            ``original_size`` (the batch's input size) is not the frames'.
+            ``None`` otherwise.
     """
 
     original_size: Tuple[int, int] = (0, 0)
@@ -50,6 +55,7 @@ class PreprocInfo:
     output_stride: int = 1
     pad_amount: Tuple[int, int] = (0, 0)
     crop_offsets: Optional[torch.Tensor] = None
+    original_sizes: Optional[torch.Tensor] = None
 
     def cpu(self) -> "PreprocInfo":
         """Return a copy with nested tensors detached + moved to CPU.
@@ -65,6 +71,11 @@ class PreprocInfo:
             crop_offsets=(
                 self.crop_offsets.detach().cpu()
                 if self.crop_offsets is not None
+                else None
+            ),
+            original_sizes=(
+                self.original_sizes.detach().cpu()
+                if self.original_sizes is not None
                 else None
             ),
         )
