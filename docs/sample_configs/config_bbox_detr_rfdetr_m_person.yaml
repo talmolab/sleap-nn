@@ -41,11 +41,10 @@ data_config:
 model_config:
   init_weights: default
   # Start from the imported RF-DETR-M. Class rows are copied by name: `person`
-  # from COCO's person row, and the extra (never positive) logit from it too.
+  # from COCO's person row, and the extra (never positive) logit from the import's
+  # own extra logit.
   init_from:
     path: models/rfdetr-medium
-    node_map:
-      __extra__: person
   backbone_config:
     dinov2_windowed:
       in_channels: 3
