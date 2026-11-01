@@ -29,13 +29,19 @@ HF's mask-free path (all-valid mask) is the same computation.
 """
 
 import copy
+import itertools
 import math
 from typing import Dict, Optional, Sequence, Tuple
 
 import torch
 from torch import nn
 
-from sleap_nn.architectures.detr.decoder import MLP, Decoder, refine_boxes
+from sleap_nn.architectures.detr.decoder import (
+    MLP,
+    Decoder,
+    GroupSelfAttention,
+    refine_boxes,
+)
 from sleap_nn.architectures.detr.deformable_attention import (
     MultiScaleDeformableAttention,
 )
@@ -175,14 +181,17 @@ class BBoxDetrHead(nn.Module):
     def _reset_parameters(self):
         """RF-DETR init.
 
-        Xavier on the decoder's matrices, then the deformable attention init;
-        reference deltas at 0; class bias at prior 0.01; last box layer at 0.
+        Xavier on the matrices of the decoder and the encoder proposal projections
+        (``enc_output``), then the self- and deformable-attention inits; reference
+        deltas at 0; class bias at prior 0.01; last box layer at 0.
         """
-        for p in self.decoder.parameters():
+        for p in itertools.chain(
+            self.decoder.parameters(), self.enc_output.parameters()
+        ):
             if p.dim() > 1:
                 nn.init.xavier_uniform_(p)
         for module in self.decoder.modules():
-            if isinstance(module, MultiScaleDeformableAttention):
+            if isinstance(module, (GroupSelfAttention, MultiScaleDeformableAttention)):
                 module.reset_parameters()
         nn.init.zeros_(self.reference_point_embed.weight)
         prior_prob = 0.01
