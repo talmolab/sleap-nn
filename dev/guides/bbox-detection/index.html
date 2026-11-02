@@ -8153,7 +8153,7 @@ checkpoint is picked on box mAP, see below). The sample configs
 </ul>
 <h2 id="training-and-monitoring">Training and monitoring<a class="headerlink" href="#training-and-monitoring" title="Permanent link">&para;</a></h2>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>sleap-nn<span class="w"> </span>train<span class="w"> </span>--config<span class="w"> </span>config_bbox_centernet_unet.yaml<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">  </span>data_config.train_labels_path<span class="o">=[</span>train.pkg.slp<span class="o">]</span><span class="w"> </span>data_config.val_labels_path<span class="o">=[</span>val.pkg.slp<span class="o">]</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">  </span>--labels<span class="w"> </span>train.pkg.slp<span class="w"> </span>--val-labels<span class="w"> </span>val.pkg.slp
 </span></code></pre></div>
 <p>Logged per epoch: <code>train|val/center_loss, size_loss, offset_loss</code> (CenterNet) or
 <code>train|val/cls_loss, box_loss</code> (SSD). With <code>trainer_config.eval.enabled: true</code>, every

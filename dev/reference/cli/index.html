@@ -8781,6 +8781,26 @@
 <td></td>
 <td>Map path prefix (OLD_PREFIX NEW_PREFIX)</td>
 </tr>
+<tr>
+<td><code>--labels</code></td>
+<td><code>-l</code></td>
+<td>Training labels <code>.slp</code>, replacing <code>data_config.train_labels_path</code> (multiple allowed)</td>
+</tr>
+<tr>
+<td><code>--val-labels</code></td>
+<td></td>
+<td>Validation labels <code>.slp</code>, replacing <code>data_config.val_labels_path</code> (multiple allowed)</td>
+</tr>
+<tr>
+<td><code>--resume</code></td>
+<td></td>
+<td>Resume a run from its folder or a <code>.ckpt</code> file (writes to a new <code>&lt;run_name&gt;-1</code> folder)</td>
+</tr>
+<tr>
+<td><code>--dry-run</code></td>
+<td></td>
+<td>Check the config and data (setup + one train/val batch), write nothing, print a summary</td>
+</tr>
 </tbody>
 </table>
 <h3 id="examples">Examples<a class="headerlink" href="#examples" title="Permanent link">&para;</a></h3>
@@ -8793,8 +8813,18 @@
 </span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="c1"># Override values</span>
 </span><span id="__span-1-8"><a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>sleap-nn<span class="w"> </span>train<span class="w"> </span>--config<span class="w"> </span>config.yaml<span class="w"> </span>trainer_config.max_epochs<span class="o">=</span><span class="m">200</span>
 </span><span id="__span-1-9"><a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>
-</span><span id="__span-1-10"><a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="c1"># Remap video paths</span>
-</span><span id="__span-1-11"><a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a>sleap-nn<span class="w"> </span>train<span class="w"> </span>--config<span class="w"> </span>config.yaml<span class="w"> </span>--prefix-map<span class="w"> </span>/old/data<span class="w"> </span>/new/data
+</span><span id="__span-1-10"><a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="c1"># Train a config on a different labels file</span>
+</span><span id="__span-1-11"><a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a>sleap-nn<span class="w"> </span>train<span class="w"> </span>config.yaml<span class="w"> </span>--labels<span class="w"> </span>labels.slp
+</span><span id="__span-1-12"><a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a>sleap-nn<span class="w"> </span>train<span class="w"> </span>config.yaml<span class="w"> </span>-l<span class="w"> </span>train.slp<span class="w"> </span>--val-labels<span class="w"> </span>val.slp
+</span><span id="__span-1-13"><a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a>
+</span><span id="__span-1-14"><a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a><span class="c1"># Remap video paths</span>
+</span><span id="__span-1-15"><a id="__codelineno-1-15" name="__codelineno-1-15" href="#__codelineno-1-15"></a>sleap-nn<span class="w"> </span>train<span class="w"> </span>--config<span class="w"> </span>config.yaml<span class="w"> </span>--prefix-map<span class="w"> </span>/old/data<span class="w"> </span>/new/data
+</span><span id="__span-1-16"><a id="__codelineno-1-16" name="__codelineno-1-16" href="#__codelineno-1-16"></a>
+</span><span id="__span-1-17"><a id="__codelineno-1-17" name="__codelineno-1-17" href="#__codelineno-1-17"></a><span class="c1"># Check a config before a long run</span>
+</span><span id="__span-1-18"><a id="__codelineno-1-18" name="__codelineno-1-18" href="#__codelineno-1-18"></a>sleap-nn<span class="w"> </span>train<span class="w"> </span>--config<span class="w"> </span>config.yaml<span class="w"> </span>--dry-run
+</span><span id="__span-1-19"><a id="__codelineno-1-19" name="__codelineno-1-19" href="#__codelineno-1-19"></a>
+</span><span id="__span-1-20"><a id="__codelineno-1-20" name="__codelineno-1-20" href="#__codelineno-1-20"></a><span class="c1"># Resume a run (and train it longer)</span>
+</span><span id="__span-1-21"><a id="__codelineno-1-21" name="__codelineno-1-21" href="#__codelineno-1-21"></a>sleap-nn<span class="w"> </span>train<span class="w"> </span>--resume<span class="w"> </span>models/my_run<span class="w"> </span>trainer_config.max_epochs<span class="o">=</span><span class="m">200</span>
 </span></code></pre></div>
 <hr />
 <h2 id="sleap-nn-track"><code>sleap-nn track</code><a class="headerlink" href="#sleap-nn-track" title="Permanent link">&para;</a></h2>

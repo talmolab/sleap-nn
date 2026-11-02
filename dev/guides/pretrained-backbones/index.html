@@ -8732,8 +8732,7 @@ were logged to the wandb project <code>sleap-nn-hf-backbones</code>.</p>
 </span></code></pre></div>
 <p>Train exactly as usual — the backbone is selected purely from config:</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>sleap-nn<span class="w"> </span>train<span class="w"> </span>config.yaml<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">  </span>data_config.train_labels_path<span class="o">=</span><span class="s2">&quot;[train.pkg.slp]&quot;</span><span class="w"> </span><span class="se">\</span>
-</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">  </span>data_config.val_labels_path<span class="o">=</span><span class="s2">&quot;[val.pkg.slp]&quot;</span>
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">  </span>--labels<span class="w"> </span>train.pkg.slp<span class="w"> </span>--val-labels<span class="w"> </span>val.pkg.slp
 </span></code></pre></div>
 <p>Ready-to-edit samples:</p>
 <ul>

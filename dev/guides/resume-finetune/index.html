@@ -7902,11 +7902,29 @@ fine-tuning a pre-trained model on new data.</p>
 </ul>
 <hr />
 <h2 id="resume-training">Resume Training<a class="headerlink" href="#resume-training" title="Permanent link">&para;</a></h2>
-<p>Resume from a previous checkpoint:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>sleap-nn<span class="w"> </span>train<span class="w"> </span>--config<span class="w"> </span>config.yaml<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">    </span>trainer_config.resume_ckpt_path<span class="o">=</span>/path/to/checkpoint.ckpt
+<p>Point <code>--resume</code> at a previous run's folder:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>sleap-nn<span class="w"> </span>train<span class="w"> </span>--resume<span class="w"> </span>models/my_run
 </span></code></pre></div>
-<p>This restores both model weights and optimizer state.</p>
+<p>This restores the model weights, optimizer and scheduler state, and the epoch
+count, and continues training:</p>
+<ul>
+<li>It uses the run's own <code>training_config.yaml</code>, so you don't need the original
+  config file. Overrides still apply, e.g. to train for longer:
+  <code>sleap-nn train --resume models/my_run trainer_config.max_epochs=200</code>.</li>
+<li>It resumes from <code>last.ckpt</code> (the most recent epoch, written when
+  <code>trainer_config.model_ckpt.save_last</code> is on) if the folder has one, otherwise
+  from <code>best.ckpt</code>. To pick a checkpoint, pass the file:
+  <code>sleap-nn train --resume models/my_run/best.ckpt</code>.</li>
+<li>The resumed run is written to a <strong>new folder</strong> next to the original
+  (<code>models/my_run-1</code>, then <code>my_run-2</code>, ...), so the original run is never
+  overwritten. Pass <code>trainer_config.run_name=...</code> to name it yourself.</li>
+<li>If the checkpoint already reached <code>max_epochs</code>, <code>--resume</code> stops and tells you
+  to raise it, instead of starting a run with nothing to train.</li>
+</ul>
+<p>To resume with a different config file, set the checkpoint directly:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>sleap-nn<span class="w"> </span>train<span class="w"> </span>--config<span class="w"> </span>config.yaml<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">    </span>trainer_config.resume_ckpt_path<span class="o">=</span>/path/to/checkpoint.ckpt
+</span></code></pre></div>
 <div class="admonition warning">
 <p class="admonition-title">Ensure the same seed when resuming</p>
 <p>The train/val split is regenerated on resume — it is <strong>not</strong> saved in the checkpoint. If you change <code>trainer_config.seed</code> between runs (default: <code>42</code>), you will get a different split, which can leak training data into validation. Always use the same seed as the original run. <code>sleap-nn</code> will warn you if it detects a mismatch.</p>

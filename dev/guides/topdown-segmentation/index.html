@@ -8051,7 +8051,7 @@ and attaching it with the link set:</p>
   foreground each epoch (<code>viz/.../gt_mask</code>).</li>
 </ul>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>sleap-nn<span class="w"> </span>train<span class="w"> </span>--config-name<span class="w"> </span>config_topdown_centered_instance_segmentation_unet<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">  </span>data_config.train_labels_path<span class="o">=[</span>train.pkg.slp<span class="o">]</span><span class="w"> </span>data_config.val_labels_path<span class="o">=[</span>val.pkg.slp<span class="o">]</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">  </span>--labels<span class="w"> </span>train.pkg.slp<span class="w"> </span>--val-labels<span class="w"> </span>val.pkg.slp
 </span></code></pre></div>
 <h2 id="inference">Inference<a class="headerlink" href="#inference" title="Permanent link">&para;</a></h2>
 <p>Top-down seg needs <strong>two model dirs</strong> — a <code>centroid</code> model and the
