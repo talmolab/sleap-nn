@@ -120,11 +120,14 @@ trainer_config:
 
 ## Step 4: Train
 
-Run training:
+Check the config and data first (one training batch, nothing written to disk), then run training:
 
 ```bash
+sleap-nn train --config config.yaml --dry-run
 sleap-nn train --config config.yaml
 ```
+
+To keep training a finished run for more epochs, resume it from its folder: `sleap-nn train --resume models/fly_single_instance trainer_config.max_epochs=200` (it writes to a new `models/fly_single_instance-1` folder). See [Resume & Fine-Tune](../guides/resume-finetune.md).
 
 ### Monitor Training
 

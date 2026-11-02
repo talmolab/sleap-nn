@@ -8,6 +8,7 @@ import sys
 import tempfile
 import shutil
 from datetime import datetime
+from itertools import count
 from pathlib import Path
 from typing import Optional
 
@@ -322,6 +323,156 @@ def _finalize_config(cfg):
     return cfg
 
 
+def _resolve_resume_target(path: str) -> tuple:
+    """Resolve `train --resume` to (run folder, checkpoint), both absolute.
+
+    Accepts a run folder (prefers `last.ckpt`, the most recent epoch, then
+    `best.ckpt`) or a `.ckpt` file inside one. The folder must hold the run's
+    `training_config.yaml`, which the resumed run is built from.
+    """
+    target = Path(path).expanduser().resolve()
+    if target.is_file():
+        if target.suffix != ".ckpt":
+            raise click.UsageError(
+                f"--resume expects a run folder or a .ckpt file, got: {path}"
+            )
+        run_dir, ckpt = target.parent, target
+    elif target.is_dir():
+        run_dir = target
+        ckpt = next(
+            (
+                run_dir / name
+                for name in ("last.ckpt", "best.ckpt")
+                if (run_dir / name).is_file()
+            ),
+            None,
+        )
+        if ckpt is None:
+            raise click.UsageError(
+                f"No last.ckpt or best.ckpt in {run_dir}, so there is nothing to "
+                "resume from."
+            )
+    else:
+        raise click.UsageError(f"--resume path not found: {path}")
+
+    if not (run_dir / "training_config.yaml").is_file():
+        raise click.UsageError(
+            f"No training_config.yaml in {run_dir}. --resume rebuilds the run from "
+            "the config saved next to the checkpoint; to resume with another "
+            "config, pass it with trainer_config.resume_ckpt_path=<ckpt> instead."
+        )
+    return run_dir, ckpt
+
+
+def _next_run_name(ckpt_dir: Path, run_name: str) -> str:
+    """First of `<run_name>-1`, `<run_name>-2`, ... with no folder in `ckpt_dir`."""
+    for i in count(1):
+        candidate = f"{run_name}-{i}"
+        if not (ckpt_dir / candidate).exists():
+            return candidate
+
+
+def _overrides_key(overrides, key: str) -> bool:
+    """Whether a Hydra override sets `key` (`key=...`, `+key=...`, `++key=...`)."""
+    return any(o.lstrip("+").split("=", 1)[0] == key for o in overrides)
+
+
+def _check_epochs_left(ckpt: Path, max_epochs: int) -> None:
+    """Refuse to resume a checkpoint that already reached `max_epochs`.
+
+    Lightning would start, train nothing, and the run would then fail looking for
+    a `best.ckpt` it never wrote.
+    """
+    import torch
+
+    epoch = torch.load(ckpt, map_location="cpu", weights_only=False).get("epoch")
+    if epoch is not None and epoch + 1 >= max_epochs:
+        raise click.UsageError(
+            f"{ckpt.name} was saved after epoch {epoch + 1} and max_epochs is "
+            f"{max_epochs}, so there is nothing left to train. Raise it, e.g. "
+            f"trainer_config.max_epochs={max(2 * max_epochs, epoch + 2)}."
+        )
+
+
+def _resolve_labels_option(paths, option: str, key: str, overrides) -> list:
+    """Check a `train --labels` / `--val-labels` value; return absolute paths.
+
+    Absolute, so the saved `training_config.yaml` still finds the labels when the
+    run is resumed or evaluated from another directory.
+    """
+    if not paths:
+        return []
+    if _overrides_key(overrides, key):
+        raise click.UsageError(
+            f"Use either {option} or a {key}=... override, not both."
+        )
+    resolved = []
+    for p in paths:
+        path = Path(p).expanduser()
+        if not path.is_file():
+            raise click.UsageError(f"{option} file not found: {p}")
+        resolved.append(path.resolve().as_posix())
+    return resolved
+
+
+def _adjust_train_config(
+    cfg, overrides, resume_target, dry_run: bool, labels=(), val_labels=()
+):
+    """Apply the `train` CLI options to a freshly composed config.
+
+    Labels (`--labels` / `--val-labels`): replace `data_config.train_labels_path`
+    / `val_labels_path` with the (already checked, absolute) paths given.
+
+    Resume: point `resume_ckpt_path` at the checkpoint and write the resumed run
+    to a new `<run_name>-N` folder next to the original, so the original run is
+    never overwritten. Explicit `run_name` / `ckpt_dir` overrides win. The wandb
+    run name is reset to follow the new run name unless the original run set
+    one explicitly (its `initial_config.yaml` says which).
+
+    Dry run: force a single device, since the dry run checks one batch on one
+    device and must not spawn DDP workers.
+    """
+    from omegaconf import OmegaConf
+
+    if labels:
+        OmegaConf.update(
+            cfg, "data_config.train_labels_path", list(labels), force_add=True
+        )
+    if val_labels:
+        OmegaConf.update(
+            cfg, "data_config.val_labels_path", list(val_labels), force_add=True
+        )
+
+    if resume_target is not None:
+        run_dir, ckpt = resume_target
+        cfg.trainer_config.resume_ckpt_path = ckpt.as_posix()
+        if not _overrides_key(overrides, "trainer_config.ckpt_dir"):
+            cfg.trainer_config.ckpt_dir = run_dir.parent.as_posix()
+        if not _overrides_key(overrides, "trainer_config.run_name"):
+            cfg.trainer_config.run_name = _next_run_name(
+                Path(cfg.trainer_config.ckpt_dir), run_dir.name
+            )
+        initial_cfg_path = run_dir / "initial_config.yaml"
+        if (
+            not _overrides_key(overrides, "trainer_config.wandb.name")
+            and OmegaConf.select(cfg, "trainer_config.wandb") is not None
+            and initial_cfg_path.is_file()
+            and OmegaConf.select(
+                OmegaConf.load(initial_cfg_path), "trainer_config.wandb.name"
+            )
+            is None
+        ):
+            cfg.trainer_config.wandb.name = None
+        _check_epochs_left(ckpt, cfg.trainer_config.max_epochs)
+
+    if dry_run and _get_num_devices_from_config(cfg) > 1:
+        logger.info("Dry run: using a single device.")
+        cfg.trainer_config.trainer_devices = 1
+        cfg.trainer_config.trainer_device_indices = None
+
+    return cfg
+
+
 def show_training_help():
     """Display training help information with rich formatting."""
     from rich.console import Console
@@ -359,9 +510,22 @@ sleap-nn train --config path/to/config.yaml
 sleap-nn train config.yaml trainer_config.max_epochs=100
 ```
 
-**Resume training:**
+**Train on a different labels file** (replaces the config's labels paths):
 ```bash
-sleap-nn train config.yaml trainer_config.resume_ckpt_path=/path/to/ckpt
+sleap-nn train config.yaml --labels labels.slp
+sleap-nn train config.yaml -l train.slp --val-labels val.slp
+```
+
+**Check a config without training (nothing is written to disk):**
+```bash
+sleap-nn train config.yaml --dry-run
+```
+
+**Resume training** (writes to a new `<run_name>-1` folder next to the original):
+```bash
+sleap-nn train --resume path/to/run_dir
+sleap-nn train --resume path/to/run_dir trainer_config.max_epochs=200
+sleap-nn train --resume path/to/run_dir/best.ckpt
 ```
 
 **Legacy usage (still supported):**
@@ -431,6 +595,41 @@ sleap-nn train --config-dir /path/to/dir --config-name myrun
     hidden=True,
     help="Path to video replacement config YAML (internal use for multi-GPU).",
 )
+@click.option(
+    "--labels",
+    "-l",
+    multiple=True,
+    metavar="SLP",
+    help="Training labels (.slp), replacing data_config.train_labels_path. "
+    "Can be specified multiple times.",
+)
+@click.option(
+    "--val-labels",
+    multiple=True,
+    metavar="SLP",
+    help="Validation labels (.slp), replacing data_config.val_labels_path. "
+    "Without it, the config's validation labels are used, or a "
+    "validation_fraction split of the training labels if it has none. "
+    "Can be specified multiple times.",
+)
+@click.option(
+    "--resume",
+    type=str,
+    default=None,
+    metavar="RUN_DIR_OR_CKPT",
+    help="Resume a previous run: a run folder (uses its last.ckpt, else best.ckpt) "
+    "or a .ckpt file. Uses that run's training_config.yaml (overrides still "
+    "apply) and writes to a new folder <run_name>-1 next to it, leaving the "
+    "original run untouched.",
+)
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    default=False,
+    help="Check the config and data without training: run all setup plus one "
+    "training and one validation batch on a single device, write nothing to "
+    "disk, and print a summary of the run.",
+)
 @click.argument("overrides", nargs=-1, type=click.UNPROCESSED)
 def train(
     config,
@@ -440,6 +639,10 @@ def train(
     video_path_map,
     prefix_map,
     video_config,
+    labels,
+    val_labels,
+    resume,
+    dry_run,
     overrides,
 ):
     """Run training workflow with Hydra config overrides.
@@ -451,6 +654,9 @@ def train(
         sleap-nn train path/to/config.yaml
         sleap-nn train --config path/to/config.yaml trainer_config.max_epochs=100
         sleap-nn train config.yaml trainer_config.trainer_devices=4
+        sleap-nn train config.yaml --labels path/to/labels.slp
+        sleap-nn train --resume path/to/run_dir trainer_config.max_epochs=200
+        sleap-nn train config.yaml --dry-run
     """
     import hydra
     import sleap_io as sio
@@ -469,7 +675,20 @@ def train(
     # 1. Positional config path (e.g., sleap-nn train config.yaml)
     # 2. --config flag (e.g., sleap-nn train --config config.yaml)
     # 3. Legacy --config-dir/--config-name flags
-    if config_from_positional:
+    resume_target = None
+    if resume is not None:
+        if config_from_positional or config or config_name:
+            raise click.UsageError(
+                "--resume uses the run's own training_config.yaml; don't pass a "
+                "config too. Use overrides (e.g. trainer_config.max_epochs=200) to "
+                "change settings."
+            )
+        resume_target = _resolve_resume_target(resume)
+        config_dir, config_name = (
+            resume_target[0].as_posix(),
+            "training_config.yaml",
+        )
+    elif config_from_positional:
         config_dir, config_name = split_config_path(config_from_positional)
     elif config:
         config_dir, config_name = split_config_path(config)
@@ -479,6 +698,13 @@ def train(
         # No config provided - show help
         show_training_help()
         return
+
+    labels = _resolve_labels_option(
+        labels, "--labels", "data_config.train_labels_path", overrides
+    )
+    val_labels = _resolve_labels_option(
+        val_labels, "--val-labels", "data_config.val_labels_path", overrides
+    )
 
     # Check video path options early
     # If --video-config is provided (from subprocess), load from file
@@ -504,6 +730,22 @@ def train(
     # Load config to detect device count
     with hydra.initialize_config_dir(config_dir=config_dir, version_base=None):
         cfg = hydra.compose(config_name=config_name, overrides=overrides)
+        cfg = _adjust_train_config(
+            cfg, overrides, resume_target, dry_run, labels, val_labels
+        )
+        # Logged here, not in `_adjust_train_config`: every route below composes
+        # the config again.
+        if resume_target is not None:
+            logger.info(
+                f"Resuming from {cfg.trainer_config.resume_ckpt_path} into new run "
+                f"folder {(Path(cfg.trainer_config.ckpt_dir) / cfg.trainer_config.run_name).as_posix()}"
+            )
+        config_val_labels = OmegaConf.select(cfg, "data_config.val_labels_path")
+        if labels and not val_labels and config_val_labels:
+            logger.info(
+                f"Validating on the config's val_labels_path ({list(config_val_labels)}); "
+                "pass --val-labels to use different validation labels."
+            )
 
         # Validate config
         if not hasattr(cfg, "model_config") or not cfg.model_config:
@@ -534,6 +776,9 @@ def train(
         # Load and finalize config (generate run_name, apply overrides)
         with hydra.initialize_config_dir(config_dir=config_dir, version_base=None):
             cfg = hydra.compose(config_name=config_name, overrides=overrides)
+            cfg = _adjust_train_config(
+                cfg, overrides, resume_target, dry_run, labels, val_labels
+            )
             cfg = _finalize_config(cfg)
 
         # Save finalized config to temp file
@@ -587,6 +832,9 @@ def train(
     # Single GPU (or subprocess worker): run directly
     with hydra.initialize_config_dir(config_dir=config_dir, version_base=None):
         cfg = hydra.compose(config_name=config_name, overrides=overrides)
+        cfg = _adjust_train_config(
+            cfg, overrides, resume_target, dry_run, labels, val_labels
+        )
 
         logger.info("Input config:")
         logger.info("\n" + OmegaConf.to_yaml(cfg))
@@ -629,7 +877,12 @@ def train(
                 for labels in val_labels:
                     labels.replace_filenames(**replace_kwargs)
 
-        run_training(config=cfg, train_labels=train_labels, val_labels=val_labels)
+        run_training(
+            config=cfg,
+            train_labels=train_labels,
+            val_labels=val_labels,
+            dry_run=dry_run,
+        )
 
 
 @cli.command(context_settings=CONTEXT_SETTINGS)

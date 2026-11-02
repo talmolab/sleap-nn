@@ -3216,7 +3216,7 @@ Input → [Encoder] → [Middle] → [Decoder] → Head → Output
                     </div>
 
                     <div style="margin-bottom: 15px;">
-                        <div style="color: #888; font-size: 0.75rem; margin-bottom: 5px;">With labels path override:</div>
+                        <div style="color: #888; font-size: 0.75rem; margin-bottom: 5px;">With a labels file:</div>
                         <code id="cli-override" style="color: #f59e0b; word-break: break-all;"></code>
                         <button onclick="copyCLI('cli-override')" style="margin-left: 10px; padding: 2px 8px; font-size: 0.7rem;" class="small secondary">Copy</button>
                     </div>
@@ -8215,9 +8215,9 @@ ${adv.lrScheduler === 'step_lr' ? `    step_lr:
             // Basic command
             document.getElementById('cli-basic').textContent = `sleap-nn train ${configFile1}`;
 
-            // With labels path override
+            // With a labels file
             document.getElementById('cli-override').textContent =
-                `sleap-nn train ${configFile1} data_config.train_labels_path='["/path/to/your/labels.slp"]'`;
+                `sleap-nn train ${configFile1} --labels /path/to/your/labels.slp`;
 
             // Top-down CI command
             if (isTopDown) {
