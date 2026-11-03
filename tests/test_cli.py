@@ -1474,6 +1474,23 @@ class TestTrainDryRun:
         assert not (tmp_path / "cache").exists()
         assert not (tmp_path / "runs").exists()
 
+    def test_dry_run_with_the_default_disk_cache_leaves_nothing_behind(
+        self, sample_config, tmp_path
+    ):
+        """Without `cache_img_path`, setup points the disk cache at the run folder;
+        the dry run must neither create that folder nor leave `ckpt_dir` behind."""
+        from sleap_nn.train import run_training
+
+        ckpt_dir = tmp_path / "runs"
+        sample_config.trainer_config.ckpt_dir = ckpt_dir.as_posix()
+        sample_config.trainer_config.run_name = "dry"
+        sample_config.data_config.data_pipeline_fw = "torch_dataset_cache_img_disk"
+        sample_config.data_config.cache_img_path = None
+
+        run_training(sample_config, dry_run=True)
+
+        assert not ckpt_dir.exists()
+
     def test_dry_run_writes_configs_and_a_checkpoint_where_the_run_will(
         self, sample_config, tmp_path, monkeypatch
     ):

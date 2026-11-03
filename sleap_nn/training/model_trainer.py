@@ -2995,15 +2995,20 @@ class ModelTrainer:
         try:
             path.mkdir(parents=True)
         except OSError as e:
-            message = f"Cannot create a new folder in {base}.\n {e}"
+            # One line, so the cause is the error's last line (what a GUI shows).
+            message = f"Cannot create a new folder in {base}: {e}"
             logger.error(message)
             raise OSError(message)
         self._dry_run_dirs.append((path, base, created_root))
         return path
 
     def _remove_dry_run_dirs(self):
-        """Delete what a dry run wrote, and the folders it had to create."""
-        for path, base, created_root in self._dry_run_dirs:
+        """Delete what a dry run wrote, and the folders it had to create.
+
+        Newest first: a later scratch folder can sit inside a folder an earlier
+        one created, which can only be removed once it's empty.
+        """
+        for path, base, created_root in reversed(self._dry_run_dirs):
             shutil.rmtree(path, ignore_errors=True)
             if created_root is None:
                 continue
@@ -3082,13 +3087,18 @@ class ModelTrainer:
 
         # A disk cache (configured, or the memory cache's fallback) goes to a
         # scratch folder where the real one would be, removed afterwards.
-        # Without `cache_img_path` the cache lives in the run folder, so it goes in
-        # the run's scratch folder (the first one `_train` made).
+        # A cache in the run folder (no `cache_img_path`, or the disk pipeline's
+        # default, which setup sets to the run folder) goes in the run's scratch
+        # folder, the first one `_train` made: a scratch folder of its own would
+        # create a folder with the run's name. Elsewhere it gets its own.
         cache_base = self.config.data_config.cache_img_path
+        run_dir = Path(self.config.trainer_config.ckpt_dir) / (
+            self.config.trainer_config.run_name
+        )
         scratch = (
-            self._make_dry_run_dir(cache_base)
-            if cache_base is not None
-            else self._dry_run_dirs[0][0]
+            self._dry_run_dirs[0][0]
+            if cache_base is None or Path(cache_base) == run_dir
+            else self._make_dry_run_dir(cache_base)
         )
         self.config.data_config.cache_img_path = (scratch / "cache").as_posix()
 
