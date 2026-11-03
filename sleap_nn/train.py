@@ -499,7 +499,8 @@ def run_training(
         val_labels: List of Labels objects for validation.
             If not provided, the labels will be loaded from paths in the config.
         dry_run: If True, run all setup plus one training and one validation
-            batch, write nothing to disk, and skip post-training evaluation. See
+            batch on one batch of frames, check the run can write where it will
+            (leaving nothing behind), and skip post-training evaluation. See
             `ModelTrainer.train`.
     """
     if dry_run:

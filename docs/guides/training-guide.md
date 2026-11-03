@@ -40,13 +40,21 @@ sleap-nn train --config config.yaml --dry-run
 
 It loads the labels, resolves and validates the config, builds the datasets
 and model, and runs one training batch and one validation batch on a single
-device. Then it prints a summary (model type, frame counts, steps per epoch,
-parameter count, run folder) and exits. Nothing is written to disk. Config and
-data errors show up in seconds instead of after training has started.
+device. It uses the config's own settings, including its data pipeline and
+dataloader workers, but builds the datasets from just one batch's worth of
+frames, so even a cached pipeline takes seconds. Then it prints a summary
+(model type, frame and sample counts and steps per epoch for the full data,
+parameter count, run folder, data pipeline, whether the image cache fits in
+memory) and exits. Config and data errors show up in seconds instead of after
+training has started.
 
-A dry run reads images straight from the labels instead of caching them, and
-uses one device, so it doesn't check that the image cache fits in memory or
-that multi-GPU setup works.
+It also checks that the run can write where it will: it writes the configs
+and a checkpoint (and any disk image cache) to a hidden `.dryrun-*` folder in
+`ckpt_dir` (and in `cache_img_path`, if set), then removes them, along with any
+of those folders it had to create. A dry run that is killed partway can leave
+a `.dryrun-*` folder behind, which is safe to delete.
+
+A dry run uses one device, so it doesn't check that multi-GPU setup works.
 
 To resume an interrupted run, see [Resume & Fine-Tune](resume-finetune.md).
 

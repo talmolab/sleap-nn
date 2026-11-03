@@ -49,7 +49,7 @@ sleap-nn train --config CONFIG_PATH [OPTIONS] [OVERRIDES]
 | `--labels` | `-l` | Training labels `.slp`, replacing `data_config.train_labels_path` (multiple allowed) |
 | `--val-labels` | | Validation labels `.slp`, replacing `data_config.val_labels_path` (multiple allowed) |
 | `--resume` | | Resume a run from its folder or a `.ckpt` file (writes to a new `<run_name>-1` folder) |
-| `--dry-run` | | Check the config and data (setup + one train/val batch), write nothing, print a summary |
+| `--dry-run` | | Check the config and data (setup + one train/val batch on one batch of frames, with the config's settings), check the run can write to `ckpt_dir` (leaving nothing behind), print a summary |
 
 ### Examples
 
