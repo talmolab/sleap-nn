@@ -167,6 +167,14 @@ class ModelTrainer:
 
     trainer: Optional[L.Trainer] = None
 
+    # Dry-run state (see `train(dry_run=True)`): the scratch folders to remove,
+    # as `(path, base, outermost folder created)`, the full data's labeled-frame
+    # counts (the labels are cut to one batch), and whether the real in-memory
+    # image cache would fit (`None` unless the pipeline caches in memory).
+    _dry_run_dirs: list = attrs.field(factory=list, init=False)
+    _dry_run_frame_counts: tuple = attrs.field(default=(0, 0), init=False)
+    _dry_run_cache_fits: Optional[bool] = attrs.field(default=None, init=False)
+
     @classmethod
     def get_model_trainer_from_config(
         cls,
@@ -2948,14 +2956,157 @@ class ModelTrainer:
         """Train the lightning model.
 
         Args:
-            dry_run: If True, run every setup step (labels, config resolution and
-                validation, datasets, model, dataloaders) and then a single
-                training batch and a single validation batch (Lightning's
-                `fast_dev_run=1`), without writing anything to disk: no run
-                folder, checkpoints, logs, saved configs, image cache or wandb
-                run. Catches config and data errors in seconds instead of after a
-                real run has started.
+            dry_run: If True, check the run in seconds instead of training: every
+                setup step (labels, config resolution and validation, model,
+                dataloaders) with the config's own settings, including its data
+                pipeline and worker count, then a single training batch and a
+                single validation batch (Lightning's `fast_dev_run=1`) on one
+                batch's worth of frames (see `_setup_dry_run_datasets`). It also
+                checks the run can write where it will: the configs, any image
+                cache and a checkpoint go to a hidden `.dryrun-*` folder next to
+                the run folder, removed afterwards with any folder the dry run had
+                to create, so nothing is left behind. No logs or wandb run.
         """
+        if not dry_run:
+            return self._train(dry_run=False)
+        self._dry_run_dirs = []
+        try:
+            return self._train(dry_run=True)
+        finally:
+            self._remove_dry_run_dirs()
+
+    def _make_dry_run_dir(self, base: Path) -> Path:
+        """Create a dry run's scratch folder in `base`, as the real run would.
+
+        Creating it (and `base`, if missing) is the write check: a folder the run
+        couldn't write to fails here instead of hours into training. The folder
+        name can't collide with a run folder, and a dry run that was killed
+        before cleanup leaves only an obviously-safe-to-delete `.dryrun-*`.
+        """
+        base = Path(base)
+        # The outermost folder this creates, so cleanup removes no more than that.
+        created_root = None
+        for parent in [base, *base.parents]:
+            if parent.exists():
+                break
+            created_root = parent
+        run_name = self.config.trainer_config.run_name
+        path = base / f".dryrun-{run_name}-{os.getpid()}"
+        try:
+            path.mkdir(parents=True)
+        except OSError as e:
+            # One line, so the cause is the error's last line (what a GUI shows).
+            message = f"Cannot create a new folder in {base}: {e}"
+            logger.error(message)
+            raise OSError(message)
+        self._dry_run_dirs.append((path, base, created_root))
+        return path
+
+    def _remove_dry_run_dirs(self):
+        """Delete what a dry run wrote, and the folders it had to create.
+
+        Newest first: a later scratch folder can sit inside a folder an earlier
+        one created, which can only be removed once it's empty.
+        """
+        for path, base, created_root in reversed(self._dry_run_dirs):
+            shutil.rmtree(path, ignore_errors=True)
+            if created_root is None:
+                continue
+            folder = base
+            while True:
+                try:
+                    folder.rmdir()  # only if empty: never anything of the user's
+                except OSError:
+                    break
+                if folder == created_root:
+                    break
+                folder = folder.parent
+        self._dry_run_dirs = []
+
+    def _setup_dry_run_datasets(self):
+        """Datasets for a dry run: the config's pipeline on one batch of frames.
+
+        Returns `(train_dataset, val_dataset, full_train_dataset,
+        full_val_dataset)`. The full datasets are uncached, which only indexes
+        the samples and reads no image, and give the counts a real run would
+        have (samples, steps per epoch). Then the labels are cut, in memory, to
+        one batch's worth of labeled frames each (`Labels.extract(copy=False)`
+        shares the videos, embedded or not), and the datasets the batches come
+        from are built from those with the configured data pipeline and workers:
+        the real caching path and worker processes, without caching everything.
+        Embedding models keep their full labels, since their P x K sampler needs
+        several identities.
+        """
+        self._dry_run_cache_fits = None
+        counting_config = deepcopy(self.config)
+        counting_config.data_config.data_pipeline_fw = "torch_dataset"
+        full_train_dataset, full_val_dataset = get_train_val_datasets(
+            train_labels=self.train_labels,
+            val_labels=self.val_labels,
+            config=counting_config,
+            rank=self.trainer.global_rank,
+        )
+
+        if self.config.data_config.data_pipeline_fw == "torch_dataset_cache_img_memory":
+            # The subset always fits, so check the real cache here (and report it).
+            workers = max(
+                self.config.trainer_config.train_data_loader.num_workers,
+                self.config.trainer_config.val_data_loader.num_workers,
+            )
+            self._dry_run_cache_fits = check_cache_memory(
+                self.train_labels,
+                self.val_labels,
+                memory_buffer=MEMORY_BUFFER,
+                num_workers=workers,
+            )
+
+        self._dry_run_frame_counts = (
+            sum(len(x) for x in self.train_labels),
+            sum(len(x) for x in self.val_labels),
+        )
+        if self.model_type != "embedding":
+
+            def first_frames(labels_list, n):
+                subsets = []
+                for labels in labels_list:
+                    inds = [i for i, lf in enumerate(labels) if lf.has_user_instances]
+                    subsets.append(
+                        labels.extract(
+                            (inds or list(range(len(labels))))[:n], copy=False
+                        )
+                    )
+                return subsets
+
+            self.train_labels = first_frames(
+                self.train_labels,
+                self.config.trainer_config.train_data_loader.batch_size,
+            )
+            self.val_labels = first_frames(
+                self.val_labels, self.config.trainer_config.val_data_loader.batch_size
+            )
+
+        # A disk cache (configured, or the memory cache's fallback) goes to a
+        # scratch folder where the real one would be, removed afterwards.
+        # A cache in the run folder (no `cache_img_path`, or the disk pipeline's
+        # default, which setup sets to the run folder) goes in the run's scratch
+        # folder, the first one `_train` made: a scratch folder of its own would
+        # create a folder with the run's name. Elsewhere it gets its own.
+        cache_base = self.config.data_config.cache_img_path
+        run_dir = Path(self.config.trainer_config.ckpt_dir) / (
+            self.config.trainer_config.run_name
+        )
+        scratch = (
+            self._dry_run_dirs[0][0]
+            if cache_base is None or Path(cache_base) == run_dir
+            else self._make_dry_run_dir(cache_base)
+        )
+        self.config.data_config.cache_img_path = (scratch / "cache").as_posix()
+
+        train_dataset, val_dataset = self._setup_datasets()
+        return train_dataset, val_dataset, full_train_dataset, full_val_dataset
+
+    def _train(self, dry_run: bool):
+        """Train the lightning model (see `train`)."""
         logger.info(f"Setting up for {'a dry run' if dry_run else 'training'}...")
         start_setup_time = time.time()
 
@@ -2971,14 +3122,8 @@ class ModelTrainer:
             self._initialize_from_config()
 
         if dry_run:
-            # Read frames straight from the source instead of caching every image
-            # first (the memory cache can take minutes; the disk cache writes files).
-            if self.config.data_config.data_pipeline_fw != "torch_dataset":
-                logger.info(
-                    "Dry run: reading images directly (data_pipeline_fw="
-                    f"torch_dataset) instead of `{self.config.data_config.data_pipeline_fw}`."
-                )
-                self.config.data_config.data_pipeline_fw = "torch_dataset"
+            # The configs and checkpoint a real run writes go here instead.
+            dry_run_dir = self._make_dry_run_dir(self.config.trainer_config.ckpt_dir)
         else:
             # create the ckpt dir.
             self._setup_model_ckpt_dir()
@@ -3074,8 +3219,15 @@ class ModelTrainer:
 
         self.trainer.strategy.barrier()
 
-        # setup datasets
-        train_dataset, val_dataset = self._setup_datasets()
+        # setup datasets. Steps per epoch come from the full datasets; on a dry run
+        # the batches come from a subset of them.
+        if dry_run:
+            train_dataset, val_dataset, full_train_dataset, full_val_dataset = (
+                self._setup_dry_run_datasets()
+            )
+        else:
+            train_dataset, val_dataset = self._setup_datasets()
+            full_train_dataset, full_val_dataset = train_dataset, val_dataset
 
         # Barrier after dataset creation to ensure all workers wait for disk caching
         # (rank 0 caches to disk, others must wait before reading cached files)
@@ -3102,14 +3254,14 @@ class ModelTrainer:
                 # `train_data_loader.batch_size`, so the step size comes from the
                 # dataset-aware helper the dataloader factory also uses.
                 samples_per_step = get_train_samples_per_step(
-                    train_dataset, self.config
+                    full_train_dataset, self.config
                 )
                 train_steps_per_epoch = get_steps_per_epoch(
-                    dataset=train_dataset, batch_size=samples_per_step
+                    dataset=full_train_dataset, batch_size=samples_per_step
                 )
                 logger.info(
                     f"train_steps_per_epoch not set; computed {train_steps_per_epoch} "
-                    f"from training dataset ({len(train_dataset)} samples, "
+                    f"from training dataset ({len(full_train_dataset)} samples, "
                     f"{samples_per_step} per step)"
                 )
         else:
@@ -3128,7 +3280,7 @@ class ModelTrainer:
 
         # VAL: always full-coverage (every grid tile visited once), NOT decoupled.
         val_steps_per_epoch = get_steps_per_epoch(
-            dataset=val_dataset,
+            dataset=full_val_dataset,
             batch_size=self.config.trainer_config.val_data_loader.batch_size,
         )
 
@@ -3161,6 +3313,15 @@ class ModelTrainer:
             val_steps_per_epoch=val_steps_per_epoch,
             trainer_devices=self.trainer.num_devices,
         )
+
+        if dry_run:
+            # The run's two config files, written where the real run writes them.
+            OmegaConf.save(
+                self._initial_config, (dry_run_dir / "initial_config.yaml").as_posix()
+            )
+            OmegaConf.save(
+                self.config, (dry_run_dir / "training_config.yaml").as_posix()
+            )
 
         # save config only in rank 0 process
         if self.trainer.global_rank == 0 and not dry_run:
@@ -3306,18 +3467,24 @@ class ModelTrainer:
                     shutil.rmtree(run_dir, ignore_errors=True)
 
         if dry_run and not training_interrupted:
-            self._log_dry_run_summary(train_dataset, val_dataset, val_steps_per_epoch)
+            if self.config.trainer_config.save_ckpt:
+                # Checkpoint serialization and the write, where the run's go.
+                self.trainer.save_checkpoint((dry_run_dir / "best.ckpt").as_posix())
+            self._log_dry_run_summary(
+                full_train_dataset, full_val_dataset, val_steps_per_epoch
+            )
 
     def _log_dry_run_summary(self, train_dataset, val_dataset, val_steps_per_epoch):
         """Log what a real run with this config would do, after a passing dry run."""
         cfg = self.config
         run_dir = Path(cfg.trainer_config.ckpt_dir) / cfg.trainer_config.run_name
+        n_train, n_val = self._dry_run_frame_counts
+        workers = cfg.trainer_config.train_data_loader.num_workers
         lines = [
             "Dry run passed: setup, one training batch and one validation batch "
-            "all ran. Nothing was written to disk.",
+            "all ran, with this config's settings on one batch of frames.",
             f"  Model type:          {self.model_type}",
-            f"  Labeled frames:      {sum(len(x) for x in self.train_labels)} train, "
-            f"{sum(len(x) for x in self.val_labels)} val",
+            f"  Labeled frames:      {n_train} train, {n_val} val",
             f"  Samples:             {len(train_dataset)} train, "
             f"{len(val_dataset)} val",
             f"  Steps per epoch:     {cfg.trainer_config.train_steps_per_epoch} "
@@ -3327,7 +3494,27 @@ class ModelTrainer:
             f"  Devices:             {self.trainer.num_devices} x "
             f"{self.trainer.strategy.root_device}",
             f"  Run folder:          {run_dir.as_posix() if cfg.trainer_config.save_ckpt else '(none: save_ckpt is false)'}",
+            f"  Data pipeline:       {cfg.data_config.data_pipeline_fw}, "
+            f"{workers} worker{'' if workers == 1 else 's'}",
         ]
+        cache_fits = self._dry_run_cache_fits
+        if cache_fits is not None:
+            lines.append(
+                "  Image cache:         "
+                + (
+                    "fits in memory"
+                    if cache_fits
+                    else "does not fit in memory; a real run falls back to a "
+                    "slower pipeline"
+                )
+            )
+        written = (
+            "configs and a checkpoint" if cfg.trainer_config.save_ckpt else "configs"
+        )
+        lines.append(
+            f"  Write check:         wrote {written} to "
+            f"{Path(cfg.trainer_config.ckpt_dir).as_posix()}, then removed them"
+        )
         if cfg.trainer_config.resume_ckpt_path is not None:
             lines.append(
                 f"  Resumes from:        {cfg.trainer_config.resume_ckpt_path}"

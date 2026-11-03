@@ -120,7 +120,7 @@ trainer_config:
 
 ## Step 4: Train
 
-Check the config and data first (one training batch, nothing written to disk), then run training:
+Check the config and data first (one training batch, nothing left on disk), then run training:
 
 ```bash
 sleap-nn train --config config.yaml --dry-run

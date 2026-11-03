@@ -627,8 +627,10 @@ sleap-nn train --config-dir /path/to/dir --config-name myrun
     is_flag=True,
     default=False,
     help="Check the config and data without training: run all setup plus one "
-    "training and one validation batch on a single device, write nothing to "
-    "disk, and print a summary of the run.",
+    "training and one validation batch on a single device, with the config's "
+    "settings on one batch of frames; check the run can write its configs and a "
+    "checkpoint next to the run folder (removed afterwards); and print a summary "
+    "of the run.",
 )
 @click.argument("overrides", nargs=-1, type=click.UNPROCESSED)
 def train(
