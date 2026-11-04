@@ -449,38 +449,87 @@ class ModelTrainer:
     def _split_centroid_labels(
         self, label: sio.Labels, val_fraction: float, seed: Optional[int]
     ):
-        """Train/val split for the centroid model that keeps centroid-only frames.
+        """Train/val split for the centroid model: the other models' draw, filtered.
 
-        `sio.Labels.make_training_splits` returns only frames with user
-        instances, so it would drop pure-centroid frames. This reimplements a
-        deterministic fractional split over frames with a centroid training
-        target (user instances OR user centroids).
+        The frames are drawn by `sio.Labels.make_training_splits`, the split every
+        other pose model type uses, so a centroid model and a centered-instance
+        model trained on the same labels, `validation_fraction` and seed hold out
+        the same frames and a top-down pipeline can be scored end to end on frames
+        neither model trained on (#833). A separate draw, even with the same seed,
+        overlaps the other models' validation set only by chance.
+
+        - It keeps centroid-only frames (user centroids, no pose instance): it
+          removes predictions (predicted centroids included), then only frames
+          left with no annotation at all.
+        - Training frames are the other models' exactly. Validation is the whole
+          remainder (no ``n_val``): the other models' validation frames plus the at
+          most one frame their rounding leaves in neither split, which none of
+          them trains on either. So no trainable frame is lost and every
+          validation frame is held out from both models.
+        - Each side is then filtered to the frames the centroid model can train on
+          (`_is_training_frame`) plus negative frames, which it reads with
+          ``use_negative_frames`` and skips otherwise; this drops e.g. box-only
+          frames and moves no frame to the other side. Only when one side is left
+          without a trainable frame (tiny projects) is one lent across from the
+          other, with a warning.
         """
-        frames = [lf for lf in label if self._is_training_frame(lf)]
-        for lf in frames:
-            lf.instances = lf.user_instances
-
-        def mk(selected):
-            return sio.Labels(
-                labeled_frames=selected,
-                videos=label.videos,
-                skeletons=label.skeletons,
-                tracks=label.tracks,
-                suggestions=label.suggestions,
-                provenance=label.provenance,
+        if not any(self._is_training_frame(lf) for lf in label):
+            # `make_training_splits` divides by zero when nothing survives its
+            # cleanup; return empty splits so `_validate_nonempty_labels` raises
+            # its clear error instead (or another labels file supplies frames).
+            empty = sio.Labels(videos=label.videos, skeletons=label.skeletons)
+            return empty, deepcopy(empty)
+        splits = label.make_training_splits(n_train=1 - val_fraction, seed=seed)
+        frames = {
+            name: [
+                lf
+                for lf in splits[name]
+                if self._is_training_frame(lf) or lf.is_negative
+            ]
+            for name in ("train", "val")
+        }
+        empty_side = [
+            name
+            for name, lfs in frames.items()
+            if not any(self._is_training_frame(lf) for lf in lfs)
+        ]
+        if empty_side:
+            # The draw put no frame the centroid model can train on on this side.
+            # Lend it one from the other side (shared when that is the only one,
+            # as `Labels.split` does for a single frame) so training still runs.
+            (short,) = empty_side
+            donor = "val" if short == "train" else "train"
+            donor_lfs = [lf for lf in frames[donor] if self._is_training_frame(lf)]
+            lent = donor_lfs[-1]
+            if len(donor_lfs) > 1:
+                frames[donor] = [lf for lf in frames[donor] if lf is not lent]
+            # Each split holds its own copies; point the lent copy at this side's.
+            lent = deepcopy(lent)
+            lent.video = next(
+                (v for v in splits[short].videos if v.matches_path(lent.video)),
+                lent.video,
+            )
+            frames[short].append(lent)
+            side = "training" if short == "train" else "validation"
+            logger.warning(
+                f"Centroid train/val split: no {side} frame drawn has a centroid "
+                "target (e.g. negative or box-only frames), so one frame was moved "
+                f"to {side} from the other side. This split no longer matches the "
+                "other model types' split exactly."
             )
 
-        n = len(frames)
-        if n <= 1:
-            # Too few to hold out a val frame; use the same frame for both so
-            # training still runs (mirrors small-dataset behavior elsewhere).
-            return mk(list(frames)), mk(list(frames))
-        rng = np.random.default_rng(seed)
-        order = rng.permutation(n)
-        n_val = max(1, int(round(n * val_fraction)))
-        val_sel = [frames[i] for i in order[:n_val]]
-        train_sel = [frames[i] for i in order[n_val:]]
-        return mk(train_sel), mk(val_sel)
+        def mk(name):
+            split = splits[name]
+            return sio.Labels(
+                labeled_frames=frames[name],
+                videos=split.videos,
+                skeletons=split.skeletons,
+                tracks=split.tracks,
+                suggestions=split.suggestions,
+                provenance=split.provenance,
+            )
+
+        return mk("train"), mk("val")
 
     def _setup_train_val_labels(
         self,
@@ -622,8 +671,8 @@ class ModelTrainer:
                     )
             for label in labels:
                 if self.model_type == "centroid":
-                    # Centroid-aware split keeps pure-centroid frames that
-                    # make_training_splits would drop (no user instances).
+                    # The same frame draw as the other models, filtered to frames
+                    # with a centroid target (pure-centroid ones too) + negatives.
                     train_split, val_split = self._split_centroid_labels(
                         label, val_fraction, seed
                     )

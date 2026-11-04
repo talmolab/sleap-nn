@@ -786,9 +786,10 @@ def test_model_trainer_centroid(config, tmp_path):
 
 def test_centroid_split_keeps_centroid_only_frames(config, minimal_instance, tmp_path):
     """The centroid model's train/val split must keep frames carrying only user
-    centroids (no pose instance) — the pure-centroid seeding case. Regression:
-    make_training_splits filters to has_user_instances, which dropped them (0
-    training frames); _split_centroid_labels keeps them.
+    centroids (no pose instance) — the pure-centroid seeding case — and every one
+    of them: `make_training_splits` leaves a frame in neither split when its
+    rounding does not come out even (4 + 1 of these 6), so the centroid split
+    takes the whole remainder as validation.
     """
     from sleap_io.model.centroid import UserCentroid
 
@@ -824,6 +825,188 @@ def test_centroid_split_keeps_centroid_only_frames(config, minimal_instance, tmp
     n_val = sum(len(lb) for lb in trainer.val_labels)
     assert n_train + n_val == 6, f"pure-centroid frames were dropped: {n_train}+{n_val}"
     assert n_train >= 1 and n_val >= 1
+
+
+def _centroid_config(config, tmp_path):
+    """The `config` fixture (centered instance) turned into a centroid model."""
+    centroid_config = config.copy()
+    head_config = centroid_config.model_config.head_configs.centered_instance
+    OmegaConf.update(centroid_config, "model_config.head_configs.centroid", head_config)
+    del centroid_config.model_config.head_configs.centered_instance
+    del centroid_config.model_config.head_configs.centroid["confmaps"].part_names
+    OmegaConf.update(centroid_config, "trainer_config.ckpt_dir", f"{tmp_path}")
+    return centroid_config
+
+
+def _frame_keys(labels_list):
+    return {
+        (lf.video.filename, lf.frame_idx) for labels in labels_list for lf in labels
+    }
+
+
+def _split_keys(trainer, labels, val_fraction):
+    OmegaConf.update(trainer.config, "data_config.validation_fraction", val_fraction)
+    trainer.train_labels = []
+    trainer.val_labels = []
+    trainer._setup_train_val_labels([labels])
+    return _frame_keys(trainer.train_labels), _frame_keys(trainer.val_labels)
+
+
+def _split_project(base, counts):
+    """Labels on `base`'s video/skeleton with `counts` frames of each kind."""
+    from sleap_io.model.centroid import PredictedCentroid, UserCentroid
+
+    video, skel = base.videos[0], base.skeletons[0]
+    pts = base[0].instances[0].numpy()
+
+    def pose(i):
+        return sio.Instance.from_numpy(pts + i, skeleton=skel)
+
+    def pred(i):
+        return sio.PredictedInstance.from_numpy(
+            pts + i, skeleton=skel, point_scores=np.ones(len(pts)), score=1.0
+        )
+
+    kinds = {
+        "pose": lambda i: dict(instances=[pose(i)]),
+        "pose_plus_pred": lambda i: dict(instances=[pose(i), pred(i)]),
+        "centroid_only": lambda i: dict(
+            centroids=[UserCentroid(x=5.0 + i, y=6.0), PredictedCentroid(x=1.0, y=1.0)]
+        ),
+        "pred_only": lambda i: dict(instances=[pred(i)]),
+        "negative": lambda i: dict(is_negative=True),
+    }
+    frames, keys = [], {kind: set() for kind in counts}
+    for kind, count in counts.items():
+        for _ in range(count):
+            i = len(frames)
+            frames.append(
+                sio.LabeledFrame(video=video, frame_idx=i, **kinds[kind](float(i)))
+            )
+            keys[kind].add((video.filename, i))
+    labels = sio.Labels(videos=[video], skeletons=[skel], labeled_frames=frames)
+    return labels, keys
+
+
+@pytest.mark.parametrize(
+    "counts,val_fraction",
+    [
+        ({"pose": 200}, 0.1),
+        # Pure-centroid seeding: 37 frames do not split evenly (33 + 3, 1 left over).
+        ({"centroid_only": 37}, 0.1),
+        (
+            {
+                "pose": 101,
+                "pose_plus_pred": 20,
+                "centroid_only": 43,
+                "pred_only": 15,
+                "negative": 12,
+            },
+            0.15,
+        ),
+    ],
+)
+def test_centroid_split_matches_other_models(
+    config, minimal_instance, tmp_path, counts, val_fraction
+):
+    """#833: a centroid and a centered-instance model trained on the same labels,
+    validation fraction and seed hold out the same frames, so a top-down pipeline
+    can be scored end to end on frames neither model trained on. The centroid
+    split used its own permutation, which shared only ~`val_fraction` of the
+    validation frames. The centroid model now trains on exactly the other model's
+    training frames, and validates on its validation frames plus the at most one
+    frame its rounding leaves unused (so no centroid-only frame is lost).
+    Negative frames stay on the side the shared draw put them (the centroid model
+    reads them with `use_negative_frames`; the old split dropped them all).
+    """
+    labels, keys = _split_project(sio.load_slp(minimal_instance), counts)
+    trainable = set().union(*(keys.get(k, set()) for k in ("pose", "pose_plus_pred")))
+    trainable |= keys.get("centroid_only", set())
+    negative = keys.get("negative", set())
+
+    ci_trainer = ModelTrainer.get_model_trainer_from_config(config)
+    centroid_trainer = ModelTrainer.get_model_trainer_from_config(
+        _centroid_config(config, tmp_path)
+    )
+    assert (ci_trainer.model_type, centroid_trainer.model_type) == (
+        "centered_instance",
+        "centroid",
+    )
+    ci_train, ci_val = _split_keys(ci_trainer, labels, val_fraction)
+    c_train, c_val = _split_keys(centroid_trainer, labels, val_fraction)
+
+    assert c_train == ci_train
+    assert ci_val <= c_val
+    assert not c_val & ci_train, "a centroid val frame trained the other model"
+    unused = c_val - ci_val
+    assert len(unused) <= 1 and not unused & (ci_train | ci_val)
+    assert c_train | c_val == trainable | negative, "frames were dropped"
+    assert not c_train & c_val
+    # Centroid-only frames are split like any other frame, never dropped.
+    assert keys.get("centroid_only", set()) <= c_train | c_val
+
+
+def test_centroid_split_lends_a_frame_to_an_empty_side(
+    caplog, config, minimal_instance, tmp_path
+):
+    """The draw is over every frame `make_training_splits` keeps, negative frames
+    included, which carry no centroid target. When a tiny project's draw puts only
+    those on one side, one trainable frame is lent across (shared when it is the
+    only one) instead of failing on an empty split; the negatives stay put."""
+    trainer = ModelTrainer.get_model_trainer_from_config(
+        _centroid_config(config, tmp_path)
+    )
+    base = sio.load_slp(minimal_instance)
+    for counts, val_fraction, empty_side in (
+        ({"centroid_only": 3, "negative": 7}, 0.1, "val"),
+        ({"centroid_only": 1, "negative": 1}, 0.5, "train"),
+    ):
+        labels, keys = _split_project(base, counts)
+        # A seed whose draw puts no centroid frame on `empty_side`.
+        seed = next(
+            s
+            for s in range(1000)
+            if not _frame_keys(
+                [
+                    labels.make_training_splits(n_train=1 - val_fraction, seed=s)[
+                        empty_side
+                    ]
+                ]
+            )
+            & keys["centroid_only"]
+        )
+        caplog.clear()
+        train, val = trainer._split_centroid_labels(labels, val_fraction, seed)
+        k_train, k_val = _frame_keys([train]), _frame_keys([val])
+        c_train, c_val = k_train & keys["centroid_only"], k_val & keys["centroid_only"]
+        assert c_train and c_val
+        assert c_train | c_val == keys["centroid_only"]
+        if len(keys["centroid_only"]) == 1:
+            assert c_train == c_val
+        else:
+            assert not c_train & c_val
+        assert (k_train | k_val) - keys["centroid_only"] == keys["negative"]
+        # The lent frame is this side's own copy, on this side's video object.
+        for split in (train, val):
+            assert all(any(lf.video is v for v in split.videos) for lf in split)
+            assert len(split.videos) == 1
+        assert "one frame was moved" in caplog.text
+
+
+def test_centroid_split_without_trainable_frames(config, minimal_instance, tmp_path):
+    """Nothing trainable (predictions and negative frames only): the clear
+    empty-split error, not `make_training_splits`' ZeroDivisionError."""
+    trainer = ModelTrainer.get_model_trainer_from_config(
+        _centroid_config(config, tmp_path)
+    )
+    labels, _ = _split_project(
+        sio.load_slp(minimal_instance), {"pred_only": 4, "negative": 2}
+    )
+    train, val = trainer._split_centroid_labels(labels, 0.1, 0)
+    assert len(train) == len(val) == 0
+    trainer.train_labels, trainer.val_labels = [], []
+    with pytest.raises(ValueError, match="No labeled frames available for train"):
+        trainer._setup_train_val_labels([labels])
 
 
 @pytest.mark.skipif(
