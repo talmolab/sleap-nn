@@ -278,3 +278,210 @@ def test_per_file_monitor_check():
         _trainer_stub(cfg, [a, b], warp=False)._check_per_file_monitor("val/b/loss")
     with pytest.raises(ValueError, match="several validation files"):
         _trainer_stub(cfg, [a])._check_per_file_monitor("val/macro/loss")
+
+
+# --- Multi-skeleton heads: eval without the file system, per-node losses, viz,
+# --- post-training eval.
+
+
+def _unreadable_match(self, other, *args, **kwargs):
+    """`Labels.match` on embedded videos whose originals sit on an unreadable mount."""
+    raise PermissionError(13, "Permission denied", "/root/vast/x/0021.jpg")
+
+
+def test_match_labels_videos_pairs_shared_videos_without_the_file_system(
+    monkeypatch,
+):
+    from sleap_nn.evaluation import match_labels_videos
+
+    monkeypatch.setattr(sio.Labels, "match", _unreadable_match)
+    videos = [sio.Video(filename="a.mp4"), sio.Video(filename="b.mp4")]
+    gt = sio.Labels(videos=list(videos))
+    pr = sio.Labels(videos=[videos[1]])
+    assert match_labels_videos(gt, pr).video_map == {videos[1]: videos[1]}
+
+
+def test_match_labels_videos_falls_back_to_index_pairing(monkeypatch):
+    from sleap_nn.evaluation import match_labels_videos
+
+    monkeypatch.setattr(sio.Labels, "match", _unreadable_match)
+    gt = sio.Labels(videos=[sio.Video("/d/x.pkg.slp"), sio.Video("/d/y.pkg.slp")])
+    # `sleap-nn predict` keeps the input's video order (other directory here).
+    pr = sio.Labels(videos=[sio.Video("/e/x.pkg.slp"), sio.Video("/e/y.pkg.slp")])
+    vmap = match_labels_videos(gt, pr).video_map
+    assert [(p.filename, g.filename) for p, g in vmap.items()] == [
+        ("/e/x.pkg.slp", "/d/x.pkg.slp"),
+        ("/e/y.pkg.slp", "/d/y.pkg.slp"),
+    ]
+    # Different files: index pairing would be a guess, so the error stands.
+    pr = sio.Labels(videos=[sio.Video("/e/y.pkg.slp"), sio.Video("/e/x.pkg.slp")])
+    with pytest.raises(PermissionError):
+        match_labels_videos(gt, pr)
+
+
+def test_callback_scores_files_whose_originals_are_unreadable(two_files, monkeypatch):
+    """The epoch-end eval scored 0 for every file once `Labels.match` raised."""
+    monkeypatch.setattr(sio.Labels, "match", _unreadable_match)
+    cb, gts, preds = two_files
+    per_file = cb._evaluate_files(gts, preds, epoch=0)
+    assert per_file["a"]["mOKS"]["mOKS"] == pytest.approx(1.0)
+    assert per_file["b"]["distance_metrics"]["avg"] == pytest.approx(3.0, abs=1e-6)
+    assert cb._evaluate(gts, preds, epoch=0) is not None
+
+
+class _NodeLossStub:
+    """The per-node train-loss methods of `LightningModel` on a bare object."""
+
+    _get_node_weights = LightningModel._get_node_weights
+    _accumulate_node_loss = LightningModel._accumulate_node_loss
+
+    def __init__(self):
+        self._epoch_node_loss_sum = None
+        self._epoch_node_loss_count = 0
+
+
+def test_per_node_loss_averages_only_samples_that_label_the_node():
+    g = torch.Generator().manual_seed(0)
+    stub = _NodeLossStub()
+    batches = []
+    for _ in range(3):
+        mse = torch.rand(4, 5, 3, 3, generator=g)
+        # Samples of file `a` label a/* only, file `b` labels b/* only.
+        f = torch.randint(0, 2, (4,), generator=g)
+        w = torch.stack(
+            [torch.tensor([1.0, 1, 0, 0, 0] if x == 0 else [0, 0, 1, 1, 1]) for x in f]
+        )
+        batch = {"node_weights": w[:, None]}
+        stub._accumulate_node_loss(mse, batch)
+        batches.append((mse.mean(dim=(2, 3)), w))
+    per_sample = torch.cat([b[0] for b in batches])
+    w = torch.cat([b[1] for b in batches])
+    got = stub._epoch_node_loss_sum / stub._epoch_node_loss_count
+    for k in range(5):
+        want = per_sample[w[:, k] > 0, k].mean()
+        assert float(got[k]) == pytest.approx(float(want), rel=1e-6)
+    # Without node weights every sample counts (the previous behavior).
+    plain = _NodeLossStub()
+    mse = torch.rand(4, 5, 3, 3, generator=g)
+    plain._accumulate_node_loss(mse, {})
+    want = torch.sum(mse, dim=(0, 2, 3)) / (4 * 3 * 3)
+    got = plain._epoch_node_loss_sum / plain._epoch_node_loss_count
+    assert torch.allclose(got, want)
+
+
+def _viz_data(k):
+    from sleap_nn.training.utils import VisualizationData
+
+    rng = np.random.default_rng(k)
+    return VisualizationData(
+        image=rng.random((16, 16, 1)),
+        pred_confmaps=rng.random((8, 8, k)),
+        pred_peaks=rng.random((1, k, 2)),
+        pred_peak_values=rng.random((1, k)),
+        gt_instances=rng.random((1, k, 2)),
+        node_names=[f"n{i}" for i in range(k)],
+        output_scale=0.5,
+    )
+
+
+def test_restrict_viz_nodes():
+    from sleap_nn.training.callbacks import _restrict_viz_nodes
+
+    data = _viz_data(5)
+    sub = _restrict_viz_nodes(data, [2, 4])
+    assert sub.node_names == ["n2", "n4"]
+    assert sub.pred_confmaps.shape == (8, 8, 2)
+    np.testing.assert_array_equal(sub.pred_peaks, data.pred_peaks[:, [2, 4]])
+    np.testing.assert_array_equal(sub.gt_instances, data.gt_instances[:, [2, 4]])
+    np.testing.assert_array_equal(
+        sub.pred_peak_values, data.pred_peak_values[:, [2, 4]]
+    )
+
+
+class _VizDataset(list):
+    """Samples carrying `labels_idx`, with the warp dataset's `table.labels_idx`."""
+
+    def __init__(self, labels_idx):
+        super().__init__(
+            {"labels_idx": int(f), "i": i} for i, f in enumerate(labels_idx)
+        )
+        self.table = SimpleNamespace(labels_idx=np.asarray(labels_idx))
+
+
+def test_viz_draws_one_sample_per_val_file_on_its_own_nodes(tmp_path, monkeypatch):
+    from sleap_nn.training.callbacks import UnifiedVizCallback
+
+    lightning_model = SimpleNamespace(get_visualization_data=lambda s: _viz_data(5))
+    cb = UnifiedVizCallback(
+        model_trainer=SimpleNamespace(lightning_model=lightning_model),
+        train_dataset=_VizDataset([1, 1]),
+        val_dataset=_VizDataset([0, 1, 1, 0, 1]),
+        model_type="centered_instance",
+        save_local=True,
+        local_save_dir=tmp_path,
+        train_file_nodes=[[0, 1], [2, 3, 4]],
+        val_file_nodes=[[0, 1], [2, 3, 4]],
+        val_file_names=["a", "b"],
+    )
+    drawn = []
+    monkeypatch.setattr(
+        cb, "_save_local_viz", lambda data, prefix, epoch: drawn.append((prefix, data))
+    )
+    trainer = SimpleNamespace(
+        is_global_zero=True,
+        current_epoch=3,
+        strategy=SimpleNamespace(barrier=lambda: None),
+    )
+    cb.on_train_epoch_end(trainer, None)
+    assert [p for p, _ in drawn] == ["train", "validation.a", "validation.b"]
+    assert drawn[0][1].node_names == ["n2", "n3", "n4"]  # Train sample of file 1.
+    assert drawn[1][1].node_names == ["n0", "n1"]
+    assert drawn[2][1].node_names == ["n2", "n3", "n4"]
+
+
+def test_viz_file_nodes():
+    a, b = _file(["a/x", "a/y"]), _file(["b/x", "b/y", "b/z"])
+    cfg = {
+        "data_config": {"val_names": ["a", "b"]},
+        "trainer_config": {"eval": {"file_nodes": {"b": ["b/z"]}}},
+    }
+    t = _trainer_stub(cfg, [a, b])
+    t.train_labels = [b, a]
+    t._viz_file_nodes = ModelTrainer._viz_file_nodes.__get__(t)
+    assert t._viz_file_nodes() == ([[2, 3, 4], [0, 1]], [[0, 1], [4]], ["a", "b"])
+    # One skeleton with every model node: nothing to restrict.
+    full = _file(list(NODES))
+    t = _trainer_stub({"data_config": {}}, [full])
+    t.train_labels = [full]
+    t._viz_file_nodes = ModelTrainer._viz_file_nodes.__get__(t)
+    assert t._viz_file_nodes() == (None, None, None)
+
+
+def test_post_train_file_nodes_and_gt_on_those_nodes():
+    from sleap_nn.train import _labels_on_nodes, _post_train_file_nodes
+
+    a, b = _file(["a/x", "a/y"]), _file(["b/z", "b/x", "b/y", "b/tail"])
+    cfg = {
+        "data_config": {"val_names": ["a", "b"]},
+        "trainer_config": {"eval": {"file_nodes": {"b": ["b/x", "b/z"]}}},
+    }
+    t = _trainer_stub(cfg, [a, b])
+    # Val files: their ValFile nodes (file_nodes applied), in model order.
+    assert _post_train_file_nodes(t, "val.1", b) == ["b/x", "b/z"]
+    # Other splits: the model nodes the file's skeleton holds.
+    assert _post_train_file_nodes(t, "test.0", b) == ["b/x", "b/y", "b/z"]
+    full = _file(list(NODES))
+    assert _post_train_file_nodes(t, "test.0", full) is None
+    with pytest.raises(ValueError, match="no model node"):
+        _post_train_file_nodes(t, "test.0", _file(["c/x"]))
+
+    sk = b.skeletons[0]
+    inst = sio.Instance.from_numpy(
+        np.array([[1.0, 1], [2, 2], [3, 3], [4, 4]]), skeleton=sk
+    )
+    b.append(sio.LabeledFrame(b.videos[0], 0, instances=[inst]))
+    out = _labels_on_nodes(b, ["b/x", "b/y", "b/z"])
+    assert out.skeletons[0].node_names == ["b/x", "b/y", "b/z"]
+    np.testing.assert_array_equal(
+        out[0].instances[0].numpy(), [[2.0, 2], [3, 3], [1, 1]]
+    )

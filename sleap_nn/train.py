@@ -154,6 +154,63 @@ def _post_train_progress(d_name: str, interval: float = 60.0):
     return callback
 
 
+def _post_train_file_nodes(
+    trainer: ModelTrainer, d_name: str, gt: sio.Labels
+) -> Optional[List[str]]:
+    """The model nodes one post-training split file is predicted and scored on.
+
+    A model trained on files with different skeletons (e.g. one prefixed node set
+    per dataset, merged into one head) predicts each file with only that file's
+    nodes, as the epoch-end evaluation scores it: a val file's
+    :class:`~sleap_nn.training.callbacks.ValFile` nodes (the file's model nodes,
+    narrowed by ``trainer_config.eval.file_nodes``), and for any other file the
+    model nodes its skeletons hold. Predicting every node instead failed against
+    the file's own skeleton ("cannot reshape array of size 604 ...").
+
+    Args:
+        trainer: The trained :class:`ModelTrainer`.
+        d_name: The split file's name, ``"<split>.<index>"`` (``"val.0"``).
+        gt: The split file's ground truth.
+
+    Returns:
+        The node names in model order, or ``None`` when the file is scored on
+        every model node (the single-skeleton case: nothing to filter).
+
+    Raises:
+        ValueError: If the file's skeleton holds no model node.
+    """
+    model_nodes = list(trainer.skeletons[0].node_names)
+    split, _, index = d_name.partition(".")
+    nodes = None
+    if split == "val":
+        files = trainer._val_files()
+        if files is not None and int(index) < len(files):
+            nodes = list(files[int(index)].node_names)
+    if nodes is None:
+        own = {n for skeleton in gt.skeletons for n in skeleton.node_names}
+        nodes = [n for n in model_nodes if n in own]
+    if not nodes:
+        raise ValueError(f"`{d_name}` has no model node to score.")
+    return None if len(nodes) == len(model_nodes) else nodes
+
+
+def _labels_on_nodes(labels: sio.Labels, nodes: List[str]) -> sio.Labels:
+    """``labels`` (edited in place) with only ``nodes``, in that order, per skeleton.
+
+    The ground truth a node-filtered prediction is scored against: the evaluator
+    pairs points by index, so both sides need the same nodes in the same order.
+    """
+    keep = set(nodes)
+    for skeleton in list(labels.skeletons):
+        drop = [n for n in skeleton.node_names if n not in keep]
+        if drop:
+            labels.remove_nodes(drop, skeleton=skeleton)
+        order = [n for n in nodes if n in set(skeleton.node_names)]
+        if skeleton.node_names != order:
+            labels.reorder_nodes(order, skeleton=skeleton)
+    return labels
+
+
 def _subsample_labels(
     path: str, max_frames: int, seed: Optional[int], d_name: str
 ) -> Union[str, sio.Labels]:
@@ -821,11 +878,21 @@ def run_training(
                 # so they don't need to be forwarded explicitly.
                 from sleap_nn.inference.run import predict as predict_new
 
+                # A multi-skeleton head predicts each file on its own nodes only.
+                gt_labels, file_nodes = None, None
+                if model_type in ("single_instance", "centered_instance"):
+                    gt_labels = (
+                        path if isinstance(path, sio.Labels) else sio.load_slp(path)
+                    )
+                    file_nodes = _post_train_file_nodes(trainer, d_name, gt_labels)
+                node_kwargs = {} if file_nodes is None else {"node_filter": file_nodes}
+
                 pred_labels = predict_new(
                     path,
                     model_paths=[run_path],
                     device=str(trainer.trainer.strategy.root_device),
                     output_path=pred_path,
+                    **node_kwargs,
                     **_post_training_predict_kwargs(config, model_type),
                     **predict_kwargs,
                 )
@@ -839,9 +906,15 @@ def run_training(
                     )
                     continue  # skip if there are no predicted instances
 
-                # Run evaluation and save metrics.
+                # Run evaluation and save metrics (against the GT on the predicted
+                # nodes, after predicting: a subsampled split's labels are edited).
+                gt_eval = (
+                    path
+                    if file_nodes is None
+                    else _labels_on_nodes(gt_labels, file_nodes)
+                )
                 metrics = run_evaluation(
-                    ground_truth_path=path,
+                    ground_truth_path=gt_eval,
                     predicted_path=pred_path.as_posix(),
                     save_metrics=metrics_path.as_posix(),
                     **_oks_run_evaluation_overrides(config),
