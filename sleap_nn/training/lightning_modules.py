@@ -637,18 +637,66 @@ class LightningModel(L.LightningModule):
         self._epoch_loss_sum = self._epoch_loss_sum + loss
         self._epoch_loss_count += 1
 
-    def _accumulate_node_loss(self, channel_wise_loss: torch.Tensor):
+    def _accumulate_node_loss(self, mse: torch.Tensor, batch: Optional[Dict] = None):
         """Accumulate per-node confmap MSE (logged per node once per epoch).
 
-        Replaces one ``self.log`` call per node per step (17 for COCO) with a single
-        on-device add; ``on_train_epoch_end`` logs ``train/confmaps/<node>``.
+        Each node's loss is averaged over the samples that label it: with
+        ``node_weights`` in ``batch``, a sample whose weight for a node is 0 (its
+        source file does not annotate that node) is left out of that node's mean.
+        Without it, a multi-dataset head's curve averaged over every file's samples,
+        mostly ones it is not trained on, and rose as the model learned to fire on
+        any animal. Replaces one ``self.log`` call per node per step (17 for COCO)
+        with a single on-device add; ``on_train_epoch_end`` logs
+        ``train/confmaps/<node>``.
+
+        Args:
+            mse: ``(B, n_nodes, h, w)`` squared confmap error.
+            batch: The training batch (for ``node_weights``), or ``None``.
         """
-        loss = channel_wise_loss.detach().float()
+        per_sample = mse.detach().float().mean(dim=(2, 3))  # (B, n_nodes)
+        weights = (
+            None
+            if batch is None
+            else self._get_node_weights(batch, per_sample.shape[1], per_sample.device)
+        )
+        labeled = (
+            torch.ones_like(per_sample) if weights is None else (weights > 0).float()
+        )
+        sums = (per_sample * labeled).sum(dim=0)
+        counts = labeled.sum(dim=0)
         if self._epoch_node_loss_sum is None:
-            self._epoch_node_loss_sum = loss
+            self._epoch_node_loss_sum = sums
+            self._epoch_node_loss_count = counts
         else:
-            self._epoch_node_loss_sum = self._epoch_node_loss_sum + loss
-        self._epoch_node_loss_count += 1
+            self._epoch_node_loss_sum = self._epoch_node_loss_sum + sums
+            self._epoch_node_loss_count = self._epoch_node_loss_count + counts
+
+    def _log_epoch_node_losses(self):
+        """Log the per-node confmap losses accumulated by `_accumulate_node_loss`.
+
+        Sums the per-node sums and sample counts over ranks before dividing (a
+        rank's batches may hold none of a node's file), so every rank logs the
+        same values; a node no sample labeled this epoch logs NaN.
+        """
+        node_names = getattr(self, "node_names", None)
+        if self._epoch_node_loss_sum is None or node_names is None:
+            return
+        sums, counts = self._epoch_node_loss_sum, self._epoch_node_loss_count
+        if self.trainer.world_size > 1:
+            sums = self.trainer.strategy.reduce(sums, reduce_op="sum")
+            counts = self.trainer.strategy.reduce(counts, reduce_op="sum")
+        node_avg = torch.where(
+            counts > 0, sums / counts.clamp(min=1), torch.full_like(sums, torch.nan)
+        )
+        for node_idx, name in enumerate(node_names):
+            self.log(
+                f"train/confmaps/{name}",
+                node_avg[node_idx],
+                prog_bar=False,
+                on_step=False,
+                on_epoch=True,
+                sync_dist=False,
+            )
 
     def on_train_batch_end(self, outputs, batch, batch_idx):
         """Count per-device samples this epoch (for throughput logging)."""
@@ -714,19 +762,7 @@ class LightningModel(L.LightningModule):
                 on_epoch=True,
                 sync_dist=True,
             )
-        # Per-node confmap losses accumulated by `_accumulate_node_loss`.
-        node_names = getattr(self, "node_names", None)
-        if self._epoch_node_loss_sum is not None and node_names is not None:
-            node_avg = self._epoch_node_loss_sum / self._epoch_node_loss_count
-            for node_idx, name in enumerate(node_names):
-                self.log(
-                    f"train/confmaps/{name}",
-                    node_avg[node_idx],
-                    prog_bar=False,
-                    on_step=False,
-                    on_epoch=True,
-                    sync_dist=True,
-                )
+        self._log_epoch_node_losses()
         # Log current learning rate (useful for monitoring LR schedulers)
         if self.trainer.optimizers:
             lr = self.trainer.optimizers[0].param_groups[0]["lr"]
@@ -1853,10 +1889,7 @@ class SingleInstanceLightningModule(LightningModel):
 
         # for part-wise loss
         if self.node_names is not None:
-            batch_size, _, h, w = y.shape
-            mse = (y - y_preds) ** 2
-            channel_wise_loss = torch.sum(mse, dim=(0, 2, 3)) / (batch_size * h * w)
-            self._accumulate_node_loss(channel_wise_loss)
+            self._accumulate_node_loss((y - y_preds) ** 2, batch)
         # Log step-level loss (every batch, uses global_step x-axis)
         self.log(
             "loss",
@@ -2124,10 +2157,7 @@ class TopDownCenteredInstanceLightningModule(LightningModel):
 
         # for part-wise loss
         if self.node_names is not None:
-            batch_size, _, h, w = y.shape
-            mse = (y - y_preds) ** 2
-            channel_wise_loss = torch.sum(mse, dim=(0, 2, 3)) / (batch_size * h * w)
-            self._accumulate_node_loss(channel_wise_loss)
+            self._accumulate_node_loss((y - y_preds) ** 2, batch)
 
         # Log step-level loss (every batch, uses global_step x-axis)
         self.log(
@@ -3566,10 +3596,7 @@ class TopDownCenteredInstanceMultiClassLightningModule(LightningModel):
 
         # for part-wise loss
         if self.node_names is not None:
-            batch_size, _, h, w = y_confmap.shape
-            mse = (y_confmap - confmaps) ** 2
-            channel_wise_loss = torch.sum(mse, dim=(0, 2, 3)) / (batch_size * h * w)
-            self._accumulate_node_loss(channel_wise_loss)
+            self._accumulate_node_loss((y_confmap - confmaps) ** 2, batch)
 
         # Log step-level loss (every batch, uses global_step x-axis)
         self.log(

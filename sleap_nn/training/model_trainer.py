@@ -2425,6 +2425,39 @@ class ModelTrainer:
                                 f"Could not save test ground truth for {test_path}: {e}"
                             )
 
+    def _viz_file_nodes(self):
+        """Per-file channel indices for the training viz of a multi-skeleton head.
+
+        Returns:
+            ``(train_file_nodes, val_file_nodes, val_file_names)``: per training and
+            per validation labels file the model channels of its nodes (a val
+            file's :class:`~sleap_nn.training.callbacks.ValFile` nodes, so
+            ``trainer_config.eval.file_nodes`` applies), and the val files' names;
+            ``(None, None, None)`` when every file has every model node or the
+            model has no skeleton (box detectors).
+        """
+        if not self.skeletons:
+            return None, None, None
+        model_nodes = list(self.skeletons[0].node_names)
+
+        def own_nodes(labels_list):
+            out = []
+            for labels in labels_list:
+                own = {n for sk in labels.skeletons for n in sk.node_names}
+                out.append([i for i, n in enumerate(model_nodes) if n in own])
+            return out
+
+        train = own_nodes(self.train_labels)
+        files = self._val_files()
+        if files is not None:
+            val = [[model_nodes.index(n) for n in f.node_names] for f in files]
+            names = [f.name for f in files]
+        else:
+            val, names = own_nodes(self.val_labels), None
+        if all(len(idx) == len(model_nodes) for idx in train + val):
+            return None, None, None
+        return train, val, names
+
     def _setup_viz_datasets(self):
         """Setup dataloaders."""
         data_viz_config = self.config.copy()
@@ -3058,6 +3091,12 @@ class ModelTrainer:
                         self.config,
                         "trainer_config.viz_img_format",
                         default="png",
+                    ),
+                    **dict(
+                        zip(
+                            ("train_file_nodes", "val_file_nodes", "val_file_names"),
+                            self._viz_file_nodes(),
+                        )
                     ),
                 )
             )

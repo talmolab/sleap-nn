@@ -608,6 +608,52 @@ def _instances_from_user_centroids(frame: sio.LabeledFrame) -> List[sio.Instance
     ]
 
 
+def _video_file_name(video: sio.Video) -> str:
+    """A video's file name without its directory (first image of an image list)."""
+    filename = video.filename
+    if isinstance(filename, (list, tuple)):
+        filename = filename[0] if filename else ""
+    return Path(str(filename)).name
+
+
+def match_labels_videos(
+    labels_gt: sio.Labels, labels_pr: sio.Labels
+) -> "sio.model.matching.MatchResult":
+    """``labels_gt.match(labels_pr)``, without touching the file system when possible.
+
+    sleap-io's matcher stats the original-video paths of every candidate pair of
+    videos, which raises ``PermissionError`` on unreadable mounts (e.g. a
+    ``/root/...`` path recorded in an embedded package) and made every epoch-end
+    and post-training evaluation of such files fail. So:
+
+    * when every prediction video is one of the GT's own video objects (the
+      epoch-end evaluation builds both from the same videos), they are paired by
+      identity;
+    * when the matcher raises ``OSError`` and both list the same number of videos
+      with the same file names in the same order (``sleap-nn predict`` keeps its
+      input's video order), they are paired by index.
+
+    Otherwise the matcher's result (or error) is returned unchanged.
+    """
+    from sleap_io.model.matching import MatchResult
+
+    gt_ids = {id(v) for v in labels_gt.videos}
+    if labels_pr.videos and all(id(v) in gt_ids for v in labels_pr.videos):
+        return MatchResult(video_map={v: v for v in labels_pr.videos})
+    try:
+        return labels_gt.match(labels_pr)
+    except OSError as e:
+        names_gt = [_video_file_name(v) for v in labels_gt.videos]
+        names_pr = [_video_file_name(v) for v in labels_pr.videos]
+        if names_gt != names_pr:
+            raise
+        logger.warning(
+            f"Video matching failed on the file system ({e}); pairing the "
+            f"{len(names_gt)} videos by index (same file names, same order)."
+        )
+        return MatchResult(video_map=dict(zip(labels_pr.videos, labels_gt.videos)))
+
+
 def find_frame_pairs(
     labels_gt: sio.Labels,
     labels_pr: sio.Labels,
@@ -647,7 +693,7 @@ def find_frame_pairs(
     # Pairs". This is resolved by the pinned sleap-io (talmolab/sleap-io#473/#476),
     # whose AUTO matcher resolves effective shape through the source_video chain, so
     # the match here works with no workaround.
-    match_result = labels_gt.match(labels_pr)
+    match_result = match_labels_videos(labels_gt, labels_pr)
 
     frame_pairs = []
     # Iterate over matched video pairs (pred_video -> gt_video mapping)
@@ -1095,7 +1141,7 @@ def _unmatched_prediction_scores(
     Predictions on frames absent from the GT are not scored.
     """
     matched = {id(pp[1].instance) for pp in positive_pairs}
-    match_result = labels_gt.match(labels_pr)
+    match_result = match_labels_videos(labels_gt, labels_pr)
     scores = []
     for video_pr, video_gt in match_result.video_map.items():
         if video_gt is None:
@@ -2654,7 +2700,7 @@ def bbox_frame_pairs(
     from sleap_nn.data.bboxes import bbox_category_name, frame_user_bboxes
 
     categories: List[str] = []
-    match_result = labels_gt.match(labels_pr)
+    match_result = match_labels_videos(labels_gt, labels_pr)
     # `sio.Video` defines `__len__` but not `__bool__`: a matched video whose
     # shape is unknown is falsy, so test against None explicitly.
     gt_to_pr = {
@@ -2945,7 +2991,7 @@ def run_evaluation(
 
     logger.info("Matching videos and frames...")
     # Get match stats before creating evaluator
-    match_result = ground_truth_instances.match(predicted_instances)
+    match_result = match_labels_videos(ground_truth_instances, predicted_instances)
     logger.info(
         f"  Videos matched: {match_result.n_videos_matched}/{len(match_result.video_map)}"
     )

@@ -552,6 +552,37 @@ def _resolve_viz_img_format(img_format: str):
     return "png", "png", {}
 
 
+def _restrict_viz_nodes(data, node_idx: Sequence[int]):
+    """``data`` (a ``VisualizationData``) on the channels ``node_idx`` only.
+
+    A head trained on several files with different skeletons predicts every
+    file's channels on every crop; the training viz of one sample draws only the
+    nodes of the sample's own file (its confmaps, peaks, GT points and names).
+    """
+    import dataclasses
+
+    import numpy as np
+
+    idx = np.asarray(node_idx, dtype=int)
+    return dataclasses.replace(
+        data,
+        pred_confmaps=data.pred_confmaps[..., idx],
+        pred_peaks=data.pred_peaks[..., idx, :],
+        pred_peak_values=data.pred_peak_values[..., idx],
+        gt_instances=data.gt_instances[..., idx, :],
+        node_names=[data.node_names[i] for i in idx] if data.node_names else [],
+    )
+
+
+def _dataset_labels_idx(dataset):
+    """Each sample's labels-file index (``table.labels_idx``), or ``None``."""
+    import numpy as np
+
+    table = getattr(dataset, "table", None)
+    labels_idx = getattr(table, "labels_idx", None)
+    return None if labels_idx is None else np.asarray(labels_idx)
+
+
 class UnifiedVizCallback(Callback):
     """Unified callback for all visualization outputs during training.
 
@@ -595,6 +626,9 @@ class UnifiedVizCallback(Callback):
         wandb_confmap_threshold: float = 0.1,
         log_wandb_table: bool = False,
         img_format: str = "png",
+        train_file_nodes: Optional[List[List[int]]] = None,
+        val_file_nodes: Optional[List[List[int]]] = None,
+        val_file_names: Optional[List[str]] = None,
     ):
         """Initialize the unified visualization callback.
 
@@ -613,6 +647,17 @@ class UnifiedVizCallback(Callback):
             img_format: Image format for figures saved to ``local_save_dir`` --
                 ``"png"`` (default) or ``"jpg"`` (smaller files; #644). Unknown
                 values fall back to ``"png"``.
+            train_file_nodes: For a head trained on files with different
+                skeletons: per training labels file, the channel indices of its
+                nodes. Each training sample is drawn on its own file's nodes only.
+                ``None`` draws every channel.
+            val_file_nodes: The same per validation labels file.
+            val_file_names: Display names of the validation files. With
+                ``val_file_nodes``, every epoch draws one validation sample of
+                EACH file (a different one each epoch), logged as
+                ``viz/val/<name>/*`` and saved as ``validation.<name>.<epoch>.*``,
+                so every dataset's head is seen each epoch; one crop per file is
+                a forward pass and a figure each, small next to a training epoch.
         """
         super().__init__()
         from itertools import cycle
@@ -626,6 +671,19 @@ class UnifiedVizCallback(Callback):
         self.train_dataset = train_dataset
         self.val_dataset = val_dataset
         self.model_type = model_type
+        self.train_file_nodes = train_file_nodes
+        self.val_file_nodes = val_file_nodes
+        self.val_file_names = val_file_names
+        # Per val file, the indices of its samples in `val_dataset` (one is drawn
+        # per file per epoch), or None to draw one pooled sample.
+        self._val_file_samples = None
+        labels_idx = _dataset_labels_idx(val_dataset)
+        if val_file_nodes is not None and val_file_names and labels_idx is not None:
+            import numpy as np
+
+            self._val_file_samples = [
+                np.flatnonzero(labels_idx == f) for f in range(len(val_file_names))
+            ]
 
         # Local disk config
         self.save_local = save_local
@@ -696,11 +754,13 @@ class UnifiedVizCallback(Callback):
                 return log
         return None
 
-    def _get_viz_data(self, sample):
+    def _get_viz_data(self, sample, split: str = "train"):
         """Get visualization data with all needed fields based on model type.
 
         Args:
             sample: A sample from the visualization dataset.
+            split: ``"train"`` or ``"val"``: which per-file node sets restrict the
+                sample to its own file's nodes (see ``train_file_nodes``).
 
         Returns:
             VisualizationData with appropriate fields populated.
@@ -721,9 +781,13 @@ class UnifiedVizCallback(Callback):
             kwargs["include_instance_masks"] = True
 
         # Access lightning_model lazily from model_trainer
-        return self.model_trainer.lightning_model.get_visualization_data(
+        data = self.model_trainer.lightning_model.get_visualization_data(
             sample, **kwargs
         )
+        node_sets = self.train_file_nodes if split == "train" else self.val_file_nodes
+        if node_sets is not None and "labels_idx" in sample:
+            data = _restrict_viz_nodes(data, node_sets[int(sample["labels_idx"])])
+        return data
 
     def _save_local_viz(self, data, prefix: str, epoch: int):
         """Save visualization to local disk.
@@ -1015,16 +1079,31 @@ class UnifiedVizCallback(Callback):
                 # Get ONE sample for train visualization
                 train_sample = next(self.train_pipeline)
                 # Run inference ONCE with all needed data
-                train_data = self._get_viz_data(train_sample)
+                train_data = self._get_viz_data(train_sample, "train")
                 # Output to all destinations
                 self._save_local_viz(train_data, "train", epoch)
                 self._log_wandb_viz(train_data, "train", epoch, wandb_logger)
 
-                # Same for validation
-                val_sample = next(self.val_pipeline)
-                val_data = self._get_viz_data(val_sample)
-                self._save_local_viz(val_data, "validation", epoch)
-                self._log_wandb_viz(val_data, "val", epoch, wandb_logger)
+                if self._val_file_samples is not None:
+                    # One validation sample of each file, a different one each
+                    # epoch, on that file's nodes.
+                    for name, samples in zip(
+                        self.val_file_names, self._val_file_samples
+                    ):
+                        if not len(samples):
+                            continue
+                        i = int(samples[(epoch * 7919) % len(samples)])
+                        val_data = self._get_viz_data(self.val_dataset[i], "val")
+                        self._save_local_viz(val_data, f"validation.{name}", epoch)
+                        self._log_wandb_viz(
+                            val_data, f"val/{name}", epoch, wandb_logger
+                        )
+                else:
+                    # Same for validation
+                    val_sample = next(self.val_pipeline)
+                    val_data = self._get_viz_data(val_sample, "val")
+                    self._save_local_viz(val_data, "validation", epoch)
+                    self._log_wandb_viz(val_data, "val", epoch, wandb_logger)
 
         # Sync all processes - barrier must be reached by ALL ranks
         trainer.strategy.barrier()

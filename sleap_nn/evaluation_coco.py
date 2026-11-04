@@ -343,7 +343,9 @@ def labels_to_coco_images(
     use_meta_area = meta is not None and area_source in ("auto", "meta")
 
     n_nodes = len(labels_gt.skeletons[0].nodes)
-    match = labels_gt.match(labels_pr)
+    from sleap_nn.evaluation import match_labels_videos
+
+    match = match_labels_videos(labels_gt, labels_pr)
     gt_to_pr = {id(g): p for p, g in match.video_map.items() if g is not None}
     pr_index: Dict[Tuple[int, int], sio.LabeledFrame] = {}
     for lf in labels_pr.labeled_frames:
@@ -886,7 +888,9 @@ def transfer_predicted_boxes(
         Counts: ``n_boxes`` copied, ``n_frames`` touched, ``n_new_frames`` added
         and ``n_unmatched`` boxes whose video has no match in ``labels``.
     """
-    video_map = labels.match(box_labels).video_map
+    from sleap_nn.evaluation import match_labels_videos
+
+    video_map = match_labels_videos(labels, box_labels).video_map
     touched, n, new, unmatched = set(), 0, 0, 0
     for lf_box in box_labels.labeled_frames:
         boxes = [
