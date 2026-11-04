@@ -2433,8 +2433,11 @@ class ModelTrainer:
             per validation labels file the model channels of its nodes (a val
             file's :class:`~sleap_nn.training.callbacks.ValFile` nodes, so
             ``trainer_config.eval.file_nodes`` applies), and the val files' names;
-            ``(None, None, None)`` when every file has every model node.
+            ``(None, None, None)`` when every file has every model node or the
+            model has no skeleton (box detectors).
         """
+        if not self.skeletons:
+            return None, None, None
         model_nodes = list(self.skeletons[0].node_names)
 
         def own_nodes(labels_list):
