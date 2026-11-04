@@ -671,6 +671,33 @@ class LightningModel(L.LightningModule):
             self._epoch_node_loss_sum = self._epoch_node_loss_sum + sums
             self._epoch_node_loss_count = self._epoch_node_loss_count + counts
 
+    def _log_epoch_node_losses(self):
+        """Log the per-node confmap losses accumulated by `_accumulate_node_loss`.
+
+        Sums the per-node sums and sample counts over ranks before dividing (a
+        rank's batches may hold none of a node's file), so every rank logs the
+        same values; a node no sample labeled this epoch logs NaN.
+        """
+        node_names = getattr(self, "node_names", None)
+        if self._epoch_node_loss_sum is None or node_names is None:
+            return
+        sums, counts = self._epoch_node_loss_sum, self._epoch_node_loss_count
+        if self.trainer.world_size > 1:
+            sums = self.trainer.strategy.reduce(sums, reduce_op="sum")
+            counts = self.trainer.strategy.reduce(counts, reduce_op="sum")
+        node_avg = torch.where(
+            counts > 0, sums / counts.clamp(min=1), torch.full_like(sums, torch.nan)
+        )
+        for node_idx, name in enumerate(node_names):
+            self.log(
+                f"train/confmaps/{name}",
+                node_avg[node_idx],
+                prog_bar=False,
+                on_step=False,
+                on_epoch=True,
+                sync_dist=False,
+            )
+
     def on_train_batch_end(self, outputs, batch, batch_idx):
         """Count per-device samples this epoch (for throughput logging)."""
         try:
@@ -735,28 +762,7 @@ class LightningModel(L.LightningModule):
                 on_epoch=True,
                 sync_dist=True,
             )
-        # Per-node confmap losses accumulated by `_accumulate_node_loss`.
-        node_names = getattr(self, "node_names", None)
-        if self._epoch_node_loss_sum is not None and node_names is not None:
-            # Sum the per-node sums and sample counts over ranks before dividing (a
-            # rank's batches may hold none of a node's file), so every rank logs
-            # the same values; a node no sample labeled this epoch logs NaN.
-            sums, counts = self._epoch_node_loss_sum, self._epoch_node_loss_count
-            if self.trainer.world_size > 1:
-                sums = self.trainer.strategy.reduce(sums, reduce_op="sum")
-                counts = self.trainer.strategy.reduce(counts, reduce_op="sum")
-            node_avg = torch.where(
-                counts > 0, sums / counts.clamp(min=1), torch.full_like(sums, torch.nan)
-            )
-            for node_idx, name in enumerate(node_names):
-                self.log(
-                    f"train/confmaps/{name}",
-                    node_avg[node_idx],
-                    prog_bar=False,
-                    on_step=False,
-                    on_epoch=True,
-                    sync_dist=False,
-                )
+        self._log_epoch_node_losses()
         # Log current learning rate (useful for monitoring LR schedulers)
         if self.trainer.optimizers:
             lr = self.trainer.optimizers[0].param_groups[0]["lr"]

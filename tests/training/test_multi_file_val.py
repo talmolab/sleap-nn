@@ -319,6 +319,22 @@ def test_match_labels_videos_falls_back_to_index_pairing(monkeypatch):
         match_labels_videos(gt, pr)
 
 
+def test_match_labels_videos_index_pairing_names_image_lists_by_first_image(
+    monkeypatch,
+):
+    from sleap_nn.evaluation import match_labels_videos
+
+    monkeypatch.setattr(sio.Labels, "match", _unreadable_match)
+    gt = sio.Labels(
+        videos=[sio.Video(["/d/0.jpg", "/d/1.jpg"]), sio.Video(["/d/5.jpg"])]
+    )
+    pr = sio.Labels(
+        videos=[sio.Video(["/e/0.jpg", "/e/1.jpg"]), sio.Video(["/e/5.jpg"])]
+    )
+    vmap = match_labels_videos(gt, pr).video_map
+    assert list(vmap.items()) == list(zip(pr.videos, gt.videos))
+
+
 def test_callback_scores_files_whose_originals_are_unreadable(two_files, monkeypatch):
     """The epoch-end eval scored 0 for every file once `Labels.match` raised."""
     monkeypatch.setattr(sio.Labels, "match", _unreadable_match)
@@ -367,6 +383,56 @@ def test_per_node_loss_averages_only_samples_that_label_the_node():
     want = torch.sum(mse, dim=(0, 2, 3)) / (4 * 3 * 3)
     got = plain._epoch_node_loss_sum / plain._epoch_node_loss_count
     assert torch.allclose(got, want)
+
+
+class _EpochNodeLossStub(_NodeLossStub):
+    _log_epoch_node_losses = LightningModel._log_epoch_node_losses
+
+    def __init__(self, world_size, reduce):
+        super().__init__()
+        self.node_names = ["a/x", "a/y", "b/x"]
+        self.trainer = SimpleNamespace(
+            world_size=world_size, strategy=SimpleNamespace(reduce=reduce)
+        )
+        self.logged = {}
+
+    def log(self, name, value, **kwargs):
+        self.logged[name] = float(value)
+
+
+def test_epoch_node_losses_sum_over_ranks_before_dividing():
+    # This rank saw 2 samples of file a only; the other rank 1 of a and 3 of b.
+    other = {
+        "sum": torch.tensor([3.0, 5.0, 12.0]),
+        "count": torch.tensor([1.0, 1.0, 3.0]),
+    }
+    calls = []
+
+    def reduce(t, reduce_op):
+        calls.append(reduce_op)
+        return t + other["sum" if len(calls) == 1 else "count"]
+
+    stub = _EpochNodeLossStub(2, reduce)
+    stub._epoch_node_loss_sum = torch.tensor([1.0, 4.0, 0.0])
+    stub._epoch_node_loss_count = torch.tensor([2.0, 2.0, 0.0])
+    stub._log_epoch_node_losses()
+    assert calls == ["sum", "sum"]
+    assert stub.logged == {
+        "train/confmaps/a/x": pytest.approx(4 / 3),
+        "train/confmaps/a/y": pytest.approx(3.0),
+        "train/confmaps/b/x": pytest.approx(4.0),
+    }
+    # One rank: no reduce, and a node no sample labeled logs NaN.
+    stub = _EpochNodeLossStub(1, lambda *a, **k: pytest.fail("reduced"))
+    stub._epoch_node_loss_sum = torch.tensor([1.0, 4.0, 0.0])
+    stub._epoch_node_loss_count = torch.tensor([2.0, 2.0, 0.0])
+    stub._log_epoch_node_losses()
+    assert stub.logged["train/confmaps/a/x"] == pytest.approx(0.5)
+    assert np.isnan(stub.logged["train/confmaps/b/x"])
+    # Nothing accumulated: nothing logged.
+    stub = _EpochNodeLossStub(1, None)
+    stub._log_epoch_node_losses()
+    assert stub.logged == {}
 
 
 def _viz_data(k):
@@ -420,8 +486,8 @@ def test_viz_draws_one_sample_per_val_file_on_its_own_nodes(tmp_path, monkeypatc
         save_local=True,
         local_save_dir=tmp_path,
         train_file_nodes=[[0, 1], [2, 3, 4]],
-        val_file_nodes=[[0, 1], [2, 3, 4]],
-        val_file_names=["a", "b"],
+        val_file_nodes=[[0, 1], [2, 3, 4], [0]],
+        val_file_names=["a", "b", "c"],  # c has no val samples: no viz.
     )
     drawn = []
     monkeypatch.setattr(
@@ -454,6 +520,9 @@ def test_viz_file_nodes():
     t = _trainer_stub({"data_config": {}}, [full])
     t.train_labels = [full]
     t._viz_file_nodes = ModelTrainer._viz_file_nodes.__get__(t)
+    assert t._viz_file_nodes() == (None, None, None)
+    # A box detector has no skeleton.
+    t.skeletons = []
     assert t._viz_file_nodes() == (None, None, None)
 
 
