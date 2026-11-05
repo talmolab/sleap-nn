@@ -18,6 +18,10 @@ Coverage:
    ``use_gt_centroids=True`` and no ``instances`` raises ``ValueError``.
 
 5. **``return_confmaps``** — opt-in populates ``Outputs.pred_confmaps``.
+
+6. **Batched per-sample padding** — ``pad_peaks_per_sample`` gives exactly
+   what the per-sample loop it replaced gave (mask, ``topk``, pad), on CPU
+   and on MPS / CUDA when available.
 """
 
 from __future__ import annotations
@@ -30,7 +34,7 @@ import torch
 from omegaconf import OmegaConf
 
 from sleap_nn.inference.layers.backends import TorchBackend
-from sleap_nn.inference.layers.centroid import CentroidLayer
+from sleap_nn.inference.layers.centroid import CentroidLayer, pad_peaks_per_sample
 from sleap_nn.inference.layers.configs import PostprocessConfig, PreprocessConfig
 from sleap_nn.inference.outputs import Outputs
 
@@ -307,3 +311,98 @@ def test_predict_from_gt_respects_postprocess_config_max_instances():
     layer.postprocess_config = attrs.evolve(layer.postprocess_config, max_instances=2)
     out_capped = layer.predict(image, instances=instances)
     assert out_capped.pred_centroids.shape[1] == 2
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# 6. Batched per-sample padding matches the per-sample loop
+# ─────────────────────────────────────────────────────────────────────────
+
+DEVICES = ["cpu"]
+if torch.backends.mps.is_available():
+    DEVICES.append("mps")
+if torch.cuda.is_available():
+    DEVICES.append("cuda")
+
+
+def _loop_pad_peaks(peaks, peak_vals, sample_inds, B, K):
+    """The per-sample loop ``CentroidLayer.postprocess`` used before."""
+    device = peaks.device
+    padded_peaks = torch.full((B, K, 2), float("nan"), device=device)
+    padded_vals = torch.full((B, K), float("nan"), device=device)
+    for b in range(B):
+        mask = sample_inds == b
+        sample_peaks = peaks[mask]
+        sample_vals = peak_vals[mask]
+        if sample_peaks.numel() == 0:
+            continue
+        if sample_peaks.shape[0] > K:
+            sample_vals, idx = torch.topk(sample_vals, K)
+            sample_peaks = sample_peaks[idx]
+        n = sample_peaks.shape[0]
+        padded_peaks[b, :n] = sample_peaks
+        padded_vals[b, :n] = sample_vals
+    return padded_peaks, padded_vals
+
+
+def _random_peaks(rng, device, B, counts, dtype=torch.float32, shuffle=False):
+    """Peaks grouped by sample (as ``find_local_peaks`` returns them), distinct values."""
+    sample_inds = np.repeat(np.arange(B), counts)
+    if shuffle:
+        sample_inds = rng.permutation(sample_inds)
+    n = len(sample_inds)
+    # Distinct values: topk's order among equal values is unspecified.
+    vals = (rng.permutation(n) + 1) / (n + 1)
+    peaks = rng.random((n, 2)) * 100
+    return (
+        torch.tensor(peaks, dtype=torch.float32, device=device),
+        torch.tensor(vals, dtype=dtype, device=device),
+        torch.tensor(sample_inds, dtype=torch.int32, device=device),
+    )
+
+
+def _assert_same(a, b):
+    for x, y in zip(a, b):
+        assert x.shape == y.shape and x.dtype == y.dtype
+        torch.testing.assert_close(x.cpu(), y.cpu(), atol=0, rtol=0, equal_nan=True)
+
+
+@pytest.mark.parametrize("device", DEVICES)
+def test_pad_peaks_per_sample_matches_loop(device):
+    """Random batches: empty samples, samples under, at and over K."""
+    rng = np.random.default_rng(0)
+    for trial in range(300):
+        B = int(rng.integers(1, 20))
+        K = int(rng.integers(1, 8))
+        counts = rng.integers(0, 12, B)
+        if trial % 10 == 0:
+            counts[:] = 0  # no peaks in the whole batch
+        args = _random_peaks(rng, device, B, counts)
+        _assert_same(pad_peaks_per_sample(*args, B, K), _loop_pad_peaks(*args, B, K))
+
+
+@pytest.mark.parametrize("device", DEVICES)
+def test_pad_peaks_per_sample_matches_loop_unsorted_and_fp16(device):
+    """Peaks not grouped by sample, and half-precision values."""
+    rng = np.random.default_rng(1)
+    for trial in range(100):
+        B = int(rng.integers(1, 10))
+        K = int(rng.integers(1, 6))
+        counts = rng.integers(0, 10, B)
+        # fp16 can't hold many distinct values near 1, so keep batches small.
+        dtype = torch.float16 if trial % 2 else torch.float32
+        args = _random_peaks(rng, device, B, counts, dtype=dtype, shuffle=True)
+        _assert_same(pad_peaks_per_sample(*args, B, K), _loop_pad_peaks(*args, B, K))
+
+
+@pytest.mark.parametrize("device", DEVICES)
+def test_pad_peaks_per_sample_equal_values_keep_incoming_order(device):
+    """Over-cap peaks with equal values: highest first, ties in incoming order."""
+    peaks = torch.tensor(
+        [[0, 0], [1, 1], [2, 2], [3, 3], [4, 4]], dtype=torch.float32, device=device
+    )
+    vals = torch.tensor([0.5, 0.9, 0.5, 0.9, 0.5], device=device)
+    inds = torch.zeros(5, dtype=torch.int32, device=device)
+    out_peaks, out_vals = pad_peaks_per_sample(peaks, vals, inds, 2, 3)
+    assert out_peaks[0].cpu().tolist() == [[1, 1], [3, 3], [0, 0]]
+    assert out_vals[0].cpu().tolist() == pytest.approx([0.9, 0.9, 0.5])
+    assert torch.isnan(out_peaks[1]).all() and torch.isnan(out_vals[1]).all()
