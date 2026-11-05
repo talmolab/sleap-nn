@@ -60,7 +60,8 @@ train(
 ## Inference
 
 `sleap_nn.predict`, `sleap_nn.Predictor` and `sleap_nn.load_models` are the
-top-level entry points (also importable from `sleap_nn.inference`). See the
+top-level entry points. `predict` and `Predictor` are also importable from
+`sleap_nn.inference`; `load_models` is top-level only. See the
 [Inference API guide](../guides/inference-api.md) for streaming, raw
 `Outputs`, filtering and tracking.
 

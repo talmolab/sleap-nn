@@ -16,9 +16,9 @@ trainer_config:
 
 | Option | Description | Default |
 |--------|-------------|---------|
-| `max_epochs` | Training epochs | `10` |
+| `max_epochs` | Training epochs | `100` |
 | `save_ckpt` | Save checkpoints | `false` |
-| `ckpt_dir` | Checkpoint directory | `null` |
+| `ckpt_dir` | Folder the run folder is created in | `.` (current directory) |
 | `run_name` | Run folder name | auto-generated |
 
 ---
@@ -260,7 +260,7 @@ trainer_config:
 ```yaml
 trainer_config:
   min_train_steps_per_epoch: 200  # Minimum steps
-  train_steps_per_epoch: null     # Exact steps (null=auto)
+  train_steps_per_epoch: null     # Steps per epoch (null=one pass); never below the minimum
   enable_progress_bar: true
   seed: 42                        # Random seed (ensures deterministic train/val splits)
 ```
@@ -371,12 +371,13 @@ trainer_config:
 | `trainer_devices` | int/str | `null` | Number of devices or `auto` |
 | `trainer_device_indices` | list | `null` | Specific device indices (e.g., `[0, 2]`) |
 | `trainer_strategy` | str | `auto` | Strategy: `auto`, `ddp`, `fsdp` |
-| `profiler` | str | `null` | PyTorch profiler: `simple`, `advanced`, `pytorch` |
+| `profiler` | str | `null` | Lightning profiler: `simple`, `advanced`, `pytorch` or `passthrough` |
 | `enable_progress_bar` | bool | `true` | Show training progress |
 | `min_train_steps_per_epoch` | int | `200` | Minimum batches per epoch (for `embedding`, P×K batches) |
-| `train_steps_per_epoch` | int | `null` | Exact steps per epoch (null = auto: one pass over the data; for `embedding`, in P×K batches — `min(P, groups in the video)`×K for `sampler.kind: within_video`) |
+| `train_steps_per_epoch` | int | `null` | Steps per epoch, raised to `min_train_steps_per_epoch` if smaller (null = one pass over the data; for `embedding`, in P×K batches — `min(P, groups in the video)`×K for `sampler.kind: within_video`) |
 | `visualize_preds_during_training` | bool | `false` | Save prediction visualizations |
 | `keep_viz` | bool | `false` | Keep viz folder after training |
+| `viz_img_format` | str | `png` | Format of the saved viz images: `png` or `jpg` (much smaller files) |
 | `use_wandb` | bool | `false` | Enable WandB logging |
 | `resume_ckpt_path` | str | `null` | Path to checkpoint to resume from |
 | `optimizer_name` | str | `Adam` | Optimizer: `Adam` or `AdamW` |
@@ -450,6 +451,8 @@ Only one scheduler should be set at a time.
 |--------|------|---------|-------------|
 | `save_top_k` | int | `1` | Keep N best models |
 | `save_last` | bool | `null` | Also write last.ckpt at the end of every epoch |
+| `monitor` | str | `val/loss` | Metric that picks the best checkpoint: any logged metric, e.g. `eval/val/mask_mean_iou` or `eval/val/fg_mean_cldice` for segmentation with `eval.enabled`. Left at `val/loss`, `embedding` and `bbox_*` models use their model-type default (see `eval.select_metric`) |
+| `mode` | str | `min` | `min` or `max`: direction of improvement for `monitor` (use `max` for IoU/clDice). Only read when `monitor` is not `val/loss` |
 
 ### WandBConfig
 
@@ -470,6 +473,7 @@ Only one scheduler should be set at a time.
 | `viz_confmap_threshold` | float | `0.1` | Confidence map mask threshold |
 | `log_viz_table` | bool | `false` | Log images to wandb.Table |
 | `delete_local_logs` | bool | `null` | Delete local logs (auto if online) |
+| `current_run_id` | str | `null` | Set automatically: the WandB run ID of this training run |
 
 ### HardKeypointMiningConfig
 
@@ -489,13 +493,18 @@ Only one scheduler should be set at a time.
 | `frequency` | int | `1` | Evaluate every N epochs |
 | `oks_stddev` | float | `0.025` | OKS standard deviation (pose models only) |
 | `oks_scale` | float | `null` | OKS scale override (pose models only) |
-| `match_threshold` | float | `50.0` | Max distance (px) for centroid matching (centroid models only) |
+| `match_threshold` | float | `50.0` | Centroid models: max matching distance in pixels. Instance segmentation (`bottomup_segmentation`, `centered_instance_segmentation`): minimum mask IoU in `(0, 1]`; values outside that range (including the default) fall back to `0.5` |
+| `select_metric` | str | `rank1` | Metric that selects the best checkpoint and drives early stopping. `embedding`: `rank1`, `mAP`, `auc`, `knn_acc` (higher is better) or `eer` (lower is better). `bbox_*`: `bbox_mAP`, `bbox_AP50`, `bbox_AP75`, `bbox_AR`, `bbox_f1` or `val_loss`; left at the default, detectors use `bbox_mAP` when `enabled`, else `val/loss`. Ignored by other model types |
 
 !!! info "Model-Type-Dependent Evaluation"
     SLEAP-NN automatically selects the appropriate evaluation callback based on model type:
 
-    - **Pose models** (single instance, bottom-up, centered instance): Uses OKS/PCK metrics with `oks_stddev` and `oks_scale`
+    - **Pose models** (single instance, bottom-up, centered instance, multi-class): Uses OKS/PCK metrics with `oks_stddev` and `oks_scale`
     - **Centroid models**: Uses distance-based metrics with `match_threshold` for prediction-to-GT matching
+    - **Instance segmentation** (`bottomup_segmentation`, `centered_instance_segmentation`): instance-level mask-IoU metrics, matched at the IoU in `match_threshold`
+    - **Semantic segmentation**: matching-free foreground IoU / clDice / boundary-IoU
+    - **Bounding-box detectors** (`bbox_*`): COCO-style box mAP, AP50/AP75, AR and best F1
+    - **Embedding**: retrieval metrics (`rank1`, `mAP`, `auc`, `knn_acc`, `eer`), computed every `frequency` epochs even when `enabled` is `false`, because they select the checkpoint
 
     See the [Monitoring Guide](../guides/monitoring.md#epoch-end-evaluation) for details.
 

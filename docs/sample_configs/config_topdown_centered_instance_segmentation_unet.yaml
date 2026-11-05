@@ -5,8 +5,9 @@
 # of the CENTERED instance instead of keypoints. Train this paired with a
 # `centroid` model; at inference `sleap-nn predict` composes the two.
 #
-# Note: geometric augmentation is unsupported in v1 (masks are not co-transformed
-# with the crop), so `augmentation_config.geometric` is null. Train at scale 1.0.
+# Geometric augmentation is supported (the crop and its mask share one affine
+# matrix); it is left off here (`augmentation_config.geometric: null`). Train at
+# scale 1.0.
 data_config:
   train_labels_path: null
   val_labels_path: null
@@ -43,8 +44,9 @@ data_config:
       brightness_min: 0.9
       brightness_max: 1.1
       brightness_p: 0.0
-    # Geometric augmentation is skipped for segmentation in v1 (masks cannot be
-    # co-transformed with the crop). Leave null to disable it cleanly.
+    # Geometric augmentation IS supported for segmentation (the mask is
+    # co-transformed with the crop; erase/mixup stay image-only). Left null here;
+    # add a geometric block to use it.
     geometric: null
   skeletons:
 model_config:

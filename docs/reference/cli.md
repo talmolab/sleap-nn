@@ -450,7 +450,7 @@ sleap-nn export MODEL_PATH [MODEL_PATH_2] [-o OUTPUT_DIR] [OPTIONS]
 
 | Option | Short | Description | Values | Default |
 |--------|-------|-------------|--------|---------|
-| `--output` | `-o` | Output directory | `PATH` | `<model dir>/exported` |
+| `--output` | `-o` | Output directory | `PATH` | `<model dir>/exported` (top-down: `<centroid dir>/exported_topdown`) |
 | `--format` | `-f` | Export format | `onnx`, `tensorrt`, `both` | `onnx` |
 | `--precision` | | TensorRT precision | `fp32`, `fp16`, `tf32` | `fp16` |
 | `--max-instances` | | Max instances per frame | `INT` | `20` |

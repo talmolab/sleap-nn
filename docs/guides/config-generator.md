@@ -148,6 +148,16 @@ config = (
 | `.input_scale(scale)` | Set input scaling (0.0-1.0) |
 | `.sigma(sigma)` | Set confidence map sigma |
 | `.rotation(min, max)` | Set rotation augmentation range |
+
+!!! warning "Python pipeline names differ from `--pipeline`"
+    `.pipeline()` takes one model's type, not the CLI's pipeline names. There is
+    no `"topdown"`: build a top-down pair as two configs, `.pipeline("centroid")`
+    and `.pipeline("centered_instance")` (or call `.build_centroid()` and
+    `.build_centered_instance()`). `"centroid_only"` is a standalone centroid
+    model. Accepted values: `single_instance`, `centroid`, `centroid_only`,
+    `centered_instance`, `bottomup`, `multi_class_bottomup`,
+    `multi_class_topdown`, `bbox_centernet`, `bbox_ssd`,
+    `topdown_bbox_centernet`, `topdown_bbox_ssd`.
 | `.early_stopping(enabled, patience)` | Configure early stopping |
 | `.crop_size(size)` | Set crop size (centered_instance) |
 | `.anchor_part(name)` | Set anchor part (top-down) |
@@ -180,7 +190,8 @@ print(gen.auto().summary())
 
 ## Pipeline Selection
 
-The config generator analyzes your data to recommend a pipeline:
+The config generator analyzes your data to recommend a pipeline (these are
+the `sleap-nn config --pipeline` names):
 
 | Pipeline | Use Case |
 |----------|----------|

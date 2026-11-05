@@ -253,8 +253,12 @@ always outranks a derived one. `anchor` does not apply here: a mask has no nodes
 - **`min_instance_score`**: filters on the centroid confidence value.
 - **`min_visible_nodes` / `min_visible_node_fraction`**: a single-node
   detection has exactly one visible node, so keep any threshold `<= 1`.
-- **`overlapping` with `overlapping_method="oks"`**: emits a `UserWarning` and
-  falls back to IoU. OKS needs the full keypoint set, which a centroid lacks.
+- **`min_centroid_distance`** (CLI `--filter_min_centroid_distance`, pixels,
+  default `0` = off): the centroid de-duplication filter. Greedy NMS drops any
+  centroid within this distance of a higher-scored kept centroid.
+- **`overlapping`** (either method): skipped for centroid-only output, with a
+  `UserWarning`. Bounding-box IoU and OKS are degenerate for single points; use
+  `min_centroid_distance` instead.
 
 ### Tracking
 

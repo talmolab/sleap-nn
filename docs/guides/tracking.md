@@ -34,8 +34,8 @@ These options belong to the `classic` tracker (`--tracker classic`, the default)
 | `--min_new_track_points` | Min points for new track | `INT` | `0` |
 | `--candidates_method` | Candidate selection method | `fixed_window`, `local_queues` | `fixed_window` (`local_queues` for `--features embeddings` and mask tracking) |
 | `--min_match_points` | Min non-NaN points for matching | `INT` | `0` |
-| `--features` | Features for matching | `keypoints`, `centroids`, `bboxes`, `masks`, `embeddings` | `keypoints` |
-| `--scoring_method` | Similarity scoring method | `oks`, `cosine_sim`, `iou`, `mask_iou`, `euclidean_dist` | `oks` |
+| `--features` | Features for matching | `keypoints`, `centroids`, `bboxes`, `masks`, `embeddings` | `keypoints` (`centroids` for single-node skeletons, `masks` for segmentation-only output) |
+| `--scoring_method` | Similarity scoring method | `oks`, `cosine_sim`, `iou`, `mask_iou`, `euclidean_dist` | `oks` (`euclidean_dist` for single-node skeletons, `mask_iou` for masks, `cosine_sim` for `--features embeddings`) |
 | `--appearance_weight` | Blend appearance (re-ID vector cosine) into the geometric score: `(1 - w) * geometry + w * appearance`. `0.15-0.5` is the measured range; needs embeddings in the input ([details](embedding-tracking.md#blending-appearance-with-geometry)) | `FLOAT` in `[0, 1]` | `0.0` (geometry only) |
 | `--euclidean_scale` | Pixel length scale mapping an `euclidean_dist` score to a bounded similarity, `exp(-distance / scale)`. Required with `--appearance_weight` when the score is `euclidean_dist` (centroid-only detections auto-select it); ignored otherwise | `FLOAT` (px) | `None` |
 | `--scoring_reduction` | Score reduction method | `mean`, `max`, `robust_quantile` | `mean` |
@@ -115,7 +115,7 @@ last observed pose **rigidly translated** by that predicted displacement (analog
 optical flow, but using a motion model instead of image displacements):
 
 ```bash
-sleap-nn predict -i video.mp4 -m models/centroid models/centered_instance \
+sleap-nn predict -i video.mp4 -m models/centroid/ -m models/centered_instance/ \
     -t \
     --use_kalman \
     --tracking_target_instance_count 2 \
@@ -741,7 +741,8 @@ JSON:
             "score_normalizer": 0.83,  # the video's score q95 (None: raw scores)
             "calibration": {...},   # VideoCalibration.as_dict(): status, body_size, gates, ...
             "appearance": {"enabled": False, "reason": "calibration status='insufficient', ...", ...},
-            # deepocsort also records "association_term": "standardized" / "raw_cosine" / "off
+            # for deepocsort, "appearance" also holds "association_term":
+            # "standardized" / "raw_cosine" / "off"
             "linking": {"n_identities_before": 5, "n_identities": 4, "n_merges": 1,
                         "n_forced_merges": 0, "n_swaps": 0, "n_untracked": 0, "notes": [...]},
         }
@@ -799,12 +800,6 @@ sleap-nn eval-tracking -g ground_truth.slp -p bytetrack.slp -s bytetrack_metrics
 
 To compare trackers, retrack the **same** prediction file once per tracker and
 score each output. The difference is then the tracker's and not the detector's.
-
-### Benchmark results
-
-<!-- PLACEHOLDER: filled in from the benchmark run. -->
-
-Results on GT-tracked animal clips: see PR description (to be filled in).
 
 ---
 

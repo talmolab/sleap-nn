@@ -494,7 +494,7 @@ sleap-nn train --config <path/to/config.yaml> [overrides]
 | Override | Description |
 |----------|-------------|
 | `trainer_config.max_epochs=100` | Set maximum training epochs |
-| `trainer_config.batch_size=32` | Set batch size |
+| `trainer_config.train_data_loader.batch_size=32` | Set batch size |
 | `trainer_config.save_ckpt=true` | Enable checkpoint saving |
 
 ## Examples

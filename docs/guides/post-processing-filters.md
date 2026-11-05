@@ -68,9 +68,24 @@ sleap-nn predict -i video.mp4 -m models/ \
 | 0.5 | Moderate |
 | 0.8 | Permissive (default) |
 
+## Centroid Distance Filter
+
+For centroid-only output (a lone centroid model), the overlap filter is skipped
+because bounding-box IoU and OKS are degenerate for single points. Remove duplicate
+centroids by distance instead:
+
+```bash
+# Drop any centroid within 10 px of a higher-scoring centroid
+sleap-nn predict -i video.mp4 -m models/centroid/ --filter_min_centroid_distance 10
+```
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `--filter_min_centroid_distance` | Greedy NMS radius in pixels between predicted centroids (Python: `FilterConfig(min_centroid_distance=...)`) | `0.0` (disabled) |
+
 ## Combining Filters
 
-All filters can be combined. They are applied in order: node count → confidence → overlap.
+All filters can be combined. They are applied in order: node count → confidence → overlap → centroid distance.
 
 **Example: Strict filtering for clean output**
 

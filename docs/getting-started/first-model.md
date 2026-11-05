@@ -120,7 +120,7 @@ trainer_config:
 
 ## Step 4: Train
 
-Check the config and data first (one training batch, nothing left on disk), then run training:
+Check the config and data first (one training and one validation batch, nothing left on disk), then run training:
 
 ```bash
 sleap-nn train --config config.yaml --dry-run
@@ -159,8 +159,8 @@ models/fly_single_instance/
 ├── training_config.yaml       # Full config with auto-computed values
 ├── labels_gt.train.0.slp      # Training data split (ground truth)
 ├── labels_gt.val.0.slp        # Validation data split (ground truth)
-├── labels_pr.train.slp        # Predictions on training data after training
-├── labels_pr.val.slp          # Predictions on validation data after training
+├── labels_pr.train.0.slp      # Predictions on training data after training
+├── labels_pr.val.0.slp        # Predictions on validation data after training
 ├── metrics.train.0.npz        # Training metrics
 ├── metrics.val.0.npz          # Validation metrics
 └── training_log.csv           # Loss per epoch

@@ -100,7 +100,7 @@ Stage 2: Crop → Backbone → Confidence Maps → Keypoints
 ### When to Use
 
 - Multiple animals that are clearly separated
-- Animals vary in size (centroid crops normalize scale)
+- Animals vary in size: use box-scaled crops (`crop_mode: bbox` behind a box detector, see [Top-down pose with a box detector](../guides/bbox-topdown.md)). Default fixed crops keep native pixel size
 - Need precise localization per individual
 
 !!! tip "Need persistent identities?"
@@ -129,7 +129,7 @@ Stage 2: Crop → Backbone → Confidence Maps → Keypoints
 head_configs:
   centroid:
     confmaps:
-      anchor_part: null  # Use bbox center
+      anchor_part: null  # Mean of visible nodes (center_of_mass)
       sigma: 5.0
 ```
 
@@ -255,6 +255,32 @@ head_configs:
       num_fc_units: 64
       loss_weight: 1.0
 ```
+
+---
+
+## Segmentation, Detection and Re-ID Models
+
+These model types predict masks, boxes or appearance vectors instead of (or alongside) poses.
+
+### Top-Down Segmentation (`centered_instance_segmentation`)
+
+A `centroid` model finds each animal, and a segmentation head predicts the mask of the centered instance in each crop. Output is one `sio.PredictedSegmentationMask` per instance. See the [Top-down segmentation guide](../guides/topdown-segmentation.md).
+
+### Bottom-Up Segmentation (`bottomup_segmentation`)
+
+A single whole-frame model with foreground, instance-center and offset heads. Foreground pixels are grouped into instances by their offset to the nearest center. See [Bottom-Up Segmentation](../guides/inference-guide.md#bottom-up-segmentation) in the inference guide.
+
+### Semantic Segmentation (`semantic_segmentation`)
+
+A foreground head on the whole frame with no instance grouping: one instance-less foreground mask per frame. See the [Semantic segmentation guide](../guides/semantic-segmentation.md).
+
+### Bounding-Box Detection (`bbox_centernet`, `bbox_ssd`)
+
+Whole-frame detectors that write `sio.PredictedBoundingBox` objects to `LabeledFrame.bboxes`, either CenterNet-style (anchor-free) or SSD-style (anchor-based). A detector can also replace the centroid model as the first stage of top-down pose. See the [Bounding-box detection guide](../guides/bbox-detection.md) and [Top-down pose with a box detector](../guides/bbox-topdown.md).
+
+### Re-ID Embedding (`embedding`)
+
+Maps each detection's crop to an appearance vector, which the tracker can use to keep identities across frames and occlusions. See the [Embedding tracking guide](../guides/embedding-tracking.md) and the sample config `docs/sample_configs/config_embedding_convnext.yaml`.
 
 ---
 

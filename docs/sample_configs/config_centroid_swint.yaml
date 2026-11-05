@@ -69,7 +69,7 @@ model_config:
       convs_per_block: 2
       up_interpolate: True
       stem_patch_stride: 2
-      max_stride: 16
+      max_stride: 32  # always stem_patch_stride * 16 (set by the trainer)
       output_stride: 2
   head_configs:
     single_instance:
