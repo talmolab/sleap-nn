@@ -18,6 +18,9 @@ Task-oriented guides for common workflows.
 | &nbsp;&nbsp;&nbsp;&nbsp;[Python API](inference-api.md) | `Predictor` / `predict` / `Outputs` for embedding inference in code |
 | &nbsp;&nbsp;&nbsp;&nbsp;[Centroid-Only](centroid-only-inference.md) | Run a centroid model standalone |
 | &nbsp;&nbsp;&nbsp;&nbsp;[Top-Down Segmentation](topdown-segmentation.md) | Per-instance masks via centroid + crop-mask |
+| &nbsp;&nbsp;&nbsp;&nbsp;[Semantic Segmentation](semantic-segmentation.md) | One whole-frame foreground mask per frame |
+| &nbsp;&nbsp;&nbsp;&nbsp;[Bounding-Box Detection](bbox-detection.md) | Box detectors (`bbox_centernet`, `bbox_ssd`) |
+| &nbsp;&nbsp;&nbsp;&nbsp;[Top-Down with a Box Detector](bbox-topdown.md) | A box detector as the first top-down stage |
 | &nbsp;&nbsp;&nbsp;&nbsp;[SAM-Prompted Segmentation](sam-inference-segmentation.md) | Per-instance masks from poses via Segment Anything |
 | &nbsp;&nbsp;&nbsp;&nbsp;[Performance](inference-performance.md) | Tune inference throughput (FP16, `torch.compile`, workers) |
 | [Evaluation](evaluation.md) | Assess model performance with metrics |

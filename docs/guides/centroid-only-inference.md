@@ -49,7 +49,7 @@ with `--centroid-output` (CLI) / `emit_centroid` (Python). The choices are:
 | `both` | Both representations. |
 
 The `source` tag on a `PredictedCentroid` mirrors the trained target's meaning
-(see the [anchor convention](#anchor-node-convention-586) below): an explicit
+(see the [anchor convention](#choosing-what-centroid-means-586) below): an explicit
 anchor records `"anchor:<node>"`; no anchor records `"center_of_mass"`.
 
 ## End-to-end workflow
@@ -168,7 +168,7 @@ bit-for-bit identical to the checkpoint path. See the
 ## Choosing what "centroid" means (#586)
 
 The centroid's *meaning* is defined by
-[`generate_centroids`](../reference/sleap_nn/data/instance_centroids.md) — the
+[`generate_centroids`](../api/data/instance_centroids.md) — the
 same function used for training-target generation, top-down crop centers and
 GT-centroid evaluation, so all three can never disagree. Four methods are
 available, spelled exactly as in `sio.Instance.to_centroid`:

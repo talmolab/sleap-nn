@@ -79,7 +79,7 @@ sleap-nn export MODEL_PATH [options]
 
 | Option | Description | Values | Default |
 |--------|-------------|--------|---------|
-| `-o`, `--output` | Output directory | `PATH` | Required |
+| `-o`, `--output` | Output directory | `PATH` | `<model dir>/exported` |
 | `-f`, `--format` | Export format | `onnx`, `tensorrt`, `both` | `onnx` |
 | `--precision` | TensorRT precision | `fp32`, `fp16`, `tf32` | `fp16` |
 | `--max-instances` | Max instances per frame | `INT` | `20` |

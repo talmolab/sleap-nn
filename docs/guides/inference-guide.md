@@ -29,7 +29,7 @@ Run predictions on videos and label files.
     sleap-nn predict -i video.mp4 -m models/centroid/ -m models/centered_instance/
     ```
 
-    **Output:** `video.mp4.predictions.slp`
+    **Output:** `video.mp4.predictions.slp` (next to the input; set `-o` to choose the name)
 
     **If results aren't great**, try these common fixes:
 
@@ -47,7 +47,7 @@ Run predictions on videos and label files.
 sleap-nn predict --data_path video.mp4 --model_paths models/my_model/
 ```
 
-Output: `video.mp4.predictions.slp`
+Output: `video.mp4.predictions.slp`, written next to the input (the input path plus `.predictions.slp`, as in SLEAP). Use `-o` to choose another path.
 
 See the [CLI Reference](../reference/cli.md) for all available parameters.
 
@@ -84,7 +84,7 @@ After inference, you'll have a `.slp` file containing predictions. To view them:
 **Option 1: Open in SLEAP GUI**
 
 ```bash
-sleap predictions.slp
+sleap-label predictions.slp
 ```
 
 This opens the predictions in the SLEAP labeling interface where you can visualize skeletons overlaid on video frames.
@@ -105,15 +105,26 @@ for inst in lf.instances:
     print(f"  Score: {inst.score:.3f}, Points: {inst.numpy().shape}")
 ```
 
-**Option 3: Export to analysis formats**
+**Option 3: Write analysis formats**
+
+Ask `predict` for a SLEAP Analysis HDF5 file (one `.analysis.h5` per video)
+next to, or instead of, the `.slp`:
+
+```bash
+sleap-nn predict -i video.mp4 -m models/my_model/ \
+    --output_format slp --output_format analysis_h5
+```
+
+To convert a `.slp` you already have:
 
 ```python
-# Export to Analysis HDF5 for downstream analysis
-labels.export("predictions.analysis.h5")
+import sleap_io as sio
 
-# Or convert to CSV/DataFrames
-# See sleap-io documentation for more export options
+labels = sio.load_slp("video.mp4.predictions.slp")
+sio.save_analysis_h5(labels, "predictions.analysis.h5")
 ```
+
+For other formats, see the [sleap-io documentation](https://io.sleap.ai/).
 
 ---
 
@@ -396,8 +407,8 @@ tracking from Python, see the [Inference API guide](inference-api.md).
 
 !!! note "Legacy `run_inference`"
     `from sleap_nn.legacy_predict import run_inference` is the older legacy-pipeline
-    entry point (it backs `sleap-nn track`). Prefer `sleap_nn.inference.predict`
-    for new code.
+    entry point (it backs `sleap-nn track`). Calling it from Python is deprecated
+    and will be removed in a future release; use `sleap_nn.inference.predict`.
 
 ---
 
@@ -413,19 +424,24 @@ provenance = labels.provenance
 
 print(f"sleap-nn version: {provenance.get('sleap_nn_version')}")
 print(f"Model type: {provenance.get('model_type')}")
-print(f"Runtime: {provenance.get('runtime_sec')}s")
+print(f"Runtime: {provenance.get('inference_runtime_seconds')}s")
+print(f"Settings: {provenance.get('inference_config')}")
 ```
 
 ### Recorded Information
 
-| Category | Fields |
-|----------|--------|
-| **Timestamps** | `timestamp_start`, `timestamp_end`, `runtime_sec` |
-| **Versions** | `sleap_nn_version`, `sleap_io_version`, `torch_version` |
-| **Model** | `model_paths`, `model_type`, `head_type` |
-| **Input** | `source_path`, `source_video_paths` |
-| **Config** | `peak_threshold`, `batch_size`, `max_instances` |
-| **System** | `device`, `python_version`, `cuda_version`, `gpu_names` |
+| Category | Keys |
+|----------|------|
+| **Timestamps** | `inference_start_timestamp`, `inference_end_timestamp` (ISO 8601), `inference_runtime_seconds` |
+| **Versions** | `sleap_nn_version`, `sleap_io_version` (PyTorch version is under `system_info`) |
+| **Model** | `model_paths`, `model_type` (the inference layer that ran, e.g. `"TopDownLayer"`, `"BottomUpLayer"`) |
+| **Input** | `source_file`, plus `source_labels` / `input_provenance` when the input was a `.slp` |
+| **Frames** | `frame_selection` (`method`, `frames_processed`, `frames_total`) |
+| **Config** | `inference_config` — a dict of the settings that were set, e.g. `batch_size`, `peak_threshold`, `centroid_threshold` / `keypoint_threshold`, `integral_refinement`, `max_instances`, input scale, and top-down `centroid_scale` / `instance_scale` / `crop_size`. Which keys appear depends on the model type and on whether you ran the CLI or the Python `predict()` |
+| **Tracking** | `tracking_config` when tracking ran; `tracking` (resolved parameters per video) for the [modern MOT trackers](tracking.md#modern-mot-trackers) |
+| **System** | `device`, and `system_info` (`python_version`, `platform`, `pytorch_version`, `cuda_version`, `accelerator`, `gpu_count`, `gpus`) |
+
+Keys whose value is unknown are left out, so read optional ones with `.get()`.
 
 ---
 
@@ -601,7 +617,7 @@ The directory should contain:
 
 ??? question "Progress bar not moving / seems stuck"
     - Large videos take time to process - check GPU utilization with `nvidia-smi`
-    - First batch may be slow due to model compilation
+    - The first batch is slower while the model loads and warms up
     - Try a smaller test: `--frames 0-100`
 
 ---
