@@ -395,7 +395,8 @@ centered-instance model) yields single-node detections to embed + track.
 The output is always a `.slp` that references the source video: `--output_format
 analysis_h5` and `--embed true|auto` are rejected on this route rather than ignored.
 With `--video_index` on a multi-video `.slp`, the default output name includes the
-video's name (`<input>.<video>.tracked.slp`), as with `predict`, so per-video runs do
+video's name and drops the input's extension (`project.slp` →
+`project.<video>.tracked.slp`), as with `predict`, so per-video runs do
 not overwrite each other.
 
 ---

@@ -79,7 +79,7 @@ sleap-nn export MODEL_PATH [options]
 
 | Option | Description | Values | Default |
 |--------|-------------|--------|---------|
-| `-o`, `--output` | Output directory | `PATH` | Required |
+| `-o`, `--output` | Output directory | `PATH` | `<model dir>/exported` (top-down pair: `<centroid dir>/exported_topdown`) |
 | `-f`, `--format` | Export format | `onnx`, `tensorrt`, `both` | `onnx` |
 | `--precision` | TensorRT precision | `fp32`, `fp16`, `tf32` | `fp16` |
 | `--max-instances` | Max instances per frame | `INT` | `20` |
@@ -229,16 +229,20 @@ The CLI equivalent is `sleap-nn predict -m exports/my_model --runtime onnx -i vi
 exports/my_model/
 ├── model.onnx
 ├── export_metadata.json
+├── training_config.yaml        # Copied from the model dir (.json for legacy models)
 ├── model.trt                   # If TensorRT
 └── model.trt.metadata.json     # If TensorRT
 ```
+
+A top-down export copies both configs instead, as `training_config_centroid.yaml`
+and `training_config_centered_instance.yaml`.
 
 ---
 
 ## Limitations
 
 - **TensorRT engines are GPU-specific** - Regenerate for different hardware
-- **Fixed image size** - Height/width set at export time
+- **Image size** - ONNX graphs keep batch, height and width dynamic, except for RoPE (rotary-embedding ViT) backbones, which export with a static height/width. TensorRT shape profiles allow inputs up to 2x the export height/width (clamped to the static size for RoPE backbones)
 - **Bottom-up grouping on CPU** - PAF matching can't be GPU-accelerated
 - **No standalone centered-instance** - Export a combined top-down bundle (a standalone *centroid* model exports fine — see [Standalone Centroid](#standalone-centroid))
 

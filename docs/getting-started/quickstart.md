@@ -65,7 +65,7 @@ sleap-nn train --config config.yaml
 ```
 
 !!! tip "Check first, or train on another file"
-    `sleap-nn train --config config.yaml --dry-run` runs setup plus one training batch in seconds, checks it can write to the run's folder, and leaves nothing behind, so config and data errors show up before a long run. Add `--labels other.slp` to train the same config on a different labels file.
+    `sleap-nn train --config config.yaml --dry-run` runs setup plus one training and one validation batch in seconds, checks it can write to the run's folder, and leaves nothing behind, so config and data errors show up before a long run. Add `--labels other.slp` to train the same config on a different labels file.
 
 That's it! Training will:
 

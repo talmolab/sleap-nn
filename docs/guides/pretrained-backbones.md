@@ -480,8 +480,10 @@ checkpoint's timm `pretrained_cfg` (`timm/...` models) or its
   opset 18. The export tests check Case C graphs (DINOv2-reg, CLIP) against
   PyTorch at batch and input sizes other than the traced ones. Swin is
   export-fragile: a graph can pass the structural `onnx.checker` yet be
-  numerically wrong, so enable the exporter's `numerical_check` (a
-  torch-vs-onnxruntime parity assert) when exporting transformer backbones.
+  numerically wrong, so when exporting transformer backbones from Python, pass
+  `numerical_check=True` to `sleap_nn.export.export_to_onnx` (a
+  torch-vs-onnxruntime parity assert). `sleap-nn export --verify` runs only the
+  structural checker.
 - **RoPE models export at a fixed input size.** Rotary position embeddings
   (`timm/` DINOv3, EVA02, PE-Spatial) bake the traced token grid into the
   graph, so their ONNX/TensorRT models take only the traced height and width

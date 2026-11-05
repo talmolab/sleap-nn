@@ -494,7 +494,7 @@ sleap-nn train --config <path/to/config.yaml> [overrides]
 | Override | Description |
 |----------|-------------|
 | `trainer_config.max_epochs=100` | Set maximum training epochs |
-| `trainer_config.batch_size=32` | Set batch size |
+| `trainer_config.train_data_loader.batch_size=32` | Set batch size |
 | `trainer_config.save_ckpt=true` | Enable checkpoint saving |
 
 ## Examples
@@ -906,7 +906,7 @@ def train(
     "-o",
     type=str,
     default=None,
-    help="The output filename to use for the predicted data. If not provided, defaults to '[data_path].slp'.",
+    help="The output filename to use for the predicted data. If not provided, defaults to '[data_path stem].predictions.slp' (e.g. video.predictions.slp).",
 )
 @click.option(
     "--device",
@@ -2704,24 +2704,38 @@ def _resolve_data_path(data_path: object) -> "tuple[str, str, bool]":
     return str(p), p.suffix, False
 
 
+def _default_output_base(source_str: str, is_url: bool) -> str:
+    """The input a default output filename is built on.
+
+    A local input's own path, so the output lands next to it. A remote input
+    cannot be written next to, so its URL's basename, which puts the output in the
+    current working directory (``Path()`` would also collapse ``scheme://``).
+    """
+    from pathlib import Path
+    from urllib.parse import urlparse
+
+    if is_url:
+        return Path(urlparse(source_str).path).name or "predictions"
+    return source_str
+
+
 def _default_predictions_path(
     source_str: str, is_url: bool, scoped_video_name: "Optional[str]" = None
 ) -> str:
     """Derive the default ``.slp`` output path from the input source.
 
-    Local inputs write alongside the input (``<data_path>.slp``), matching legacy
-    behavior. Remote inputs cannot be written next to the source, so the output
-    lands in the current working directory under the URL's basename.
+    ``<data_path>.predictions.slp`` (``video.mp4`` -> ``video.mp4.predictions.slp``),
+    the name SLEAP's ``sleap-track`` gives its output. A ``--video_index``-scoped
+    run inserts the video's name instead (``<data_path stem>.<video>.predictions.slp``)
+    so runs on different videos of one project do not overwrite each other. Remote
+    inputs land in the current working directory (see :func:`_default_output_base`).
     """
     from pathlib import Path
-    from urllib.parse import urlparse
 
-    base = (
-        Path(urlparse(source_str).path).name or "predictions" if is_url else source_str
-    )
+    base = _default_output_base(source_str, is_url)
     if scoped_video_name is not None:
         return f"{Path(base).with_suffix('')}.{scoped_video_name}.predictions.slp"
-    return f"{base}.slp"
+    return f"{base}.predictions.slp"
 
 
 def _default_embedding_output_path(
@@ -2736,7 +2750,7 @@ def _default_embedding_output_path(
     SAME convention :func:`~sleap_nn.inference.embedding.predict_embeddings_to_slp`
     uses, and the one default for both the lone and the fused route, so a fused
     run and a two-step run of the same input land on the same filename. Remote
-    inputs go through :func:`_default_predictions_path`, which drops the URL's
+    inputs go through :func:`_default_output_base`, which drops the URL's
     directory part (a URL cannot be written next to, and ``Path()`` would collapse
     ``scheme://``). A ``--video_index``-scoped run inserts the video's name, as
     ``predict`` does (``<input stem>.<video>.tracked.slp``), so runs on different
@@ -2745,8 +2759,7 @@ def _default_embedding_output_path(
     from pathlib import Path
 
     kind = "tracked" if tracking else "embeddings"
-    base = _default_predictions_path(source_str, is_url)
-    stem = base[: -len(".slp")] if base.endswith(".slp") else base
+    stem = _default_output_base(source_str, is_url)
     if scoped_video_name is not None:
         return f"{Path(stem).with_suffix('')}.{scoped_video_name}.{kind}.slp"
     return f"{stem}.{kind}.slp"
@@ -3723,7 +3736,7 @@ def _common_inference_options(f):
             "-o",
             type=str,
             default=None,
-            help="Output filename. Defaults to '[data_path].slp'.",
+            help="Output filename. Defaults to '[data_path].predictions.slp' (e.g. video.mp4.predictions.slp), as in SLEAP.",
         ),
         click.option(
             "--output_format",

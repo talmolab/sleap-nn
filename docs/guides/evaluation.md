@@ -19,10 +19,13 @@ sleap-nn eval \
 |-----------|-------------|---------|
 | `-g` / `--ground_truth_path` | Ground truth labels file | Required |
 | `-p` / `--predicted_path` | Predicted labels file | Required |
-| `-s` / `--save_metrics` | Save metrics to .npz file | None |
+| `-s` / `--save_metrics` | Save metrics to a .npz file; a `.json` copy with the same stem is written next to it | None |
 | `--oks_stddev` | OKS standard deviation | `0.025` |
 | `--oks_scale` | Scale factor for OKS calculation | None |
-| `--match_method` | Instance matcher: `oks`, `centroid`, `mask`, or `auto` (centroid when the prediction skeleton is single-node) | `auto` |
+| `--match_threshold` | Matching threshold: minimum OKS (`oks`), maximum pixel distance (`centroid`; `0` becomes `50` px), or minimum mask IoU (`mask`; `0` becomes `0.5`) | `0.0` |
+| `--match_method` | `oks` (full skeleton), `centroid` (single-point distance), `mask` (instance-mask IoU), `semantic` (whole-frame foreground, no matching), `bbox` (COCO box AP), or `auto`: `bbox` when the predictions are boxes only, `centroid` when the prediction skeleton is single-node, else `oks` (never `mask`/`semantic`) | `auto` |
+| `--bbox_source` | `bbox` mode: where ground-truth boxes come from (`auto`, `bboxes`, `instances`, `masks`); pass the model's `data_config.bbox_source` | `auto` |
+| `--bbox_padding` | `bbox` mode: pixels of padding on ground-truth boxes derived from poses or masks; pass the model's `data_config.bbox_padding` | `0.0` |
 | `--anchor_part` | GT node for centroid-mode ground-truth centroids (defaults to mean of visible nodes) | None |
 | `--centroid_method` | How centroid-mode GT centroids are derived: `center_of_mass`, `bbox_center`, `geometric_median`, `anchor`. Pass the value the model was **trained** with (`head_configs.centroid.confmaps.centroid_method`) so the metric compares like with like | infer from `--anchor_part` |
 | `--centroid_fallback` | Reduce method used when the `--anchor_part` node is not visible | `center_of_mass` |
@@ -114,6 +117,9 @@ metrics = data['metrics'].item()
 
 print(metrics.keys())
 ```
+
+The metrics are also written as JSON next to the `.npz` (`metrics.json` here),
+readable without NumPy; a few large raw arrays are left out of the JSON.
 
 ---
 

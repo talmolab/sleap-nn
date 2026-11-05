@@ -386,7 +386,7 @@ class TrainerConfig:
         seed: (int) Seed value for the current experiment. This ensures deterministic train/val splits across runs, which is critical for safe checkpoint resume. *Default*: `42`.
         use_wandb: (bool) True to enable wandb logging. *Default*: `False`.
         save_ckpt: (bool) True to enable checkpointing. *Default*: `False`.
-        ckpt_dir: (str) Directory path where the `<run_name>` folder is created. If `None`, a new folder for the current run is created in the working dir. **Default**: `None`
+        ckpt_dir: (str) Directory path where the `<run_name>` folder is created. **Default**: `"."` (the working dir)
         run_name: (str) Name of the current run. The ckpts will be created in `<ckpt_dir>/<run_name>`. If `None`, a run name is generated with `<timestamp>_<head_name>`. *Default*: `None`.
         resume_ckpt_path: (str) Path to `.ckpt` file from which training is resumed. *Default*: `None`.
         wandb: (Only if use_wandb is True, else skip this)
