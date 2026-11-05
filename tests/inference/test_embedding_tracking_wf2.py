@@ -473,7 +473,7 @@ def test_cli_fused_no_tracking_persists_vectors(
 
 # Where the fused route's detection stage USED to drop an unrequested .slp: the
 # auto-derived default output path for the `.pkg.slp` input asset below.
-STRAY_DETECTIONS_PATH = "tests/assets/datasets/minimal_instance.pkg.slp.slp"
+STRAY_DETECTIONS_PATH = "tests/assets/datasets/minimal_instance.pkg.slp.predictions.slp"
 
 
 def test_fused_detect_embed_track_end_to_end(embedding_model_dir, tmp_path):
