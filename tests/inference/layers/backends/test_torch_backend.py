@@ -619,3 +619,138 @@ def test_memory_format_change_rebuilds_compiled_model(monkeypatch):
     # Setting the same layout again is a no-op (no recompile).
     backend.memory_format = "channels_last"
     assert len(compiled) == 2
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# 8. A compiled backend pads every batch to one size (#783)
+# ─────────────────────────────────────────────────────────────────────────
+
+
+@pytest.fixture
+def dynamo_graphs(monkeypatch):
+    """Run ``TorchBackend``'s ``torch.compile`` through real dynamo, on its eager backend.
+
+    Dynamo traces, guards and recompiles exactly as with inductor (a new input
+    shape fails the guards and builds a new graph), without inductor's compile
+    time. Returns the list of input shapes each new graph was built for.
+    """
+    import torch._dynamo
+
+    real_compile = torch.compile
+    graphs = []
+
+    def counting_backend(gm, example_inputs):
+        # The input batch: the 4-D input larger than 3x3 (the conv weights
+        # are lifted to graph inputs too).
+        graphs.append(
+            next(
+                tuple(t.shape)
+                for t in example_inputs
+                if isinstance(t, torch.Tensor) and t.ndim == 4 and t.shape[-1] > 3
+            )
+        )
+        return gm.forward
+
+    def compile_on_eager_backend(model, mode=None, dynamic=None):
+        return real_compile(model, backend=counting_backend, dynamic=dynamic)
+
+    torch._dynamo.reset()
+    monkeypatch.setattr(torch, "compile", compile_on_eager_backend)
+    yield graphs
+    torch._dynamo.reset()
+
+
+def _compiled_and_eager_backends():
+    torch.manual_seed(0)
+    model = _TinyConvModel()
+    compiled = TorchBackend(model=model, device="cpu", use_compile=True)
+    eager = TorchBackend(model=_TinyConvModel(), device="cpu")
+    eager.model.load_state_dict(model.state_dict())
+    return compiled, eager
+
+
+BATCH_SIZES = [5, 3, 7, 2, 7, 1]
+
+
+def test_compiled_backend_pads_to_the_largest_batch_seen(dynamo_graphs):
+    """Smaller batches reuse the compiled model; outputs keep the real batch only."""
+    compiled, eager = _compiled_and_eager_backends()
+    for n in BATCH_SIZES:
+        x = torch.randn(n, 1, 8, 8)
+        out = compiled(x)["output"]
+        assert out.shape == (n, 4, 8, 8)
+        torch.testing.assert_close(out, eager(x)["output"])
+    # One graph for 5, one when 7 arrived; 3, 2 and 1 were padded. Without
+    # padding there would be one per size (5 graphs here).
+    assert dynamo_graphs == [(5, 1, 8, 8), (7, 1, 8, 8)]
+
+
+def test_reserve_batch_compiles_once(dynamo_graphs):
+    """Reserving the largest batch up front means a single compile."""
+    compiled, eager = _compiled_and_eager_backends()
+    compiled.reserve_batch(8)
+    for n in BATCH_SIZES:
+        x = torch.randn(n, 1, 8, 8)
+        torch.testing.assert_close(compiled(x)["output"], eager(x)["output"])
+    assert dynamo_graphs == [(8, 1, 8, 8)]
+
+
+def test_pad_samples_are_cut_from_dict_outputs(dynamo_graphs):
+    """Every per-sample output loses the pad samples; the model saw zeros there."""
+
+    class _DictModel(nn.Module):
+        def __init__(self) -> None:
+            super().__init__()
+            self.conv = nn.Conv2d(1, 2, kernel_size=1)
+
+        def forward(self, x: torch.Tensor) -> dict:
+            y = self.conv(x)
+            return {"maps": y, "sums": x.sum(dim=(1, 2, 3))}
+
+    backend = TorchBackend(model=_DictModel(), device="cpu", use_compile=True)
+    backend.reserve_batch(6)
+    x = torch.ones(2, 1, 4, 4)
+    out = backend(x)
+    assert out["maps"].shape == (2, 2, 4, 4)
+    torch.testing.assert_close(out["sums"], torch.full((2,), 16.0))
+    assert dynamo_graphs == [(6, 1, 4, 4)]
+
+
+def test_uncompiled_backend_never_pads():
+    """``reserve_batch`` is a no-op unless the model is compiled."""
+    backend = TorchBackend(model=_TinyConvModel(), device="cpu")
+    backend.reserve_batch(16)
+    assert backend._padded_batch == 0
+    assert backend(torch.zeros(3, 1, 8, 8))["output"].shape == (3, 4, 8, 8)
+
+
+def test_use_compile_and_compile_mode_can_be_set_later(monkeypatch):
+    """Setting ``use_compile`` / ``compile_mode`` after construction takes effect.
+
+    ``torch.compile`` is stood in for: this checks the wiring, not inductor.
+    """
+    compiled = []
+
+    def fake_compile(model, **kwargs):
+        compiled.append(kwargs)
+        return model
+
+    monkeypatch.setattr(torch, "compile", fake_compile)
+    backend = TorchBackend(model=_TinyConvModel(), device="cpu")
+    assert backend._compiled is None
+
+    backend.use_compile = True
+    assert backend._compiled is not None
+    assert compiled == [{"mode": "reduce-overhead", "dynamic": False}]
+
+    backend.compile_mode = "default"
+    assert compiled[-1] == {"mode": "default", "dynamic": False}
+
+    backend.reserve_batch(4)
+    backend.use_compile = False
+    assert backend._compiled is None
+    assert backend._padded_batch == 0
+    assert len(compiled) == 2
+    # Changing the mode while not compiled doesn't compile.
+    backend.compile_mode = "max-autotune"
+    assert len(compiled) == 2

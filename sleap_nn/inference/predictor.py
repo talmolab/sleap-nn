@@ -1355,6 +1355,7 @@ class Predictor:
         bbox_nms_iou: Optional[float] = None,
         upload_batches: bool = False,
         memory_format: str = "contiguous",
+        use_compile: bool = False,
     ) -> "Predictor":
         """Build a :class:`Predictor` from one or more checkpoint paths.
 
@@ -1440,6 +1441,11 @@ class Predictor:
             memory_format: Weight layout of every model in the composition:
                 ``"contiguous"`` (default) or ``"channels_last"`` (faster cuDNN
                 convolutions on NVIDIA GPUs). See :class:`TorchBackend`.
+            use_compile: ``torch.compile`` every model in the composition
+                (not on MPS). Compiling takes seconds to tens of seconds per
+                model, so it pays off on long videos only; results differ
+                slightly from eager. Set ``max_instances`` for top-down models
+                so the instance model compiles once (see :class:`TorchBackend`).
         """
         from sleap_nn.inference.loaders import load_model_assets
         from sleap_nn.system_info import get_startup_info_string
@@ -1496,6 +1502,8 @@ class Predictor:
             layer = _select_layer(loaded, model_types, device)
         for backend in _torch_backends(layer):
             backend.memory_format = memory_format
+            if use_compile:
+                backend.use_compile = True
 
         skeleton = loaded.skeletons[0] if loaded.skeletons else None
         kwargs: dict = {
@@ -1531,6 +1539,8 @@ class Predictor:
             spec.append("upload_batches=True")
         if memory_format != "contiguous":
             spec.append(f"memory_format={memory_format}")
+        if use_compile:
+            spec.append("use_compile=True")
         if "bottomup_segmentation" in model_types:
             spec.append(f"fg_threshold={fg_threshold}")
             spec.append(f"min_mask_area={min_mask_area}")

@@ -210,7 +210,7 @@ class TopDownSegmentationLayer(TopDownLayer):
         crops = crop_bboxes(image_4d, bboxes, sample_inds, crop_size=(crop_h, crop_w))
 
         # Run the seg model on the crops -> per-crop bool masks (N, 1, h, w).
-        stage2_out = self.centered_instance_layer.predict(crops)
+        stage2_out = self._predict_crops(crops, B * max_inst)
         crop_masks = stage2_out.crops  # (n_valid, 1, h, w) float {0,1}
         device = crop_masks.device
 
