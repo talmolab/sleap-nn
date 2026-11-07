@@ -17,55 +17,66 @@ def group_class_peaks(
     n_samples: int,
     n_channels: int,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
-    """Group local peaks using class probabilities, matching peaks to classes using the Hungarian algorithm, per (sample, channel) pair."""
+    """Group local peaks using class probabilities, matching peaks to classes using the Hungarian algorithm, per (sample, channel) pair.
+
+    The matching itself (``scipy.optimize.linear_sum_assignment``) runs on the
+    CPU, so the class probabilities and peak indices are copied to the CPU
+    once, and all (sample, channel) pairs are matched there. Doing the masking
+    on the device instead makes the CPU wait for the GPU several times per
+    pair.
+
+    Returns:
+        A tuple of ``(peak_inds, class_inds)``, ``int64`` tensors on the device
+        of ``peak_sample_inds``: for each kept peak, its index into
+        ``peak_class_probs`` and its class. Pairs come in (sample, channel)
+        order; within a pair, in the order the Hungarian algorithm returns
+        them. Only peaks whose matched class is also their most probable class
+        are kept.
+    """
+    device = peak_sample_inds.device
+    probs = peak_class_probs.detach().cpu()
+    sample_inds = peak_sample_inds.detach().cpu().numpy().astype(np.int64)
+    channel_inds = peak_channel_inds.detach().cpu().numpy().astype(np.int64)
+
+    # Peaks grouped by (sample, channel), each group in its original order.
+    valid = (
+        (sample_inds >= 0)
+        & (sample_inds < n_samples)
+        & (channel_inds >= 0)
+        & (channel_inds < n_channels)
+    )
+    keys = sample_inds * n_channels + channel_inds
+    order = np.nonzero(valid)[0]
+    order = order[np.argsort(keys[order], kind="stable")]
+    group_keys, group_starts = np.unique(keys[order], return_index=True)
+    group_ends = np.append(group_starts[1:], order.size)
+
     peak_inds_list = []
     class_inds_list = []
-
-    for sample in range(n_samples):
-        for channel in range(n_channels):
-            # Mask to find peaks belonging to this (sample, channel) pair
-            mask = (peak_sample_inds == sample) & (peak_channel_inds == channel)
-            if not torch.any(mask):
-                continue
-
-            # Extract probabilities for current group
-            probs = peak_class_probs[mask]  # (n_peaks_sc, n_classes)
-            if probs.numel() == 0:
-                continue
-
+    if probs.shape[-1] > 0:
+        for start, end in zip(group_starts, group_ends):
+            group = order[start:end]  # indices into peak_class_probs
             # Run Hungarian algorithm (note: maximize => minimize negative cost)
-            cost = -probs.detach().cpu().numpy()
+            cost = -probs[group].numpy()
             row_ind, col_ind = linear_sum_assignment(cost)
-
-            # Get original indices in peak_class_probs
-            masked_indices = (
-                torch.nonzero(mask, as_tuple=False)
-                .squeeze(1)
-                .to(peak_sample_inds.device)
-            )
-            peak_inds_sc = masked_indices[row_ind]
-            class_inds_sc = torch.tensor(col_ind, dtype=torch.int64).to(
-                peak_sample_inds.device
-            )
-
-            peak_inds_list.append(peak_inds_sc)
-            class_inds_list.append(class_inds_sc)
+            peak_inds_list.append(group[row_ind])
+            class_inds_list.append(col_ind.astype(np.int64))
 
     if not peak_inds_list:
         return (
-            torch.empty(0, dtype=torch.int64).to(peak_sample_inds.device),
-            torch.empty(0, dtype=torch.int64).to(peak_sample_inds.device),
+            torch.empty(0, dtype=torch.int64).to(device),
+            torch.empty(0, dtype=torch.int64).to(device),
         )
 
-    peak_inds = torch.cat(peak_inds_list, dim=0).to(peak_sample_inds.device)
-    class_inds = torch.cat(class_inds_list, dim=0).to(peak_sample_inds.device)
+    peak_inds = torch.from_numpy(np.concatenate(peak_inds_list).astype(np.int64))
+    class_inds = torch.from_numpy(np.concatenate(class_inds_list))
 
     # Filter to keep only best class per peak
-    matched_probs = peak_class_probs[peak_inds, class_inds]
-    best_probs = peak_class_probs[peak_inds].max(dim=1).values
+    matched_probs = probs[peak_inds, class_inds]
+    best_probs = probs[peak_inds].max(dim=1).values
     is_best = matched_probs == best_probs
 
-    return peak_inds[is_best], class_inds[is_best]
+    return peak_inds[is_best].to(device), class_inds[is_best].to(device)
 
 
 def classify_peaks_from_maps(
