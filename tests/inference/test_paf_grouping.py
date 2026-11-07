@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 import torch
 from torch.testing import assert_close
 from numpy.testing import assert_array_equal, assert_array_almost_equal
@@ -11,6 +12,7 @@ from sleap_nn.inference.paf_grouping import (
     compute_distance_penalty,
     score_paf_lines,
     score_paf_lines_batch,
+    split_peaks_by_sample,
     match_candidates_sample,
     match_candidates_batch,
     EdgeType,
@@ -604,3 +606,279 @@ def test_paf_scorer_group_instances():
         predicted_peak_scores[0].numpy(), [[0.0, 1.0, 2.0], [3.0, 4.0, np.nan]]
     )
     assert_array_equal(predicted_instance_scores[0].numpy(), [2.0, 1.0])
+
+
+# ---------------------------------------------------------------------------
+# Batched PAF line scoring vs the per-sample loop it replaced.
+# ---------------------------------------------------------------------------
+
+DEVICES = ["cpu"]
+if torch.backends.mps.is_available():
+    DEVICES.append("mps")
+if torch.cuda.is_available():
+    DEVICES.append("cuda")
+
+# A 7-node tree with a branch, plus a node (6) that no edge uses.
+_EDGES = [(0, 1), (1, 2), (2, 3), (1, 4), (4, 5)]
+_N_NODES = 7
+
+
+def _loop_score_paf_lines_batch(
+    pafs,
+    peaks,
+    peak_channel_inds,
+    skeleton_edges,
+    n_line_points,
+    pafs_stride,
+    max_edge_length_ratio,
+    dist_penalty_weight,
+    n_nodes,
+):
+    """The per-sample loop that `score_paf_lines_batch` used before."""
+    max_edge_length = (
+        max_edge_length_ratio
+        * max(pafs.shape[-1], pafs.shape[-2], pafs.shape[-3])
+        * pafs_stride
+    )
+    out = ([], [], [])
+    for sample in range(pafs.shape[0]):
+        edge_inds_sample, edge_peak_inds_sample = get_connection_candidates(
+            peak_channel_inds[sample], skeleton_edges, n_nodes
+        )
+        paf_lines_sample = get_paf_lines(
+            pafs[sample],
+            peaks[sample],
+            edge_peak_inds_sample,
+            edge_inds_sample,
+            n_line_points,
+            pafs_stride,
+        )
+        line_scores_sample = score_paf_lines(
+            paf_lines_sample,
+            peaks[sample],
+            edge_peak_inds_sample,
+            max_edge_length,
+            dist_penalty_weight=dist_penalty_weight,
+        )
+        out[0].append(edge_inds_sample)
+        out[1].append(edge_peak_inds_sample)
+        out[2].append(line_scores_sample)
+    return out
+
+
+def _random_paf_batch(rng, device, counts, hw=(24, 32), stride=4, dup=False):
+    """Random PAFs and peaks; ``counts[b][k]`` peaks of node ``k`` in sample ``b``.
+
+    Peaks of a sample are shuffled across nodes, like `find_local_peaks` gives
+    them (ordered by position, not by node). With ``dup``, some peaks repeat
+    another peak's position exactly (zero-length candidate lines).
+    """
+    B = len(counts)
+    h, w = hw
+    pafs = torch.from_numpy(
+        rng.uniform(-1, 1, size=(B, h, w, 2 * len(_EDGES))).astype(np.float32)
+    ).to(device)
+    peaks, channels = [], []
+    for b in range(B):
+        ch = np.repeat(np.arange(_N_NODES), counts[b])
+        rng.shuffle(ch)
+        xy = rng.uniform(-5, [w * stride + 5, h * stride + 5], size=(ch.size, 2))
+        if dup and ch.size > 1:
+            src = rng.integers(0, ch.size, size=ch.size // 3)
+            dst = rng.integers(0, ch.size, size=ch.size // 3)
+            xy[dst] = xy[src]
+        peaks.append(torch.from_numpy(xy.astype(np.float32)).to(device))
+        channels.append(torch.from_numpy(ch.astype(np.int32)).to(device))
+    return pafs, peaks, channels
+
+
+def _sorted_candidates(edge_inds, edge_peak_inds, line_scores):
+    """Candidates of one sample on the CPU, ordered by (edge, src, dst)."""
+    e = edge_inds.cpu().long()
+    p = edge_peak_inds.cpu().long()
+    n = int(p.max()) + 1 if p.numel() else 1
+    order = torch.argsort((e * n + p[:, 0]) * n + p[:, 1])
+    return e[order], p[order], line_scores.cpu()[order]
+
+
+def _paf_counts(rng, B):
+    """Peak counts per (sample, node): empty samples, single peaks, crowds."""
+    kind = rng.integers(0, 4)
+    if kind == 0:
+        return rng.integers(0, 3, size=(B, _N_NODES))
+    if kind == 1:
+        return rng.integers(0, 7, size=(B, _N_NODES))
+    counts = rng.integers(0, 20, size=(B, _N_NODES))
+    counts[rng.random(B) < 0.3] = 0  # some samples with no peaks at all
+    return counts
+
+
+@pytest.mark.parametrize("device", DEVICES)
+def test_score_paf_lines_batch_matches_loop(device):
+    rng = np.random.default_rng(0)
+    edges = torch.tensor(_EDGES, dtype=torch.int32)
+    for trial in range(150):
+        B = int(rng.integers(1, 6))
+        counts = _paf_counts(rng, B)
+        pafs, peaks, channels = _random_paf_batch(
+            rng, device, counts, dup=bool(trial % 3 == 0)
+        )
+        args = (pafs, peaks, channels, edges, 7, 4, 0.25, 1.0, _N_NODES)
+        old = _loop_score_paf_lines_batch(*args)
+        new = score_paf_lines_batch(*args)
+        new_with_counts = score_paf_lines_batch(*args, peak_counts=counts)
+        for res in (new, new_with_counts):
+            assert [len(x) for x in res] == [B, B, B]
+            for b in range(B):
+                # Same dtypes and devices as before.
+                for o, n in zip((old[0][b], old[1][b], old[2][b]), (r[b] for r in res)):
+                    assert n.dtype == o.dtype and n.device == o.device
+                o = _sorted_candidates(old[0][b], old[1][b], old[2][b])
+                n = _sorted_candidates(res[0][b], res[1][b], res[2][b])
+                assert torch.equal(o[0], n[0])
+                assert torch.equal(o[1], n[1])
+                # Same arithmetic per candidate: equal bits, NaNs included
+                # (zero-length lines from duplicated peaks give NaN).
+                assert torch.equal(o[2].isnan(), n[2].isnan())
+                assert torch.equal(o[2].nan_to_num(), n[2].nan_to_num())
+
+
+@pytest.mark.parametrize("device", DEVICES)
+def test_score_paf_lines_batch_candidate_order(device):
+    """Within a sample: by edge, then source peak, then destination peak."""
+    pafs = torch.zeros(2, 8, 8, 2 * 2, device=device)
+    peaks = [
+        torch.tensor([[1, 1], [2, 2], [3, 3], [4, 4], [5, 5]], dtype=torch.float32),
+        torch.zeros((0, 2), dtype=torch.float32),
+    ]
+    # Node of each peak, out of node order (as `find_local_peaks` gives them).
+    channels = [
+        torch.tensor([1, 0, 2, 1, 0], dtype=torch.int32),
+        torch.zeros(0, dtype=torch.int32),
+    ]
+    peaks = [p.to(device) for p in peaks]
+    channels = [c.to(device) for c in channels]
+    edge_inds, edge_peak_inds, line_scores = score_paf_lines_batch(
+        pafs, peaks, channels, [(0, 1), (1, 2)], 3, 2, 1.0, 1.0, 3
+    )
+    assert edge_inds[0].tolist() == [0, 0, 0, 0, 1, 1]
+    assert edge_peak_inds[0].tolist() == [
+        [1, 0],
+        [1, 3],
+        [4, 0],
+        [4, 3],
+        [0, 2],
+        [3, 2],
+    ]
+    assert edge_inds[1].shape == (0,) and edge_peak_inds[1].shape == (0, 2)
+    assert line_scores[1].shape == (0,)
+
+
+@pytest.mark.parametrize("device", DEVICES)
+def test_score_paf_lines_batch_grouping_matches_loop(device):
+    """Matching + grouping give the same instances as with the loop's output."""
+    rng = np.random.default_rng(1)
+    edges = torch.tensor(_EDGES, dtype=torch.int32)
+    scorer = PAFScorer(
+        part_names=[f"n{i}" for i in range(_N_NODES)],
+        edges=[(f"n{s}", f"n{d}") for s, d in _EDGES],
+        pafs_stride=4,
+    )
+    for _ in range(40):
+        B = int(rng.integers(1, 5))
+        counts = rng.integers(0, 6, size=(B, _N_NODES))
+        pafs, peaks, channels = _random_paf_batch(rng, device, counts)
+        args = (pafs, peaks, channels, edges, 10, 4, 0.25, 1.0, _N_NODES)
+        results = []
+        for fn in (_loop_score_paf_lines_batch, score_paf_lines_batch):
+            edge_inds, edge_peak_inds, line_scores = fn(*args)
+            matched = match_candidates_batch(
+                edge_inds, edge_peak_inds, line_scores, len(_EDGES)
+            )
+            results.append(
+                scorer.group_instances(
+                    [p.cpu() for p in peaks],
+                    [torch.ones(p.shape[0]) for p in peaks],
+                    [c.cpu() for c in channels],
+                    *matched,
+                )
+            )
+        for o, n in zip(*results):
+            for ob, nb in zip(o, n):
+                assert torch.equal(ob.isnan(), nb.isnan())
+                assert torch.equal(ob.nan_to_num(), nb.nan_to_num())
+
+
+def _loop_split(peaks, peak_vals, sample_inds, peak_channel_inds, B):
+    out = ([], [], [])
+    for b in range(B):
+        m = sample_inds == b
+        out[0].append(peaks[m])
+        out[1].append(peak_vals[m].to(torch.float32))
+        out[2].append(peak_channel_inds[m])
+    return out
+
+
+@pytest.mark.parametrize("device", DEVICES)
+@pytest.mark.parametrize("shuffle", [False, True])
+def test_split_peaks_by_sample_matches_loop(device, shuffle):
+    rng = np.random.default_rng(2)
+    for trial in range(100):
+        B = int(rng.integers(1, 7))
+        counts = _paf_counts(rng, B)
+        sample_inds = np.repeat(np.arange(B), counts.sum(axis=1))
+        channels = np.concatenate(
+            [rng.permutation(np.repeat(np.arange(_N_NODES), c)) for c in counts]
+        ).astype(np.int64)
+        if shuffle:
+            order = rng.permutation(sample_inds.size)
+            sample_inds, channels = sample_inds[order], channels[order]
+        n = sample_inds.size
+        peaks = torch.from_numpy(rng.uniform(0, 100, (n, 2)).astype(np.float32))
+        dtype = torch.float16 if trial % 2 else torch.float32
+        vals = torch.from_numpy(rng.uniform(0, 1, n)).to(dtype)
+        args = [
+            peaks.to(device),
+            vals.to(device),
+            torch.from_numpy(sample_inds).to(torch.int32).to(device),
+            torch.from_numpy(channels).to(torch.int32).to(device),
+        ]
+        old = _loop_split(*args, B)
+        *new, peak_counts = split_peaks_by_sample(*args, B, _N_NODES)
+        assert peak_counts.shape == (B, _N_NODES) and peak_counts.dtype == np.int64
+        np.testing.assert_array_equal(peak_counts, counts)
+        for o_list, n_list in zip(old, new):
+            assert len(n_list) == B
+            for o, nt in zip(o_list, n_list):
+                assert o.dtype == nt.dtype and o.device == nt.device
+                assert torch.equal(o, nt)
+
+
+@pytest.mark.parametrize("device", DEVICES)
+def test_score_paf_lines_batch_no_peaks(device):
+    """A batch where no frame has a peak, and a batch of no frames."""
+    edges = torch.tensor(_EDGES, dtype=torch.int32)
+    pafs = torch.zeros(3, 6, 8, 2 * len(_EDGES), device=device)
+    peaks = [torch.zeros((0, 2), device=device) for _ in range(3)]
+    channels = [torch.zeros(0, dtype=torch.int32, device=device) for _ in range(3)]
+    args = (pafs, peaks, channels, edges, 5, 4, 0.25, 1.0, _N_NODES)
+    old = _loop_score_paf_lines_batch(*args)
+    new = score_paf_lines_batch(*args)
+    for o_list, n_list in zip(old, new):
+        assert len(n_list) == 3
+        for o, n in zip(o_list, n_list):
+            assert n.shape == o.shape and n.dtype == o.dtype and n.device == o.device
+
+    empty = score_paf_lines_batch(pafs[:0], [], [], edges, 5, 4, 0.25, 1.0, _N_NODES)
+    assert empty == ([], [], [])
+
+    *lists, counts = split_peaks_by_sample(
+        torch.zeros((0, 2), device=device),
+        torch.zeros(0, device=device),
+        torch.zeros(0, dtype=torch.int32, device=device),
+        torch.zeros(0, dtype=torch.int32, device=device),
+        3,
+        _N_NODES,
+    )
+    assert counts.shape == (3, _N_NODES) and counts.sum() == 0
+    assert all(len(x) == 3 and all(t.shape[0] == 0 for t in x) for x in lists)

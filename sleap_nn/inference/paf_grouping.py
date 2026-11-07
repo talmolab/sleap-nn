@@ -22,6 +22,7 @@ from sleap_nn.inference.ops.paf import (
     match_candidates_sample,
     score_paf_lines,
     score_paf_lines_batch,
+    split_peaks_by_sample,
     toposort_edges,
 )
 
@@ -42,5 +43,6 @@ __all__ = [
     "match_candidates_sample",
     "score_paf_lines",
     "score_paf_lines_batch",
+    "split_peaks_by_sample",
     "toposort_edges",
 ]
