@@ -705,7 +705,7 @@ def test_pad_samples_are_cut_from_dict_outputs(dynamo_graphs):
 
         def forward(self, x: torch.Tensor) -> dict:
             y = self.conv(x)
-            return {"maps": y, "sums": x.sum(dim=(1, 2, 3))}
+            return {"maps": y, "sums": x.sum(dim=(1, 2, 3)), "kind": "maps"}
 
     backend = TorchBackend(model=_DictModel(), device="cpu", use_compile=True)
     backend.reserve_batch(6)
@@ -713,6 +713,7 @@ def test_pad_samples_are_cut_from_dict_outputs(dynamo_graphs):
     out = backend(x)
     assert out["maps"].shape == (2, 2, 4, 4)
     torch.testing.assert_close(out["sums"], torch.full((2,), 16.0))
+    assert out["kind"] == "maps"  # non-tensor outputs pass through untouched
     assert dynamo_graphs == [(6, 1, 4, 4)]
 
 
@@ -754,3 +755,25 @@ def test_use_compile_and_compile_mode_can_be_set_later(monkeypatch):
     # Changing the mode while not compiled doesn't compile.
     backend.compile_mode = "max-autotune"
     assert len(compiled) == 2
+
+
+def test_turning_compile_on_later_follows_the_device_rules(monkeypatch):
+    """Turning compile on later is refused on MPS and warns on CUDA, as at construction.
+
+    ``device`` is changed after construction so this runs on CPU; ``torch.compile``
+    is stood in for.
+    """
+    monkeypatch.setattr(torch, "compile", lambda model, **kwargs: model)
+
+    backend = TorchBackend(model=_TinyConvModel(), device="cpu")
+    backend.device = "mps"
+    with pytest.warns(UserWarning, match="unreliable on MPS"):
+        backend.use_compile = True
+    assert backend.use_compile is False
+    assert backend._compiled is None
+
+    backend.device = "cuda"
+    with pytest.warns(UserWarning, match="torch.compile changes numerics"):
+        backend.use_compile = True
+    assert backend.use_compile is True
+    assert backend._compiled is not None
