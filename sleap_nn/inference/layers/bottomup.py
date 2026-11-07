@@ -24,13 +24,14 @@ from __future__ import annotations
 
 from typing import Optional
 
+import numpy as np
 import torch
 from loguru import logger
 
 from sleap_nn.inference.layers.backends.base import ModelBackend
 from sleap_nn.inference.layers.base import InferenceLayer
 from sleap_nn.inference.layers.configs import PostprocessConfig, PreprocessConfig
-from sleap_nn.inference.ops.paf import PAFScorer
+from sleap_nn.inference.ops.paf import PAFScorer, split_peaks_by_sample
 from sleap_nn.inference.ops.peaks import find_local_peaks
 from sleap_nn.inference.outputs import Outputs
 from sleap_nn.inference.preprocess_info import PreprocInfo
@@ -113,36 +114,32 @@ class BottomUpLayer(InferenceLayer):
         B = cms.shape[0]
         n_nodes = cms.shape[1]
 
-        # Per-batch peak lists for the PAF scorer.
-        cms_peaks: list[torch.Tensor] = []
-        cms_peak_vals: list[torch.Tensor] = []
-        cms_peak_channel_inds: list[torch.Tensor] = []
-        for b in range(B):
-            mask = sample_inds == b
-            cms_peaks.append(peaks[mask])
-            cms_peak_vals.append(peak_vals[mask].to(torch.float32))
-            cms_peak_channel_inds.append(peak_channel_inds[mask])
+        # Per-batch peak lists for the PAF scorer. One read from the device
+        # (peaks per node per frame) instead of a boolean mask per frame.
+        cms_peaks, cms_peak_vals, cms_peak_channel_inds, peak_counts = (
+            split_peaks_by_sample(
+                peaks, peak_vals, sample_inds, peak_channel_inds, B, n_nodes
+            )
+        )
 
         # Skip PAF scoring if any node has too many peaks (combinatorial blowup).
         skip_paf = False
         if self.max_peaks_per_node is not None:
-            for ch_inds in cms_peak_channel_inds:
-                for ni in range(n_nodes):
-                    n_peaks = int((ch_inds == ni).sum().item())
-                    if n_peaks > self.max_peaks_per_node:
-                        skip_paf = True
-                        # Surface the skip (legacy logged it); an over-limit node
-                        # usually means an under-trained / noisy model (#584).
-                        logger.warning(
-                            "Skipping PAF scoring for a bottom-up batch: node "
-                            f"{ni} has {n_peaks} peaks "
-                            f"(max_peaks_per_node={self.max_peaks_per_node}). "
-                            "Instances will be all-NaN; the model may need more "
-                            "training or a higher peak threshold."
-                        )
-                        break
-                if skip_paf:
-                    break
+            over = np.argwhere(peak_counts > self.max_peaks_per_node)
+            if over.size:
+                # First over-limit (frame, node), as the per-frame loop found it.
+                ni = int(over[0, 1])
+                n_peaks = int(peak_counts[over[0, 0], ni])
+                skip_paf = True
+                # Surface the skip (legacy logged it); an over-limit node
+                # usually means an under-trained / noisy model (#584).
+                logger.warning(
+                    "Skipping PAF scoring for a bottom-up batch: node "
+                    f"{ni} has {n_peaks} peaks "
+                    f"(max_peaks_per_node={self.max_peaks_per_node}). "
+                    "Instances will be all-NaN; the model may need more "
+                    "training or a higher peak threshold."
+                )
 
         if skip_paf:
             return ScoredBatch(
@@ -161,7 +158,7 @@ class BottomUpLayer(InferenceLayer):
             ).to_cpu()
 
         edge_inds, edge_peak_inds, line_scores = self.paf_scorer.score_paf_lines(
-            pafs, cms_peaks, cms_peak_channel_inds
+            pafs, cms_peaks, cms_peak_channel_inds, peak_counts=peak_counts
         )
 
         scored = ScoredBatch(
