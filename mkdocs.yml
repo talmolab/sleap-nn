@@ -164,6 +164,7 @@ nav:
       - Trainer Config: configuration/trainer.md
       - Sample Configs: configuration/samples.md
     - CLI: reference/cli.md
+    - Python API: reference/api.md
     - Model Types: reference/models.md
     - Evaluation Metrics: reference/evaluation_metrics.md
     - FAQ: help/faq.md

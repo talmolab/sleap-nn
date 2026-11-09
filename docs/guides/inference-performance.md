@@ -24,13 +24,12 @@ and can be re-run to validate your own setup.
     - **`--device cuda`** — the only flag that matters for large videos.
     - **`--batch_size 4`** is a good starting point; raise to 8 / 16 if
       VRAM allows.
-    - **FP16** delivers the biggest single-flag win (~1.5× on UNets) once
-      it's exposed via the CLI. For now, opt in by constructing the
-      predictor in Python with `use_fp16=True` (see [FP16](#fp16)).
+    - **FP16** delivers the biggest single-flag win (~1.5× on UNets).
+      It has no CLI flag yet; turn it on from Python (see [FP16](#fp16)).
     - **`torch.compile`** (`use_compile=True` on
-      `Predictor.from_model_paths`) ran a top-down pair 1.4-1.9× faster on
-      an RTX 6000 Ada, but compiling took ~30 s — only worth it on long
-      videos (see [`torch.compile`](#torchcompile)).
+      `Predictor.from_model_paths`, Python-only) ran a top-down pair
+      1.4-1.9× faster on an RTX 6000 Ada, but compiling took ~30 s — only
+      worth it on long videos (see [`torch.compile`](#torchcompile)).
     - **`paf_workers=0`** is the right default. Workers are a net loss
       for typical bottom-up workloads at fixture-checkpoint scale.
     - **`--upload_batches`** copies each batch to the GPU before
@@ -100,15 +99,36 @@ inference.
 Enable **CUDA-only**; on MPS the kernels exist but tensor cores don't,
 so there's no speedup (and we warn).
 
+FP16 and `torch.compile` are fields of each model's `TorchBackend`. A
+top-down predictor has two models (`predictor.layer.centroid_layer` and
+`predictor.layer.centered_instance_layer`), so set them on both stages.
+Both can be set on an existing backend: setting `use_compile = True`
+compiles its model right away. This helper sets them on every stage, for any
+model type:
+
 ```python
 from sleap_nn.inference import Predictor
 
-predictor = Predictor.from_model_paths(
-    ["models/my_model/"],
-    device="cuda",
-)
-predictor.layer.backend.use_fp16 = True   # opt-in
+
+def use_fast_backends(predictor, fp16=True, compile=True):
+    """Turn FP16 / torch.compile on or off for every model backend of `predictor`."""
+    layer = predictor.layer
+    stages = [
+        getattr(layer, name)
+        for name in ("centroid_layer", "centered_instance_layer")
+        if hasattr(layer, name)
+    ] or [layer]  # top-down has two stages; other model types have one
+    for stage in stages:
+        stage.backend.use_fp16 = fp16
+        stage.backend.use_compile = compile
+
+
+predictor = Predictor.from_model_paths(["models/my_model/"], device="cuda")
+use_fast_backends(predictor, fp16=True, compile=False)
 ```
+
+This works for trained checkpoints only (an exported ONNX/TensorRT model has
+no `TorchBackend`).
 
 | Reason to enable | Reason to skip |
 |---|---|
@@ -198,6 +218,13 @@ different cuDNN kernels).
 |---|---|
 | Long videos, or several in one process (the compiled model is reused) | Short clips: compiling takes longer than it saves |
 | A warm compile cache (same machine, same models) | Results must match eager bit for bit |
+
+!!! warning "Static shapes"
+    `dynamic=False` (not configurable) locks the compiled graph to one
+    input shape. The batch dimension is padded (above), but a new frame
+    size still recompiles. Frames of one video share a size, and setting
+    `max_height` / `max_width` in the training config pads every frame to
+    one size.
 
 ### Batches on the GPU (`upload_batches`)
 
@@ -346,10 +373,8 @@ predictor = Predictor.from_model_paths(
     batch_size=8,
     upload_batches=True,
     memory_format="channels_last",  # NVIDIA
-    use_compile=True,  # long videos
 )
-backend = predictor.layer.backend  # or .centroid_layer.backend for top-down
-backend.use_fp16 = True
+use_fast_backends(predictor, fp16=True, compile=True)  # helper from FP16 above
 
 labels = predictor.predict("long_video.mp4")
 labels.save("predictions.slp")

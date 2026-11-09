@@ -153,10 +153,10 @@ sleap-nn predict --data_path video.mp4 --model_paths models/semantic_run \
 
 Applicable knobs: `--fg_threshold` (foreground probability binarization),
 `--min_mask_area` (drop a near-empty whole-frame mask, in original-image pixels),
-`--mask_output` (`mask` / `polygon` / `both`), `--full_res_masks`, and
-`--mask_cleanup`. The instance-grouping knobs (`--center_nms_kernel`,
-`--distance_gate_alpha`, `--merge_*`, `--peak_threshold`) do not apply — there are
-no instances to group.
+`--mask_output` (`mask` / `polygon` / `both`), `--polygon_epsilon` and
+`--full_res_masks`. The instance-grouping and cleanup knobs (`--center_nms_kernel`,
+`--distance_gate_alpha`, `--merge_*`, `--mask_cleanup`, `--peak_threshold`) do not
+apply — there are no instances to group.
 
 The predicted foreground is a single **semantic** mask and may be spatially
 disconnected (multiple blobs); it is intentionally **not** connected-component
@@ -167,7 +167,8 @@ cleaned.
 Semantic evaluation is **matching-free**: each frame's masks are unioned into one
 foreground and scored directly against the ground-truth foreground with IoU,
 centerline Dice (clDice), and boundary IoU — no Hungarian matching, no IoU
-threshold. Post-training eval runs automatically; to run it standalone:
+threshold. Post-training eval runs automatically when checkpoints are saved
+(`trainer_config.save_ckpt: true`); to run it standalone:
 
 ```bash
 sleap-nn eval --ground_truth_path gt.slp --predicted_path preds.slp \

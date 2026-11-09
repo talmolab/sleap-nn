@@ -72,6 +72,7 @@ run_training(config=config)
 
 ```python
 import sleap_io as sio
+from omegaconf import OmegaConf
 from sleap_nn.train import run_training
 
 config = OmegaConf.load("config.yaml")
@@ -161,7 +162,7 @@ train(
     head_configs="bottomup",
     use_augmentations_train=True,
     intensity_aug="uniform_noise",
-    geometric_aug=["rotation", "scale"],
+    geometry_aug=["rotation", "scale"],
 )
 ```
 
@@ -222,8 +223,8 @@ Each training run creates a checkpoint directory with:
 | `training_config.yaml` | Full config with computed values |
 | `labels_gt.train.0.slp` | Training data split (ground truth) |
 | `labels_gt.val.0.slp` | Validation data split (ground truth) |
-| `labels_pr.train.slp` | Predictions on training data |
-| `labels_pr.val.slp` | Predictions on validation data |
+| `labels_pr.train.0.slp` | Predictions on training data |
+| `labels_pr.val.0.slp` | Predictions on validation data |
 | `metrics.train.0.npz` | Training metrics |
 | `metrics.val.0.npz` | Validation metrics |
 | `training_log.csv` | Loss/metrics per epoch |
