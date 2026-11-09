@@ -90,8 +90,9 @@ SLEAP-NN automatically selects the appropriate evaluation callback based on mode
 | Single Instance | `EpochEndEvaluationCallback` | OKS, PCK, distance metrics |
 | Bottom-Up | `EpochEndEvaluationCallback` | OKS, PCK, distance metrics |
 | Top-Down (Centered Instance) | `EpochEndEvaluationCallback` | OKS, PCK, distance metrics |
+| Multi-Class (`multi_class_bottomup`, `multi_class_topdown`) | `EpochEndEvaluationCallback` | OKS, PCK, distance metrics |
 | **Centroid** | `CentroidEvaluationCallback` | Distance, precision/recall |
-| Segmentation (bottom-up, centered-instance, semantic) | `SegmentationEvaluationCallback` | Instance mask-IoU mAP / precision / recall; semantic: foreground IoU, clDice, boundary IoU |
+| Segmentation (bottom-up, centered-instance, semantic) | `SegmentationEvaluationCallback` | Instance: matched mask IoU, clDice, precision / recall / F1; semantic: foreground IoU, clDice, boundary IoU (see [below](#segmentation-model-evaluation)) |
 | Box detectors (`bbox_centernet`, `bbox_ssd`) | `BBoxEvaluationCallback` | `eval/val/bbox_*` (COCO-style mAP, AP50/75, AR, F1) — see [Bounding boxes](bbox-detection.md) |
 | Embedding | `EmbeddingEvaluationCallback` | Retrieval metrics (rank-1, mAP, ...); runs even with `eval.enabled: false` |
 
@@ -151,6 +152,31 @@ trainer_config:
 | `eval/val/centroid_n_fp` | False positive count |
 | `eval/val/centroid_n_fn` | False negative count |
 
+### Segmentation Model Evaluation
+
+`bottomup_segmentation` and `centered_instance_segmentation` match predicted to ground-truth masks by IoU (pairs below the IoU threshold don't count; the threshold is `match_threshold` when it is in `(0, 1]`, else `0.5`). `semantic_segmentation` has no instances, so it scores each frame's whole foreground without matching.
+
+**Instance mode (metrics logged to WandB):**
+
+| Metric | Description |
+|--------|-------------|
+| `eval/val/mask_mean_iou` | Mean IoU over matched mask pairs |
+| `eval/val/mask_mean_iou_all_gt` | Mean IoU over all GT masks (missed GT counts as 0) |
+| `eval/val/mask_mean_cldice` | Mean clDice over matched pairs |
+| `eval/val/mask_precision` / `mask_recall` / `mask_f1` | Detection precision / recall / F1 |
+| `eval/val/mask_n_tp` / `mask_n_fp` / `mask_n_fn` | Match counts |
+
+**Semantic mode (metrics logged to WandB):**
+
+| Metric | Description |
+|--------|-------------|
+| `eval/val/fg_mean_iou` | Mean foreground IoU per frame |
+| `eval/val/fg_mean_cldice` | Mean foreground clDice per frame |
+| `eval/val/fg_mean_boundary_iou` | Mean foreground boundary IoU per frame |
+| `eval/val/fg_frame_recall` | Fraction of frames where the model predicted any foreground |
+
+In semantic mode, frames with an empty ground-truth foreground are skipped. Mask AP is not computed during training; it comes from post-training evaluation (the run's `metrics.*.npz`, or `sleap-nn eval --match_method mask`).
+
 ---
 
 ## Configuration Reference
@@ -167,6 +193,8 @@ trainer_config:
     match_threshold: float  # Centroid matching threshold in pixels (default: 50.0)
     select_metric: str  # Checkpoint metric for embedding / bbox models (default: rank1)
 ```
+
+`select_metric` is ignored by every other model type, which selects checkpoints on `val/loss`. For `embedding` it is one of `rank1`, `mAP`, `auc`, `knn_acc`, `eer`. For the `bbox_*` detectors it is one of `bbox_mAP`, `bbox_AP50`, `bbox_AP75`, `bbox_AR`, `bbox_f1`, `val_loss`; left at the default `rank1`, a detector selects on `bbox_mAP` when `enabled: true` and on `val/loss` otherwise.
 
 See [Trainer Configuration](../configuration/trainer.md#evalconfig) for complete reference.
 

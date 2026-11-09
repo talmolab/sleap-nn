@@ -20,14 +20,19 @@ data_config:
       brightness_min: 0.8
       brightness_max: 1.2
       brightness_p: 0.5
+    # Each transform runs on its own probability. Rotation is off: the axis-aligned
+    # box of rotated corners is larger than the rotated animal. Scale, translation
+    # and flip are exact for boxes.
     geometric:
       rotation_min: 0.0
       rotation_max: 0.0
+      rotation_p: 0.0
       scale_min: 0.85
       scale_max: 1.15
+      scale_p: 1.0
       translate_width: 0.1
       translate_height: 0.1
-      affine_p: 1.0
+      translate_p: 1.0
       flip_p: 0.5
   validation_fraction: 0.1
   bbox_source: auto

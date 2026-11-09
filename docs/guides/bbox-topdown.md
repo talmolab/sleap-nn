@@ -74,8 +74,10 @@ model_config:
 - **Use the detector's box definition.** Each training box is derived exactly as the
   detector's ground truth is: `bbox_source` and `bbox_padding` mean the same thing in
   both configs (a user box linked to the instance, the user mask linked to it, or the
-  tight box of its visible keypoints). Train both models with the same two values —
-  `sleap-nn predict` warns when they differ.
+  tight box of its visible keypoints). Train both models with the same two values.
+  For a box-scaled model, `sleap-nn predict` warns when they differ (a
+  `bbox_source` of `auto` on either side is not compared, since it is resolved per
+  labels file).
 - **`crop_size` sets resolution, not coverage.** Every box is resized to the crop, so
   the crop no longer has to hold the largest animal. Left unset it is the median
   padded box side (rounded up to the backbone's max stride), so a typical animal

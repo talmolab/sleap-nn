@@ -47,7 +47,7 @@ Run predictions on videos and label files.
 sleap-nn predict --data_path video.mp4 --model_paths models/my_model/
 ```
 
-Output: `video.predictions.slp`, written next to the input (the input's extension replaced by `.predictions.slp`, as SLEAP's `sleap-track` names it). Use `-o` to choose another path.
+Output: `video.predictions.slp`, written next to the input (the input's extension replaced by `.predictions.slp`, as SLEAP 1.4's `sleap-track` and legacy `sleap-nn track` name it). Use `-o` to choose another path.
 
 See the [CLI Reference](../reference/cli.md) for all available parameters.
 
@@ -73,8 +73,28 @@ sleap-nn predict -i video.mp4 -m exports/my_model/ --runtime tensorrt
 | `onnx` | Force the ONNX runtime |
 | `tensorrt` | Force the TensorRT runtime |
 
-`--runtime` is ignored for trained checkpoints. Most other options (device,
-batch size, filters, tracking) apply to exported models too. For exporting
+`--runtime` is ignored for trained checkpoints. With an exported model these
+options still apply: input/frame selection, output options, `--device`,
+`--batch_size`, `--max_instances`, `--min_instance_peaks`, `--min_line_scores`,
+`--centroid_output`, `--paf-workers`, the filters and tracking.
+
+The other model options have no effect on an exported model. They are ignored
+without a warning, because the value was baked in at export time or the exported
+runtime has no such option:
+
+- `--peak_threshold` / `--centroid_peak_threshold`, `--integral_refinement`,
+  `--integral_patch_size`
+- the preprocessing overrides (`--input_scale`, `--max_height` / `--max_width`,
+  `--crop_size`, `--ensure_rgb` / `--ensure_grayscale`), `--anchor_part`,
+  `--backbone_ckpt_path` / `--head_ckpt_path`, `--centroid_only`
+- the bottom-up PAF options `--max_edge_length_ratio`, `--dist_penalty_weight`,
+  `--n_points`
+- the segmentation and box options (`--fg_threshold`, `--min_mask_area`,
+  `--center_nms_kernel`, `--mask_cleanup*`, `--distance_gate_alpha`, `--merge_*`,
+  `--full_res_masks`, `--mask_output`, `--polygon_epsilon`, `--bbox_nms_iou`)
+
+`--upload_batches` and `--memory_format` are ignored with a warning. To change a
+baked-in value, re-export (see `sleap-nn export --peak-threshold`). For exporting
 models and runtime details, see the [Export guide](export.md).
 
 ### Viewing Results
@@ -155,7 +175,7 @@ Each `--model_paths` entry may be a model **directory**, or a path to that model
     - `mps` - Use Apple Metal (macOS)
 
 !!! note "Max instances"
-    The `--max_instances` / `-n` parameter is only applied during the model forward pass. When running in **track-only mode** (without model inference), this parameter has no effect since no peak detection is performed.
+    The `--max_instances` / `-n` parameter caps instances during the model forward pass. In **track-only mode** (without model inference) nothing is capped. The classic tracker still reads it, in both modes: without `--tracking_target_instance_count`, `--use_kalman`, `--tracking_pre_cull_to_target` and `--post_connect_single_breaks` take their target instance count from `-n`, and `--post_connect_single_breaks` without `--max_tracks` also uses it as `max_tracks`.
 
 For all parameters including image pre-processing and data selection options, see the [CLI Reference](../reference/cli.md).
 
@@ -379,7 +399,7 @@ After filtering, tracking assigns consistent identities across frames. See [Trac
 !!! note "Why filtering happens before tracking"
     Filtering is applied **before** tracking to prevent spurious track creation. If low-quality instances were tracked first and then filtered out, their track IDs would be lost, causing track switches in subsequent frames.
 
-In **track-only mode** (no model paths), filtering is still applied before tracking on existing predictions.
+In **track-only mode** (no model paths), the `--filter_*` options are **not** applied: they are accepted but ignored, and the existing predictions are tracked as they are.
 
 ---
 
@@ -435,13 +455,19 @@ print(f"Settings: {provenance.get('inference_config')}")
 | **Timestamps** | `inference_start_timestamp`, `inference_end_timestamp` (ISO 8601), `inference_runtime_seconds` |
 | **Versions** | `sleap_nn_version`, `sleap_io_version` (PyTorch version is under `system_info`) |
 | **Model** | `model_paths`, `model_type` (the inference layer that ran, e.g. `"TopDownLayer"`, `"BottomUpLayer"`) |
-| **Input** | `source_file`, plus `source_labels` / `input_provenance` when the input was a `.slp` |
-| **Frames** | `frame_selection` (`method`, `frames_processed`, `frames_total`) |
+| **Input** | `source_file`, when the input was given as a path (not for a `sio.Labels` / `sio.Video` passed from Python, or a `--video_index` run) |
+| **Frames** | `frame_selection` (`frames_processed`: the number of frames in the output) |
 | **Config** | `inference_config` — a dict of the settings that were set, e.g. `batch_size`, `peak_threshold`, `centroid_threshold` / `keypoint_threshold`, `integral_refinement`, `max_instances`, input scale, and top-down `centroid_scale` / `instance_scale` / `crop_size`. Which keys appear depends on the model type and on whether you ran the CLI or the Python `predict()` |
 | **Tracking** | `tracking_config` when tracking ran; `tracking` (resolved parameters per video) for the [modern MOT trackers](tracking.md#modern-mot-trackers) |
 | **System** | `device`, and `system_info` (`python_version`, `platform`, `pytorch_version`, `cuda_version`, `accelerator`, `gpu_count`, `gpus`) |
 
 Keys whose value is unknown are left out, so read optional ones with `.get()`.
+
+A track-only run (`sleap-nn predict -i labels.slp -t`, no model) writes a
+different set: `pipeline_type` (`"tracking_only"`), `tracking_start_timestamp` /
+`tracking_end_timestamp` / `tracking_runtime_seconds`, the versions,
+`source_file`, `input_provenance` (the input's own provenance) and
+`source_labels`, `frames_processed`, `tracking_config` and `system_info`.
 
 ---
 
@@ -568,7 +594,7 @@ The directory should contain:
 
     2. **Crop size mismatch** (top-down only)
        ```bash
-       # Check training config for crop_hw value
+       # Check data_config.preprocessing.crop_size in the training config
        sleap-nn predict -i video.mp4 -m models/ --crop_size 256
        ```
 

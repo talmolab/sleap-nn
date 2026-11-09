@@ -32,7 +32,7 @@ Two-stage: centroid detection + pose estimation.
 First-class single-stage "animals-as-points" model: one centroid per animal, no
 per-keypoint pose. This is a **standalone** centroid model — distinct from the
 top-down stage-1 centroid configs above, which are paired with a
-centered-instance model and trained on downscaled crops. Trains at full
+centered-instance model and trained on downscaled whole frames. Trains at full
 resolution; inference collapses to a single-node `'centroid'` skeleton. See the
 [Centroid-Only Inference guide](../guides/centroid-only-inference.md).
 
@@ -230,7 +230,7 @@ sleap-nn train --config my_config.yaml
     Medium RF configs are a good balance of speed and accuracy.
 
 !!! tip "Use augmentation"
-    All sample configs have augmentation enabled. Disable with `use_augmentations_train: false` for debugging.
+    All sample configs set `use_augmentations_train: true`; disable it with `use_augmentations_train: false` for debugging. One exception in practice: `config_bottomup_segmentation_pretrained.yaml` leaves `geometric: null` and every intensity probability at `0.0`, so no transform runs until you add a geometric block or raise a `*_p`.
 
 !!! tip "Check your data first"
     Open your `.slp` file in SLEAP to verify labels before training.

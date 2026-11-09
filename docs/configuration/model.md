@@ -48,7 +48,7 @@ Most flexible, good for any resolution:
 ```yaml
 backbone_config:
   unet:
-    in_channels: 1          # 1=grayscale, 3=RGB
+    in_channels: 1          # 1=grayscale, 3=RGB; reset at training to match the images
     filters: 32             # Base filters (16, 32, 64)
     filters_rate: 2.0       # Filter multiplier per level
     max_stride: 16          # Receptive field (16 or 32)
@@ -60,13 +60,16 @@ backbone_config:
     output_stride: 2        # Output resolution divisor
 ```
 
-**Size presets:**
+**Receptive-field presets** (the `unet_medium_rf` / `unet_large_rf` backbones of
+`sleap-nn config` and the Python config API):
 
-| Preset | filters | max_stride | Speed | Accuracy |
-|--------|---------|------------|-------|----------|
-| Small | 16 | 16 | Fast | Good |
-| Medium | 32 | 16 | Medium | Better |
-| Large | 64 | 32 | Slow | Best |
+| Preset | filters | filters_rate | max_stride | Receptive field |
+|--------|---------|--------------|------------|-----------------|
+| `unet_medium_rf` | 32 | 2.0 | 16 | Medium |
+| `unet_large_rf` | 24 | 1.5 | 32 | Large |
+
+A larger `max_stride` adds a down/up-sampling level, so the model sees more context
+per output pixel at a higher cost.
 
 ### ConvNeXt
 
@@ -500,7 +503,18 @@ model_config:
     At training setup the backbone's `output_stride` is set to the smallest head
     `output_stride`, and its `max_stride` is raised to the largest head stride if it
     is smaller. The values written in `backbone_config` are overridden, so set the
-    strides on the heads.
+    strides on the heads. Every head counts, including the pooled ones:
+    `embedding.output_stride` (default `32`) and
+    `multi_class_topdown.class_vectors.output_stride` raise the backbone
+    `max_stride` first and are then set equal to it, so an `embedding` model on a
+    UNet with `max_stride: 16` trains at `max_stride: 32` unless you lower the
+    head's `output_stride` to 16.
+
+!!! tip "in_channels is set from the images"
+    At training setup the backbone's `in_channels` is reset to the channel count of
+    the training images (after `ensure_rgb` / `ensure_grayscale`). A ConvNeXt / Swin
+    backbone with `pre_trained_weights`, or a `pretrained` backbone, is forced to 3
+    channels (for non-`embedding` models, grayscale images are also converted to RGB).
 
 !!! tip "Sigma tuning"
     - Larger sigma (5-10): Easier to learn, less precise
@@ -678,7 +692,8 @@ head_configs:
 
 ### bottomup.confmaps
 
-For detecting all keypoints in bottom-up models.
+For detecting all keypoints in bottom-up models. A `bottomup` head needs **both**
+`confmaps` and `pafs`; leaving either one out fails at training setup.
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
@@ -695,6 +710,9 @@ head_configs:
       sigma: 2.5
       output_stride: 4
       loss_weight: 1.0
+    pafs:                # required alongside confmaps (see below)
+      sigma: 75.0
+      output_stride: 8
 ```
 
 ### bottomup.pafs
@@ -783,7 +801,7 @@ Classification head for top-down ID models.
 | `num_fc_layers` | int | `1` | Fully-connected layers before output |
 | `num_fc_units` | int | `64` | Units per FC layer |
 | `global_pool` | bool | `true` | Use global pooling |
-| `output_stride` | int | `1` | Set by the trainer to the backbone `max_stride` |
+| `output_stride` | int | `1` | Set by the trainer to the backbone `max_stride` (a value above the backbone's `max_stride` raises it first) |
 | `loss_weight` | float | `1.0` | Loss weighting |
 
 ```yaml
@@ -856,7 +874,7 @@ Same fields and defaults as the `segmentation` head of
 | `num_fc_units` | int | `256` | Units per FC layer |
 | `pool` | str | `null` | Pooling of the encoder features: `gem`, `max` or `avg`. `null` = set at training: `avg` for a frozen `pretrained` encoder, else `gem` |
 | `normalize` | bool | `true` | L2-normalize the output vector |
-| `output_stride` | int | `32` | Set by the trainer to the backbone `max_stride` |
+| `output_stride` | int | `32` | Set by the trainer to the backbone `max_stride`. It is first counted among the head strides, so the default `32` raises a smaller backbone `max_stride` (e.g. a UNet's `16`) to `32`; set it to the backbone's `max_stride` to keep that |
 | `freeze_backbone` | bool | `false` | Freeze the backbone's pretrained encoder and train only what sits on top (warns if there are no pretrained weights) |
 | `anchor_part` | str | `null` | Node used to center the crop in pose mode (null = mean of the visible nodes) |
 | `centroid_method` | str | `null` | As for [`centered_instance.confmaps`](#centered_instanceconfmaps); pose mode only |

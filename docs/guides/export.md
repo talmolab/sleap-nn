@@ -79,11 +79,18 @@ sleap-nn export MODEL_PATH [options]
 
 | Option | Description | Values | Default |
 |--------|-------------|--------|---------|
-| `-o`, `--output` | Output directory | `PATH` | `<model dir>/exported` (top-down pair: `<centroid dir>/exported_topdown`) |
+| `-o`, `--output` | Output directory | `PATH` | `<model dir>/exported` (top-down pair: `<centroid dir>/exported_topdown`; multi-class top-down pair: `<centroid dir>/exported_multi_class_topdown`) |
 | `-f`, `--format` | Export format | `onnx`, `tensorrt`, `both` | `onnx` |
 | `--precision` | TensorRT precision | `fp32`, `fp16`, `tf32` | `fp16` |
 | `--max-instances` | Max instances per frame | `INT` | `20` |
 | `--max-batch-size` | Max batch size | `INT` | `8` |
+| `--peak-threshold` | Peak confidence threshold baked into the graph | `FLOAT` | `0.2` |
+| `--crop-size` | Crop size for crop-input models (required for `embedding` when the config has none) | `INT` | from config |
+| `--device` | Device used for export | `TEXT` | `cpu` |
+
+For every option (opset, input size/scale, bottom-up grouping knobs, TensorRT
+workspace, `--verify/--no-verify`), see the
+[CLI reference](../reference/cli.md#sleap-nn-export).
 
 ---
 
@@ -110,6 +117,39 @@ sleap-nn export models/centroid models/centered_instance \
 sleap-nn export models/multi_class_bottomup \
     -o exports/multiclass --format onnx
 ```
+
+A multi-class top-down model exports as a pair with its centroid model. Without
+`-o` it is written to `<centroid dir>/exported_multi_class_topdown`, with the
+configs copied as `training_config_centroid.yaml` and
+`training_config_multi_class_topdown.yaml`:
+
+```bash
+sleap-nn export models/centroid models/multi_class_topdown --format onnx
+```
+
+### Standalone Centered-Instance
+
+A single `centered_instance` directory exports on its own. The network takes
+crops (it is traced at the model's `crop_size`), not full frames. Box-scaled
+centered-instance models (`crop_mode: bbox`) can only be exported this way; see
+[Top-down pose with a box detector](bbox-topdown.md).
+
+### Bounding-Box Detectors
+
+`bbox_centernet` and `bbox_ssd` export the network only; box decoding runs on
+the host. See [Bounding-box detection](bbox-detection.md#export-onnx-tensorrt).
+A detector + top-down pair cannot be exported as one bundle yet.
+
+### Re-ID Embedding
+
+An `embedding` model exports from a single directory and takes fixed-size crops,
+so it needs a crop size (`data_config.preprocessing.crop_size` or `--crop-size`).
+
+### Not Exportable Yet
+
+Segmentation models (`bottomup_segmentation`, `centered_instance_segmentation`,
+`semantic_segmentation`) cannot be exported yet; `sleap-nn export` raises an
+error for them.
 
 ### Standalone Centroid
 
@@ -159,7 +199,7 @@ sleap-nn predict -m EXPORT_DIR -i VIDEO [options]
 |--------|-------------|--------|---------|
 | `-m`, `--model_paths` | Export dir (auto-detected) or checkpoint dir | `PATH` | Required |
 | `-i`, `--data_path` | Video or labels file | `PATH` | Required |
-| `-o`, `--output_path` | Output path | `PATH` | `<input>.predictions.slp` |
+| `-o`, `--output_path` | Output path | `PATH` | input's extension replaced by `.predictions.slp` (`video.mp4` → `video.predictions.slp`) |
 | `--runtime` | Exported-model runtime (ignored for checkpoints) | `auto`, `onnx`, `tensorrt` | `auto` |
 | `-b`, `--batch_size` | Batch size | `INT` | `4` |
 | `--centroid-output` | Standalone-centroid output representation | `instance`, `centroid`, `both` | `instance` |
@@ -235,7 +275,8 @@ exports/my_model/
 ```
 
 A top-down export copies both configs instead, as `training_config_centroid.yaml`
-and `training_config_centered_instance.yaml`.
+and `training_config_centered_instance.yaml` (`training_config_multi_class_topdown.yaml`
+for a multi-class top-down pair).
 
 ---
 
@@ -244,7 +285,8 @@ and `training_config_centered_instance.yaml`.
 - **TensorRT engines are GPU-specific** - Regenerate for different hardware
 - **Image size** - ONNX graphs keep batch, height and width dynamic, except for RoPE (rotary-embedding ViT) backbones, which export with a static height/width. TensorRT shape profiles allow inputs up to 2x the export height/width (clamped to the static size for RoPE backbones)
 - **Bottom-up grouping on CPU** - PAF matching can't be GPU-accelerated
-- **No standalone centered-instance** - Export a combined top-down bundle (a standalone *centroid* model exports fine — see [Standalone Centroid](#standalone-centroid))
+- **No segmentation export** - Segmentation model types are not exportable yet (see [Not Exportable Yet](#not-exportable-yet))
+- **Standalone centered-instance takes crops** - For full-frame inference export a combined top-down bundle (a standalone *centroid* model exports fine — see [Standalone Centroid](#standalone-centroid))
 
 ---
 

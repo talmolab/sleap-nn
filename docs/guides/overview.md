@@ -7,11 +7,14 @@ Task-oriented guides for common workflows.
 | [Training](training/overview.md) | Configure and run model training |
 | &nbsp;&nbsp;&nbsp;&nbsp;[Training Guide](training-guide.md) | Configure and run model training |
 | &nbsp;&nbsp;&nbsp;&nbsp;[Config Generator](config-generator.md) | Generate training configs via TUI or auto mode |
+| &nbsp;&nbsp;&nbsp;&nbsp;[Pretrained Backbones](pretrained-backbones.md) | Use a HuggingFace pretrained image model as the backbone |
 | &nbsp;&nbsp;&nbsp;&nbsp;[Negative Frames](negative-frames.md) | Reduce false positives with background frames |
+| &nbsp;&nbsp;&nbsp;&nbsp;[Centroid Focal Loss](centroid-focal-loss.md) | Opt-in focal loss for the centroid head in dense scenes |
 | &nbsp;&nbsp;&nbsp;&nbsp;[Monitoring](monitoring.md) | WandB, visualizations, epoch-end evaluation |
 | &nbsp;&nbsp;&nbsp;&nbsp;[Multi-GPU](multi-gpu.md) | Scale training across multiple GPUs |
 | &nbsp;&nbsp;&nbsp;&nbsp;[Resume & Fine-Tune](resume-finetune.md) | Continue from existing weights |
 | &nbsp;&nbsp;&nbsp;&nbsp;[Supervised ID](supervised-id.md) | Predict pose + persistent identity in one model |
+| &nbsp;&nbsp;&nbsp;&nbsp;[Tiling (High-Res)](tiling.md) | Train and predict on overlapping tiles of very large frames |
 | [Inference](inference/overview.md) | Run predictions on videos and label files |
 | &nbsp;&nbsp;&nbsp;&nbsp;[Running Inference](inference-guide.md) | Run predictions from the CLI |
 | &nbsp;&nbsp;&nbsp;&nbsp;[Post-Processing Filters](post-processing-filters.md) | Node-count, confidence, and overlap-NMS filters |
@@ -25,6 +28,7 @@ Task-oriented guides for common workflows.
 | &nbsp;&nbsp;&nbsp;&nbsp;[Performance](inference-performance.md) | Tune inference throughput (FP16, `torch.compile`, workers) |
 | [Evaluation](evaluation.md) | Assess model performance with metrics |
 | [Tracking](tracking.md) | Assign consistent IDs across frames |
+| [Embedding (re-ID) Tracking](embedding-tracking.md) | Track by appearance with a re-ID embedding model |
 | [Export](export.md) | ONNX/TensorRT for production inference |
 
 ---

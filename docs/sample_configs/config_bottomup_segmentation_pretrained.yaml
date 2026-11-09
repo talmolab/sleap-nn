@@ -39,8 +39,8 @@ data_config:
       brightness_p: 0.0
     # Geometric augmentation IS supported for segmentation: the image and its
     # per-instance masks share the same affine matrix (rotation/scale/translate/
-    # flip), with masks resampled nearest-neighbor and re-binarized (erase/mixup
-    # stay image-only). Left null here for brevity; enable a geometric block to use it.
+    # flip), with masks resampled nearest-neighbor and re-binarized (erase
+    # stays image-only). Left null here for brevity; enable a geometric block to use it.
     geometric: null
   skeletons:
 model_config:

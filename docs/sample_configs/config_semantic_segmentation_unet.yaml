@@ -44,7 +44,7 @@ data_config:
       brightness_max: 1.1
       brightness_p: 0.0
     # Geometric augmentation co-transforms the GT foreground mask with the image
-    # (shared affine matrix, nearest-neighbor, re-binarized); erase/mixup stay
+    # (shared affine matrix, nearest-neighbor, re-binarized); erase stays
     # image-only. Keep rotation ranges small — a full-frame rotation can clip
     # foreground at the frame edge.
     geometric:
