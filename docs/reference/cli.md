@@ -118,9 +118,11 @@ to the model directory and load `best.ckpt`. (A different checkpoint such as
 `last.ckpt` still loads `best.ckpt` and warns; use `--backbone_ckpt_path` /
 `--head_ckpt_path` for a specific checkpoint.)
 
-The default output is the input path plus `.predictions.slp` (`video.mp4` →
-`video.mp4.predictions.slp`), as in SLEAP. With `--video_index`, the video's
-name is inserted (`project.slp` → `project.<video>.predictions.slp`). A remote input writes to the current directory under the
+The default output replaces the input's extension with `.predictions.slp`, next
+to the input (`video.mp4` → `video.predictions.slp`, `labels.pkg.slp` →
+`labels.pkg.predictions.slp`), as SLEAP's `sleap-track` names it. With
+`--video_index`, the video's name is inserted (`project.slp` →
+`project.<video>.predictions.slp`). A remote input writes to the current directory under the
 URL's file name.
 
 ### Input and Frame Selection

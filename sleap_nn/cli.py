@@ -2724,18 +2724,23 @@ def _default_predictions_path(
 ) -> str:
     """Derive the default ``.slp`` output path from the input source.
 
-    ``<data_path>.predictions.slp`` (``video.mp4`` -> ``video.mp4.predictions.slp``),
-    the name SLEAP's ``sleap-track`` gives its output. A ``--video_index``-scoped
-    run inserts the video's name instead (``<data_path stem>.<video>.predictions.slp``)
-    so runs on different videos of one project do not overwrite each other. Remote
-    inputs land in the current working directory (see :func:`_default_output_base`).
+    The input's last extension replaced by ``.predictions.slp`` (``video.mp4`` ->
+    ``video.predictions.slp``, ``labels.pkg.slp`` -> ``labels.pkg.predictions.slp``),
+    the name SLEAP's ``sleap-track`` gives its output
+    (``Path(data_path).with_suffix(".predictions.slp")``) and legacy ``track``'s. A
+    ``--video_index``-scoped run inserts the video's name
+    (``<stem>.<video>.predictions.slp``) so runs on different videos of one
+    project do not overwrite each other. Remote inputs land in the current working
+    directory (see :func:`_default_output_base`).
     """
     from pathlib import Path
 
     base = _default_output_base(source_str, is_url)
+    # Sliced, not `str(Path(...))`, so the input's own separators are kept.
+    stem = base[: len(base) - len(Path(base).suffix)]
     if scoped_video_name is not None:
-        return f"{Path(base).with_suffix('')}.{scoped_video_name}.predictions.slp"
-    return f"{base}.predictions.slp"
+        return f"{stem}.{scoped_video_name}.predictions.slp"
+    return f"{stem}.predictions.slp"
 
 
 def _default_embedding_output_path(
@@ -3736,7 +3741,7 @@ def _common_inference_options(f):
             "-o",
             type=str,
             default=None,
-            help="Output filename. Defaults to '[data_path].predictions.slp' (e.g. video.mp4.predictions.slp), as in SLEAP.",
+            help="Output filename. Defaults to '[data_path stem].predictions.slp' next to the input (e.g. video.mp4 -> video.predictions.slp), as SLEAP's sleap-track names it.",
         ),
         click.option(
             "--output_format",

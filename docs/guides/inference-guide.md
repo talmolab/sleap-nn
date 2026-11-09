@@ -29,7 +29,7 @@ Run predictions on videos and label files.
     sleap-nn predict -i video.mp4 -m models/centroid/ -m models/centered_instance/
     ```
 
-    **Output:** `video.mp4.predictions.slp` (next to the input; set `-o` to choose the name)
+    **Output:** `video.predictions.slp` (next to the input; set `-o` to choose the name)
 
     **If results aren't great**, try these common fixes:
 
@@ -47,7 +47,7 @@ Run predictions on videos and label files.
 sleap-nn predict --data_path video.mp4 --model_paths models/my_model/
 ```
 
-Output: `video.mp4.predictions.slp`, written next to the input (the input path plus `.predictions.slp`, as in SLEAP). Use `-o` to choose another path.
+Output: `video.predictions.slp`, written next to the input (the input's extension replaced by `.predictions.slp`, as SLEAP's `sleap-track` names it). Use `-o` to choose another path.
 
 See the [CLI Reference](../reference/cli.md) for all available parameters.
 
@@ -94,7 +94,7 @@ This opens the predictions in the SLEAP labeling interface where you can visuali
 ```python
 import sleap_io as sio
 
-labels = sio.load_slp("video.mp4.predictions.slp")
+labels = sio.load_slp("video.predictions.slp")
 print(f"Frames with predictions: {len(labels)}")
 print(f"Total instances: {sum(len(lf.instances) for lf in labels)}")
 
@@ -120,7 +120,7 @@ To convert a `.slp` you already have:
 ```python
 import sleap_io as sio
 
-labels = sio.load_slp("video.mp4.predictions.slp")
+labels = sio.load_slp("video.predictions.slp")
 sio.save_analysis_h5(labels, "predictions.analysis.h5")
 ```
 

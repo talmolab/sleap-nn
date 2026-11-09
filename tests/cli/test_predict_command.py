@@ -1378,7 +1378,9 @@ def test_predict_output_over_the_input_pkg_slp_is_refused_before_compute(
 def test_predict_default_output_matches_sleap_track(
     minimal_instance, minimal_instance_single_instance_ckpt, tmp_path
 ):
-    """Without -o, predict writes `<data_path>.predictions.slp`, as `sleap-track` does."""
+    """Without -o, predict writes `<data_path stem>.predictions.slp` next to the
+    input, the name `sleap-track` gives (`labels.pkg.slp` -> `labels.pkg.predictions.slp`).
+    """
     import shutil
 
     src = tmp_path / "labels.pkg.slp"
@@ -1397,6 +1399,6 @@ def test_predict_default_output_matches_sleap_track(
     )
     assert result.exit_code == 0, result.output
     assert sorted(p.name for p in tmp_path.iterdir()) == [
+        "labels.pkg.predictions.slp",
         "labels.pkg.slp",
-        "labels.pkg.slp.predictions.slp",
     ]
