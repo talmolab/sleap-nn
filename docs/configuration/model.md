@@ -16,6 +16,7 @@ model_config:
     unet: {...}       # Only one backbone
     convnext: null
     swint: null
+    pretrained: null  # HuggingFace / timm encoder
 
   head_configs:
     single_instance: {...}  # Only one head type
@@ -25,8 +26,13 @@ model_config:
     multi_class_bottomup: null
     multi_class_topdown: null
     bottomup_segmentation: null
+    centered_instance_segmentation: null
+    semantic_segmentation: null
+    embedding: null
     bbox_centernet: null
     bbox_ssd: null
+
+  total_params: null  # set automatically when training starts
 ```
 
 ---
@@ -172,7 +178,7 @@ Detect instance centers:
 head_configs:
   centroid:
     confmaps:
-      anchor_part: null   # null = bbox center
+      anchor_part: null   # null = mean of the visible nodes (center of mass)
       sigma: 5.0
       output_stride: 2
 ```
@@ -241,7 +247,7 @@ head_configs:
       classes: null
       num_fc_layers: 1
       num_fc_units: 64
-      output_stride: 16   # Match backbone max_stride
+      output_stride: 16   # set to the backbone max_stride by the trainer
       loss_weight: 1.0
 ```
 
@@ -278,6 +284,77 @@ Notes:
   instances at the frame edge.
 - See the sample config
   [`config_bottomup_segmentation_unet.yaml`](https://github.com/talmolab/sleap-nn/blob/main/docs/sample_configs/config_bottomup_segmentation_unet.yaml).
+  Field tables: [bottomup_segmentation](#bottomup_segmentation).
+
+### Centered-Instance Segmentation (Top-Down Stage 2)
+
+A single foreground-mask head that predicts the **centered** instance's binary
+mask on a centroid crop (the segmentation analog of `centered_instance`). Train it
+alongside a `centroid` model; `sleap-nn predict` composes the two. See the
+[Top-down segmentation guide](../guides/topdown-segmentation.md).
+
+```yaml
+head_configs:
+  centered_instance_segmentation:
+    segmentation:
+      output_stride: 2
+      loss_weight: 1.0
+      anchor_part: null   # null = mean of the visible nodes
+```
+
+Field table: [centered_instance_segmentation.segmentation](#centered_instance_segmentationsegmentation).
+Sample: [`config_topdown_centered_instance_segmentation_unet.yaml`](https://github.com/talmolab/sleap-nn/blob/main/docs/sample_configs/config_topdown_centered_instance_segmentation_unet.yaml).
+
+### Semantic Segmentation (Whole Frame)
+
+One binary foreground/background map over the **whole frame** (the union of the
+frame's masks): no crop, no center/offset heads, no instance grouping. Prediction
+writes one instance-less mask per frame. See the
+[Semantic segmentation guide](../guides/semantic-segmentation.md).
+
+```yaml
+head_configs:
+  semantic_segmentation:
+    segmentation:
+      output_stride: 2
+      loss_weight: 1.0
+      bce_weight: 0.5
+      dice_weight: 0.5
+```
+
+Field table: [semantic_segmentation.segmentation](#semantic_segmentationsegmentation).
+Sample: [`config_semantic_segmentation_unet.yaml`](https://github.com/talmolab/sleap-nn/blob/main/docs/sample_configs/config_semantic_segmentation_unet.yaml).
+
+### Embedding (Appearance / Re-ID)
+
+A pooled head that maps each instance crop to an appearance vector, trained with a
+contrastive objective. The vectors feed embedding-based tracking. See the
+[Embedding tracking guide](../guides/embedding-tracking.md).
+
+```yaml
+head_configs:
+  embedding:
+    embedding:
+      embedding_dim: 128
+      num_fc_layers: 1
+      num_fc_units: 256
+      normalize: true
+      objective:
+        positives:
+          scope: global_id      # aug_view | tracklet | global_id
+        negatives:
+          sources: [same_frame, in_batch]
+        loss:
+          name: supcon          # supcon | infonce | triplet
+        sampler:
+          kind: pk              # pk | within_video | random
+          groups_per_batch: 8
+          samples_per_group: 16
+```
+
+Field tables: [embedding.embedding](#embeddingembedding) and
+[embedding.embedding.objective](#embeddingembeddingobjective).
+Sample: [`config_embedding_convnext.yaml`](https://github.com/talmolab/sleap-nn/blob/main/docs/sample_configs/config_embedding_convnext.yaml).
 
 ### Bounding-Box Detectors
 
@@ -305,8 +382,8 @@ head_configs:
 head_configs:
   bbox_ssd:              # SSD-style: multi-scale anchors over strides 8/16/32
     ssd:
-      output_stride: 8   # finest level; set the backbone's output_stride to match
-      num_levels: 3      # needs backbone max_stride >= 32
+      output_stride: 8   # finest level (strides 8, 16, 32)
+      num_levels: 3      # the backbone max_stride is raised to the deepest level if needed
       anchor_sizes: null # null = auto-sized from the training boxes, saved into the config
 ```
 
@@ -320,6 +397,7 @@ Notes:
   configs
   [`config_bbox_centernet_unet.yaml`](https://github.com/talmolab/sleap-nn/blob/main/docs/sample_configs/config_bbox_centernet_unet.yaml) /
   [`config_bbox_ssd_unet.yaml`](https://github.com/talmolab/sleap-nn/blob/main/docs/sample_configs/config_bbox_ssd_unet.yaml).
+  Field tables: [bbox_centernet](#bbox_centernet) and [bbox_ssd.ssd](#bbox_ssdssd).
 
 ---
 
@@ -385,8 +463,11 @@ model_config:
 
 ### Top-Down with ConvNeXt
 
+Two separate configs, one per model.
+
+Centroid model:
+
 ```yaml
-# Centroid model
 model_config:
   backbone_config:
     convnext:
@@ -396,8 +477,11 @@ model_config:
     centroid:
       confmaps:
         sigma: 5.0
+```
 
-# Instance model (separate training)
+Instance model (trained separately):
+
+```yaml
 model_config:
   backbone_config:
     convnext:
@@ -412,8 +496,11 @@ model_config:
 
 ## Tips
 
-!!! tip "Match output_stride"
-    Set `backbone_config.*.output_stride` to match the minimum `head_configs.*.output_stride`.
+!!! tip "output_stride is set from the heads"
+    At training setup the backbone's `output_stride` is set to the smallest head
+    `output_stride`, and its `max_stride` is raised to the largest head stride if it
+    is smaller. The values written in `backbone_config` are overridden, so set the
+    strides on the heads.
 
 !!! tip "Sigma tuning"
     - Larger sigma (5-10): Easier to learn, less precise
@@ -433,6 +520,7 @@ model_config:
 | `init_weights` | str | `default` | Weight initialization: `default` (kaiming) or `xavier` |
 | `pretrained_backbone_weights` | str | `null` | Path to `.ckpt` or `.h5` file for backbone weights |
 | `pretrained_head_weights` | str | `null` | Path to `.ckpt` or `.h5` file for head weights |
+| `total_params` | int | `null` | Set automatically: the model's parameter count, computed when training starts |
 
 ### UNetConfig
 
@@ -464,7 +552,8 @@ model_config:
 | `stem_patch_stride` | int | `2` | Stem layer stride |
 | `up_interpolate` | bool | `true` | Use interpolation for upsampling |
 | `output_stride` | int | `1` | Output resolution divisor |
-| `max_stride` | int | `32` | Fixed at 32 for all ConvNeXt |
+| `max_stride` | int | `32` | Set by the trainer to `stem_patch_stride * 16` (32 with the default stem stride); a configured value is overridden |
+| `arch` | dict | `null` | Custom `{depths: [...], channels: [...]}`, used only when `model_type` is not one of the four built-in types |
 
 ### SwinTConfig
 
@@ -481,7 +570,8 @@ model_config:
 | `window_size` | int | `7` | Attention window size |
 | `up_interpolate` | bool | `true` | Use interpolation for upsampling |
 | `output_stride` | int | `1` | Output resolution divisor |
-| `max_stride` | int | `32` | Fixed at 32 for all SwinT |
+| `max_stride` | int | `32` | Set by the trainer to `stem_patch_stride * 16` (32 with the default stem stride); a configured value is overridden |
+| `arch` | dict | `null` | Custom `{embed, depths, num_heads}`. Effectively unused: `model_type` must be one of `tiny`/`small`/`base`, which always selects a built-in architecture |
 
 ### PretrainedConfig
 
@@ -542,9 +632,16 @@ For detecting instance centers (top-down stage 1).
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `anchor_part` | str | `null` | Anchor point (null = bbox center) |
+| `anchor_part` | str | `null` | Anchor node (null = mean of the visible nodes) |
+| `centroid_method` | str | `null` | How the centroid is computed: `center_of_mass`, `bbox_center`, `geometric_median` or `anchor`. `null` = `anchor` when `anchor_part` is set, else `center_of_mass`. A non-anchor method together with `anchor_part` is an error |
+| `centroid_fallback` | str | `null` | Used when the `anchor_part` node is not visible: `center_of_mass` (what `null` means), `bbox_center` or `geometric_median` |
+| `centroid_source` | str | `null` | Training target: `user` (the labels' `UserCentroid`s; frames with poses but no user centroid are dropped) or `computed` (from keypoints, ignoring user centroids). `null` = `user` if the labels have user centroids, else `computed`, with a warning |
 | `sigma` | float | `5.0` | Gaussian spread in pixels |
 | `output_stride` | int | `1` | Output resolution divisor |
+| `use_sigmoid_activation` | bool | `false` | Apply a sigmoid to the head output so it is a `(0, 1)` probability. Required by the focal loss |
+| `focal_loss_alpha` | float | `0.0` | Non-zero replaces the MSE train loss with a CenterNet-style penalty-reduced focal loss (needs `use_sigmoid_activation: true`). `0` = plain MSE. See the [Centroid focal loss guide](../guides/centroid-focal-loss.md) |
+| `focal_loss_beta` | float | `4.0` | Penalty-reduction exponent for negative pixels near a peak (focal loss only) |
+| `focal_loss_pos_threshold` | float | `0.5` | Minimum target value for a pixel to count as positive (focal loss only) |
 
 ```yaml
 head_configs:
@@ -562,7 +659,9 @@ For pose estimation on cropped instances (top-down stage 2).
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `part_names` | list | `null` | Body parts to predict (null = all from skeleton) |
-| `anchor_part` | str | `null` | Anchor point (null = bbox center) |
+| `anchor_part` | str | `null` | Anchor node (null = mean of the visible nodes) |
+| `centroid_method` | str | `null` | How the centroid is computed: `center_of_mass`, `bbox_center`, `geometric_median` or `anchor`. `null` = `anchor` when `anchor_part` is set, else `center_of_mass`. A non-anchor method together with `anchor_part` is an error |
+| `centroid_fallback` | str | `null` | Used when the `anchor_part` node is not visible: `center_of_mass` (what `null` means), `bbox_center` or `geometric_median` |
 | `sigma` | float | `5.0` | Gaussian spread in pixels |
 | `output_stride` | int | `1` | Output resolution divisor |
 | `loss_weight` | float | `1.0` | Loss weighting |
@@ -640,6 +739,7 @@ Class/identity maps for bottom-up ID models.
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `classes` | list | `null` | Class names (null = from track names) |
+| `class_output` | str | `track` | How a predicted class is written: `track` (a per-video `sio.Track` only) or `identity` (also a global `sio.Identity` named after the class; use only when each class is one distinct animal) |
 | `sigma` | float | `5.0` | Gaussian spread |
 | `output_stride` | int | `1` | Output resolution divisor |
 | `loss_weight` | float | `null` | Loss weighting |
@@ -665,7 +765,9 @@ Confidence maps for top-down models with identity.
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `part_names` | list | `null` | Body parts to predict |
-| `anchor_part` | str | `null` | Anchor point |
+| `anchor_part` | str | `null` | Anchor node (null = mean of the visible nodes) |
+| `centroid_method` | str | `null` | How the centroid is computed: `center_of_mass`, `bbox_center`, `geometric_median` or `anchor`. `null` = `anchor` when `anchor_part` is set, else `center_of_mass`. A non-anchor method together with `anchor_part` is an error |
+| `centroid_fallback` | str | `null` | Used when the `anchor_part` node is not visible: `center_of_mass` (what `null` means), `bbox_center` or `geometric_median` |
 | `sigma` | float | `5.0` | Gaussian spread |
 | `output_stride` | int | `1` | Output resolution divisor |
 | `loss_weight` | float | `1.0` | Loss weighting |
@@ -677,10 +779,11 @@ Classification head for top-down ID models.
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `classes` | list | `null` | Class names (null = from track names) |
+| `class_output` | str | `track` | How a predicted class is written: `track` (a per-video `sio.Track` only) or `identity` (also a global `sio.Identity` named after the class; use only when each class is one distinct animal) |
 | `num_fc_layers` | int | `1` | Fully-connected layers before output |
 | `num_fc_units` | int | `64` | Units per FC layer |
 | `global_pool` | bool | `true` | Use global pooling |
-| `output_stride` | int | `1` | Should match backbone max_stride |
+| `output_stride` | int | `1` | Set by the trainer to the backbone `max_stride` |
 | `loss_weight` | float | `1.0` | Loss weighting |
 
 ```yaml
@@ -695,6 +798,129 @@ head_configs:
       classes: null  # inferred from track names
       num_fc_layers: 1
       num_fc_units: 64
-      output_stride: 16  # match backbone max_stride
+      output_stride: 16  # set to the backbone max_stride by the trainer
       loss_weight: 1.0
 ```
+
+### bottomup_segmentation
+
+`segmentation` (foreground head; the same fields as `semantic_segmentation.segmentation`):
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `output_stride` | int | `2` | Output resolution divisor. `1` keeps thin structures sharp |
+| `loss_weight` | float | `1.0` | Loss weighting |
+| `bce_weight` | float | `0.5` | Weight of the BCE term of the BCE+Dice loss |
+| `dice_weight` | float | `0.5` | Weight of the Dice term of the BCE+Dice loss |
+| `bce_pos_weight` | float | `null` | Positive-class weight for BCE (e.g. 5-20 for thin/rare foreground). `null` = unweighted |
+| `target_maxpool` | bool | `false` | Downsample the target with max-pool (any foreground in a stride cell counts) instead of area-average + 0.5 threshold; no effect at `output_stride: 1` |
+
+`center` (instance-center heatmap):
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `sigma` | float | `4.0` | Gaussian spread of the center heatmap, in pixels. Dataset-dependent: elongated or large animals may want more |
+| `output_stride` | int | `2` | Output resolution divisor |
+| `loss_weight` | float | `1.0` | Loss weighting |
+
+`offsets` (per-pixel offset to the instance center):
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `output_stride` | int | `2` | Output resolution divisor |
+| `loss_weight` | float | `0.1` | Loss weighting |
+
+### centered_instance_segmentation.segmentation
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `output_stride` | int | `2` | Output resolution divisor, relative to the crop |
+| `loss_weight` | float | `1.0` | Weight of the BCE+Dice loss |
+| `anchor_part` | str | `null` | Node used to center crops (null = mean of the visible nodes) |
+| `centroid_method` | str | `null` | As for [`centered_instance.confmaps`](#centered_instanceconfmaps) |
+| `centroid_fallback` | str | `null` | As for [`centered_instance.confmaps`](#centered_instanceconfmaps) |
+
+### semantic_segmentation.segmentation
+
+Same fields and defaults as the `segmentation` head of
+[bottomup_segmentation](#bottomup_segmentation): `output_stride` (`2`),
+`loss_weight` (`1.0`), `bce_weight` (`0.5`), `dice_weight` (`0.5`),
+`bce_pos_weight` (`null`), `target_maxpool` (`false`).
+
+### embedding.embedding
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `embedding_dim` | int | `128` | Length of the output vector |
+| `num_fc_layers` | int | `1` | Fully-connected layers before the output |
+| `num_fc_units` | int | `256` | Units per FC layer |
+| `pool` | str | `null` | Pooling of the encoder features: `gem`, `max` or `avg`. `null` = set at training: `avg` for a frozen `pretrained` encoder, else `gem` |
+| `normalize` | bool | `true` | L2-normalize the output vector |
+| `output_stride` | int | `32` | Set by the trainer to the backbone `max_stride` |
+| `freeze_backbone` | bool | `false` | Freeze the backbone's pretrained encoder and train only what sits on top (warns if there are no pretrained weights) |
+| `anchor_part` | str | `null` | Node used to center the crop in pose mode (null = mean of the visible nodes) |
+| `centroid_method` | str | `null` | As for [`centered_instance.confmaps`](#centered_instanceconfmaps); pose mode only |
+| `centroid_fallback` | str | `null` | As for [`centered_instance.confmaps`](#centered_instanceconfmaps) |
+| `detection_mode` | str | `null` | Detections to crop: `pose` or `mask`. `null` = chosen at training (`mask` under `preprocessing.burn_in`, else the carrier with more samples, ties to `mask`) and written into the saved config |
+| `objective` | ObjectiveConfig | `null` | Training objective (below); unset parts take their defaults |
+
+The crop itself is set by `data_config.preprocessing` (`crop_size`, `burn_in`,
+`background_fill`, `crop_centering`), and identity semantics by
+`data_config.identity` (see [Data Config](data.md)).
+
+### embedding.embedding.objective
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `positives.scope` | str | `global_id` | Positives of an anchor: `aug_view` (its own augmented views; self-supervised), `tracklet` (same video + track) or `global_id` (same `sio.Identity`, else same track name across videos) |
+| `positives.aug_views` | int | `2` | Augmented views per anchor; only `2` is supported |
+| `negatives.sources` | list | `[same_frame, in_batch]` | Negative sources, any of `same_frame` and `in_batch` |
+| `negatives.exclude_same_track` | bool | `true` | Drop same (video, track) pairs from the negatives |
+| `negatives.restrict_same_video` | bool | `false` | Use only same-video negatives (required for `scope: tracklet`) |
+| `loss.name` | str | `supcon` | `supcon`, `infonce` or `triplet` |
+| `loss.temperature` | float | `0.1` | Softmax temperature (`supcon` / `infonce`) |
+| `loss.margin` | float | `0.2` | Margin (`triplet`) |
+| `sampler.kind` | str | `pk` | Batch sampler: `pk` (P groups x K crops), `within_video` (one video per batch) or `random` (for `aug_view`) |
+| `sampler.groups_per_batch` | int | `8` | P: groups per batch |
+| `sampler.samples_per_group` | int | `16` | K: crops per group (batch size is P x K, doubled by the two views) |
+| `use_projection` | bool | `true` | Add a train-only projection head (`supcon` / `infonce`), dropped at inference |
+| `projection_dim` | int | `128` | Width of the projection head |
+
+### bbox_centernet
+
+`center`:
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `categories` | list | `null` | Class names, one heatmap channel each. `null` = filled at training from the training boxes (uncategorized boxes are `object`) |
+| `sigma` | float | `null` | Fixed Gaussian sigma in input pixels. `null` = CenterNet's size-adaptive radius |
+| `min_overlap` | float | `0.7` | IoU used by the size-adaptive radius |
+| `output_stride` | int | `4` | Heatmap stride; must equal the `size` and `offset` strides |
+| `loss_weight` | float | `1.0` | Weight of the heatmap focal loss |
+| `focal_alpha` | float | `2.0` | Focal exponent on the prediction error |
+| `focal_beta` | float | `4.0` | Exponent of the penalty reduction around GT peaks |
+
+`size` / `offset`:
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `output_stride` | int | `4` | Must equal the `center` stride |
+| `loss_weight` | float | `0.1` (`size`) / `1.0` (`offset`) | Weight of the L1 loss |
+
+### bbox_ssd.ssd
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `categories` | list | `null` | Class names (background excluded). `null` = filled at training from the training boxes |
+| `output_stride` | int | `8` | Stride of the finest pyramid level |
+| `num_levels` | int | `3` | Pyramid levels at strides `output_stride * 2**i`; the backbone `max_stride` is raised to the deepest one if needed |
+| `anchor_sizes` | list | `null` | Base anchor size per level (input pixels). `null` = sized at training from the training boxes and saved into the config |
+| `anchor_scales` | list | `[1.0, 1.26, 1.587]` | Multipliers on each level's base size |
+| `aspect_ratios` | list | `[0.5, 1.0, 2.0]` | Anchor `h / w` ratios |
+| `pos_iou_threshold` | float | `0.5` | Anchors with IoU >= this with a box are positives (each box's best anchor always is) |
+| `neg_iou_threshold` | float | `0.4` | Anchors whose best IoU is below this are background; in between are ignored |
+| `neg_pos_ratio` | float | `3.0` | Hard-negative mining: background anchors kept per positive |
+| `box_variances` | list | `[0.1, 0.1, 0.2, 0.2]` | SSD `(cx, cy, w, h)` encoding variances |
+| `head_channels` | int | `128` | Channels of each level's conv tower |
+| `head_convs` | int | `1` | 3x3 conv + ReLU layers per tower |
+| `loss_weight` | float | `1.0` | Weight of the box regression loss relative to classification |

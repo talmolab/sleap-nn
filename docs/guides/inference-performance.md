@@ -24,12 +24,11 @@ and can be re-run to validate your own setup.
     - **`--device cuda`** — the only flag that matters for large videos.
     - **`--batch_size 4`** is a good starting point; raise to 8 / 16 if
       VRAM allows.
-    - **FP16** delivers the biggest single-flag win (~1.5× on UNets) once
-      it's exposed via the CLI. For now, opt in by constructing the
-      predictor in Python with `use_fp16=True` (see [FP16](#fp16)).
+    - **FP16** delivers the biggest single-flag win (~1.5× on UNets).
+      It has no CLI flag yet; turn it on from Python (see [FP16](#fp16)).
     - **`torch.compile`** adds another ~1.2-1.3×, but pays a 0.5-3 s
-      compile cost — only worth it on long videos. Opt in with
-      `use_compile=True`.
+      compile cost — only worth it on long videos. Also Python-only (see
+      [`torch.compile`](#torchcompile)).
     - **`paf_workers=0`** is the right default. Workers are a net loss
       for typical bottom-up workloads at fixture-checkpoint scale.
     - **`--upload_batches`** copies each batch to the GPU before
@@ -99,15 +98,43 @@ inference.
 Enable **CUDA-only**; on MPS the kernels exist but tensor cores don't,
 so there's no speedup (and we warn).
 
+FP16 and `torch.compile` are fields of each model's `TorchBackend`. A
+top-down predictor has two models (`predictor.layer.centroid_layer` and
+`predictor.layer.centered_instance_layer`), so set them on both stages.
+`torch.compile` is applied only when a backend is **built**, so setting
+`use_compile = True` on an existing backend does nothing; build a new backend
+around the same model instead. This helper does both, for any model type:
+
 ```python
 from sleap_nn.inference import Predictor
+from sleap_nn.inference.layers.backends.torch_backend import TorchBackend
 
-predictor = Predictor.from_model_paths(
-    ["models/my_model/"],
-    device="cuda",
-)
-predictor.layer.backend.use_fp16 = True   # opt-in
+
+def use_fast_backends(predictor, fp16=True, compile=True):
+    """Rebuild every model backend of `predictor` with FP16 / torch.compile."""
+    layer = predictor.layer
+    stages = [
+        getattr(layer, name)
+        for name in ("centroid_layer", "centered_instance_layer")
+        if hasattr(layer, name)
+    ] or [layer]  # top-down has two stages; other model types have one
+    for stage in stages:
+        old = stage.backend
+        stage.backend = TorchBackend(
+            model=old.model,
+            device=old.device,
+            use_fp16=fp16,
+            use_compile=compile,
+            memory_format=old.memory_format,
+        )
+
+
+predictor = Predictor.from_model_paths(["models/my_model/"], device="cuda")
+use_fast_backends(predictor, fp16=True, compile=False)
 ```
+
+This works for trained checkpoints only (an exported ONNX/TensorRT model has
+no `TorchBackend`).
 
 | Reason to enable | Reason to skip |
 |---|---|
@@ -124,7 +151,7 @@ shipping FP16 to production.
 Mode: `reduce-overhead` (CUDA-graph capture), `dynamic=False`.
 
 ```python
-predictor.layer.backend.use_compile = True
+use_fast_backends(predictor, fp16=False, compile=True)  # helper from FP16 above
 ```
 
 | Reason to enable | Reason to skip |
@@ -133,11 +160,10 @@ predictor.layer.backend.use_compile = True
 | Multiple inference passes on the same model in the same process | One-shot inference where you'll never reuse the compiled module |
 
 !!! warning "Static shapes"
-    `dynamic=False` means the compiled graph is locked to one input
-    shape. If your batches have varying spatial dims, set
-    `dynamic=True` (slower but tolerant), or pre-pad to a uniform
-    shape — which the new flow's sizematcher does automatically when
-    `max_height` / `max_width` are set in training config.
+    `dynamic=False` (not configurable) locks the compiled graph to one
+    input shape; a new shape recompiles. Frames of one video share a shape,
+    and setting `max_height` / `max_width` in the training config pads every
+    frame to one size.
 
 ### Batches on the GPU (`upload_batches`)
 
@@ -287,9 +313,7 @@ predictor = Predictor.from_model_paths(
     upload_batches=True,
     memory_format="channels_last",  # NVIDIA
 )
-backend = predictor.layer.backend  # or .centroid_layer.backend for top-down
-backend.use_fp16 = True
-backend.use_compile = True
+use_fast_backends(predictor, fp16=True, compile=True)  # helper from FP16 above
 
 labels = predictor.predict("long_video.mp4")
 labels.save("predictions.slp")

@@ -62,7 +62,8 @@ labels.save("poses_masked.pkg.slp", embed=True)   # embed to keep it self-contai
   `trainer_config.eval.enabled: true`, a `SegmentationEvaluationCallback` also logs
   instance-level mask metrics (`eval/val/mask_mean_iou`, `mask_precision`,
   `mask_recall`, `mask_f1`). Training viz overlays the GT mask on the predicted
-  foreground each epoch (`viz/.../gt_mask`).
+  foreground each epoch (wandb key `viz/<split>/predictions`; saved locally as
+  `<split>.gt_mask.<epoch>.<ext>`).
 
 ```bash
 sleap-nn train --config-name config_topdown_centered_instance_segmentation_unet \
@@ -112,8 +113,9 @@ sleap-nn predict -i labeled.pkg.slp --model_paths centered_instance_segmentation
 
 ## Evaluation
 
-Post-training evaluation runs automatically (`trainer_config.eval.enabled: true`)
-using mask-IoU matching, equivalent to:
+Post-training evaluation runs automatically when checkpoints are saved
+(`trainer_config.save_ckpt: true`; independent of `trainer_config.eval.enabled`,
+which only controls the per-epoch callback) using mask-IoU matching, equivalent to:
 
 ```bash
 sleap-nn eval --ground_truth_path gt.slp --predicted_path pred.slp --match_method mask
@@ -132,5 +134,5 @@ COCO-style mask AP/AR. `match_threshold` is the minimum IoU in `(0, 1]`.
 
 ## See also
 
-- [Bottom-up segmentation](inference-guide.md) — single-pass, detector-free masks.
+- [Bottom-up segmentation](inference-guide.md#bottom-up-segmentation) — single-pass, detector-free masks.
 - [Centroid-only inference](centroid-only-inference.md) — the centroid stage standalone.

@@ -47,7 +47,8 @@ model. `multi_class_bottomup` is a single model.
 The one knob to tune is the **`loss_weight` on the classification head**
 (`class_vectors` for top-down, `class_maps` for bottom-up). Start around `0.001`;
 **decrease** toward `0.0001` if poses get worse, or **increase** toward `0.01`
-if identities don't separate.
+if identities don't separate. (The starter configs ship with
+`class_vectors.loss_weight: 0.01` and `class_maps.loss_weight: 1.0`.)
 
 ## 3. Train
 

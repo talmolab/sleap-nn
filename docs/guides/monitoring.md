@@ -61,8 +61,8 @@ Multi-head models (e.g., bottom-up) log individual losses:
 
 | Metric | Description |
 |--------|-------------|
-| `train_confmap_loss` / `val_confmap_loss` | Confidence map head loss |
-| `train_paf_loss` / `val_paf_loss` | Part affinity field loss (bottom-up only) |
+| `train/confmaps_loss` / `val/confmaps_loss` | Confidence map head loss |
+| `train/paf_loss` / `val/paf_loss` | Part affinity field loss (bottom-up only) |
 
 This helps diagnose when individual heads aren't learning effectively.
 
@@ -91,6 +91,9 @@ SLEAP-NN automatically selects the appropriate evaluation callback based on mode
 | Bottom-Up | `EpochEndEvaluationCallback` | OKS, PCK, distance metrics |
 | Top-Down (Centered Instance) | `EpochEndEvaluationCallback` | OKS, PCK, distance metrics |
 | **Centroid** | `CentroidEvaluationCallback` | Distance, precision/recall |
+| Segmentation (bottom-up, centered-instance, semantic) | `SegmentationEvaluationCallback` | Instance mask-IoU mAP / precision / recall; semantic: foreground IoU, clDice, boundary IoU |
+| Box detectors (`bbox_centernet`, `bbox_ssd`) | `BBoxEvaluationCallback` | `eval/val/bbox_*` (COCO-style mAP, AP50/75, AR, F1) — see [Bounding boxes](bbox-detection.md) |
+| Embedding | `EmbeddingEvaluationCallback` | Retrieval metrics (rank-1, mAP, ...); runs even with `eval.enabled: false` |
 
 ### Pose Model Evaluation (OKS-based)
 
@@ -109,11 +112,13 @@ trainer_config:
 
 | Metric | Description |
 |--------|-------------|
-| `eval/val/oks_voc` | OKS-based VOC score |
-| `eval/val/pck` | Percentage of Correct Keypoints |
-| `eval/val/dist_p50` | Median distance (pixels) |
-| `eval/val/dist_p90` | 90th percentile distance |
-| `eval/val/dist_p95` | 95th percentile distance |
+| `eval/val/mOKS` | Mean OKS |
+| `eval/val/oks_voc_mAP` / `eval/val/oks_voc_mAR` | OKS-based VOC mean average precision / recall |
+| `eval/val/mPCK` | Mean Percentage of Correct Keypoints |
+| `eval/val/PCK_5` / `eval/val/PCK_10` | PCK at 5 / 10 px |
+| `eval/val/distance/avg` | Mean keypoint distance (pixels) |
+| `eval/val/distance/p50` / `p95` / `p99` | Distance percentiles (pixels) |
+| `eval/val/visibility_precision` / `eval/val/visibility_recall` | Node visibility precision / recall |
 
 ### Centroid Model Evaluation (Distance-based)
 
@@ -160,6 +165,7 @@ trainer_config:
     oks_stddev: float   # OKS standard deviation (default: 0.025)
     oks_scale: float    # OKS scale override, null for auto (default: null)
     match_threshold: float  # Centroid matching threshold in pixels (default: 50.0)
+    select_metric: str  # Checkpoint metric for embedding / bbox models (default: rank1)
 ```
 
 See [Trainer Configuration](../configuration/trainer.md#evalconfig) for complete reference.

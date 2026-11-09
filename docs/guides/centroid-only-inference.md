@@ -49,7 +49,7 @@ with `--centroid-output` (CLI) / `emit_centroid` (Python). The choices are:
 | `both` | Both representations. |
 
 The `source` tag on a `PredictedCentroid` mirrors the trained target's meaning
-(see the [anchor convention](#anchor-node-convention-586) below): an explicit
+(see the [anchor convention](#choosing-what-centroid-means-586) below): an explicit
 anchor records `"anchor:<node>"`; no anchor records `"center_of_mass"`.
 
 ## End-to-end workflow
@@ -168,7 +168,7 @@ bit-for-bit identical to the checkpoint path. See the
 ## Choosing what "centroid" means (#586)
 
 The centroid's *meaning* is defined by
-[`generate_centroids`](../reference/sleap_nn/data/instance_centroids.md) — the
+[`generate_centroids`](../api/data/instance_centroids.md) — the
 same function used for training-target generation, top-down crop centers and
 GT-centroid evaluation, so all three can never disagree. Four methods are
 available, spelled exactly as in `sio.Instance.to_centroid`:
@@ -253,8 +253,12 @@ always outranks a derived one. `anchor` does not apply here: a mask has no nodes
 - **`min_instance_score`**: filters on the centroid confidence value.
 - **`min_visible_nodes` / `min_visible_node_fraction`**: a single-node
   detection has exactly one visible node, so keep any threshold `<= 1`.
-- **`overlapping` with `overlapping_method="oks"`**: emits a `UserWarning` and
-  falls back to IoU. OKS needs the full keypoint set, which a centroid lacks.
+- **`min_centroid_distance`** (CLI `--filter_min_centroid_distance`, pixels,
+  default `0` = off): the centroid de-duplication filter. Greedy NMS drops any
+  centroid within this distance of a higher-scored kept centroid.
+- **`overlapping`** (either method): skipped for centroid-only output, with a
+  `UserWarning`. Bounding-box IoU and OKS are degenerate for single points; use
+  `min_centroid_distance` instead.
 
 ### Tracking
 
