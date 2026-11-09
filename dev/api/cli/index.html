@@ -1910,6 +1910,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../reference/api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Python API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../reference/models/" class="md-nav__link">
         
   
@@ -8837,25 +8865,7 @@ generate a config with smart defaults based on your data.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>sleap_nn/cli.py</code></summary>
-              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-4765">4765</a></span>
-<span class="normal"><a href="#__codelineno-0-4766">4766</a></span>
-<span class="normal"><a href="#__codelineno-0-4767">4767</a></span>
-<span class="normal"><a href="#__codelineno-0-4768">4768</a></span>
-<span class="normal"><a href="#__codelineno-0-4769">4769</a></span>
-<span class="normal"><a href="#__codelineno-0-4770">4770</a></span>
-<span class="normal"><a href="#__codelineno-0-4771">4771</a></span>
-<span class="normal"><a href="#__codelineno-0-4772">4772</a></span>
-<span class="normal"><a href="#__codelineno-0-4773">4773</a></span>
-<span class="normal"><a href="#__codelineno-0-4774">4774</a></span>
-<span class="normal"><a href="#__codelineno-0-4775">4775</a></span>
-<span class="normal"><a href="#__codelineno-0-4776">4776</a></span>
-<span class="normal"><a href="#__codelineno-0-4777">4777</a></span>
-<span class="normal"><a href="#__codelineno-0-4778">4778</a></span>
-<span class="normal"><a href="#__codelineno-0-4779">4779</a></span>
-<span class="normal"><a href="#__codelineno-0-4780">4780</a></span>
-<span class="normal"><a href="#__codelineno-0-4781">4781</a></span>
-<span class="normal"><a href="#__codelineno-0-4782">4782</a></span>
-<span class="normal"><a href="#__codelineno-0-4783">4783</a></span>
+              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-4783">4783</a></span>
 <span class="normal"><a href="#__codelineno-0-4784">4784</a></span>
 <span class="normal"><a href="#__codelineno-0-4785">4785</a></span>
 <span class="normal"><a href="#__codelineno-0-4786">4786</a></span>
@@ -8966,136 +8976,154 @@ generate a config with smart defaults based on your data.</p>
 <span class="normal"><a href="#__codelineno-0-4891">4891</a></span>
 <span class="normal"><a href="#__codelineno-0-4892">4892</a></span>
 <span class="normal"><a href="#__codelineno-0-4893">4893</a></span>
-<span class="normal"><a href="#__codelineno-0-4894">4894</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-4765"><a id="__codelineno-0-4765" name="__codelineno-0-4765"></a><span class="nd">@cli</span><span class="o">.</span><span class="n">command</span><span class="p">(</span><span class="n">context_settings</span><span class="o">=</span><span class="n">CONTEXT_SETTINGS</span><span class="p">)</span>
-</span><span id="__span-0-4766"><a id="__codelineno-0-4766" name="__codelineno-0-4766"></a><span class="nd">@click</span><span class="o">.</span><span class="n">argument</span><span class="p">(</span><span class="s2">&quot;slp_path&quot;</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">str</span><span class="p">,</span> <span class="n">required</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span>
-</span><span id="__span-0-4767"><a id="__codelineno-0-4767" name="__codelineno-0-4767"></a><span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span>
-</span><span id="__span-0-4768"><a id="__codelineno-0-4768" name="__codelineno-0-4768"></a>    <span class="s2">&quot;--output&quot;</span><span class="p">,</span>
-</span><span id="__span-0-4769"><a id="__codelineno-0-4769" name="__codelineno-0-4769"></a>    <span class="s2">&quot;-o&quot;</span><span class="p">,</span>
-</span><span id="__span-0-4770"><a id="__codelineno-0-4770" name="__codelineno-0-4770"></a>    <span class="nb">type</span><span class="o">=</span><span class="nb">str</span><span class="p">,</span>
-</span><span id="__span-0-4771"><a id="__codelineno-0-4771" name="__codelineno-0-4771"></a>    <span class="n">default</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-</span><span id="__span-0-4772"><a id="__codelineno-0-4772" name="__codelineno-0-4772"></a>    <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Output path for the generated config file(s).&quot;</span><span class="p">,</span>
-</span><span id="__span-0-4773"><a id="__codelineno-0-4773" name="__codelineno-0-4773"></a><span class="p">)</span>
-</span><span id="__span-0-4774"><a id="__codelineno-0-4774" name="__codelineno-0-4774"></a><span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span>
-</span><span id="__span-0-4775"><a id="__codelineno-0-4775" name="__codelineno-0-4775"></a>    <span class="s2">&quot;--auto&quot;</span><span class="p">,</span>
-</span><span id="__span-0-4776"><a id="__codelineno-0-4776" name="__codelineno-0-4776"></a>    <span class="n">is_flag</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
-</span><span id="__span-0-4777"><a id="__codelineno-0-4777" name="__codelineno-0-4777"></a>    <span class="n">default</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
-</span><span id="__span-0-4778"><a id="__codelineno-0-4778" name="__codelineno-0-4778"></a>    <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Auto-generate config without interactive TUI.&quot;</span><span class="p">,</span>
-</span><span id="__span-0-4779"><a id="__codelineno-0-4779" name="__codelineno-0-4779"></a><span class="p">)</span>
-</span><span id="__span-0-4780"><a id="__codelineno-0-4780" name="__codelineno-0-4780"></a><span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span>
-</span><span id="__span-0-4781"><a id="__codelineno-0-4781" name="__codelineno-0-4781"></a>    <span class="s2">&quot;--pipeline&quot;</span><span class="p">,</span>
-</span><span id="__span-0-4782"><a id="__codelineno-0-4782" name="__codelineno-0-4782"></a>    <span class="nb">type</span><span class="o">=</span><span class="n">click</span><span class="o">.</span><span class="n">Choice</span><span class="p">(</span>
-</span><span id="__span-0-4783"><a id="__codelineno-0-4783" name="__codelineno-0-4783"></a>        <span class="p">[</span>
-</span><span id="__span-0-4784"><a id="__codelineno-0-4784" name="__codelineno-0-4784"></a>            <span class="s2">&quot;single_instance&quot;</span><span class="p">,</span>
-</span><span id="__span-0-4785"><a id="__codelineno-0-4785" name="__codelineno-0-4785"></a>            <span class="s2">&quot;centroid&quot;</span><span class="p">,</span>
-</span><span id="__span-0-4786"><a id="__codelineno-0-4786" name="__codelineno-0-4786"></a>            <span class="s2">&quot;bottomup&quot;</span><span class="p">,</span>
-</span><span id="__span-0-4787"><a id="__codelineno-0-4787" name="__codelineno-0-4787"></a>            <span class="s2">&quot;topdown&quot;</span><span class="p">,</span>
-</span><span id="__span-0-4788"><a id="__codelineno-0-4788" name="__codelineno-0-4788"></a>            <span class="s2">&quot;multi_class_bottomup&quot;</span><span class="p">,</span>
-</span><span id="__span-0-4789"><a id="__codelineno-0-4789" name="__codelineno-0-4789"></a>            <span class="s2">&quot;multi_class_topdown&quot;</span><span class="p">,</span>
-</span><span id="__span-0-4790"><a id="__codelineno-0-4790" name="__codelineno-0-4790"></a>            <span class="s2">&quot;bbox_centernet&quot;</span><span class="p">,</span>
-</span><span id="__span-0-4791"><a id="__codelineno-0-4791" name="__codelineno-0-4791"></a>            <span class="s2">&quot;bbox_ssd&quot;</span><span class="p">,</span>
-</span><span id="__span-0-4792"><a id="__codelineno-0-4792" name="__codelineno-0-4792"></a>            <span class="s2">&quot;topdown_bbox_centernet&quot;</span><span class="p">,</span>
-</span><span id="__span-0-4793"><a id="__codelineno-0-4793" name="__codelineno-0-4793"></a>            <span class="s2">&quot;topdown_bbox_ssd&quot;</span><span class="p">,</span>
-</span><span id="__span-0-4794"><a id="__codelineno-0-4794" name="__codelineno-0-4794"></a>        <span class="p">]</span>
-</span><span id="__span-0-4795"><a id="__codelineno-0-4795" name="__codelineno-0-4795"></a>    <span class="p">),</span>
-</span><span id="__span-0-4796"><a id="__codelineno-0-4796" name="__codelineno-0-4796"></a>    <span class="n">default</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-</span><span id="__span-0-4797"><a id="__codelineno-0-4797" name="__codelineno-0-4797"></a>    <span class="n">help</span><span class="o">=</span><span class="p">(</span>
-</span><span id="__span-0-4798"><a id="__codelineno-0-4798" name="__codelineno-0-4798"></a>        <span class="s2">&quot;Override model pipeline type. &#39;centroid&#39; generates a single STANDALONE &quot;</span>
-</span><span id="__span-0-4799"><a id="__codelineno-0-4799" name="__codelineno-0-4799"></a>        <span class="s2">&quot;centroid config (one point per animal); &#39;topdown&#39; generates paired &quot;</span>
-</span><span id="__span-0-4800"><a id="__codelineno-0-4800" name="__codelineno-0-4800"></a>        <span class="s2">&quot;centroid + centered_instance configs; &#39;bbox_centernet&#39; / &#39;bbox_ssd&#39; &quot;</span>
-</span><span id="__span-0-4801"><a id="__codelineno-0-4801" name="__codelineno-0-4801"></a>        <span class="s2">&quot;generate a bounding-box detector trained on boxes derived from the poses; &quot;</span>
-</span><span id="__span-0-4802"><a id="__codelineno-0-4802" name="__codelineno-0-4802"></a>        <span class="s2">&quot;&#39;topdown_bbox_centernet&#39; / &#39;topdown_bbox_ssd&#39; generate paired detector + &quot;</span>
-</span><span id="__span-0-4803"><a id="__codelineno-0-4803" name="__codelineno-0-4803"></a>        <span class="s2">&quot;centered_instance configs whose crops are the detected boxes &quot;</span>
-</span><span id="__span-0-4804"><a id="__codelineno-0-4804" name="__codelineno-0-4804"></a>        <span class="s2">&quot;(crop_mode: bbox).&quot;</span>
-</span><span id="__span-0-4805"><a id="__codelineno-0-4805" name="__codelineno-0-4805"></a>    <span class="p">),</span>
-</span><span id="__span-0-4806"><a id="__codelineno-0-4806" name="__codelineno-0-4806"></a><span class="p">)</span>
-</span><span id="__span-0-4807"><a id="__codelineno-0-4807" name="__codelineno-0-4807"></a><span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span>
-</span><span id="__span-0-4808"><a id="__codelineno-0-4808" name="__codelineno-0-4808"></a>    <span class="s2">&quot;--show-yaml&quot;</span><span class="p">,</span>
-</span><span id="__span-0-4809"><a id="__codelineno-0-4809" name="__codelineno-0-4809"></a>    <span class="n">is_flag</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
-</span><span id="__span-0-4810"><a id="__codelineno-0-4810" name="__codelineno-0-4810"></a>    <span class="n">default</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
-</span><span id="__span-0-4811"><a id="__codelineno-0-4811" name="__codelineno-0-4811"></a>    <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Print generated YAML to stdout.&quot;</span><span class="p">,</span>
-</span><span id="__span-0-4812"><a id="__codelineno-0-4812" name="__codelineno-0-4812"></a><span class="p">)</span>
-</span><span id="__span-0-4813"><a id="__codelineno-0-4813" name="__codelineno-0-4813"></a><span class="k">def</span><span class="w"> </span><span class="nf">config</span><span class="p">(</span>
-</span><span id="__span-0-4814"><a id="__codelineno-0-4814" name="__codelineno-0-4814"></a>    <span class="n">slp_path</span><span class="p">,</span>
-</span><span id="__span-0-4815"><a id="__codelineno-0-4815" name="__codelineno-0-4815"></a>    <span class="n">output</span><span class="p">,</span>
-</span><span id="__span-0-4816"><a id="__codelineno-0-4816" name="__codelineno-0-4816"></a>    <span class="n">auto</span><span class="p">,</span>
-</span><span id="__span-0-4817"><a id="__codelineno-0-4817" name="__codelineno-0-4817"></a>    <span class="n">pipeline</span><span class="p">,</span>
-</span><span id="__span-0-4818"><a id="__codelineno-0-4818" name="__codelineno-0-4818"></a>    <span class="n">show_yaml</span><span class="p">,</span>
-</span><span id="__span-0-4819"><a id="__codelineno-0-4819" name="__codelineno-0-4819"></a><span class="p">):</span>
-</span><span id="__span-0-4820"><a id="__codelineno-0-4820" name="__codelineno-0-4820"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Generate training configuration for a SLEAP file.</span>
-</span><span id="__span-0-4821"><a id="__codelineno-0-4821" name="__codelineno-0-4821"></a>
-</span><span id="__span-0-4822"><a id="__codelineno-0-4822" name="__codelineno-0-4822"></a><span class="sd">    **[Experimental]** This feature is experimental and may change in future releases.</span>
-</span><span id="__span-0-4823"><a id="__codelineno-0-4823" name="__codelineno-0-4823"></a>
-</span><span id="__span-0-4824"><a id="__codelineno-0-4824" name="__codelineno-0-4824"></a><span class="sd">    Launch an interactive TUI to configure training, or use --auto to</span>
-</span><span id="__span-0-4825"><a id="__codelineno-0-4825" name="__codelineno-0-4825"></a><span class="sd">    generate a config with smart defaults based on your data.</span>
-</span><span id="__span-0-4826"><a id="__codelineno-0-4826" name="__codelineno-0-4826"></a>
-</span><span id="__span-0-4827"><a id="__codelineno-0-4827" name="__codelineno-0-4827"></a><span class="sd">    Examples:</span>
-</span><span id="__span-0-4828"><a id="__codelineno-0-4828" name="__codelineno-0-4828"></a><span class="sd">        # Interactive TUI</span>
-</span><span id="__span-0-4829"><a id="__codelineno-0-4829" name="__codelineno-0-4829"></a><span class="sd">        sleap-nn config labels.slp</span>
-</span><span id="__span-0-4830"><a id="__codelineno-0-4830" name="__codelineno-0-4830"></a>
-</span><span id="__span-0-4831"><a id="__codelineno-0-4831" name="__codelineno-0-4831"></a><span class="sd">        # Auto-generate config</span>
-</span><span id="__span-0-4832"><a id="__codelineno-0-4832" name="__codelineno-0-4832"></a><span class="sd">        sleap-nn config labels.slp --auto -o config.yaml</span>
-</span><span id="__span-0-4833"><a id="__codelineno-0-4833" name="__codelineno-0-4833"></a>
-</span><span id="__span-0-4834"><a id="__codelineno-0-4834" name="__codelineno-0-4834"></a><span class="sd">        # Auto-generate with overrides</span>
-</span><span id="__span-0-4835"><a id="__codelineno-0-4835" name="__codelineno-0-4835"></a><span class="sd">        sleap-nn config labels.slp --auto --pipeline bottomup</span>
-</span><span id="__span-0-4836"><a id="__codelineno-0-4836" name="__codelineno-0-4836"></a>
-</span><span id="__span-0-4837"><a id="__codelineno-0-4837" name="__codelineno-0-4837"></a><span class="sd">        # Box detector + box-scaled centered-instance pair</span>
-</span><span id="__span-0-4838"><a id="__codelineno-0-4838" name="__codelineno-0-4838"></a><span class="sd">        sleap-nn config labels.slp --auto --pipeline topdown_bbox_centernet -o cfg.yaml</span>
-</span><span id="__span-0-4839"><a id="__codelineno-0-4839" name="__codelineno-0-4839"></a><span class="sd">    &quot;&quot;&quot;</span>
-</span><span id="__span-0-4840"><a id="__codelineno-0-4840" name="__codelineno-0-4840"></a>    <span class="kn">from</span><span class="w"> </span><span class="nn">sleap_nn.config_generator.generator</span><span class="w"> </span><span class="kn">import</span> <span class="n">ConfigGenerator</span>
+<span class="normal"><a href="#__codelineno-0-4894">4894</a></span>
+<span class="normal"><a href="#__codelineno-0-4895">4895</a></span>
+<span class="normal"><a href="#__codelineno-0-4896">4896</a></span>
+<span class="normal"><a href="#__codelineno-0-4897">4897</a></span>
+<span class="normal"><a href="#__codelineno-0-4898">4898</a></span>
+<span class="normal"><a href="#__codelineno-0-4899">4899</a></span>
+<span class="normal"><a href="#__codelineno-0-4900">4900</a></span>
+<span class="normal"><a href="#__codelineno-0-4901">4901</a></span>
+<span class="normal"><a href="#__codelineno-0-4902">4902</a></span>
+<span class="normal"><a href="#__codelineno-0-4903">4903</a></span>
+<span class="normal"><a href="#__codelineno-0-4904">4904</a></span>
+<span class="normal"><a href="#__codelineno-0-4905">4905</a></span>
+<span class="normal"><a href="#__codelineno-0-4906">4906</a></span>
+<span class="normal"><a href="#__codelineno-0-4907">4907</a></span>
+<span class="normal"><a href="#__codelineno-0-4908">4908</a></span>
+<span class="normal"><a href="#__codelineno-0-4909">4909</a></span>
+<span class="normal"><a href="#__codelineno-0-4910">4910</a></span>
+<span class="normal"><a href="#__codelineno-0-4911">4911</a></span>
+<span class="normal"><a href="#__codelineno-0-4912">4912</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-4783"><a id="__codelineno-0-4783" name="__codelineno-0-4783"></a><span class="nd">@cli</span><span class="o">.</span><span class="n">command</span><span class="p">(</span><span class="n">context_settings</span><span class="o">=</span><span class="n">CONTEXT_SETTINGS</span><span class="p">)</span>
+</span><span id="__span-0-4784"><a id="__codelineno-0-4784" name="__codelineno-0-4784"></a><span class="nd">@click</span><span class="o">.</span><span class="n">argument</span><span class="p">(</span><span class="s2">&quot;slp_path&quot;</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">str</span><span class="p">,</span> <span class="n">required</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span>
+</span><span id="__span-0-4785"><a id="__codelineno-0-4785" name="__codelineno-0-4785"></a><span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span>
+</span><span id="__span-0-4786"><a id="__codelineno-0-4786" name="__codelineno-0-4786"></a>    <span class="s2">&quot;--output&quot;</span><span class="p">,</span>
+</span><span id="__span-0-4787"><a id="__codelineno-0-4787" name="__codelineno-0-4787"></a>    <span class="s2">&quot;-o&quot;</span><span class="p">,</span>
+</span><span id="__span-0-4788"><a id="__codelineno-0-4788" name="__codelineno-0-4788"></a>    <span class="nb">type</span><span class="o">=</span><span class="nb">str</span><span class="p">,</span>
+</span><span id="__span-0-4789"><a id="__codelineno-0-4789" name="__codelineno-0-4789"></a>    <span class="n">default</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+</span><span id="__span-0-4790"><a id="__codelineno-0-4790" name="__codelineno-0-4790"></a>    <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Output path for the generated config file(s).&quot;</span><span class="p">,</span>
+</span><span id="__span-0-4791"><a id="__codelineno-0-4791" name="__codelineno-0-4791"></a><span class="p">)</span>
+</span><span id="__span-0-4792"><a id="__codelineno-0-4792" name="__codelineno-0-4792"></a><span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span>
+</span><span id="__span-0-4793"><a id="__codelineno-0-4793" name="__codelineno-0-4793"></a>    <span class="s2">&quot;--auto&quot;</span><span class="p">,</span>
+</span><span id="__span-0-4794"><a id="__codelineno-0-4794" name="__codelineno-0-4794"></a>    <span class="n">is_flag</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+</span><span id="__span-0-4795"><a id="__codelineno-0-4795" name="__codelineno-0-4795"></a>    <span class="n">default</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+</span><span id="__span-0-4796"><a id="__codelineno-0-4796" name="__codelineno-0-4796"></a>    <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Auto-generate config without interactive TUI.&quot;</span><span class="p">,</span>
+</span><span id="__span-0-4797"><a id="__codelineno-0-4797" name="__codelineno-0-4797"></a><span class="p">)</span>
+</span><span id="__span-0-4798"><a id="__codelineno-0-4798" name="__codelineno-0-4798"></a><span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span>
+</span><span id="__span-0-4799"><a id="__codelineno-0-4799" name="__codelineno-0-4799"></a>    <span class="s2">&quot;--pipeline&quot;</span><span class="p">,</span>
+</span><span id="__span-0-4800"><a id="__codelineno-0-4800" name="__codelineno-0-4800"></a>    <span class="nb">type</span><span class="o">=</span><span class="n">click</span><span class="o">.</span><span class="n">Choice</span><span class="p">(</span>
+</span><span id="__span-0-4801"><a id="__codelineno-0-4801" name="__codelineno-0-4801"></a>        <span class="p">[</span>
+</span><span id="__span-0-4802"><a id="__codelineno-0-4802" name="__codelineno-0-4802"></a>            <span class="s2">&quot;single_instance&quot;</span><span class="p">,</span>
+</span><span id="__span-0-4803"><a id="__codelineno-0-4803" name="__codelineno-0-4803"></a>            <span class="s2">&quot;centroid&quot;</span><span class="p">,</span>
+</span><span id="__span-0-4804"><a id="__codelineno-0-4804" name="__codelineno-0-4804"></a>            <span class="s2">&quot;bottomup&quot;</span><span class="p">,</span>
+</span><span id="__span-0-4805"><a id="__codelineno-0-4805" name="__codelineno-0-4805"></a>            <span class="s2">&quot;topdown&quot;</span><span class="p">,</span>
+</span><span id="__span-0-4806"><a id="__codelineno-0-4806" name="__codelineno-0-4806"></a>            <span class="s2">&quot;multi_class_bottomup&quot;</span><span class="p">,</span>
+</span><span id="__span-0-4807"><a id="__codelineno-0-4807" name="__codelineno-0-4807"></a>            <span class="s2">&quot;multi_class_topdown&quot;</span><span class="p">,</span>
+</span><span id="__span-0-4808"><a id="__codelineno-0-4808" name="__codelineno-0-4808"></a>            <span class="s2">&quot;bbox_centernet&quot;</span><span class="p">,</span>
+</span><span id="__span-0-4809"><a id="__codelineno-0-4809" name="__codelineno-0-4809"></a>            <span class="s2">&quot;bbox_ssd&quot;</span><span class="p">,</span>
+</span><span id="__span-0-4810"><a id="__codelineno-0-4810" name="__codelineno-0-4810"></a>            <span class="s2">&quot;topdown_bbox_centernet&quot;</span><span class="p">,</span>
+</span><span id="__span-0-4811"><a id="__codelineno-0-4811" name="__codelineno-0-4811"></a>            <span class="s2">&quot;topdown_bbox_ssd&quot;</span><span class="p">,</span>
+</span><span id="__span-0-4812"><a id="__codelineno-0-4812" name="__codelineno-0-4812"></a>        <span class="p">]</span>
+</span><span id="__span-0-4813"><a id="__codelineno-0-4813" name="__codelineno-0-4813"></a>    <span class="p">),</span>
+</span><span id="__span-0-4814"><a id="__codelineno-0-4814" name="__codelineno-0-4814"></a>    <span class="n">default</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+</span><span id="__span-0-4815"><a id="__codelineno-0-4815" name="__codelineno-0-4815"></a>    <span class="n">help</span><span class="o">=</span><span class="p">(</span>
+</span><span id="__span-0-4816"><a id="__codelineno-0-4816" name="__codelineno-0-4816"></a>        <span class="s2">&quot;Override model pipeline type. &#39;centroid&#39; generates a single STANDALONE &quot;</span>
+</span><span id="__span-0-4817"><a id="__codelineno-0-4817" name="__codelineno-0-4817"></a>        <span class="s2">&quot;centroid config (one point per animal); &#39;topdown&#39; generates paired &quot;</span>
+</span><span id="__span-0-4818"><a id="__codelineno-0-4818" name="__codelineno-0-4818"></a>        <span class="s2">&quot;centroid + centered_instance configs; &#39;bbox_centernet&#39; / &#39;bbox_ssd&#39; &quot;</span>
+</span><span id="__span-0-4819"><a id="__codelineno-0-4819" name="__codelineno-0-4819"></a>        <span class="s2">&quot;generate a bounding-box detector trained on boxes derived from the poses; &quot;</span>
+</span><span id="__span-0-4820"><a id="__codelineno-0-4820" name="__codelineno-0-4820"></a>        <span class="s2">&quot;&#39;topdown_bbox_centernet&#39; / &#39;topdown_bbox_ssd&#39; generate paired detector + &quot;</span>
+</span><span id="__span-0-4821"><a id="__codelineno-0-4821" name="__codelineno-0-4821"></a>        <span class="s2">&quot;centered_instance configs whose crops are the detected boxes &quot;</span>
+</span><span id="__span-0-4822"><a id="__codelineno-0-4822" name="__codelineno-0-4822"></a>        <span class="s2">&quot;(crop_mode: bbox).&quot;</span>
+</span><span id="__span-0-4823"><a id="__codelineno-0-4823" name="__codelineno-0-4823"></a>    <span class="p">),</span>
+</span><span id="__span-0-4824"><a id="__codelineno-0-4824" name="__codelineno-0-4824"></a><span class="p">)</span>
+</span><span id="__span-0-4825"><a id="__codelineno-0-4825" name="__codelineno-0-4825"></a><span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span>
+</span><span id="__span-0-4826"><a id="__codelineno-0-4826" name="__codelineno-0-4826"></a>    <span class="s2">&quot;--show-yaml&quot;</span><span class="p">,</span>
+</span><span id="__span-0-4827"><a id="__codelineno-0-4827" name="__codelineno-0-4827"></a>    <span class="n">is_flag</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+</span><span id="__span-0-4828"><a id="__codelineno-0-4828" name="__codelineno-0-4828"></a>    <span class="n">default</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+</span><span id="__span-0-4829"><a id="__codelineno-0-4829" name="__codelineno-0-4829"></a>    <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Print generated YAML to stdout.&quot;</span><span class="p">,</span>
+</span><span id="__span-0-4830"><a id="__codelineno-0-4830" name="__codelineno-0-4830"></a><span class="p">)</span>
+</span><span id="__span-0-4831"><a id="__codelineno-0-4831" name="__codelineno-0-4831"></a><span class="k">def</span><span class="w"> </span><span class="nf">config</span><span class="p">(</span>
+</span><span id="__span-0-4832"><a id="__codelineno-0-4832" name="__codelineno-0-4832"></a>    <span class="n">slp_path</span><span class="p">,</span>
+</span><span id="__span-0-4833"><a id="__codelineno-0-4833" name="__codelineno-0-4833"></a>    <span class="n">output</span><span class="p">,</span>
+</span><span id="__span-0-4834"><a id="__codelineno-0-4834" name="__codelineno-0-4834"></a>    <span class="n">auto</span><span class="p">,</span>
+</span><span id="__span-0-4835"><a id="__codelineno-0-4835" name="__codelineno-0-4835"></a>    <span class="n">pipeline</span><span class="p">,</span>
+</span><span id="__span-0-4836"><a id="__codelineno-0-4836" name="__codelineno-0-4836"></a>    <span class="n">show_yaml</span><span class="p">,</span>
+</span><span id="__span-0-4837"><a id="__codelineno-0-4837" name="__codelineno-0-4837"></a><span class="p">):</span>
+</span><span id="__span-0-4838"><a id="__codelineno-0-4838" name="__codelineno-0-4838"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Generate training configuration for a SLEAP file.</span>
+</span><span id="__span-0-4839"><a id="__codelineno-0-4839" name="__codelineno-0-4839"></a>
+</span><span id="__span-0-4840"><a id="__codelineno-0-4840" name="__codelineno-0-4840"></a><span class="sd">    **[Experimental]** This feature is experimental and may change in future releases.</span>
 </span><span id="__span-0-4841"><a id="__codelineno-0-4841" name="__codelineno-0-4841"></a>
-</span><span id="__span-0-4842"><a id="__codelineno-0-4842" name="__codelineno-0-4842"></a>    <span class="c1"># Auto mode (non-interactive)</span>
-</span><span id="__span-0-4843"><a id="__codelineno-0-4843" name="__codelineno-0-4843"></a>    <span class="k">if</span> <span class="n">auto</span><span class="p">:</span>
-</span><span id="__span-0-4844"><a id="__codelineno-0-4844" name="__codelineno-0-4844"></a>        <span class="k">if</span> <span class="ow">not</span> <span class="n">slp_path</span><span class="p">:</span>
-</span><span id="__span-0-4845"><a id="__codelineno-0-4845" name="__codelineno-0-4845"></a>            <span class="n">click</span><span class="o">.</span><span class="n">echo</span><span class="p">(</span><span class="s2">&quot;Error: SLP_PATH is required for --auto mode&quot;</span><span class="p">,</span> <span class="n">err</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-</span><span id="__span-0-4846"><a id="__codelineno-0-4846" name="__codelineno-0-4846"></a>            <span class="k">raise</span> <span class="ne">SystemExit</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
-</span><span id="__span-0-4847"><a id="__codelineno-0-4847" name="__codelineno-0-4847"></a>
-</span><span id="__span-0-4848"><a id="__codelineno-0-4848" name="__codelineno-0-4848"></a>        <span class="n">gen</span> <span class="o">=</span> <span class="n">ConfigGenerator</span><span class="o">.</span><span class="n">from_slp</span><span class="p">(</span><span class="n">slp_path</span><span class="p">)</span>
-</span><span id="__span-0-4849"><a id="__codelineno-0-4849" name="__codelineno-0-4849"></a>        <span class="n">gen</span><span class="o">.</span><span class="n">auto</span><span class="p">()</span>
-</span><span id="__span-0-4850"><a id="__codelineno-0-4850" name="__codelineno-0-4850"></a>
-</span><span id="__span-0-4851"><a id="__codelineno-0-4851" name="__codelineno-0-4851"></a>        <span class="c1"># Apply overrides</span>
-</span><span id="__span-0-4852"><a id="__codelineno-0-4852" name="__codelineno-0-4852"></a>        <span class="k">if</span> <span class="n">pipeline</span><span class="p">:</span>
-</span><span id="__span-0-4853"><a id="__codelineno-0-4853" name="__codelineno-0-4853"></a>            <span class="c1"># &#39;topdown&#39; is a CLI alias for the centroid STAGE (is_topdown=True),</span>
-</span><span id="__span-0-4854"><a id="__codelineno-0-4854" name="__codelineno-0-4854"></a>            <span class="c1"># which triggers paired centroid + centered_instance generation.</span>
-</span><span id="__span-0-4855"><a id="__codelineno-0-4855" name="__codelineno-0-4855"></a>            <span class="c1"># &#39;centroid&#39; is the STANDALONE single-config centroid model</span>
-</span><span id="__span-0-4856"><a id="__codelineno-0-4856" name="__codelineno-0-4856"></a>            <span class="c1"># (is_topdown=False), emitted via the &quot;centroid_only&quot; pipeline.</span>
-</span><span id="__span-0-4857"><a id="__codelineno-0-4857" name="__codelineno-0-4857"></a>            <span class="k">if</span> <span class="n">pipeline</span> <span class="o">==</span> <span class="s2">&quot;topdown&quot;</span><span class="p">:</span>
-</span><span id="__span-0-4858"><a id="__codelineno-0-4858" name="__codelineno-0-4858"></a>                <span class="n">gen</span><span class="o">.</span><span class="n">pipeline</span><span class="p">(</span><span class="s2">&quot;centroid&quot;</span><span class="p">)</span>
-</span><span id="__span-0-4859"><a id="__codelineno-0-4859" name="__codelineno-0-4859"></a>            <span class="k">elif</span> <span class="n">pipeline</span> <span class="o">==</span> <span class="s2">&quot;centroid&quot;</span><span class="p">:</span>
-</span><span id="__span-0-4860"><a id="__codelineno-0-4860" name="__codelineno-0-4860"></a>                <span class="n">gen</span><span class="o">.</span><span class="n">pipeline</span><span class="p">(</span><span class="s2">&quot;centroid_only&quot;</span><span class="p">)</span>
-</span><span id="__span-0-4861"><a id="__codelineno-0-4861" name="__codelineno-0-4861"></a>            <span class="k">else</span><span class="p">:</span>
-</span><span id="__span-0-4862"><a id="__codelineno-0-4862" name="__codelineno-0-4862"></a>                <span class="n">gen</span><span class="o">.</span><span class="n">pipeline</span><span class="p">(</span><span class="n">pipeline</span><span class="p">)</span>
-</span><span id="__span-0-4863"><a id="__codelineno-0-4863" name="__codelineno-0-4863"></a>
-</span><span id="__span-0-4864"><a id="__codelineno-0-4864" name="__codelineno-0-4864"></a>        <span class="k">if</span> <span class="n">show_yaml</span><span class="p">:</span>
-</span><span id="__span-0-4865"><a id="__codelineno-0-4865" name="__codelineno-0-4865"></a>            <span class="n">click</span><span class="o">.</span><span class="n">echo</span><span class="p">(</span><span class="n">gen</span><span class="o">.</span><span class="n">to_yaml</span><span class="p">())</span>
-</span><span id="__span-0-4866"><a id="__codelineno-0-4866" name="__codelineno-0-4866"></a>        <span class="k">elif</span> <span class="n">output</span><span class="p">:</span>
-</span><span id="__span-0-4867"><a id="__codelineno-0-4867" name="__codelineno-0-4867"></a>            <span class="n">gen</span><span class="o">.</span><span class="n">save</span><span class="p">(</span><span class="n">output</span><span class="p">)</span>
-</span><span id="__span-0-4868"><a id="__codelineno-0-4868" name="__codelineno-0-4868"></a>            <span class="k">if</span> <span class="n">gen</span><span class="o">.</span><span class="n">is_topdown</span><span class="p">:</span>
-</span><span id="__span-0-4869"><a id="__codelineno-0-4869" name="__codelineno-0-4869"></a>                <span class="c1"># &quot;centroid&quot; (or &quot;detector&quot; for topdown_bbox_*), then &quot;instance&quot;.</span>
-</span><span id="__span-0-4870"><a id="__codelineno-0-4870" name="__codelineno-0-4870"></a>                <span class="k">for</span> <span class="n">stage</span><span class="p">,</span> <span class="n">stage_path</span> <span class="ow">in</span> <span class="n">gen</span><span class="o">.</span><span class="n">topdown_paths</span><span class="p">(</span><span class="n">output</span><span class="p">):</span>
-</span><span id="__span-0-4871"><a id="__codelineno-0-4871" name="__codelineno-0-4871"></a>                    <span class="n">click</span><span class="o">.</span><span class="n">echo</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Saved </span><span class="si">{</span><span class="n">stage</span><span class="si">}</span><span class="s2"> config to: </span><span class="si">{</span><span class="n">stage_path</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-</span><span id="__span-0-4872"><a id="__codelineno-0-4872" name="__codelineno-0-4872"></a>            <span class="k">else</span><span class="p">:</span>
-</span><span id="__span-0-4873"><a id="__codelineno-0-4873" name="__codelineno-0-4873"></a>                <span class="n">click</span><span class="o">.</span><span class="n">echo</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Saved config to: </span><span class="si">{</span><span class="n">output</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-</span><span id="__span-0-4874"><a id="__codelineno-0-4874" name="__codelineno-0-4874"></a>        <span class="k">else</span><span class="p">:</span>
-</span><span id="__span-0-4875"><a id="__codelineno-0-4875" name="__codelineno-0-4875"></a>            <span class="c1"># Default output path</span>
-</span><span id="__span-0-4876"><a id="__codelineno-0-4876" name="__codelineno-0-4876"></a>            <span class="n">slp_stem</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">slp_path</span><span class="p">)</span><span class="o">.</span><span class="n">stem</span>
-</span><span id="__span-0-4877"><a id="__codelineno-0-4877" name="__codelineno-0-4877"></a>            <span class="n">output_path</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">slp_path</span><span class="p">)</span><span class="o">.</span><span class="n">parent</span> <span class="o">/</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">slp_stem</span><span class="si">}</span><span class="s2">_config.yaml&quot;</span>
-</span><span id="__span-0-4878"><a id="__codelineno-0-4878" name="__codelineno-0-4878"></a>            <span class="n">gen</span><span class="o">.</span><span class="n">save</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">output_path</span><span class="p">))</span>
-</span><span id="__span-0-4879"><a id="__codelineno-0-4879" name="__codelineno-0-4879"></a>            <span class="k">if</span> <span class="n">gen</span><span class="o">.</span><span class="n">is_topdown</span><span class="p">:</span>
-</span><span id="__span-0-4880"><a id="__codelineno-0-4880" name="__codelineno-0-4880"></a>                <span class="k">for</span> <span class="n">stage</span><span class="p">,</span> <span class="n">stage_path</span> <span class="ow">in</span> <span class="n">gen</span><span class="o">.</span><span class="n">topdown_paths</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">output_path</span><span class="p">)):</span>
-</span><span id="__span-0-4881"><a id="__codelineno-0-4881" name="__codelineno-0-4881"></a>                    <span class="n">click</span><span class="o">.</span><span class="n">echo</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Saved </span><span class="si">{</span><span class="n">stage</span><span class="si">}</span><span class="s2"> config to: </span><span class="si">{</span><span class="n">stage_path</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-</span><span id="__span-0-4882"><a id="__codelineno-0-4882" name="__codelineno-0-4882"></a>            <span class="k">else</span><span class="p">:</span>
-</span><span id="__span-0-4883"><a id="__codelineno-0-4883" name="__codelineno-0-4883"></a>                <span class="n">click</span><span class="o">.</span><span class="n">echo</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Saved config to: </span><span class="si">{</span><span class="n">output_path</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-</span><span id="__span-0-4884"><a id="__codelineno-0-4884" name="__codelineno-0-4884"></a>        <span class="k">return</span>
-</span><span id="__span-0-4885"><a id="__codelineno-0-4885" name="__codelineno-0-4885"></a>
-</span><span id="__span-0-4886"><a id="__codelineno-0-4886" name="__codelineno-0-4886"></a>    <span class="c1"># Interactive TUI mode</span>
-</span><span id="__span-0-4887"><a id="__codelineno-0-4887" name="__codelineno-0-4887"></a>    <span class="k">try</span><span class="p">:</span>
-</span><span id="__span-0-4888"><a id="__codelineno-0-4888" name="__codelineno-0-4888"></a>        <span class="kn">from</span><span class="w"> </span><span class="nn">sleap_nn.config_generator.tui.app</span><span class="w"> </span><span class="kn">import</span> <span class="n">launch_tui</span>
-</span><span id="__span-0-4889"><a id="__codelineno-0-4889" name="__codelineno-0-4889"></a>
-</span><span id="__span-0-4890"><a id="__codelineno-0-4890" name="__codelineno-0-4890"></a>        <span class="n">launch_tui</span><span class="p">(</span><span class="n">slp_path</span><span class="p">)</span>
-</span><span id="__span-0-4891"><a id="__codelineno-0-4891" name="__codelineno-0-4891"></a>    <span class="k">except</span> <span class="ne">ImportError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
-</span><span id="__span-0-4892"><a id="__codelineno-0-4892" name="__codelineno-0-4892"></a>        <span class="n">click</span><span class="o">.</span><span class="n">echo</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Error: TUI dependencies not available: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">err</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-</span><span id="__span-0-4893"><a id="__codelineno-0-4893" name="__codelineno-0-4893"></a>        <span class="n">click</span><span class="o">.</span><span class="n">echo</span><span class="p">(</span><span class="s2">&quot;Install with: pip install textual&quot;</span><span class="p">,</span> <span class="n">err</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-</span><span id="__span-0-4894"><a id="__codelineno-0-4894" name="__codelineno-0-4894"></a>        <span class="k">raise</span> <span class="ne">SystemExit</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+</span><span id="__span-0-4842"><a id="__codelineno-0-4842" name="__codelineno-0-4842"></a><span class="sd">    Launch an interactive TUI to configure training, or use --auto to</span>
+</span><span id="__span-0-4843"><a id="__codelineno-0-4843" name="__codelineno-0-4843"></a><span class="sd">    generate a config with smart defaults based on your data.</span>
+</span><span id="__span-0-4844"><a id="__codelineno-0-4844" name="__codelineno-0-4844"></a>
+</span><span id="__span-0-4845"><a id="__codelineno-0-4845" name="__codelineno-0-4845"></a><span class="sd">    Examples:</span>
+</span><span id="__span-0-4846"><a id="__codelineno-0-4846" name="__codelineno-0-4846"></a><span class="sd">        # Interactive TUI</span>
+</span><span id="__span-0-4847"><a id="__codelineno-0-4847" name="__codelineno-0-4847"></a><span class="sd">        sleap-nn config labels.slp</span>
+</span><span id="__span-0-4848"><a id="__codelineno-0-4848" name="__codelineno-0-4848"></a>
+</span><span id="__span-0-4849"><a id="__codelineno-0-4849" name="__codelineno-0-4849"></a><span class="sd">        # Auto-generate config</span>
+</span><span id="__span-0-4850"><a id="__codelineno-0-4850" name="__codelineno-0-4850"></a><span class="sd">        sleap-nn config labels.slp --auto -o config.yaml</span>
+</span><span id="__span-0-4851"><a id="__codelineno-0-4851" name="__codelineno-0-4851"></a>
+</span><span id="__span-0-4852"><a id="__codelineno-0-4852" name="__codelineno-0-4852"></a><span class="sd">        # Auto-generate with overrides</span>
+</span><span id="__span-0-4853"><a id="__codelineno-0-4853" name="__codelineno-0-4853"></a><span class="sd">        sleap-nn config labels.slp --auto --pipeline bottomup</span>
+</span><span id="__span-0-4854"><a id="__codelineno-0-4854" name="__codelineno-0-4854"></a>
+</span><span id="__span-0-4855"><a id="__codelineno-0-4855" name="__codelineno-0-4855"></a><span class="sd">        # Box detector + box-scaled centered-instance pair</span>
+</span><span id="__span-0-4856"><a id="__codelineno-0-4856" name="__codelineno-0-4856"></a><span class="sd">        sleap-nn config labels.slp --auto --pipeline topdown_bbox_centernet -o cfg.yaml</span>
+</span><span id="__span-0-4857"><a id="__codelineno-0-4857" name="__codelineno-0-4857"></a><span class="sd">    &quot;&quot;&quot;</span>
+</span><span id="__span-0-4858"><a id="__codelineno-0-4858" name="__codelineno-0-4858"></a>    <span class="kn">from</span><span class="w"> </span><span class="nn">sleap_nn.config_generator.generator</span><span class="w"> </span><span class="kn">import</span> <span class="n">ConfigGenerator</span>
+</span><span id="__span-0-4859"><a id="__codelineno-0-4859" name="__codelineno-0-4859"></a>
+</span><span id="__span-0-4860"><a id="__codelineno-0-4860" name="__codelineno-0-4860"></a>    <span class="c1"># Auto mode (non-interactive)</span>
+</span><span id="__span-0-4861"><a id="__codelineno-0-4861" name="__codelineno-0-4861"></a>    <span class="k">if</span> <span class="n">auto</span><span class="p">:</span>
+</span><span id="__span-0-4862"><a id="__codelineno-0-4862" name="__codelineno-0-4862"></a>        <span class="k">if</span> <span class="ow">not</span> <span class="n">slp_path</span><span class="p">:</span>
+</span><span id="__span-0-4863"><a id="__codelineno-0-4863" name="__codelineno-0-4863"></a>            <span class="n">click</span><span class="o">.</span><span class="n">echo</span><span class="p">(</span><span class="s2">&quot;Error: SLP_PATH is required for --auto mode&quot;</span><span class="p">,</span> <span class="n">err</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+</span><span id="__span-0-4864"><a id="__codelineno-0-4864" name="__codelineno-0-4864"></a>            <span class="k">raise</span> <span class="ne">SystemExit</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+</span><span id="__span-0-4865"><a id="__codelineno-0-4865" name="__codelineno-0-4865"></a>
+</span><span id="__span-0-4866"><a id="__codelineno-0-4866" name="__codelineno-0-4866"></a>        <span class="n">gen</span> <span class="o">=</span> <span class="n">ConfigGenerator</span><span class="o">.</span><span class="n">from_slp</span><span class="p">(</span><span class="n">slp_path</span><span class="p">)</span>
+</span><span id="__span-0-4867"><a id="__codelineno-0-4867" name="__codelineno-0-4867"></a>        <span class="n">gen</span><span class="o">.</span><span class="n">auto</span><span class="p">()</span>
+</span><span id="__span-0-4868"><a id="__codelineno-0-4868" name="__codelineno-0-4868"></a>
+</span><span id="__span-0-4869"><a id="__codelineno-0-4869" name="__codelineno-0-4869"></a>        <span class="c1"># Apply overrides</span>
+</span><span id="__span-0-4870"><a id="__codelineno-0-4870" name="__codelineno-0-4870"></a>        <span class="k">if</span> <span class="n">pipeline</span><span class="p">:</span>
+</span><span id="__span-0-4871"><a id="__codelineno-0-4871" name="__codelineno-0-4871"></a>            <span class="c1"># &#39;topdown&#39; is a CLI alias for the centroid STAGE (is_topdown=True),</span>
+</span><span id="__span-0-4872"><a id="__codelineno-0-4872" name="__codelineno-0-4872"></a>            <span class="c1"># which triggers paired centroid + centered_instance generation.</span>
+</span><span id="__span-0-4873"><a id="__codelineno-0-4873" name="__codelineno-0-4873"></a>            <span class="c1"># &#39;centroid&#39; is the STANDALONE single-config centroid model</span>
+</span><span id="__span-0-4874"><a id="__codelineno-0-4874" name="__codelineno-0-4874"></a>            <span class="c1"># (is_topdown=False), emitted via the &quot;centroid_only&quot; pipeline.</span>
+</span><span id="__span-0-4875"><a id="__codelineno-0-4875" name="__codelineno-0-4875"></a>            <span class="k">if</span> <span class="n">pipeline</span> <span class="o">==</span> <span class="s2">&quot;topdown&quot;</span><span class="p">:</span>
+</span><span id="__span-0-4876"><a id="__codelineno-0-4876" name="__codelineno-0-4876"></a>                <span class="n">gen</span><span class="o">.</span><span class="n">pipeline</span><span class="p">(</span><span class="s2">&quot;centroid&quot;</span><span class="p">)</span>
+</span><span id="__span-0-4877"><a id="__codelineno-0-4877" name="__codelineno-0-4877"></a>            <span class="k">elif</span> <span class="n">pipeline</span> <span class="o">==</span> <span class="s2">&quot;centroid&quot;</span><span class="p">:</span>
+</span><span id="__span-0-4878"><a id="__codelineno-0-4878" name="__codelineno-0-4878"></a>                <span class="n">gen</span><span class="o">.</span><span class="n">pipeline</span><span class="p">(</span><span class="s2">&quot;centroid_only&quot;</span><span class="p">)</span>
+</span><span id="__span-0-4879"><a id="__codelineno-0-4879" name="__codelineno-0-4879"></a>            <span class="k">else</span><span class="p">:</span>
+</span><span id="__span-0-4880"><a id="__codelineno-0-4880" name="__codelineno-0-4880"></a>                <span class="n">gen</span><span class="o">.</span><span class="n">pipeline</span><span class="p">(</span><span class="n">pipeline</span><span class="p">)</span>
+</span><span id="__span-0-4881"><a id="__codelineno-0-4881" name="__codelineno-0-4881"></a>
+</span><span id="__span-0-4882"><a id="__codelineno-0-4882" name="__codelineno-0-4882"></a>        <span class="k">if</span> <span class="n">show_yaml</span><span class="p">:</span>
+</span><span id="__span-0-4883"><a id="__codelineno-0-4883" name="__codelineno-0-4883"></a>            <span class="n">click</span><span class="o">.</span><span class="n">echo</span><span class="p">(</span><span class="n">gen</span><span class="o">.</span><span class="n">to_yaml</span><span class="p">())</span>
+</span><span id="__span-0-4884"><a id="__codelineno-0-4884" name="__codelineno-0-4884"></a>        <span class="k">elif</span> <span class="n">output</span><span class="p">:</span>
+</span><span id="__span-0-4885"><a id="__codelineno-0-4885" name="__codelineno-0-4885"></a>            <span class="n">gen</span><span class="o">.</span><span class="n">save</span><span class="p">(</span><span class="n">output</span><span class="p">)</span>
+</span><span id="__span-0-4886"><a id="__codelineno-0-4886" name="__codelineno-0-4886"></a>            <span class="k">if</span> <span class="n">gen</span><span class="o">.</span><span class="n">is_topdown</span><span class="p">:</span>
+</span><span id="__span-0-4887"><a id="__codelineno-0-4887" name="__codelineno-0-4887"></a>                <span class="c1"># &quot;centroid&quot; (or &quot;detector&quot; for topdown_bbox_*), then &quot;instance&quot;.</span>
+</span><span id="__span-0-4888"><a id="__codelineno-0-4888" name="__codelineno-0-4888"></a>                <span class="k">for</span> <span class="n">stage</span><span class="p">,</span> <span class="n">stage_path</span> <span class="ow">in</span> <span class="n">gen</span><span class="o">.</span><span class="n">topdown_paths</span><span class="p">(</span><span class="n">output</span><span class="p">):</span>
+</span><span id="__span-0-4889"><a id="__codelineno-0-4889" name="__codelineno-0-4889"></a>                    <span class="n">click</span><span class="o">.</span><span class="n">echo</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Saved </span><span class="si">{</span><span class="n">stage</span><span class="si">}</span><span class="s2"> config to: </span><span class="si">{</span><span class="n">stage_path</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</span><span id="__span-0-4890"><a id="__codelineno-0-4890" name="__codelineno-0-4890"></a>            <span class="k">else</span><span class="p">:</span>
+</span><span id="__span-0-4891"><a id="__codelineno-0-4891" name="__codelineno-0-4891"></a>                <span class="n">click</span><span class="o">.</span><span class="n">echo</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Saved config to: </span><span class="si">{</span><span class="n">output</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</span><span id="__span-0-4892"><a id="__codelineno-0-4892" name="__codelineno-0-4892"></a>        <span class="k">else</span><span class="p">:</span>
+</span><span id="__span-0-4893"><a id="__codelineno-0-4893" name="__codelineno-0-4893"></a>            <span class="c1"># Default output path</span>
+</span><span id="__span-0-4894"><a id="__codelineno-0-4894" name="__codelineno-0-4894"></a>            <span class="n">slp_stem</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">slp_path</span><span class="p">)</span><span class="o">.</span><span class="n">stem</span>
+</span><span id="__span-0-4895"><a id="__codelineno-0-4895" name="__codelineno-0-4895"></a>            <span class="n">output_path</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">slp_path</span><span class="p">)</span><span class="o">.</span><span class="n">parent</span> <span class="o">/</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">slp_stem</span><span class="si">}</span><span class="s2">_config.yaml&quot;</span>
+</span><span id="__span-0-4896"><a id="__codelineno-0-4896" name="__codelineno-0-4896"></a>            <span class="n">gen</span><span class="o">.</span><span class="n">save</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">output_path</span><span class="p">))</span>
+</span><span id="__span-0-4897"><a id="__codelineno-0-4897" name="__codelineno-0-4897"></a>            <span class="k">if</span> <span class="n">gen</span><span class="o">.</span><span class="n">is_topdown</span><span class="p">:</span>
+</span><span id="__span-0-4898"><a id="__codelineno-0-4898" name="__codelineno-0-4898"></a>                <span class="k">for</span> <span class="n">stage</span><span class="p">,</span> <span class="n">stage_path</span> <span class="ow">in</span> <span class="n">gen</span><span class="o">.</span><span class="n">topdown_paths</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">output_path</span><span class="p">)):</span>
+</span><span id="__span-0-4899"><a id="__codelineno-0-4899" name="__codelineno-0-4899"></a>                    <span class="n">click</span><span class="o">.</span><span class="n">echo</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Saved </span><span class="si">{</span><span class="n">stage</span><span class="si">}</span><span class="s2"> config to: </span><span class="si">{</span><span class="n">stage_path</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</span><span id="__span-0-4900"><a id="__codelineno-0-4900" name="__codelineno-0-4900"></a>            <span class="k">else</span><span class="p">:</span>
+</span><span id="__span-0-4901"><a id="__codelineno-0-4901" name="__codelineno-0-4901"></a>                <span class="n">click</span><span class="o">.</span><span class="n">echo</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Saved config to: </span><span class="si">{</span><span class="n">output_path</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</span><span id="__span-0-4902"><a id="__codelineno-0-4902" name="__codelineno-0-4902"></a>        <span class="k">return</span>
+</span><span id="__span-0-4903"><a id="__codelineno-0-4903" name="__codelineno-0-4903"></a>
+</span><span id="__span-0-4904"><a id="__codelineno-0-4904" name="__codelineno-0-4904"></a>    <span class="c1"># Interactive TUI mode</span>
+</span><span id="__span-0-4905"><a id="__codelineno-0-4905" name="__codelineno-0-4905"></a>    <span class="k">try</span><span class="p">:</span>
+</span><span id="__span-0-4906"><a id="__codelineno-0-4906" name="__codelineno-0-4906"></a>        <span class="kn">from</span><span class="w"> </span><span class="nn">sleap_nn.config_generator.tui.app</span><span class="w"> </span><span class="kn">import</span> <span class="n">launch_tui</span>
+</span><span id="__span-0-4907"><a id="__codelineno-0-4907" name="__codelineno-0-4907"></a>
+</span><span id="__span-0-4908"><a id="__codelineno-0-4908" name="__codelineno-0-4908"></a>        <span class="n">launch_tui</span><span class="p">(</span><span class="n">slp_path</span><span class="p">)</span>
+</span><span id="__span-0-4909"><a id="__codelineno-0-4909" name="__codelineno-0-4909"></a>    <span class="k">except</span> <span class="ne">ImportError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+</span><span id="__span-0-4910"><a id="__codelineno-0-4910" name="__codelineno-0-4910"></a>        <span class="n">click</span><span class="o">.</span><span class="n">echo</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Error: TUI dependencies not available: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">err</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+</span><span id="__span-0-4911"><a id="__codelineno-0-4911" name="__codelineno-0-4911"></a>        <span class="n">click</span><span class="o">.</span><span class="n">echo</span><span class="p">(</span><span class="s2">&quot;Install with: pip install textual&quot;</span><span class="p">,</span> <span class="n">err</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+</span><span id="__span-0-4912"><a id="__codelineno-0-4912" name="__codelineno-0-4912"></a>        <span class="k">raise</span> <span class="ne">SystemExit</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
 </span></code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -9118,25 +9146,7 @@ generate a config with smart defaults based on your data.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>sleap_nn/cli.py</code></summary>
-              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-4478">4478</a></span>
-<span class="normal"><a href="#__codelineno-0-4479">4479</a></span>
-<span class="normal"><a href="#__codelineno-0-4480">4480</a></span>
-<span class="normal"><a href="#__codelineno-0-4481">4481</a></span>
-<span class="normal"><a href="#__codelineno-0-4482">4482</a></span>
-<span class="normal"><a href="#__codelineno-0-4483">4483</a></span>
-<span class="normal"><a href="#__codelineno-0-4484">4484</a></span>
-<span class="normal"><a href="#__codelineno-0-4485">4485</a></span>
-<span class="normal"><a href="#__codelineno-0-4486">4486</a></span>
-<span class="normal"><a href="#__codelineno-0-4487">4487</a></span>
-<span class="normal"><a href="#__codelineno-0-4488">4488</a></span>
-<span class="normal"><a href="#__codelineno-0-4489">4489</a></span>
-<span class="normal"><a href="#__codelineno-0-4490">4490</a></span>
-<span class="normal"><a href="#__codelineno-0-4491">4491</a></span>
-<span class="normal"><a href="#__codelineno-0-4492">4492</a></span>
-<span class="normal"><a href="#__codelineno-0-4493">4493</a></span>
-<span class="normal"><a href="#__codelineno-0-4494">4494</a></span>
-<span class="normal"><a href="#__codelineno-0-4495">4495</a></span>
-<span class="normal"><a href="#__codelineno-0-4496">4496</a></span>
+              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-4496">4496</a></span>
 <span class="normal"><a href="#__codelineno-0-4497">4497</a></span>
 <span class="normal"><a href="#__codelineno-0-4498">4498</a></span>
 <span class="normal"><a href="#__codelineno-0-4499">4499</a></span>
@@ -9225,114 +9235,132 @@ generate a config with smart defaults based on your data.</p>
 <span class="normal"><a href="#__codelineno-0-4582">4582</a></span>
 <span class="normal"><a href="#__codelineno-0-4583">4583</a></span>
 <span class="normal"><a href="#__codelineno-0-4584">4584</a></span>
-<span class="normal"><a href="#__codelineno-0-4585">4585</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-4478"><a id="__codelineno-0-4478" name="__codelineno-0-4478"></a><span class="nd">@cli</span><span class="o">.</span><span class="n">command</span><span class="p">(</span><span class="n">context_settings</span><span class="o">=</span><span class="n">CONTEXT_SETTINGS</span><span class="p">)</span>
-</span><span id="__span-0-4479"><a id="__codelineno-0-4479" name="__codelineno-0-4479"></a><span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span>
-</span><span id="__span-0-4480"><a id="__codelineno-0-4480" name="__codelineno-0-4480"></a>    <span class="s2">&quot;--ground_truth_path&quot;</span><span class="p">,</span>
-</span><span id="__span-0-4481"><a id="__codelineno-0-4481" name="__codelineno-0-4481"></a>    <span class="s2">&quot;-g&quot;</span><span class="p">,</span>
-</span><span id="__span-0-4482"><a id="__codelineno-0-4482" name="__codelineno-0-4482"></a>    <span class="nb">type</span><span class="o">=</span><span class="nb">str</span><span class="p">,</span>
-</span><span id="__span-0-4483"><a id="__codelineno-0-4483" name="__codelineno-0-4483"></a>    <span class="n">required</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
-</span><span id="__span-0-4484"><a id="__codelineno-0-4484" name="__codelineno-0-4484"></a>    <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Path to ground truth labels file (.slp)&quot;</span><span class="p">,</span>
-</span><span id="__span-0-4485"><a id="__codelineno-0-4485" name="__codelineno-0-4485"></a><span class="p">)</span>
-</span><span id="__span-0-4486"><a id="__codelineno-0-4486" name="__codelineno-0-4486"></a><span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span>
-</span><span id="__span-0-4487"><a id="__codelineno-0-4487" name="__codelineno-0-4487"></a>    <span class="s2">&quot;--predicted_path&quot;</span><span class="p">,</span>
-</span><span id="__span-0-4488"><a id="__codelineno-0-4488" name="__codelineno-0-4488"></a>    <span class="s2">&quot;-p&quot;</span><span class="p">,</span>
-</span><span id="__span-0-4489"><a id="__codelineno-0-4489" name="__codelineno-0-4489"></a>    <span class="nb">type</span><span class="o">=</span><span class="nb">str</span><span class="p">,</span>
-</span><span id="__span-0-4490"><a id="__codelineno-0-4490" name="__codelineno-0-4490"></a>    <span class="n">required</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
-</span><span id="__span-0-4491"><a id="__codelineno-0-4491" name="__codelineno-0-4491"></a>    <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Path to predicted labels file (.slp)&quot;</span><span class="p">,</span>
-</span><span id="__span-0-4492"><a id="__codelineno-0-4492" name="__codelineno-0-4492"></a><span class="p">)</span>
-</span><span id="__span-0-4493"><a id="__codelineno-0-4493" name="__codelineno-0-4493"></a><span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span><span class="s2">&quot;--save_metrics&quot;</span><span class="p">,</span> <span class="s2">&quot;-s&quot;</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">str</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Path to save metrics (.npz file)&quot;</span><span class="p">)</span>
-</span><span id="__span-0-4494"><a id="__codelineno-0-4494" name="__codelineno-0-4494"></a><span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span>
-</span><span id="__span-0-4495"><a id="__codelineno-0-4495" name="__codelineno-0-4495"></a>    <span class="s2">&quot;--oks_stddev&quot;</span><span class="p">,</span>
-</span><span id="__span-0-4496"><a id="__codelineno-0-4496" name="__codelineno-0-4496"></a>    <span class="nb">type</span><span class="o">=</span><span class="nb">float</span><span class="p">,</span>
-</span><span id="__span-0-4497"><a id="__codelineno-0-4497" name="__codelineno-0-4497"></a>    <span class="n">default</span><span class="o">=</span><span class="mf">0.025</span><span class="p">,</span>
-</span><span id="__span-0-4498"><a id="__codelineno-0-4498" name="__codelineno-0-4498"></a>    <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Standard deviation for OKS calculation&quot;</span><span class="p">,</span>
-</span><span id="__span-0-4499"><a id="__codelineno-0-4499" name="__codelineno-0-4499"></a><span class="p">)</span>
-</span><span id="__span-0-4500"><a id="__codelineno-0-4500" name="__codelineno-0-4500"></a><span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span><span class="s2">&quot;--oks_scale&quot;</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">float</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Scale factor for OKS calculation&quot;</span><span class="p">)</span>
-</span><span id="__span-0-4501"><a id="__codelineno-0-4501" name="__codelineno-0-4501"></a><span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span>
-</span><span id="__span-0-4502"><a id="__codelineno-0-4502" name="__codelineno-0-4502"></a>    <span class="s2">&quot;--match_threshold&quot;</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">float</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="mf">0.0</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Threshold for instance matching&quot;</span>
+<span class="normal"><a href="#__codelineno-0-4585">4585</a></span>
+<span class="normal"><a href="#__codelineno-0-4586">4586</a></span>
+<span class="normal"><a href="#__codelineno-0-4587">4587</a></span>
+<span class="normal"><a href="#__codelineno-0-4588">4588</a></span>
+<span class="normal"><a href="#__codelineno-0-4589">4589</a></span>
+<span class="normal"><a href="#__codelineno-0-4590">4590</a></span>
+<span class="normal"><a href="#__codelineno-0-4591">4591</a></span>
+<span class="normal"><a href="#__codelineno-0-4592">4592</a></span>
+<span class="normal"><a href="#__codelineno-0-4593">4593</a></span>
+<span class="normal"><a href="#__codelineno-0-4594">4594</a></span>
+<span class="normal"><a href="#__codelineno-0-4595">4595</a></span>
+<span class="normal"><a href="#__codelineno-0-4596">4596</a></span>
+<span class="normal"><a href="#__codelineno-0-4597">4597</a></span>
+<span class="normal"><a href="#__codelineno-0-4598">4598</a></span>
+<span class="normal"><a href="#__codelineno-0-4599">4599</a></span>
+<span class="normal"><a href="#__codelineno-0-4600">4600</a></span>
+<span class="normal"><a href="#__codelineno-0-4601">4601</a></span>
+<span class="normal"><a href="#__codelineno-0-4602">4602</a></span>
+<span class="normal"><a href="#__codelineno-0-4603">4603</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-4496"><a id="__codelineno-0-4496" name="__codelineno-0-4496"></a><span class="nd">@cli</span><span class="o">.</span><span class="n">command</span><span class="p">(</span><span class="n">context_settings</span><span class="o">=</span><span class="n">CONTEXT_SETTINGS</span><span class="p">)</span>
+</span><span id="__span-0-4497"><a id="__codelineno-0-4497" name="__codelineno-0-4497"></a><span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span>
+</span><span id="__span-0-4498"><a id="__codelineno-0-4498" name="__codelineno-0-4498"></a>    <span class="s2">&quot;--ground_truth_path&quot;</span><span class="p">,</span>
+</span><span id="__span-0-4499"><a id="__codelineno-0-4499" name="__codelineno-0-4499"></a>    <span class="s2">&quot;-g&quot;</span><span class="p">,</span>
+</span><span id="__span-0-4500"><a id="__codelineno-0-4500" name="__codelineno-0-4500"></a>    <span class="nb">type</span><span class="o">=</span><span class="nb">str</span><span class="p">,</span>
+</span><span id="__span-0-4501"><a id="__codelineno-0-4501" name="__codelineno-0-4501"></a>    <span class="n">required</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+</span><span id="__span-0-4502"><a id="__codelineno-0-4502" name="__codelineno-0-4502"></a>    <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Path to ground truth labels file (.slp)&quot;</span><span class="p">,</span>
 </span><span id="__span-0-4503"><a id="__codelineno-0-4503" name="__codelineno-0-4503"></a><span class="p">)</span>
 </span><span id="__span-0-4504"><a id="__codelineno-0-4504" name="__codelineno-0-4504"></a><span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span>
-</span><span id="__span-0-4505"><a id="__codelineno-0-4505" name="__codelineno-0-4505"></a>    <span class="s2">&quot;--user_labels_only/--no-user_labels_only&quot;</span><span class="p">,</span>
-</span><span id="__span-0-4506"><a id="__codelineno-0-4506" name="__codelineno-0-4506"></a>    <span class="n">default</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
-</span><span id="__span-0-4507"><a id="__codelineno-0-4507" name="__codelineno-0-4507"></a>    <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Only evaluate user-labeled frames (default: True)&quot;</span><span class="p">,</span>
-</span><span id="__span-0-4508"><a id="__codelineno-0-4508" name="__codelineno-0-4508"></a><span class="p">)</span>
-</span><span id="__span-0-4509"><a id="__codelineno-0-4509" name="__codelineno-0-4509"></a><span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span>
-</span><span id="__span-0-4510"><a id="__codelineno-0-4510" name="__codelineno-0-4510"></a>    <span class="s2">&quot;--match_method&quot;</span><span class="p">,</span>
-</span><span id="__span-0-4511"><a id="__codelineno-0-4511" name="__codelineno-0-4511"></a>    <span class="nb">type</span><span class="o">=</span><span class="n">click</span><span class="o">.</span><span class="n">Choice</span><span class="p">([</span><span class="s2">&quot;oks&quot;</span><span class="p">,</span> <span class="s2">&quot;centroid&quot;</span><span class="p">,</span> <span class="s2">&quot;mask&quot;</span><span class="p">,</span> <span class="s2">&quot;semantic&quot;</span><span class="p">,</span> <span class="s2">&quot;bbox&quot;</span><span class="p">,</span> <span class="s2">&quot;auto&quot;</span><span class="p">]),</span>
-</span><span id="__span-0-4512"><a id="__codelineno-0-4512" name="__codelineno-0-4512"></a>    <span class="n">default</span><span class="o">=</span><span class="s2">&quot;auto&quot;</span><span class="p">,</span>
-</span><span id="__span-0-4513"><a id="__codelineno-0-4513" name="__codelineno-0-4513"></a>    <span class="n">help</span><span class="o">=</span><span class="p">(</span>
-</span><span id="__span-0-4514"><a id="__codelineno-0-4514" name="__codelineno-0-4514"></a>        <span class="s2">&quot;Matching method: &#39;oks&#39; (full-skeleton), &#39;centroid&#39; (single-point &quot;</span>
-</span><span id="__span-0-4515"><a id="__codelineno-0-4515" name="__codelineno-0-4515"></a>        <span class="s2">&quot;pixel-distance), &#39;mask&#39; (instance-segmentation mask IoU), &#39;semantic&#39; &quot;</span>
-</span><span id="__span-0-4516"><a id="__codelineno-0-4516" name="__codelineno-0-4516"></a>        <span class="s2">&quot;(whole-frame foreground IoU/clDice, no matching), &#39;bbox&#39; (COCO box AP of &quot;</span>
-</span><span id="__span-0-4517"><a id="__codelineno-0-4517" name="__codelineno-0-4517"></a>        <span class="s2">&quot;predicted bounding boxes), or &#39;auto&#39; (bbox when the predictions are &quot;</span>
-</span><span id="__span-0-4518"><a id="__codelineno-0-4518" name="__codelineno-0-4518"></a>        <span class="s2">&quot;boxes only, centroid when the prediction skeleton is single-node). &quot;</span>
-</span><span id="__span-0-4519"><a id="__codelineno-0-4519" name="__codelineno-0-4519"></a>        <span class="s2">&quot;Default: auto.&quot;</span>
-</span><span id="__span-0-4520"><a id="__codelineno-0-4520" name="__codelineno-0-4520"></a>    <span class="p">),</span>
+</span><span id="__span-0-4505"><a id="__codelineno-0-4505" name="__codelineno-0-4505"></a>    <span class="s2">&quot;--predicted_path&quot;</span><span class="p">,</span>
+</span><span id="__span-0-4506"><a id="__codelineno-0-4506" name="__codelineno-0-4506"></a>    <span class="s2">&quot;-p&quot;</span><span class="p">,</span>
+</span><span id="__span-0-4507"><a id="__codelineno-0-4507" name="__codelineno-0-4507"></a>    <span class="nb">type</span><span class="o">=</span><span class="nb">str</span><span class="p">,</span>
+</span><span id="__span-0-4508"><a id="__codelineno-0-4508" name="__codelineno-0-4508"></a>    <span class="n">required</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+</span><span id="__span-0-4509"><a id="__codelineno-0-4509" name="__codelineno-0-4509"></a>    <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Path to predicted labels file (.slp)&quot;</span><span class="p">,</span>
+</span><span id="__span-0-4510"><a id="__codelineno-0-4510" name="__codelineno-0-4510"></a><span class="p">)</span>
+</span><span id="__span-0-4511"><a id="__codelineno-0-4511" name="__codelineno-0-4511"></a><span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span><span class="s2">&quot;--save_metrics&quot;</span><span class="p">,</span> <span class="s2">&quot;-s&quot;</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">str</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Path to save metrics (.npz file)&quot;</span><span class="p">)</span>
+</span><span id="__span-0-4512"><a id="__codelineno-0-4512" name="__codelineno-0-4512"></a><span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span>
+</span><span id="__span-0-4513"><a id="__codelineno-0-4513" name="__codelineno-0-4513"></a>    <span class="s2">&quot;--oks_stddev&quot;</span><span class="p">,</span>
+</span><span id="__span-0-4514"><a id="__codelineno-0-4514" name="__codelineno-0-4514"></a>    <span class="nb">type</span><span class="o">=</span><span class="nb">float</span><span class="p">,</span>
+</span><span id="__span-0-4515"><a id="__codelineno-0-4515" name="__codelineno-0-4515"></a>    <span class="n">default</span><span class="o">=</span><span class="mf">0.025</span><span class="p">,</span>
+</span><span id="__span-0-4516"><a id="__codelineno-0-4516" name="__codelineno-0-4516"></a>    <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Standard deviation for OKS calculation&quot;</span><span class="p">,</span>
+</span><span id="__span-0-4517"><a id="__codelineno-0-4517" name="__codelineno-0-4517"></a><span class="p">)</span>
+</span><span id="__span-0-4518"><a id="__codelineno-0-4518" name="__codelineno-0-4518"></a><span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span><span class="s2">&quot;--oks_scale&quot;</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">float</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Scale factor for OKS calculation&quot;</span><span class="p">)</span>
+</span><span id="__span-0-4519"><a id="__codelineno-0-4519" name="__codelineno-0-4519"></a><span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span>
+</span><span id="__span-0-4520"><a id="__codelineno-0-4520" name="__codelineno-0-4520"></a>    <span class="s2">&quot;--match_threshold&quot;</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">float</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="mf">0.0</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Threshold for instance matching&quot;</span>
 </span><span id="__span-0-4521"><a id="__codelineno-0-4521" name="__codelineno-0-4521"></a><span class="p">)</span>
 </span><span id="__span-0-4522"><a id="__codelineno-0-4522" name="__codelineno-0-4522"></a><span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span>
-</span><span id="__span-0-4523"><a id="__codelineno-0-4523" name="__codelineno-0-4523"></a>    <span class="s2">&quot;--bbox_source&quot;</span><span class="p">,</span>
-</span><span id="__span-0-4524"><a id="__codelineno-0-4524" name="__codelineno-0-4524"></a>    <span class="nb">type</span><span class="o">=</span><span class="n">click</span><span class="o">.</span><span class="n">Choice</span><span class="p">([</span><span class="s2">&quot;auto&quot;</span><span class="p">,</span> <span class="s2">&quot;bboxes&quot;</span><span class="p">,</span> <span class="s2">&quot;instances&quot;</span><span class="p">,</span> <span class="s2">&quot;masks&quot;</span><span class="p">]),</span>
-</span><span id="__span-0-4525"><a id="__codelineno-0-4525" name="__codelineno-0-4525"></a>    <span class="n">default</span><span class="o">=</span><span class="s2">&quot;auto&quot;</span><span class="p">,</span>
-</span><span id="__span-0-4526"><a id="__codelineno-0-4526" name="__codelineno-0-4526"></a>    <span class="n">help</span><span class="o">=</span><span class="p">(</span>
-</span><span id="__span-0-4527"><a id="__codelineno-0-4527" name="__codelineno-0-4527"></a>        <span class="s2">&quot;bbox mode: where ground-truth boxes come from (user boxes, or derived &quot;</span>
-</span><span id="__span-0-4528"><a id="__codelineno-0-4528" name="__codelineno-0-4528"></a>        <span class="s2">&quot;from poses / masks). Pass the model&#39;s data_config.bbox_source.&quot;</span>
-</span><span id="__span-0-4529"><a id="__codelineno-0-4529" name="__codelineno-0-4529"></a>    <span class="p">),</span>
-</span><span id="__span-0-4530"><a id="__codelineno-0-4530" name="__codelineno-0-4530"></a><span class="p">)</span>
-</span><span id="__span-0-4531"><a id="__codelineno-0-4531" name="__codelineno-0-4531"></a><span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span>
-</span><span id="__span-0-4532"><a id="__codelineno-0-4532" name="__codelineno-0-4532"></a>    <span class="s2">&quot;--bbox_padding&quot;</span><span class="p">,</span>
-</span><span id="__span-0-4533"><a id="__codelineno-0-4533" name="__codelineno-0-4533"></a>    <span class="nb">type</span><span class="o">=</span><span class="nb">float</span><span class="p">,</span>
-</span><span id="__span-0-4534"><a id="__codelineno-0-4534" name="__codelineno-0-4534"></a>    <span class="n">default</span><span class="o">=</span><span class="mf">0.0</span><span class="p">,</span>
-</span><span id="__span-0-4535"><a id="__codelineno-0-4535" name="__codelineno-0-4535"></a>    <span class="n">help</span><span class="o">=</span><span class="p">(</span>
-</span><span id="__span-0-4536"><a id="__codelineno-0-4536" name="__codelineno-0-4536"></a>        <span class="s2">&quot;bbox mode: pixels of padding on ground-truth boxes derived from poses or &quot;</span>
-</span><span id="__span-0-4537"><a id="__codelineno-0-4537" name="__codelineno-0-4537"></a>        <span class="s2">&quot;masks (when the ground truth has no boxes). Pass the model&#39;s &quot;</span>
-</span><span id="__span-0-4538"><a id="__codelineno-0-4538" name="__codelineno-0-4538"></a>        <span class="s2">&quot;data_config.bbox_padding.&quot;</span>
-</span><span id="__span-0-4539"><a id="__codelineno-0-4539" name="__codelineno-0-4539"></a>    <span class="p">),</span>
-</span><span id="__span-0-4540"><a id="__codelineno-0-4540" name="__codelineno-0-4540"></a><span class="p">)</span>
-</span><span id="__span-0-4541"><a id="__codelineno-0-4541" name="__codelineno-0-4541"></a><span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span>
-</span><span id="__span-0-4542"><a id="__codelineno-0-4542" name="__codelineno-0-4542"></a>    <span class="s2">&quot;--anchor_part&quot;</span><span class="p">,</span>
-</span><span id="__span-0-4543"><a id="__codelineno-0-4543" name="__codelineno-0-4543"></a>    <span class="nb">type</span><span class="o">=</span><span class="nb">str</span><span class="p">,</span>
-</span><span id="__span-0-4544"><a id="__codelineno-0-4544" name="__codelineno-0-4544"></a>    <span class="n">default</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-</span><span id="__span-0-4545"><a id="__codelineno-0-4545" name="__codelineno-0-4545"></a>    <span class="n">help</span><span class="o">=</span><span class="p">(</span>
-</span><span id="__span-0-4546"><a id="__codelineno-0-4546" name="__codelineno-0-4546"></a>        <span class="s2">&quot;GT skeleton node used to compute ground-truth centroids in centroid &quot;</span>
-</span><span id="__span-0-4547"><a id="__codelineno-0-4547" name="__codelineno-0-4547"></a>        <span class="s2">&quot;mode. Defaults to the mean of visible nodes when absent (#586).&quot;</span>
-</span><span id="__span-0-4548"><a id="__codelineno-0-4548" name="__codelineno-0-4548"></a>    <span class="p">),</span>
-</span><span id="__span-0-4549"><a id="__codelineno-0-4549" name="__codelineno-0-4549"></a><span class="p">)</span>
-</span><span id="__span-0-4550"><a id="__codelineno-0-4550" name="__codelineno-0-4550"></a><span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span>
-</span><span id="__span-0-4551"><a id="__codelineno-0-4551" name="__codelineno-0-4551"></a>    <span class="s2">&quot;--centroid_method&quot;</span><span class="p">,</span>
-</span><span id="__span-0-4552"><a id="__codelineno-0-4552" name="__codelineno-0-4552"></a>    <span class="nb">type</span><span class="o">=</span><span class="n">click</span><span class="o">.</span><span class="n">Choice</span><span class="p">([</span><span class="s2">&quot;center_of_mass&quot;</span><span class="p">,</span> <span class="s2">&quot;bbox_center&quot;</span><span class="p">,</span> <span class="s2">&quot;geometric_median&quot;</span><span class="p">,</span> <span class="s2">&quot;anchor&quot;</span><span class="p">]),</span>
-</span><span id="__span-0-4553"><a id="__codelineno-0-4553" name="__codelineno-0-4553"></a>    <span class="n">default</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-</span><span id="__span-0-4554"><a id="__codelineno-0-4554" name="__codelineno-0-4554"></a>    <span class="n">help</span><span class="o">=</span><span class="p">(</span>
-</span><span id="__span-0-4555"><a id="__codelineno-0-4555" name="__codelineno-0-4555"></a>        <span class="s2">&quot;How ground-truth centroids are derived in centroid mode. Defaults to &quot;</span>
-</span><span id="__span-0-4556"><a id="__codelineno-0-4556" name="__codelineno-0-4556"></a>        <span class="s2">&quot;the anchor node when --anchor_part is given, else the mean of visible &quot;</span>
-</span><span id="__span-0-4557"><a id="__codelineno-0-4557" name="__codelineno-0-4557"></a>        <span class="s2">&quot;nodes. Pass the value the model was TRAINED with (its &quot;</span>
-</span><span id="__span-0-4558"><a id="__codelineno-0-4558" name="__codelineno-0-4558"></a>        <span class="s2">&quot;head_configs.centroid.confmaps.centroid_method) so the metric compares &quot;</span>
-</span><span id="__span-0-4559"><a id="__codelineno-0-4559" name="__codelineno-0-4559"></a>        <span class="s2">&quot;like with like (#586).&quot;</span>
-</span><span id="__span-0-4560"><a id="__codelineno-0-4560" name="__codelineno-0-4560"></a>    <span class="p">),</span>
-</span><span id="__span-0-4561"><a id="__codelineno-0-4561" name="__codelineno-0-4561"></a><span class="p">)</span>
-</span><span id="__span-0-4562"><a id="__codelineno-0-4562" name="__codelineno-0-4562"></a><span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span>
-</span><span id="__span-0-4563"><a id="__codelineno-0-4563" name="__codelineno-0-4563"></a>    <span class="s2">&quot;--centroid_fallback&quot;</span><span class="p">,</span>
-</span><span id="__span-0-4564"><a id="__codelineno-0-4564" name="__codelineno-0-4564"></a>    <span class="nb">type</span><span class="o">=</span><span class="n">click</span><span class="o">.</span><span class="n">Choice</span><span class="p">([</span><span class="s2">&quot;center_of_mass&quot;</span><span class="p">,</span> <span class="s2">&quot;bbox_center&quot;</span><span class="p">,</span> <span class="s2">&quot;geometric_median&quot;</span><span class="p">]),</span>
-</span><span id="__span-0-4565"><a id="__codelineno-0-4565" name="__codelineno-0-4565"></a>    <span class="n">default</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-</span><span id="__span-0-4566"><a id="__codelineno-0-4566" name="__codelineno-0-4566"></a>    <span class="n">help</span><span class="o">=</span><span class="p">(</span>
-</span><span id="__span-0-4567"><a id="__codelineno-0-4567" name="__codelineno-0-4567"></a>        <span class="s2">&quot;Reduce method used when the --anchor_part node is not visible. &quot;</span>
-</span><span id="__span-0-4568"><a id="__codelineno-0-4568" name="__codelineno-0-4568"></a>        <span class="s2">&quot;Default: center_of_mass.&quot;</span>
-</span><span id="__span-0-4569"><a id="__codelineno-0-4569" name="__codelineno-0-4569"></a>    <span class="p">),</span>
-</span><span id="__span-0-4570"><a id="__codelineno-0-4570" name="__codelineno-0-4570"></a><span class="p">)</span>
-</span><span id="__span-0-4571"><a id="__codelineno-0-4571" name="__codelineno-0-4571"></a><span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span>
-</span><span id="__span-0-4572"><a id="__codelineno-0-4572" name="__codelineno-0-4572"></a>    <span class="s2">&quot;--count_unmatched_as_fp/--no-count_unmatched_as_fp&quot;</span><span class="p">,</span>
-</span><span id="__span-0-4573"><a id="__codelineno-0-4573" name="__codelineno-0-4573"></a>    <span class="n">default</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
-</span><span id="__span-0-4574"><a id="__codelineno-0-4574" name="__codelineno-0-4574"></a>    <span class="n">help</span><span class="o">=</span><span class="p">(</span>
-</span><span id="__span-0-4575"><a id="__codelineno-0-4575" name="__codelineno-0-4575"></a>        <span class="s2">&quot;Count unmatched predictions as false positives in the oks_voc metrics. &quot;</span>
-</span><span id="__span-0-4576"><a id="__codelineno-0-4576" name="__codelineno-0-4576"></a>        <span class="s2">&quot;Default off, which keeps the numbers earlier versions reported (those &quot;</span>
-</span><span id="__span-0-4577"><a id="__codelineno-0-4577" name="__codelineno-0-4577"></a>        <span class="s2">&quot;ignore unmatched predictions, so AP is overstated for models that &quot;</span>
-</span><span id="__span-0-4578"><a id="__codelineno-0-4578" name="__codelineno-0-4578"></a>        <span class="s2">&quot;produce duplicate or spurious detections).&quot;</span>
-</span><span id="__span-0-4579"><a id="__codelineno-0-4579" name="__codelineno-0-4579"></a>    <span class="p">),</span>
-</span><span id="__span-0-4580"><a id="__codelineno-0-4580" name="__codelineno-0-4580"></a><span class="p">)</span>
-</span><span id="__span-0-4581"><a id="__codelineno-0-4581" name="__codelineno-0-4581"></a><span class="k">def</span><span class="w"> </span><span class="nf">eval</span><span class="p">(</span><span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
-</span><span id="__span-0-4582"><a id="__codelineno-0-4582" name="__codelineno-0-4582"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Run evaluation workflow.&quot;&quot;&quot;</span>
-</span><span id="__span-0-4583"><a id="__codelineno-0-4583" name="__codelineno-0-4583"></a>    <span class="kn">from</span><span class="w"> </span><span class="nn">sleap_nn.evaluation</span><span class="w"> </span><span class="kn">import</span> <span class="n">run_evaluation</span>
-</span><span id="__span-0-4584"><a id="__codelineno-0-4584" name="__codelineno-0-4584"></a>
-</span><span id="__span-0-4585"><a id="__codelineno-0-4585" name="__codelineno-0-4585"></a>    <span class="n">run_evaluation</span><span class="p">(</span><span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+</span><span id="__span-0-4523"><a id="__codelineno-0-4523" name="__codelineno-0-4523"></a>    <span class="s2">&quot;--user_labels_only/--no-user_labels_only&quot;</span><span class="p">,</span>
+</span><span id="__span-0-4524"><a id="__codelineno-0-4524" name="__codelineno-0-4524"></a>    <span class="n">default</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+</span><span id="__span-0-4525"><a id="__codelineno-0-4525" name="__codelineno-0-4525"></a>    <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Only evaluate user-labeled frames (default: True)&quot;</span><span class="p">,</span>
+</span><span id="__span-0-4526"><a id="__codelineno-0-4526" name="__codelineno-0-4526"></a><span class="p">)</span>
+</span><span id="__span-0-4527"><a id="__codelineno-0-4527" name="__codelineno-0-4527"></a><span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span>
+</span><span id="__span-0-4528"><a id="__codelineno-0-4528" name="__codelineno-0-4528"></a>    <span class="s2">&quot;--match_method&quot;</span><span class="p">,</span>
+</span><span id="__span-0-4529"><a id="__codelineno-0-4529" name="__codelineno-0-4529"></a>    <span class="nb">type</span><span class="o">=</span><span class="n">click</span><span class="o">.</span><span class="n">Choice</span><span class="p">([</span><span class="s2">&quot;oks&quot;</span><span class="p">,</span> <span class="s2">&quot;centroid&quot;</span><span class="p">,</span> <span class="s2">&quot;mask&quot;</span><span class="p">,</span> <span class="s2">&quot;semantic&quot;</span><span class="p">,</span> <span class="s2">&quot;bbox&quot;</span><span class="p">,</span> <span class="s2">&quot;auto&quot;</span><span class="p">]),</span>
+</span><span id="__span-0-4530"><a id="__codelineno-0-4530" name="__codelineno-0-4530"></a>    <span class="n">default</span><span class="o">=</span><span class="s2">&quot;auto&quot;</span><span class="p">,</span>
+</span><span id="__span-0-4531"><a id="__codelineno-0-4531" name="__codelineno-0-4531"></a>    <span class="n">help</span><span class="o">=</span><span class="p">(</span>
+</span><span id="__span-0-4532"><a id="__codelineno-0-4532" name="__codelineno-0-4532"></a>        <span class="s2">&quot;Matching method: &#39;oks&#39; (full-skeleton), &#39;centroid&#39; (single-point &quot;</span>
+</span><span id="__span-0-4533"><a id="__codelineno-0-4533" name="__codelineno-0-4533"></a>        <span class="s2">&quot;pixel-distance), &#39;mask&#39; (instance-segmentation mask IoU), &#39;semantic&#39; &quot;</span>
+</span><span id="__span-0-4534"><a id="__codelineno-0-4534" name="__codelineno-0-4534"></a>        <span class="s2">&quot;(whole-frame foreground IoU/clDice, no matching), &#39;bbox&#39; (COCO box AP of &quot;</span>
+</span><span id="__span-0-4535"><a id="__codelineno-0-4535" name="__codelineno-0-4535"></a>        <span class="s2">&quot;predicted bounding boxes), or &#39;auto&#39; (bbox when the predictions are &quot;</span>
+</span><span id="__span-0-4536"><a id="__codelineno-0-4536" name="__codelineno-0-4536"></a>        <span class="s2">&quot;boxes only, centroid when the prediction skeleton is single-node). &quot;</span>
+</span><span id="__span-0-4537"><a id="__codelineno-0-4537" name="__codelineno-0-4537"></a>        <span class="s2">&quot;Default: auto.&quot;</span>
+</span><span id="__span-0-4538"><a id="__codelineno-0-4538" name="__codelineno-0-4538"></a>    <span class="p">),</span>
+</span><span id="__span-0-4539"><a id="__codelineno-0-4539" name="__codelineno-0-4539"></a><span class="p">)</span>
+</span><span id="__span-0-4540"><a id="__codelineno-0-4540" name="__codelineno-0-4540"></a><span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span>
+</span><span id="__span-0-4541"><a id="__codelineno-0-4541" name="__codelineno-0-4541"></a>    <span class="s2">&quot;--bbox_source&quot;</span><span class="p">,</span>
+</span><span id="__span-0-4542"><a id="__codelineno-0-4542" name="__codelineno-0-4542"></a>    <span class="nb">type</span><span class="o">=</span><span class="n">click</span><span class="o">.</span><span class="n">Choice</span><span class="p">([</span><span class="s2">&quot;auto&quot;</span><span class="p">,</span> <span class="s2">&quot;bboxes&quot;</span><span class="p">,</span> <span class="s2">&quot;instances&quot;</span><span class="p">,</span> <span class="s2">&quot;masks&quot;</span><span class="p">]),</span>
+</span><span id="__span-0-4543"><a id="__codelineno-0-4543" name="__codelineno-0-4543"></a>    <span class="n">default</span><span class="o">=</span><span class="s2">&quot;auto&quot;</span><span class="p">,</span>
+</span><span id="__span-0-4544"><a id="__codelineno-0-4544" name="__codelineno-0-4544"></a>    <span class="n">help</span><span class="o">=</span><span class="p">(</span>
+</span><span id="__span-0-4545"><a id="__codelineno-0-4545" name="__codelineno-0-4545"></a>        <span class="s2">&quot;bbox mode: where ground-truth boxes come from (user boxes, or derived &quot;</span>
+</span><span id="__span-0-4546"><a id="__codelineno-0-4546" name="__codelineno-0-4546"></a>        <span class="s2">&quot;from poses / masks). Pass the model&#39;s data_config.bbox_source.&quot;</span>
+</span><span id="__span-0-4547"><a id="__codelineno-0-4547" name="__codelineno-0-4547"></a>    <span class="p">),</span>
+</span><span id="__span-0-4548"><a id="__codelineno-0-4548" name="__codelineno-0-4548"></a><span class="p">)</span>
+</span><span id="__span-0-4549"><a id="__codelineno-0-4549" name="__codelineno-0-4549"></a><span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span>
+</span><span id="__span-0-4550"><a id="__codelineno-0-4550" name="__codelineno-0-4550"></a>    <span class="s2">&quot;--bbox_padding&quot;</span><span class="p">,</span>
+</span><span id="__span-0-4551"><a id="__codelineno-0-4551" name="__codelineno-0-4551"></a>    <span class="nb">type</span><span class="o">=</span><span class="nb">float</span><span class="p">,</span>
+</span><span id="__span-0-4552"><a id="__codelineno-0-4552" name="__codelineno-0-4552"></a>    <span class="n">default</span><span class="o">=</span><span class="mf">0.0</span><span class="p">,</span>
+</span><span id="__span-0-4553"><a id="__codelineno-0-4553" name="__codelineno-0-4553"></a>    <span class="n">help</span><span class="o">=</span><span class="p">(</span>
+</span><span id="__span-0-4554"><a id="__codelineno-0-4554" name="__codelineno-0-4554"></a>        <span class="s2">&quot;bbox mode: pixels of padding on ground-truth boxes derived from poses or &quot;</span>
+</span><span id="__span-0-4555"><a id="__codelineno-0-4555" name="__codelineno-0-4555"></a>        <span class="s2">&quot;masks (when the ground truth has no boxes). Pass the model&#39;s &quot;</span>
+</span><span id="__span-0-4556"><a id="__codelineno-0-4556" name="__codelineno-0-4556"></a>        <span class="s2">&quot;data_config.bbox_padding.&quot;</span>
+</span><span id="__span-0-4557"><a id="__codelineno-0-4557" name="__codelineno-0-4557"></a>    <span class="p">),</span>
+</span><span id="__span-0-4558"><a id="__codelineno-0-4558" name="__codelineno-0-4558"></a><span class="p">)</span>
+</span><span id="__span-0-4559"><a id="__codelineno-0-4559" name="__codelineno-0-4559"></a><span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span>
+</span><span id="__span-0-4560"><a id="__codelineno-0-4560" name="__codelineno-0-4560"></a>    <span class="s2">&quot;--anchor_part&quot;</span><span class="p">,</span>
+</span><span id="__span-0-4561"><a id="__codelineno-0-4561" name="__codelineno-0-4561"></a>    <span class="nb">type</span><span class="o">=</span><span class="nb">str</span><span class="p">,</span>
+</span><span id="__span-0-4562"><a id="__codelineno-0-4562" name="__codelineno-0-4562"></a>    <span class="n">default</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+</span><span id="__span-0-4563"><a id="__codelineno-0-4563" name="__codelineno-0-4563"></a>    <span class="n">help</span><span class="o">=</span><span class="p">(</span>
+</span><span id="__span-0-4564"><a id="__codelineno-0-4564" name="__codelineno-0-4564"></a>        <span class="s2">&quot;GT skeleton node used to compute ground-truth centroids in centroid &quot;</span>
+</span><span id="__span-0-4565"><a id="__codelineno-0-4565" name="__codelineno-0-4565"></a>        <span class="s2">&quot;mode. Defaults to the mean of visible nodes when absent (#586).&quot;</span>
+</span><span id="__span-0-4566"><a id="__codelineno-0-4566" name="__codelineno-0-4566"></a>    <span class="p">),</span>
+</span><span id="__span-0-4567"><a id="__codelineno-0-4567" name="__codelineno-0-4567"></a><span class="p">)</span>
+</span><span id="__span-0-4568"><a id="__codelineno-0-4568" name="__codelineno-0-4568"></a><span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span>
+</span><span id="__span-0-4569"><a id="__codelineno-0-4569" name="__codelineno-0-4569"></a>    <span class="s2">&quot;--centroid_method&quot;</span><span class="p">,</span>
+</span><span id="__span-0-4570"><a id="__codelineno-0-4570" name="__codelineno-0-4570"></a>    <span class="nb">type</span><span class="o">=</span><span class="n">click</span><span class="o">.</span><span class="n">Choice</span><span class="p">([</span><span class="s2">&quot;center_of_mass&quot;</span><span class="p">,</span> <span class="s2">&quot;bbox_center&quot;</span><span class="p">,</span> <span class="s2">&quot;geometric_median&quot;</span><span class="p">,</span> <span class="s2">&quot;anchor&quot;</span><span class="p">]),</span>
+</span><span id="__span-0-4571"><a id="__codelineno-0-4571" name="__codelineno-0-4571"></a>    <span class="n">default</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+</span><span id="__span-0-4572"><a id="__codelineno-0-4572" name="__codelineno-0-4572"></a>    <span class="n">help</span><span class="o">=</span><span class="p">(</span>
+</span><span id="__span-0-4573"><a id="__codelineno-0-4573" name="__codelineno-0-4573"></a>        <span class="s2">&quot;How ground-truth centroids are derived in centroid mode. Defaults to &quot;</span>
+</span><span id="__span-0-4574"><a id="__codelineno-0-4574" name="__codelineno-0-4574"></a>        <span class="s2">&quot;the anchor node when --anchor_part is given, else the mean of visible &quot;</span>
+</span><span id="__span-0-4575"><a id="__codelineno-0-4575" name="__codelineno-0-4575"></a>        <span class="s2">&quot;nodes. Pass the value the model was TRAINED with (its &quot;</span>
+</span><span id="__span-0-4576"><a id="__codelineno-0-4576" name="__codelineno-0-4576"></a>        <span class="s2">&quot;head_configs.centroid.confmaps.centroid_method) so the metric compares &quot;</span>
+</span><span id="__span-0-4577"><a id="__codelineno-0-4577" name="__codelineno-0-4577"></a>        <span class="s2">&quot;like with like (#586).&quot;</span>
+</span><span id="__span-0-4578"><a id="__codelineno-0-4578" name="__codelineno-0-4578"></a>    <span class="p">),</span>
+</span><span id="__span-0-4579"><a id="__codelineno-0-4579" name="__codelineno-0-4579"></a><span class="p">)</span>
+</span><span id="__span-0-4580"><a id="__codelineno-0-4580" name="__codelineno-0-4580"></a><span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span>
+</span><span id="__span-0-4581"><a id="__codelineno-0-4581" name="__codelineno-0-4581"></a>    <span class="s2">&quot;--centroid_fallback&quot;</span><span class="p">,</span>
+</span><span id="__span-0-4582"><a id="__codelineno-0-4582" name="__codelineno-0-4582"></a>    <span class="nb">type</span><span class="o">=</span><span class="n">click</span><span class="o">.</span><span class="n">Choice</span><span class="p">([</span><span class="s2">&quot;center_of_mass&quot;</span><span class="p">,</span> <span class="s2">&quot;bbox_center&quot;</span><span class="p">,</span> <span class="s2">&quot;geometric_median&quot;</span><span class="p">]),</span>
+</span><span id="__span-0-4583"><a id="__codelineno-0-4583" name="__codelineno-0-4583"></a>    <span class="n">default</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+</span><span id="__span-0-4584"><a id="__codelineno-0-4584" name="__codelineno-0-4584"></a>    <span class="n">help</span><span class="o">=</span><span class="p">(</span>
+</span><span id="__span-0-4585"><a id="__codelineno-0-4585" name="__codelineno-0-4585"></a>        <span class="s2">&quot;Reduce method used when the --anchor_part node is not visible. &quot;</span>
+</span><span id="__span-0-4586"><a id="__codelineno-0-4586" name="__codelineno-0-4586"></a>        <span class="s2">&quot;Default: center_of_mass.&quot;</span>
+</span><span id="__span-0-4587"><a id="__codelineno-0-4587" name="__codelineno-0-4587"></a>    <span class="p">),</span>
+</span><span id="__span-0-4588"><a id="__codelineno-0-4588" name="__codelineno-0-4588"></a><span class="p">)</span>
+</span><span id="__span-0-4589"><a id="__codelineno-0-4589" name="__codelineno-0-4589"></a><span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span>
+</span><span id="__span-0-4590"><a id="__codelineno-0-4590" name="__codelineno-0-4590"></a>    <span class="s2">&quot;--count_unmatched_as_fp/--no-count_unmatched_as_fp&quot;</span><span class="p">,</span>
+</span><span id="__span-0-4591"><a id="__codelineno-0-4591" name="__codelineno-0-4591"></a>    <span class="n">default</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+</span><span id="__span-0-4592"><a id="__codelineno-0-4592" name="__codelineno-0-4592"></a>    <span class="n">help</span><span class="o">=</span><span class="p">(</span>
+</span><span id="__span-0-4593"><a id="__codelineno-0-4593" name="__codelineno-0-4593"></a>        <span class="s2">&quot;Count unmatched predictions as false positives in the oks_voc metrics. &quot;</span>
+</span><span id="__span-0-4594"><a id="__codelineno-0-4594" name="__codelineno-0-4594"></a>        <span class="s2">&quot;Default off, which keeps the numbers earlier versions reported (those &quot;</span>
+</span><span id="__span-0-4595"><a id="__codelineno-0-4595" name="__codelineno-0-4595"></a>        <span class="s2">&quot;ignore unmatched predictions, so AP is overstated for models that &quot;</span>
+</span><span id="__span-0-4596"><a id="__codelineno-0-4596" name="__codelineno-0-4596"></a>        <span class="s2">&quot;produce duplicate or spurious detections).&quot;</span>
+</span><span id="__span-0-4597"><a id="__codelineno-0-4597" name="__codelineno-0-4597"></a>    <span class="p">),</span>
+</span><span id="__span-0-4598"><a id="__codelineno-0-4598" name="__codelineno-0-4598"></a><span class="p">)</span>
+</span><span id="__span-0-4599"><a id="__codelineno-0-4599" name="__codelineno-0-4599"></a><span class="k">def</span><span class="w"> </span><span class="nf">eval</span><span class="p">(</span><span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+</span><span id="__span-0-4600"><a id="__codelineno-0-4600" name="__codelineno-0-4600"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Run evaluation workflow.&quot;&quot;&quot;</span>
+</span><span id="__span-0-4601"><a id="__codelineno-0-4601" name="__codelineno-0-4601"></a>    <span class="kn">from</span><span class="w"> </span><span class="nn">sleap_nn.evaluation</span><span class="w"> </span><span class="kn">import</span> <span class="n">run_evaluation</span>
+</span><span id="__span-0-4602"><a id="__codelineno-0-4602" name="__codelineno-0-4602"></a>
+</span><span id="__span-0-4603"><a id="__codelineno-0-4603" name="__codelineno-0-4603"></a>    <span class="n">run_evaluation</span><span class="p">(</span><span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
 </span></code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -9372,25 +9400,7 @@ prediction, no frame in common, or no tracked ground truth).</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>sleap_nn/cli.py</code></summary>
-              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-4629">4629</a></span>
-<span class="normal"><a href="#__codelineno-0-4630">4630</a></span>
-<span class="normal"><a href="#__codelineno-0-4631">4631</a></span>
-<span class="normal"><a href="#__codelineno-0-4632">4632</a></span>
-<span class="normal"><a href="#__codelineno-0-4633">4633</a></span>
-<span class="normal"><a href="#__codelineno-0-4634">4634</a></span>
-<span class="normal"><a href="#__codelineno-0-4635">4635</a></span>
-<span class="normal"><a href="#__codelineno-0-4636">4636</a></span>
-<span class="normal"><a href="#__codelineno-0-4637">4637</a></span>
-<span class="normal"><a href="#__codelineno-0-4638">4638</a></span>
-<span class="normal"><a href="#__codelineno-0-4639">4639</a></span>
-<span class="normal"><a href="#__codelineno-0-4640">4640</a></span>
-<span class="normal"><a href="#__codelineno-0-4641">4641</a></span>
-<span class="normal"><a href="#__codelineno-0-4642">4642</a></span>
-<span class="normal"><a href="#__codelineno-0-4643">4643</a></span>
-<span class="normal"><a href="#__codelineno-0-4644">4644</a></span>
-<span class="normal"><a href="#__codelineno-0-4645">4645</a></span>
-<span class="normal"><a href="#__codelineno-0-4646">4646</a></span>
-<span class="normal"><a href="#__codelineno-0-4647">4647</a></span>
+              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-4647">4647</a></span>
 <span class="normal"><a href="#__codelineno-0-4648">4648</a></span>
 <span class="normal"><a href="#__codelineno-0-4649">4649</a></span>
 <span class="normal"><a href="#__codelineno-0-4650">4650</a></span>
@@ -9498,133 +9508,151 @@ prediction, no frame in common, or no tracked ground truth).</p>
 <span class="normal"><a href="#__codelineno-0-4752">4752</a></span>
 <span class="normal"><a href="#__codelineno-0-4753">4753</a></span>
 <span class="normal"><a href="#__codelineno-0-4754">4754</a></span>
-<span class="normal"><a href="#__codelineno-0-4755">4755</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-4629"><a id="__codelineno-0-4629" name="__codelineno-0-4629"></a><span class="nd">@cli</span><span class="o">.</span><span class="n">command</span><span class="p">(</span><span class="s2">&quot;eval-tracking&quot;</span><span class="p">,</span> <span class="n">context_settings</span><span class="o">=</span><span class="n">CONTEXT_SETTINGS</span><span class="p">)</span>
-</span><span id="__span-0-4630"><a id="__codelineno-0-4630" name="__codelineno-0-4630"></a><span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span>
-</span><span id="__span-0-4631"><a id="__codelineno-0-4631" name="__codelineno-0-4631"></a>    <span class="s2">&quot;--ground_truth_path&quot;</span><span class="p">,</span>
-</span><span id="__span-0-4632"><a id="__codelineno-0-4632" name="__codelineno-0-4632"></a>    <span class="s2">&quot;-g&quot;</span><span class="p">,</span>
-</span><span id="__span-0-4633"><a id="__codelineno-0-4633" name="__codelineno-0-4633"></a>    <span class="nb">type</span><span class="o">=</span><span class="nb">str</span><span class="p">,</span>
-</span><span id="__span-0-4634"><a id="__codelineno-0-4634" name="__codelineno-0-4634"></a>    <span class="n">required</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
-</span><span id="__span-0-4635"><a id="__codelineno-0-4635" name="__codelineno-0-4635"></a>    <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Path to tracked ground truth labels file (.slp)&quot;</span><span class="p">,</span>
-</span><span id="__span-0-4636"><a id="__codelineno-0-4636" name="__codelineno-0-4636"></a><span class="p">)</span>
-</span><span id="__span-0-4637"><a id="__codelineno-0-4637" name="__codelineno-0-4637"></a><span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span>
-</span><span id="__span-0-4638"><a id="__codelineno-0-4638" name="__codelineno-0-4638"></a>    <span class="s2">&quot;--predicted_path&quot;</span><span class="p">,</span>
-</span><span id="__span-0-4639"><a id="__codelineno-0-4639" name="__codelineno-0-4639"></a>    <span class="s2">&quot;-p&quot;</span><span class="p">,</span>
-</span><span id="__span-0-4640"><a id="__codelineno-0-4640" name="__codelineno-0-4640"></a>    <span class="nb">type</span><span class="o">=</span><span class="nb">str</span><span class="p">,</span>
-</span><span id="__span-0-4641"><a id="__codelineno-0-4641" name="__codelineno-0-4641"></a>    <span class="n">required</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
-</span><span id="__span-0-4642"><a id="__codelineno-0-4642" name="__codelineno-0-4642"></a>    <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Path to tracked predicted labels file (.slp)&quot;</span><span class="p">,</span>
-</span><span id="__span-0-4643"><a id="__codelineno-0-4643" name="__codelineno-0-4643"></a><span class="p">)</span>
-</span><span id="__span-0-4644"><a id="__codelineno-0-4644" name="__codelineno-0-4644"></a><span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span>
-</span><span id="__span-0-4645"><a id="__codelineno-0-4645" name="__codelineno-0-4645"></a>    <span class="s2">&quot;--save_metrics&quot;</span><span class="p">,</span> <span class="s2">&quot;-s&quot;</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">str</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Path to save metrics (.json file)&quot;</span>
-</span><span id="__span-0-4646"><a id="__codelineno-0-4646" name="__codelineno-0-4646"></a><span class="p">)</span>
-</span><span id="__span-0-4647"><a id="__codelineno-0-4647" name="__codelineno-0-4647"></a><span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span>
-</span><span id="__span-0-4648"><a id="__codelineno-0-4648" name="__codelineno-0-4648"></a>    <span class="s2">&quot;--carrier&quot;</span><span class="p">,</span>
-</span><span id="__span-0-4649"><a id="__codelineno-0-4649" name="__codelineno-0-4649"></a>    <span class="nb">type</span><span class="o">=</span><span class="n">click</span><span class="o">.</span><span class="n">Choice</span><span class="p">([</span><span class="s2">&quot;auto&quot;</span><span class="p">,</span> <span class="s2">&quot;pose&quot;</span><span class="p">,</span> <span class="s2">&quot;mask&quot;</span><span class="p">]),</span>
-</span><span id="__span-0-4650"><a id="__codelineno-0-4650" name="__codelineno-0-4650"></a>    <span class="n">default</span><span class="o">=</span><span class="s2">&quot;auto&quot;</span><span class="p">,</span>
-</span><span id="__span-0-4651"><a id="__codelineno-0-4651" name="__codelineno-0-4651"></a>    <span class="n">help</span><span class="o">=</span><span class="p">(</span>
-</span><span id="__span-0-4652"><a id="__codelineno-0-4652" name="__codelineno-0-4652"></a>        <span class="s2">&quot;What carries identity: &#39;pose&#39; (instances, matched by OKS, or by &quot;</span>
-</span><span id="__span-0-4653"><a id="__codelineno-0-4653" name="__codelineno-0-4653"></a>        <span class="s2">&quot;centroid distance for single-node skeletons), &#39;mask&#39; (segmentation &quot;</span>
-</span><span id="__span-0-4654"><a id="__codelineno-0-4654" name="__codelineno-0-4654"></a>        <span class="s2">&quot;masks, matched by IoU), or &#39;auto&#39; (the carrier the prediction&#39;s tracks &quot;</span>
-</span><span id="__span-0-4655"><a id="__codelineno-0-4655" name="__codelineno-0-4655"></a>        <span class="s2">&quot;are on -- the one with more tracked detections, ties to pose). A &quot;</span>
-</span><span id="__span-0-4656"><a id="__codelineno-0-4656" name="__codelineno-0-4656"></a>        <span class="s2">&quot;detection without a track takes the track of its linked instance or &quot;</span>
-</span><span id="__span-0-4657"><a id="__codelineno-0-4657" name="__codelineno-0-4657"></a>        <span class="s2">&quot;mask. Default: auto.&quot;</span>
-</span><span id="__span-0-4658"><a id="__codelineno-0-4658" name="__codelineno-0-4658"></a>    <span class="p">),</span>
-</span><span id="__span-0-4659"><a id="__codelineno-0-4659" name="__codelineno-0-4659"></a><span class="p">)</span>
-</span><span id="__span-0-4660"><a id="__codelineno-0-4660" name="__codelineno-0-4660"></a><span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span>
-</span><span id="__span-0-4661"><a id="__codelineno-0-4661" name="__codelineno-0-4661"></a>    <span class="s2">&quot;--match_threshold&quot;</span><span class="p">,</span>
-</span><span id="__span-0-4662"><a id="__codelineno-0-4662" name="__codelineno-0-4662"></a>    <span class="nb">type</span><span class="o">=</span><span class="nb">float</span><span class="p">,</span>
-</span><span id="__span-0-4663"><a id="__codelineno-0-4663" name="__codelineno-0-4663"></a>    <span class="n">default</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-</span><span id="__span-0-4664"><a id="__codelineno-0-4664" name="__codelineno-0-4664"></a>    <span class="n">help</span><span class="o">=</span><span class="p">(</span>
-</span><span id="__span-0-4665"><a id="__codelineno-0-4665" name="__codelineno-0-4665"></a>        <span class="s2">&quot;Matching threshold for a predicted detection to count as matched to a &quot;</span>
-</span><span id="__span-0-4666"><a id="__codelineno-0-4666" name="__codelineno-0-4666"></a>        <span class="s2">&quot;ground-truth one: minimum OKS (pose) or mask IoU (mask), or -- for &quot;</span>
-</span><span id="__span-0-4667"><a id="__codelineno-0-4667" name="__codelineno-0-4667"></a>        <span class="s2">&quot;single-node (centroid) skeletons, which match by distance -- the &quot;</span>
-</span><span id="__span-0-4668"><a id="__codelineno-0-4668" name="__codelineno-0-4668"></a>        <span class="s2">&quot;maximum centroid distance in PIXELS. Default: 0.5 for OKS/IoU, 50 px &quot;</span>
-</span><span id="__span-0-4669"><a id="__codelineno-0-4669" name="__codelineno-0-4669"></a>        <span class="s2">&quot;for distance (as in `sleap-nn eval --match_method centroid`).&quot;</span>
-</span><span id="__span-0-4670"><a id="__codelineno-0-4670" name="__codelineno-0-4670"></a>    <span class="p">),</span>
-</span><span id="__span-0-4671"><a id="__codelineno-0-4671" name="__codelineno-0-4671"></a><span class="p">)</span>
-</span><span id="__span-0-4672"><a id="__codelineno-0-4672" name="__codelineno-0-4672"></a><span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span>
-</span><span id="__span-0-4673"><a id="__codelineno-0-4673" name="__codelineno-0-4673"></a>    <span class="s2">&quot;--mt_threshold&quot;</span><span class="p">,</span>
-</span><span id="__span-0-4674"><a id="__codelineno-0-4674" name="__codelineno-0-4674"></a>    <span class="nb">type</span><span class="o">=</span><span class="nb">float</span><span class="p">,</span>
-</span><span id="__span-0-4675"><a id="__codelineno-0-4675" name="__codelineno-0-4675"></a>    <span class="n">default</span><span class="o">=</span><span class="mf">0.8</span><span class="p">,</span>
-</span><span id="__span-0-4676"><a id="__codelineno-0-4676" name="__codelineno-0-4676"></a>    <span class="n">help</span><span class="o">=</span><span class="p">(</span>
-</span><span id="__span-0-4677"><a id="__codelineno-0-4677" name="__codelineno-0-4677"></a>        <span class="s2">&quot;Coverage at or above which a GT trajectory is mostly-tracked (MT). &quot;</span>
-</span><span id="__span-0-4678"><a id="__codelineno-0-4678" name="__codelineno-0-4678"></a>        <span class="s2">&quot;Legacy identity block only; the TrackEval `mot` block always uses its &quot;</span>
-</span><span id="__span-0-4679"><a id="__codelineno-0-4679" name="__codelineno-0-4679"></a>        <span class="s2">&quot;fixed MT &gt; 0.8.&quot;</span>
-</span><span id="__span-0-4680"><a id="__codelineno-0-4680" name="__codelineno-0-4680"></a>    <span class="p">),</span>
-</span><span id="__span-0-4681"><a id="__codelineno-0-4681" name="__codelineno-0-4681"></a><span class="p">)</span>
-</span><span id="__span-0-4682"><a id="__codelineno-0-4682" name="__codelineno-0-4682"></a><span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span>
-</span><span id="__span-0-4683"><a id="__codelineno-0-4683" name="__codelineno-0-4683"></a>    <span class="s2">&quot;--ml_threshold&quot;</span><span class="p">,</span>
-</span><span id="__span-0-4684"><a id="__codelineno-0-4684" name="__codelineno-0-4684"></a>    <span class="nb">type</span><span class="o">=</span><span class="nb">float</span><span class="p">,</span>
-</span><span id="__span-0-4685"><a id="__codelineno-0-4685" name="__codelineno-0-4685"></a>    <span class="n">default</span><span class="o">=</span><span class="mf">0.2</span><span class="p">,</span>
-</span><span id="__span-0-4686"><a id="__codelineno-0-4686" name="__codelineno-0-4686"></a>    <span class="n">help</span><span class="o">=</span><span class="p">(</span>
-</span><span id="__span-0-4687"><a id="__codelineno-0-4687" name="__codelineno-0-4687"></a>        <span class="s2">&quot;Coverage below which a GT trajectory is mostly-lost (ML). Legacy &quot;</span>
-</span><span id="__span-0-4688"><a id="__codelineno-0-4688" name="__codelineno-0-4688"></a>        <span class="s2">&quot;identity block only; the TrackEval `mot` block always uses its fixed &quot;</span>
-</span><span id="__span-0-4689"><a id="__codelineno-0-4689" name="__codelineno-0-4689"></a>        <span class="s2">&quot;ML &lt; 0.2.&quot;</span>
-</span><span id="__span-0-4690"><a id="__codelineno-0-4690" name="__codelineno-0-4690"></a>    <span class="p">),</span>
-</span><span id="__span-0-4691"><a id="__codelineno-0-4691" name="__codelineno-0-4691"></a><span class="p">)</span>
-</span><span id="__span-0-4692"><a id="__codelineno-0-4692" name="__codelineno-0-4692"></a><span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span>
-</span><span id="__span-0-4693"><a id="__codelineno-0-4693" name="__codelineno-0-4693"></a>    <span class="s2">&quot;--user_labels_only/--no-user_labels_only&quot;</span><span class="p">,</span>
-</span><span id="__span-0-4694"><a id="__codelineno-0-4694" name="__codelineno-0-4694"></a>    <span class="n">default</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
-</span><span id="__span-0-4695"><a id="__codelineno-0-4695" name="__codelineno-0-4695"></a>    <span class="n">help</span><span class="o">=</span><span class="p">(</span>
-</span><span id="__span-0-4696"><a id="__codelineno-0-4696" name="__codelineno-0-4696"></a>        <span class="s2">&quot;Drop predicted detections from the GROUND-TRUTH side (default: False, &quot;</span>
-</span><span id="__span-0-4697"><a id="__codelineno-0-4697" name="__codelineno-0-4697"></a>        <span class="s2">&quot;unlike `sleap-nn eval`). Tracked ground truth is usually predicted &quot;</span>
-</span><span id="__span-0-4698"><a id="__codelineno-0-4698" name="__codelineno-0-4698"></a>        <span class="s2">&quot;poses with tracks assigned afterwards, so filtering by type would &quot;</span>
-</span><span id="__span-0-4699"><a id="__codelineno-0-4699" name="__codelineno-0-4699"></a>        <span class="s2">&quot;discard it. Pass this only for user-labeled GT that also carries &quot;</span>
-</span><span id="__span-0-4700"><a id="__codelineno-0-4700" name="__codelineno-0-4700"></a>        <span class="s2">&quot;stale predictions from an earlier run.&quot;</span>
-</span><span id="__span-0-4701"><a id="__codelineno-0-4701" name="__codelineno-0-4701"></a>    <span class="p">),</span>
-</span><span id="__span-0-4702"><a id="__codelineno-0-4702" name="__codelineno-0-4702"></a><span class="p">)</span>
-</span><span id="__span-0-4703"><a id="__codelineno-0-4703" name="__codelineno-0-4703"></a><span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span>
-</span><span id="__span-0-4704"><a id="__codelineno-0-4704" name="__codelineno-0-4704"></a>    <span class="s2">&quot;--global_identity/--per_video_identity&quot;</span><span class="p">,</span>
-</span><span id="__span-0-4705"><a id="__codelineno-0-4705" name="__codelineno-0-4705"></a>    <span class="n">default</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
-</span><span id="__span-0-4706"><a id="__codelineno-0-4706" name="__codelineno-0-4706"></a>    <span class="n">help</span><span class="o">=</span><span class="p">(</span>
-</span><span id="__span-0-4707"><a id="__codelineno-0-4707" name="__codelineno-0-4707"></a>        <span class="s2">&quot;Score track names as GLOBAL identities shared across videos (names &quot;</span>
-</span><span id="__span-0-4708"><a id="__codelineno-0-4708" name="__codelineno-0-4708"></a>        <span class="s2">&quot;from a multi-class ID model, or a project proofread with one name per &quot;</span>
-</span><span id="__span-0-4709"><a id="__codelineno-0-4709" name="__codelineno-0-4709"></a>        <span class="s2">&quot;animal): a trajectory then spans every video, and keeping an animal&#39;s &quot;</span>
-</span><span id="__span-0-4710"><a id="__codelineno-0-4710" name="__codelineno-0-4710"></a>        <span class="s2">&quot;name from one video to the next is part of the score. Default: per &quot;</span>
-</span><span id="__span-0-4711"><a id="__codelineno-0-4711" name="__codelineno-0-4711"></a>        <span class="s2">&quot;video -- each (video, track name) is its own trajectory, since &quot;</span>
-</span><span id="__span-0-4712"><a id="__codelineno-0-4712" name="__codelineno-0-4712"></a>        <span class="s2">&quot;trackers name tracks per video.&quot;</span>
-</span><span id="__span-0-4713"><a id="__codelineno-0-4713" name="__codelineno-0-4713"></a>    <span class="p">),</span>
-</span><span id="__span-0-4714"><a id="__codelineno-0-4714" name="__codelineno-0-4714"></a><span class="p">)</span>
-</span><span id="__span-0-4715"><a id="__codelineno-0-4715" name="__codelineno-0-4715"></a><span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span>
-</span><span id="__span-0-4716"><a id="__codelineno-0-4716" name="__codelineno-0-4716"></a>    <span class="s2">&quot;--oks_stddev&quot;</span><span class="p">,</span>
-</span><span id="__span-0-4717"><a id="__codelineno-0-4717" name="__codelineno-0-4717"></a>    <span class="nb">type</span><span class="o">=</span><span class="n">click</span><span class="o">.</span><span class="n">FloatRange</span><span class="p">(</span><span class="nb">min</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">min_open</span><span class="o">=</span><span class="kc">True</span><span class="p">),</span>
-</span><span id="__span-0-4718"><a id="__codelineno-0-4718" name="__codelineno-0-4718"></a>    <span class="n">default</span><span class="o">=</span><span class="mf">0.025</span><span class="p">,</span>
-</span><span id="__span-0-4719"><a id="__codelineno-0-4719" name="__codelineno-0-4719"></a>    <span class="n">show_default</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
-</span><span id="__span-0-4720"><a id="__codelineno-0-4720" name="__codelineno-0-4720"></a>    <span class="n">callback</span><span class="o">=</span><span class="n">_require_finite</span><span class="p">,</span>
-</span><span id="__span-0-4721"><a id="__codelineno-0-4721" name="__codelineno-0-4721"></a>    <span class="n">help</span><span class="o">=</span><span class="p">(</span>
-</span><span id="__span-0-4722"><a id="__codelineno-0-4722" name="__codelineno-0-4722"></a>        <span class="s2">&quot;Per-keypoint spread of the OKS used to match poses (both the identity &quot;</span>
-</span><span id="__span-0-4723"><a id="__codelineno-0-4723" name="__codelineno-0-4723"></a>        <span class="s2">&quot;and the MOT metrics); a finite number &gt; 0. Larger values match looser &quot;</span>
-</span><span id="__span-0-4724"><a id="__codelineno-0-4724" name="__codelineno-0-4724"></a>        <span class="s2">&quot;poses. Ignored for masks and single-node skeletons.&quot;</span>
-</span><span id="__span-0-4725"><a id="__codelineno-0-4725" name="__codelineno-0-4725"></a>    <span class="p">),</span>
-</span><span id="__span-0-4726"><a id="__codelineno-0-4726" name="__codelineno-0-4726"></a><span class="p">)</span>
-</span><span id="__span-0-4727"><a id="__codelineno-0-4727" name="__codelineno-0-4727"></a><span class="k">def</span><span class="w"> </span><span class="nf">eval_tracking</span><span class="p">(</span><span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
-</span><span id="__span-0-4728"><a id="__codelineno-0-4728" name="__codelineno-0-4728"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Evaluate identity persistence of a tracked prediction.</span>
-</span><span id="__span-0-4729"><a id="__codelineno-0-4729" name="__codelineno-0-4729"></a>
-</span><span id="__span-0-4730"><a id="__codelineno-0-4730" name="__codelineno-0-4730"></a><span class="sd">    Scores whether tracks keep the right identity across frames -- ID switches,</span>
-</span><span id="__span-0-4731"><a id="__codelineno-0-4731" name="__codelineno-0-4731"></a><span class="sd">    IDF1, MT/PT/ML, fragmentation and track purity -- against tracked ground</span>
-</span><span id="__span-0-4732"><a id="__codelineno-0-4732" name="__codelineno-0-4732"></a><span class="sd">    truth. Complements `sleap-nn eval`, which scores detection and localization</span>
-</span><span id="__span-0-4733"><a id="__codelineno-0-4733" name="__codelineno-0-4733"></a><span class="sd">    but says nothing about identity.</span>
-</span><span id="__span-0-4734"><a id="__codelineno-0-4734" name="__codelineno-0-4734"></a>
-</span><span id="__span-0-4735"><a id="__codelineno-0-4735" name="__codelineno-0-4735"></a><span class="sd">    Also reports TrackEval-faithful CLEAR-MOT, IDF1 and HOTA (the &quot;mot&quot; block of</span>
-</span><span id="__span-0-4736"><a id="__codelineno-0-4736" name="__codelineno-0-4736"></a><span class="sd">    the saved JSON), numbers comparable to published MOT results. Where both</span>
-</span><span id="__span-0-4737"><a id="__codelineno-0-4737" name="__codelineno-0-4737"></a><span class="sd">    blocks name the same metric they can differ: the legacy identity block uses</span>
-</span><span id="__span-0-4738"><a id="__codelineno-0-4738" name="__codelineno-0-4738"></a><span class="sd">    sleap-nn&#39;s own definitions.</span>
-</span><span id="__span-0-4739"><a id="__codelineno-0-4739" name="__codelineno-0-4739"></a>
-</span><span id="__span-0-4740"><a id="__codelineno-0-4740" name="__codelineno-0-4740"></a><span class="sd">    Both files must be tracked: ground truth needs `track` set on the detections</span>
-</span><span id="__span-0-4741"><a id="__codelineno-0-4741" name="__codelineno-0-4741"></a><span class="sd">    to score, and the prediction needs tracks from `sleap-nn track` or</span>
-</span><span id="__span-0-4742"><a id="__codelineno-0-4742" name="__codelineno-0-4742"></a><span class="sd">    `sleap-nn predict -t`. Exits non-zero when nothing is scoreable (no tracked</span>
-</span><span id="__span-0-4743"><a id="__codelineno-0-4743" name="__codelineno-0-4743"></a><span class="sd">    prediction, no frame in common, or no tracked ground truth).</span>
-</span><span id="__span-0-4744"><a id="__codelineno-0-4744" name="__codelineno-0-4744"></a>
-</span><span id="__span-0-4745"><a id="__codelineno-0-4745" name="__codelineno-0-4745"></a><span class="sd">    Examples:</span>
-</span><span id="__span-0-4746"><a id="__codelineno-0-4746" name="__codelineno-0-4746"></a><span class="sd">        sleap-nn eval-tracking -g gt.slp -p tracked.slp</span>
+<span class="normal"><a href="#__codelineno-0-4755">4755</a></span>
+<span class="normal"><a href="#__codelineno-0-4756">4756</a></span>
+<span class="normal"><a href="#__codelineno-0-4757">4757</a></span>
+<span class="normal"><a href="#__codelineno-0-4758">4758</a></span>
+<span class="normal"><a href="#__codelineno-0-4759">4759</a></span>
+<span class="normal"><a href="#__codelineno-0-4760">4760</a></span>
+<span class="normal"><a href="#__codelineno-0-4761">4761</a></span>
+<span class="normal"><a href="#__codelineno-0-4762">4762</a></span>
+<span class="normal"><a href="#__codelineno-0-4763">4763</a></span>
+<span class="normal"><a href="#__codelineno-0-4764">4764</a></span>
+<span class="normal"><a href="#__codelineno-0-4765">4765</a></span>
+<span class="normal"><a href="#__codelineno-0-4766">4766</a></span>
+<span class="normal"><a href="#__codelineno-0-4767">4767</a></span>
+<span class="normal"><a href="#__codelineno-0-4768">4768</a></span>
+<span class="normal"><a href="#__codelineno-0-4769">4769</a></span>
+<span class="normal"><a href="#__codelineno-0-4770">4770</a></span>
+<span class="normal"><a href="#__codelineno-0-4771">4771</a></span>
+<span class="normal"><a href="#__codelineno-0-4772">4772</a></span>
+<span class="normal"><a href="#__codelineno-0-4773">4773</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-4647"><a id="__codelineno-0-4647" name="__codelineno-0-4647"></a><span class="nd">@cli</span><span class="o">.</span><span class="n">command</span><span class="p">(</span><span class="s2">&quot;eval-tracking&quot;</span><span class="p">,</span> <span class="n">context_settings</span><span class="o">=</span><span class="n">CONTEXT_SETTINGS</span><span class="p">)</span>
+</span><span id="__span-0-4648"><a id="__codelineno-0-4648" name="__codelineno-0-4648"></a><span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span>
+</span><span id="__span-0-4649"><a id="__codelineno-0-4649" name="__codelineno-0-4649"></a>    <span class="s2">&quot;--ground_truth_path&quot;</span><span class="p">,</span>
+</span><span id="__span-0-4650"><a id="__codelineno-0-4650" name="__codelineno-0-4650"></a>    <span class="s2">&quot;-g&quot;</span><span class="p">,</span>
+</span><span id="__span-0-4651"><a id="__codelineno-0-4651" name="__codelineno-0-4651"></a>    <span class="nb">type</span><span class="o">=</span><span class="nb">str</span><span class="p">,</span>
+</span><span id="__span-0-4652"><a id="__codelineno-0-4652" name="__codelineno-0-4652"></a>    <span class="n">required</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+</span><span id="__span-0-4653"><a id="__codelineno-0-4653" name="__codelineno-0-4653"></a>    <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Path to tracked ground truth labels file (.slp)&quot;</span><span class="p">,</span>
+</span><span id="__span-0-4654"><a id="__codelineno-0-4654" name="__codelineno-0-4654"></a><span class="p">)</span>
+</span><span id="__span-0-4655"><a id="__codelineno-0-4655" name="__codelineno-0-4655"></a><span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span>
+</span><span id="__span-0-4656"><a id="__codelineno-0-4656" name="__codelineno-0-4656"></a>    <span class="s2">&quot;--predicted_path&quot;</span><span class="p">,</span>
+</span><span id="__span-0-4657"><a id="__codelineno-0-4657" name="__codelineno-0-4657"></a>    <span class="s2">&quot;-p&quot;</span><span class="p">,</span>
+</span><span id="__span-0-4658"><a id="__codelineno-0-4658" name="__codelineno-0-4658"></a>    <span class="nb">type</span><span class="o">=</span><span class="nb">str</span><span class="p">,</span>
+</span><span id="__span-0-4659"><a id="__codelineno-0-4659" name="__codelineno-0-4659"></a>    <span class="n">required</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+</span><span id="__span-0-4660"><a id="__codelineno-0-4660" name="__codelineno-0-4660"></a>    <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Path to tracked predicted labels file (.slp)&quot;</span><span class="p">,</span>
+</span><span id="__span-0-4661"><a id="__codelineno-0-4661" name="__codelineno-0-4661"></a><span class="p">)</span>
+</span><span id="__span-0-4662"><a id="__codelineno-0-4662" name="__codelineno-0-4662"></a><span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span>
+</span><span id="__span-0-4663"><a id="__codelineno-0-4663" name="__codelineno-0-4663"></a>    <span class="s2">&quot;--save_metrics&quot;</span><span class="p">,</span> <span class="s2">&quot;-s&quot;</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">str</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Path to save metrics (.json file)&quot;</span>
+</span><span id="__span-0-4664"><a id="__codelineno-0-4664" name="__codelineno-0-4664"></a><span class="p">)</span>
+</span><span id="__span-0-4665"><a id="__codelineno-0-4665" name="__codelineno-0-4665"></a><span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span>
+</span><span id="__span-0-4666"><a id="__codelineno-0-4666" name="__codelineno-0-4666"></a>    <span class="s2">&quot;--carrier&quot;</span><span class="p">,</span>
+</span><span id="__span-0-4667"><a id="__codelineno-0-4667" name="__codelineno-0-4667"></a>    <span class="nb">type</span><span class="o">=</span><span class="n">click</span><span class="o">.</span><span class="n">Choice</span><span class="p">([</span><span class="s2">&quot;auto&quot;</span><span class="p">,</span> <span class="s2">&quot;pose&quot;</span><span class="p">,</span> <span class="s2">&quot;mask&quot;</span><span class="p">]),</span>
+</span><span id="__span-0-4668"><a id="__codelineno-0-4668" name="__codelineno-0-4668"></a>    <span class="n">default</span><span class="o">=</span><span class="s2">&quot;auto&quot;</span><span class="p">,</span>
+</span><span id="__span-0-4669"><a id="__codelineno-0-4669" name="__codelineno-0-4669"></a>    <span class="n">help</span><span class="o">=</span><span class="p">(</span>
+</span><span id="__span-0-4670"><a id="__codelineno-0-4670" name="__codelineno-0-4670"></a>        <span class="s2">&quot;What carries identity: &#39;pose&#39; (instances, matched by OKS, or by &quot;</span>
+</span><span id="__span-0-4671"><a id="__codelineno-0-4671" name="__codelineno-0-4671"></a>        <span class="s2">&quot;centroid distance for single-node skeletons), &#39;mask&#39; (segmentation &quot;</span>
+</span><span id="__span-0-4672"><a id="__codelineno-0-4672" name="__codelineno-0-4672"></a>        <span class="s2">&quot;masks, matched by IoU), or &#39;auto&#39; (the carrier the prediction&#39;s tracks &quot;</span>
+</span><span id="__span-0-4673"><a id="__codelineno-0-4673" name="__codelineno-0-4673"></a>        <span class="s2">&quot;are on -- the one with more tracked detections, ties to pose). A &quot;</span>
+</span><span id="__span-0-4674"><a id="__codelineno-0-4674" name="__codelineno-0-4674"></a>        <span class="s2">&quot;detection without a track takes the track of its linked instance or &quot;</span>
+</span><span id="__span-0-4675"><a id="__codelineno-0-4675" name="__codelineno-0-4675"></a>        <span class="s2">&quot;mask. Default: auto.&quot;</span>
+</span><span id="__span-0-4676"><a id="__codelineno-0-4676" name="__codelineno-0-4676"></a>    <span class="p">),</span>
+</span><span id="__span-0-4677"><a id="__codelineno-0-4677" name="__codelineno-0-4677"></a><span class="p">)</span>
+</span><span id="__span-0-4678"><a id="__codelineno-0-4678" name="__codelineno-0-4678"></a><span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span>
+</span><span id="__span-0-4679"><a id="__codelineno-0-4679" name="__codelineno-0-4679"></a>    <span class="s2">&quot;--match_threshold&quot;</span><span class="p">,</span>
+</span><span id="__span-0-4680"><a id="__codelineno-0-4680" name="__codelineno-0-4680"></a>    <span class="nb">type</span><span class="o">=</span><span class="nb">float</span><span class="p">,</span>
+</span><span id="__span-0-4681"><a id="__codelineno-0-4681" name="__codelineno-0-4681"></a>    <span class="n">default</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+</span><span id="__span-0-4682"><a id="__codelineno-0-4682" name="__codelineno-0-4682"></a>    <span class="n">help</span><span class="o">=</span><span class="p">(</span>
+</span><span id="__span-0-4683"><a id="__codelineno-0-4683" name="__codelineno-0-4683"></a>        <span class="s2">&quot;Matching threshold for a predicted detection to count as matched to a &quot;</span>
+</span><span id="__span-0-4684"><a id="__codelineno-0-4684" name="__codelineno-0-4684"></a>        <span class="s2">&quot;ground-truth one: minimum OKS (pose) or mask IoU (mask), or -- for &quot;</span>
+</span><span id="__span-0-4685"><a id="__codelineno-0-4685" name="__codelineno-0-4685"></a>        <span class="s2">&quot;single-node (centroid) skeletons, which match by distance -- the &quot;</span>
+</span><span id="__span-0-4686"><a id="__codelineno-0-4686" name="__codelineno-0-4686"></a>        <span class="s2">&quot;maximum centroid distance in PIXELS. Default: 0.5 for OKS/IoU, 50 px &quot;</span>
+</span><span id="__span-0-4687"><a id="__codelineno-0-4687" name="__codelineno-0-4687"></a>        <span class="s2">&quot;for distance (as in `sleap-nn eval --match_method centroid`).&quot;</span>
+</span><span id="__span-0-4688"><a id="__codelineno-0-4688" name="__codelineno-0-4688"></a>    <span class="p">),</span>
+</span><span id="__span-0-4689"><a id="__codelineno-0-4689" name="__codelineno-0-4689"></a><span class="p">)</span>
+</span><span id="__span-0-4690"><a id="__codelineno-0-4690" name="__codelineno-0-4690"></a><span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span>
+</span><span id="__span-0-4691"><a id="__codelineno-0-4691" name="__codelineno-0-4691"></a>    <span class="s2">&quot;--mt_threshold&quot;</span><span class="p">,</span>
+</span><span id="__span-0-4692"><a id="__codelineno-0-4692" name="__codelineno-0-4692"></a>    <span class="nb">type</span><span class="o">=</span><span class="nb">float</span><span class="p">,</span>
+</span><span id="__span-0-4693"><a id="__codelineno-0-4693" name="__codelineno-0-4693"></a>    <span class="n">default</span><span class="o">=</span><span class="mf">0.8</span><span class="p">,</span>
+</span><span id="__span-0-4694"><a id="__codelineno-0-4694" name="__codelineno-0-4694"></a>    <span class="n">help</span><span class="o">=</span><span class="p">(</span>
+</span><span id="__span-0-4695"><a id="__codelineno-0-4695" name="__codelineno-0-4695"></a>        <span class="s2">&quot;Coverage at or above which a GT trajectory is mostly-tracked (MT). &quot;</span>
+</span><span id="__span-0-4696"><a id="__codelineno-0-4696" name="__codelineno-0-4696"></a>        <span class="s2">&quot;Legacy identity block only; the TrackEval `mot` block always uses its &quot;</span>
+</span><span id="__span-0-4697"><a id="__codelineno-0-4697" name="__codelineno-0-4697"></a>        <span class="s2">&quot;fixed MT &gt; 0.8.&quot;</span>
+</span><span id="__span-0-4698"><a id="__codelineno-0-4698" name="__codelineno-0-4698"></a>    <span class="p">),</span>
+</span><span id="__span-0-4699"><a id="__codelineno-0-4699" name="__codelineno-0-4699"></a><span class="p">)</span>
+</span><span id="__span-0-4700"><a id="__codelineno-0-4700" name="__codelineno-0-4700"></a><span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span>
+</span><span id="__span-0-4701"><a id="__codelineno-0-4701" name="__codelineno-0-4701"></a>    <span class="s2">&quot;--ml_threshold&quot;</span><span class="p">,</span>
+</span><span id="__span-0-4702"><a id="__codelineno-0-4702" name="__codelineno-0-4702"></a>    <span class="nb">type</span><span class="o">=</span><span class="nb">float</span><span class="p">,</span>
+</span><span id="__span-0-4703"><a id="__codelineno-0-4703" name="__codelineno-0-4703"></a>    <span class="n">default</span><span class="o">=</span><span class="mf">0.2</span><span class="p">,</span>
+</span><span id="__span-0-4704"><a id="__codelineno-0-4704" name="__codelineno-0-4704"></a>    <span class="n">help</span><span class="o">=</span><span class="p">(</span>
+</span><span id="__span-0-4705"><a id="__codelineno-0-4705" name="__codelineno-0-4705"></a>        <span class="s2">&quot;Coverage below which a GT trajectory is mostly-lost (ML). Legacy &quot;</span>
+</span><span id="__span-0-4706"><a id="__codelineno-0-4706" name="__codelineno-0-4706"></a>        <span class="s2">&quot;identity block only; the TrackEval `mot` block always uses its fixed &quot;</span>
+</span><span id="__span-0-4707"><a id="__codelineno-0-4707" name="__codelineno-0-4707"></a>        <span class="s2">&quot;ML &lt; 0.2.&quot;</span>
+</span><span id="__span-0-4708"><a id="__codelineno-0-4708" name="__codelineno-0-4708"></a>    <span class="p">),</span>
+</span><span id="__span-0-4709"><a id="__codelineno-0-4709" name="__codelineno-0-4709"></a><span class="p">)</span>
+</span><span id="__span-0-4710"><a id="__codelineno-0-4710" name="__codelineno-0-4710"></a><span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span>
+</span><span id="__span-0-4711"><a id="__codelineno-0-4711" name="__codelineno-0-4711"></a>    <span class="s2">&quot;--user_labels_only/--no-user_labels_only&quot;</span><span class="p">,</span>
+</span><span id="__span-0-4712"><a id="__codelineno-0-4712" name="__codelineno-0-4712"></a>    <span class="n">default</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+</span><span id="__span-0-4713"><a id="__codelineno-0-4713" name="__codelineno-0-4713"></a>    <span class="n">help</span><span class="o">=</span><span class="p">(</span>
+</span><span id="__span-0-4714"><a id="__codelineno-0-4714" name="__codelineno-0-4714"></a>        <span class="s2">&quot;Drop predicted detections from the GROUND-TRUTH side (default: False, &quot;</span>
+</span><span id="__span-0-4715"><a id="__codelineno-0-4715" name="__codelineno-0-4715"></a>        <span class="s2">&quot;unlike `sleap-nn eval`). Tracked ground truth is usually predicted &quot;</span>
+</span><span id="__span-0-4716"><a id="__codelineno-0-4716" name="__codelineno-0-4716"></a>        <span class="s2">&quot;poses with tracks assigned afterwards, so filtering by type would &quot;</span>
+</span><span id="__span-0-4717"><a id="__codelineno-0-4717" name="__codelineno-0-4717"></a>        <span class="s2">&quot;discard it. Pass this only for user-labeled GT that also carries &quot;</span>
+</span><span id="__span-0-4718"><a id="__codelineno-0-4718" name="__codelineno-0-4718"></a>        <span class="s2">&quot;stale predictions from an earlier run.&quot;</span>
+</span><span id="__span-0-4719"><a id="__codelineno-0-4719" name="__codelineno-0-4719"></a>    <span class="p">),</span>
+</span><span id="__span-0-4720"><a id="__codelineno-0-4720" name="__codelineno-0-4720"></a><span class="p">)</span>
+</span><span id="__span-0-4721"><a id="__codelineno-0-4721" name="__codelineno-0-4721"></a><span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span>
+</span><span id="__span-0-4722"><a id="__codelineno-0-4722" name="__codelineno-0-4722"></a>    <span class="s2">&quot;--global_identity/--per_video_identity&quot;</span><span class="p">,</span>
+</span><span id="__span-0-4723"><a id="__codelineno-0-4723" name="__codelineno-0-4723"></a>    <span class="n">default</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+</span><span id="__span-0-4724"><a id="__codelineno-0-4724" name="__codelineno-0-4724"></a>    <span class="n">help</span><span class="o">=</span><span class="p">(</span>
+</span><span id="__span-0-4725"><a id="__codelineno-0-4725" name="__codelineno-0-4725"></a>        <span class="s2">&quot;Score track names as GLOBAL identities shared across videos (names &quot;</span>
+</span><span id="__span-0-4726"><a id="__codelineno-0-4726" name="__codelineno-0-4726"></a>        <span class="s2">&quot;from a multi-class ID model, or a project proofread with one name per &quot;</span>
+</span><span id="__span-0-4727"><a id="__codelineno-0-4727" name="__codelineno-0-4727"></a>        <span class="s2">&quot;animal): a trajectory then spans every video, and keeping an animal&#39;s &quot;</span>
+</span><span id="__span-0-4728"><a id="__codelineno-0-4728" name="__codelineno-0-4728"></a>        <span class="s2">&quot;name from one video to the next is part of the score. Default: per &quot;</span>
+</span><span id="__span-0-4729"><a id="__codelineno-0-4729" name="__codelineno-0-4729"></a>        <span class="s2">&quot;video -- each (video, track name) is its own trajectory, since &quot;</span>
+</span><span id="__span-0-4730"><a id="__codelineno-0-4730" name="__codelineno-0-4730"></a>        <span class="s2">&quot;trackers name tracks per video.&quot;</span>
+</span><span id="__span-0-4731"><a id="__codelineno-0-4731" name="__codelineno-0-4731"></a>    <span class="p">),</span>
+</span><span id="__span-0-4732"><a id="__codelineno-0-4732" name="__codelineno-0-4732"></a><span class="p">)</span>
+</span><span id="__span-0-4733"><a id="__codelineno-0-4733" name="__codelineno-0-4733"></a><span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span>
+</span><span id="__span-0-4734"><a id="__codelineno-0-4734" name="__codelineno-0-4734"></a>    <span class="s2">&quot;--oks_stddev&quot;</span><span class="p">,</span>
+</span><span id="__span-0-4735"><a id="__codelineno-0-4735" name="__codelineno-0-4735"></a>    <span class="nb">type</span><span class="o">=</span><span class="n">click</span><span class="o">.</span><span class="n">FloatRange</span><span class="p">(</span><span class="nb">min</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">min_open</span><span class="o">=</span><span class="kc">True</span><span class="p">),</span>
+</span><span id="__span-0-4736"><a id="__codelineno-0-4736" name="__codelineno-0-4736"></a>    <span class="n">default</span><span class="o">=</span><span class="mf">0.025</span><span class="p">,</span>
+</span><span id="__span-0-4737"><a id="__codelineno-0-4737" name="__codelineno-0-4737"></a>    <span class="n">show_default</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+</span><span id="__span-0-4738"><a id="__codelineno-0-4738" name="__codelineno-0-4738"></a>    <span class="n">callback</span><span class="o">=</span><span class="n">_require_finite</span><span class="p">,</span>
+</span><span id="__span-0-4739"><a id="__codelineno-0-4739" name="__codelineno-0-4739"></a>    <span class="n">help</span><span class="o">=</span><span class="p">(</span>
+</span><span id="__span-0-4740"><a id="__codelineno-0-4740" name="__codelineno-0-4740"></a>        <span class="s2">&quot;Per-keypoint spread of the OKS used to match poses (both the identity &quot;</span>
+</span><span id="__span-0-4741"><a id="__codelineno-0-4741" name="__codelineno-0-4741"></a>        <span class="s2">&quot;and the MOT metrics); a finite number &gt; 0. Larger values match looser &quot;</span>
+</span><span id="__span-0-4742"><a id="__codelineno-0-4742" name="__codelineno-0-4742"></a>        <span class="s2">&quot;poses. Ignored for masks and single-node skeletons.&quot;</span>
+</span><span id="__span-0-4743"><a id="__codelineno-0-4743" name="__codelineno-0-4743"></a>    <span class="p">),</span>
+</span><span id="__span-0-4744"><a id="__codelineno-0-4744" name="__codelineno-0-4744"></a><span class="p">)</span>
+</span><span id="__span-0-4745"><a id="__codelineno-0-4745" name="__codelineno-0-4745"></a><span class="k">def</span><span class="w"> </span><span class="nf">eval_tracking</span><span class="p">(</span><span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+</span><span id="__span-0-4746"><a id="__codelineno-0-4746" name="__codelineno-0-4746"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Evaluate identity persistence of a tracked prediction.</span>
 </span><span id="__span-0-4747"><a id="__codelineno-0-4747" name="__codelineno-0-4747"></a>
-</span><span id="__span-0-4748"><a id="__codelineno-0-4748" name="__codelineno-0-4748"></a><span class="sd">        sleap-nn eval-tracking -g gt.slp -p tracked.slp --carrier mask -s ids.json</span>
-</span><span id="__span-0-4749"><a id="__codelineno-0-4749" name="__codelineno-0-4749"></a><span class="sd">    &quot;&quot;&quot;</span>
-</span><span id="__span-0-4750"><a id="__codelineno-0-4750" name="__codelineno-0-4750"></a>    <span class="kn">from</span><span class="w"> </span><span class="nn">sleap_nn.evaluation</span><span class="w"> </span><span class="kn">import</span> <span class="n">NothingToScoreError</span><span class="p">,</span> <span class="n">run_identity_evaluation</span>
-</span><span id="__span-0-4751"><a id="__codelineno-0-4751" name="__codelineno-0-4751"></a>
-</span><span id="__span-0-4752"><a id="__codelineno-0-4752" name="__codelineno-0-4752"></a>    <span class="k">try</span><span class="p">:</span>
-</span><span id="__span-0-4753"><a id="__codelineno-0-4753" name="__codelineno-0-4753"></a>        <span class="n">run_identity_evaluation</span><span class="p">(</span><span class="o">**</span><span class="n">kwargs</span><span class="p">,</span> <span class="n">raise_if_empty</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-</span><span id="__span-0-4754"><a id="__codelineno-0-4754" name="__codelineno-0-4754"></a>    <span class="k">except</span> <span class="n">NothingToScoreError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
-</span><span id="__span-0-4755"><a id="__codelineno-0-4755" name="__codelineno-0-4755"></a>        <span class="k">raise</span> <span class="n">click</span><span class="o">.</span><span class="n">ClickException</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">))</span> <span class="kn">from</span><span class="w"> </span><span class="nn">e</span>
+</span><span id="__span-0-4748"><a id="__codelineno-0-4748" name="__codelineno-0-4748"></a><span class="sd">    Scores whether tracks keep the right identity across frames -- ID switches,</span>
+</span><span id="__span-0-4749"><a id="__codelineno-0-4749" name="__codelineno-0-4749"></a><span class="sd">    IDF1, MT/PT/ML, fragmentation and track purity -- against tracked ground</span>
+</span><span id="__span-0-4750"><a id="__codelineno-0-4750" name="__codelineno-0-4750"></a><span class="sd">    truth. Complements `sleap-nn eval`, which scores detection and localization</span>
+</span><span id="__span-0-4751"><a id="__codelineno-0-4751" name="__codelineno-0-4751"></a><span class="sd">    but says nothing about identity.</span>
+</span><span id="__span-0-4752"><a id="__codelineno-0-4752" name="__codelineno-0-4752"></a>
+</span><span id="__span-0-4753"><a id="__codelineno-0-4753" name="__codelineno-0-4753"></a><span class="sd">    Also reports TrackEval-faithful CLEAR-MOT, IDF1 and HOTA (the &quot;mot&quot; block of</span>
+</span><span id="__span-0-4754"><a id="__codelineno-0-4754" name="__codelineno-0-4754"></a><span class="sd">    the saved JSON), numbers comparable to published MOT results. Where both</span>
+</span><span id="__span-0-4755"><a id="__codelineno-0-4755" name="__codelineno-0-4755"></a><span class="sd">    blocks name the same metric they can differ: the legacy identity block uses</span>
+</span><span id="__span-0-4756"><a id="__codelineno-0-4756" name="__codelineno-0-4756"></a><span class="sd">    sleap-nn&#39;s own definitions.</span>
+</span><span id="__span-0-4757"><a id="__codelineno-0-4757" name="__codelineno-0-4757"></a>
+</span><span id="__span-0-4758"><a id="__codelineno-0-4758" name="__codelineno-0-4758"></a><span class="sd">    Both files must be tracked: ground truth needs `track` set on the detections</span>
+</span><span id="__span-0-4759"><a id="__codelineno-0-4759" name="__codelineno-0-4759"></a><span class="sd">    to score, and the prediction needs tracks from `sleap-nn track` or</span>
+</span><span id="__span-0-4760"><a id="__codelineno-0-4760" name="__codelineno-0-4760"></a><span class="sd">    `sleap-nn predict -t`. Exits non-zero when nothing is scoreable (no tracked</span>
+</span><span id="__span-0-4761"><a id="__codelineno-0-4761" name="__codelineno-0-4761"></a><span class="sd">    prediction, no frame in common, or no tracked ground truth).</span>
+</span><span id="__span-0-4762"><a id="__codelineno-0-4762" name="__codelineno-0-4762"></a>
+</span><span id="__span-0-4763"><a id="__codelineno-0-4763" name="__codelineno-0-4763"></a><span class="sd">    Examples:</span>
+</span><span id="__span-0-4764"><a id="__codelineno-0-4764" name="__codelineno-0-4764"></a><span class="sd">        sleap-nn eval-tracking -g gt.slp -p tracked.slp</span>
+</span><span id="__span-0-4765"><a id="__codelineno-0-4765" name="__codelineno-0-4765"></a>
+</span><span id="__span-0-4766"><a id="__codelineno-0-4766" name="__codelineno-0-4766"></a><span class="sd">        sleap-nn eval-tracking -g gt.slp -p tracked.slp --carrier mask -s ids.json</span>
+</span><span id="__span-0-4767"><a id="__codelineno-0-4767" name="__codelineno-0-4767"></a><span class="sd">    &quot;&quot;&quot;</span>
+</span><span id="__span-0-4768"><a id="__codelineno-0-4768" name="__codelineno-0-4768"></a>    <span class="kn">from</span><span class="w"> </span><span class="nn">sleap_nn.evaluation</span><span class="w"> </span><span class="kn">import</span> <span class="n">NothingToScoreError</span><span class="p">,</span> <span class="n">run_identity_evaluation</span>
+</span><span id="__span-0-4769"><a id="__codelineno-0-4769" name="__codelineno-0-4769"></a>
+</span><span id="__span-0-4770"><a id="__codelineno-0-4770" name="__codelineno-0-4770"></a>    <span class="k">try</span><span class="p">:</span>
+</span><span id="__span-0-4771"><a id="__codelineno-0-4771" name="__codelineno-0-4771"></a>        <span class="n">run_identity_evaluation</span><span class="p">(</span><span class="o">**</span><span class="n">kwargs</span><span class="p">,</span> <span class="n">raise_if_empty</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+</span><span id="__span-0-4772"><a id="__codelineno-0-4772" name="__codelineno-0-4772"></a>    <span class="k">except</span> <span class="n">NothingToScoreError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+</span><span id="__span-0-4773"><a id="__codelineno-0-4773" name="__codelineno-0-4773"></a>        <span class="k">raise</span> <span class="n">click</span><span class="o">.</span><span class="n">ClickException</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">))</span> <span class="kn">from</span><span class="w"> </span><span class="nn">e</span>
 </span></code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -9647,29 +9675,29 @@ prediction, no frame in common, or no tracked ground truth).</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>sleap_nn/cli.py</code></summary>
-              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-4464">4464</a></span>
-<span class="normal"><a href="#__codelineno-0-4465">4465</a></span>
-<span class="normal"><a href="#__codelineno-0-4466">4466</a></span>
-<span class="normal"><a href="#__codelineno-0-4467">4467</a></span>
-<span class="normal"><a href="#__codelineno-0-4468">4468</a></span>
-<span class="normal"><a href="#__codelineno-0-4469">4469</a></span>
-<span class="normal"><a href="#__codelineno-0-4470">4470</a></span>
-<span class="normal"><a href="#__codelineno-0-4471">4471</a></span>
-<span class="normal"><a href="#__codelineno-0-4472">4472</a></span>
-<span class="normal"><a href="#__codelineno-0-4473">4473</a></span>
-<span class="normal"><a href="#__codelineno-0-4474">4474</a></span>
-<span class="normal"><a href="#__codelineno-0-4475">4475</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-4464"><a id="__codelineno-0-4464" name="__codelineno-0-4464"></a><span class="nd">@cli</span><span class="o">.</span><span class="n">command</span><span class="p">(</span><span class="s2">&quot;infer&quot;</span><span class="p">,</span> <span class="n">hidden</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">context_settings</span><span class="o">=</span><span class="n">CONTEXT_SETTINGS</span><span class="p">)</span>
-</span><span id="__span-0-4465"><a id="__codelineno-0-4465" name="__codelineno-0-4465"></a><span class="nd">@_common_inference_options</span>
-</span><span id="__span-0-4466"><a id="__codelineno-0-4466" name="__codelineno-0-4466"></a><span class="k">def</span><span class="w"> </span><span class="nf">infer</span><span class="p">(</span><span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
-</span><span id="__span-0-4467"><a id="__codelineno-0-4467" name="__codelineno-0-4467"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Deprecated alias for ``predict``. Use ``sleap-nn predict`` instead.&quot;&quot;&quot;</span>
-</span><span id="__span-0-4468"><a id="__codelineno-0-4468" name="__codelineno-0-4468"></a>    <span class="kn">import</span><span class="w"> </span><span class="nn">warnings</span>
-</span><span id="__span-0-4469"><a id="__codelineno-0-4469" name="__codelineno-0-4469"></a>
-</span><span id="__span-0-4470"><a id="__codelineno-0-4470" name="__codelineno-0-4470"></a>    <span class="n">warnings</span><span class="o">.</span><span class="n">warn</span><span class="p">(</span>
-</span><span id="__span-0-4471"><a id="__codelineno-0-4471" name="__codelineno-0-4471"></a>        <span class="s2">&quot;sleap-nn infer is deprecated. Use sleap-nn predict instead.&quot;</span><span class="p">,</span>
-</span><span id="__span-0-4472"><a id="__codelineno-0-4472" name="__codelineno-0-4472"></a>        <span class="ne">DeprecationWarning</span><span class="p">,</span>
-</span><span id="__span-0-4473"><a id="__codelineno-0-4473" name="__codelineno-0-4473"></a>        <span class="n">stacklevel</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
-</span><span id="__span-0-4474"><a id="__codelineno-0-4474" name="__codelineno-0-4474"></a>    <span class="p">)</span>
-</span><span id="__span-0-4475"><a id="__codelineno-0-4475" name="__codelineno-0-4475"></a>    <span class="k">return</span> <span class="n">_run_inference_impl</span><span class="p">(</span><span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-4482">4482</a></span>
+<span class="normal"><a href="#__codelineno-0-4483">4483</a></span>
+<span class="normal"><a href="#__codelineno-0-4484">4484</a></span>
+<span class="normal"><a href="#__codelineno-0-4485">4485</a></span>
+<span class="normal"><a href="#__codelineno-0-4486">4486</a></span>
+<span class="normal"><a href="#__codelineno-0-4487">4487</a></span>
+<span class="normal"><a href="#__codelineno-0-4488">4488</a></span>
+<span class="normal"><a href="#__codelineno-0-4489">4489</a></span>
+<span class="normal"><a href="#__codelineno-0-4490">4490</a></span>
+<span class="normal"><a href="#__codelineno-0-4491">4491</a></span>
+<span class="normal"><a href="#__codelineno-0-4492">4492</a></span>
+<span class="normal"><a href="#__codelineno-0-4493">4493</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-4482"><a id="__codelineno-0-4482" name="__codelineno-0-4482"></a><span class="nd">@cli</span><span class="o">.</span><span class="n">command</span><span class="p">(</span><span class="s2">&quot;infer&quot;</span><span class="p">,</span> <span class="n">hidden</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">context_settings</span><span class="o">=</span><span class="n">CONTEXT_SETTINGS</span><span class="p">)</span>
+</span><span id="__span-0-4483"><a id="__codelineno-0-4483" name="__codelineno-0-4483"></a><span class="nd">@_common_inference_options</span>
+</span><span id="__span-0-4484"><a id="__codelineno-0-4484" name="__codelineno-0-4484"></a><span class="k">def</span><span class="w"> </span><span class="nf">infer</span><span class="p">(</span><span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+</span><span id="__span-0-4485"><a id="__codelineno-0-4485" name="__codelineno-0-4485"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Deprecated alias for ``predict``. Use ``sleap-nn predict`` instead.&quot;&quot;&quot;</span>
+</span><span id="__span-0-4486"><a id="__codelineno-0-4486" name="__codelineno-0-4486"></a>    <span class="kn">import</span><span class="w"> </span><span class="nn">warnings</span>
+</span><span id="__span-0-4487"><a id="__codelineno-0-4487" name="__codelineno-0-4487"></a>
+</span><span id="__span-0-4488"><a id="__codelineno-0-4488" name="__codelineno-0-4488"></a>    <span class="n">warnings</span><span class="o">.</span><span class="n">warn</span><span class="p">(</span>
+</span><span id="__span-0-4489"><a id="__codelineno-0-4489" name="__codelineno-0-4489"></a>        <span class="s2">&quot;sleap-nn infer is deprecated. Use sleap-nn predict instead.&quot;</span><span class="p">,</span>
+</span><span id="__span-0-4490"><a id="__codelineno-0-4490" name="__codelineno-0-4490"></a>        <span class="ne">DeprecationWarning</span><span class="p">,</span>
+</span><span id="__span-0-4491"><a id="__codelineno-0-4491" name="__codelineno-0-4491"></a>        <span class="n">stacklevel</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
+</span><span id="__span-0-4492"><a id="__codelineno-0-4492" name="__codelineno-0-4492"></a>    <span class="p">)</span>
+</span><span id="__span-0-4493"><a id="__codelineno-0-4493" name="__codelineno-0-4493"></a>    <span class="k">return</span> <span class="n">_run_inference_impl</span><span class="p">(</span><span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
 </span></code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -9701,45 +9729,45 @@ evaluation metrics (if available), and files in the directory.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>sleap_nn/cli.py</code></summary>
-              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-4600">4600</a></span>
-<span class="normal"><a href="#__codelineno-0-4601">4601</a></span>
-<span class="normal"><a href="#__codelineno-0-4602">4602</a></span>
-<span class="normal"><a href="#__codelineno-0-4603">4603</a></span>
-<span class="normal"><a href="#__codelineno-0-4604">4604</a></span>
-<span class="normal"><a href="#__codelineno-0-4605">4605</a></span>
-<span class="normal"><a href="#__codelineno-0-4606">4606</a></span>
-<span class="normal"><a href="#__codelineno-0-4607">4607</a></span>
-<span class="normal"><a href="#__codelineno-0-4608">4608</a></span>
-<span class="normal"><a href="#__codelineno-0-4609">4609</a></span>
-<span class="normal"><a href="#__codelineno-0-4610">4610</a></span>
-<span class="normal"><a href="#__codelineno-0-4611">4611</a></span>
-<span class="normal"><a href="#__codelineno-0-4612">4612</a></span>
-<span class="normal"><a href="#__codelineno-0-4613">4613</a></span>
-<span class="normal"><a href="#__codelineno-0-4614">4614</a></span>
-<span class="normal"><a href="#__codelineno-0-4615">4615</a></span>
-<span class="normal"><a href="#__codelineno-0-4616">4616</a></span>
-<span class="normal"><a href="#__codelineno-0-4617">4617</a></span>
-<span class="normal"><a href="#__codelineno-0-4618">4618</a></span>
-<span class="normal"><a href="#__codelineno-0-4619">4619</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-4600"><a id="__codelineno-0-4600" name="__codelineno-0-4600"></a><span class="nd">@cli</span><span class="o">.</span><span class="n">command</span><span class="p">(</span><span class="n">context_settings</span><span class="o">=</span><span class="n">CONTEXT_SETTINGS</span><span class="p">)</span>
-</span><span id="__span-0-4601"><a id="__codelineno-0-4601" name="__codelineno-0-4601"></a><span class="nd">@click</span><span class="o">.</span><span class="n">argument</span><span class="p">(</span><span class="s2">&quot;path&quot;</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">str</span><span class="p">)</span>
-</span><span id="__span-0-4602"><a id="__codelineno-0-4602" name="__codelineno-0-4602"></a><span class="k">def</span><span class="w"> </span><span class="nf">info</span><span class="p">(</span><span class="n">path</span><span class="p">):</span>
-</span><span id="__span-0-4603"><a id="__codelineno-0-4603" name="__codelineno-0-4603"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Display model configuration and evaluation metrics.</span>
-</span><span id="__span-0-4604"><a id="__codelineno-0-4604" name="__codelineno-0-4604"></a>
-</span><span id="__span-0-4605"><a id="__codelineno-0-4605" name="__codelineno-0-4605"></a><span class="sd">    PATH can be a trained model directory or a training config YAML file.</span>
-</span><span id="__span-0-4606"><a id="__codelineno-0-4606" name="__codelineno-0-4606"></a>
-</span><span id="__span-0-4607"><a id="__codelineno-0-4607" name="__codelineno-0-4607"></a><span class="sd">    If a model directory is given, shows config summary, training results,</span>
-</span><span id="__span-0-4608"><a id="__codelineno-0-4608" name="__codelineno-0-4608"></a><span class="sd">    evaluation metrics (if available), and files in the directory.</span>
-</span><span id="__span-0-4609"><a id="__codelineno-0-4609" name="__codelineno-0-4609"></a>
-</span><span id="__span-0-4610"><a id="__codelineno-0-4610" name="__codelineno-0-4610"></a><span class="sd">    If a config YAML is given, shows only the config summary.</span>
-</span><span id="__span-0-4611"><a id="__codelineno-0-4611" name="__codelineno-0-4611"></a>
-</span><span id="__span-0-4612"><a id="__codelineno-0-4612" name="__codelineno-0-4612"></a><span class="sd">    Examples:</span>
-</span><span id="__span-0-4613"><a id="__codelineno-0-4613" name="__codelineno-0-4613"></a><span class="sd">        sleap-nn info path/to/model_dir</span>
-</span><span id="__span-0-4614"><a id="__codelineno-0-4614" name="__codelineno-0-4614"></a>
-</span><span id="__span-0-4615"><a id="__codelineno-0-4615" name="__codelineno-0-4615"></a><span class="sd">        sleap-nn info path/to/training_config.yaml</span>
-</span><span id="__span-0-4616"><a id="__codelineno-0-4616" name="__codelineno-0-4616"></a><span class="sd">    &quot;&quot;&quot;</span>
-</span><span id="__span-0-4617"><a id="__codelineno-0-4617" name="__codelineno-0-4617"></a>    <span class="kn">from</span><span class="w"> </span><span class="nn">sleap_nn.model_info</span><span class="w"> </span><span class="kn">import</span> <span class="n">print_model_info</span>
-</span><span id="__span-0-4618"><a id="__codelineno-0-4618" name="__codelineno-0-4618"></a>
-</span><span id="__span-0-4619"><a id="__codelineno-0-4619" name="__codelineno-0-4619"></a>    <span class="n">print_model_info</span><span class="p">(</span><span class="n">path</span><span class="p">)</span>
+              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-4618">4618</a></span>
+<span class="normal"><a href="#__codelineno-0-4619">4619</a></span>
+<span class="normal"><a href="#__codelineno-0-4620">4620</a></span>
+<span class="normal"><a href="#__codelineno-0-4621">4621</a></span>
+<span class="normal"><a href="#__codelineno-0-4622">4622</a></span>
+<span class="normal"><a href="#__codelineno-0-4623">4623</a></span>
+<span class="normal"><a href="#__codelineno-0-4624">4624</a></span>
+<span class="normal"><a href="#__codelineno-0-4625">4625</a></span>
+<span class="normal"><a href="#__codelineno-0-4626">4626</a></span>
+<span class="normal"><a href="#__codelineno-0-4627">4627</a></span>
+<span class="normal"><a href="#__codelineno-0-4628">4628</a></span>
+<span class="normal"><a href="#__codelineno-0-4629">4629</a></span>
+<span class="normal"><a href="#__codelineno-0-4630">4630</a></span>
+<span class="normal"><a href="#__codelineno-0-4631">4631</a></span>
+<span class="normal"><a href="#__codelineno-0-4632">4632</a></span>
+<span class="normal"><a href="#__codelineno-0-4633">4633</a></span>
+<span class="normal"><a href="#__codelineno-0-4634">4634</a></span>
+<span class="normal"><a href="#__codelineno-0-4635">4635</a></span>
+<span class="normal"><a href="#__codelineno-0-4636">4636</a></span>
+<span class="normal"><a href="#__codelineno-0-4637">4637</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-4618"><a id="__codelineno-0-4618" name="__codelineno-0-4618"></a><span class="nd">@cli</span><span class="o">.</span><span class="n">command</span><span class="p">(</span><span class="n">context_settings</span><span class="o">=</span><span class="n">CONTEXT_SETTINGS</span><span class="p">)</span>
+</span><span id="__span-0-4619"><a id="__codelineno-0-4619" name="__codelineno-0-4619"></a><span class="nd">@click</span><span class="o">.</span><span class="n">argument</span><span class="p">(</span><span class="s2">&quot;path&quot;</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">str</span><span class="p">)</span>
+</span><span id="__span-0-4620"><a id="__codelineno-0-4620" name="__codelineno-0-4620"></a><span class="k">def</span><span class="w"> </span><span class="nf">info</span><span class="p">(</span><span class="n">path</span><span class="p">):</span>
+</span><span id="__span-0-4621"><a id="__codelineno-0-4621" name="__codelineno-0-4621"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Display model configuration and evaluation metrics.</span>
+</span><span id="__span-0-4622"><a id="__codelineno-0-4622" name="__codelineno-0-4622"></a>
+</span><span id="__span-0-4623"><a id="__codelineno-0-4623" name="__codelineno-0-4623"></a><span class="sd">    PATH can be a trained model directory or a training config YAML file.</span>
+</span><span id="__span-0-4624"><a id="__codelineno-0-4624" name="__codelineno-0-4624"></a>
+</span><span id="__span-0-4625"><a id="__codelineno-0-4625" name="__codelineno-0-4625"></a><span class="sd">    If a model directory is given, shows config summary, training results,</span>
+</span><span id="__span-0-4626"><a id="__codelineno-0-4626" name="__codelineno-0-4626"></a><span class="sd">    evaluation metrics (if available), and files in the directory.</span>
+</span><span id="__span-0-4627"><a id="__codelineno-0-4627" name="__codelineno-0-4627"></a>
+</span><span id="__span-0-4628"><a id="__codelineno-0-4628" name="__codelineno-0-4628"></a><span class="sd">    If a config YAML is given, shows only the config summary.</span>
+</span><span id="__span-0-4629"><a id="__codelineno-0-4629" name="__codelineno-0-4629"></a>
+</span><span id="__span-0-4630"><a id="__codelineno-0-4630" name="__codelineno-0-4630"></a><span class="sd">    Examples:</span>
+</span><span id="__span-0-4631"><a id="__codelineno-0-4631" name="__codelineno-0-4631"></a><span class="sd">        sleap-nn info path/to/model_dir</span>
+</span><span id="__span-0-4632"><a id="__codelineno-0-4632" name="__codelineno-0-4632"></a>
+</span><span id="__span-0-4633"><a id="__codelineno-0-4633" name="__codelineno-0-4633"></a><span class="sd">        sleap-nn info path/to/training_config.yaml</span>
+</span><span id="__span-0-4634"><a id="__codelineno-0-4634" name="__codelineno-0-4634"></a><span class="sd">    &quot;&quot;&quot;</span>
+</span><span id="__span-0-4635"><a id="__codelineno-0-4635" name="__codelineno-0-4635"></a>    <span class="kn">from</span><span class="w"> </span><span class="nn">sleap_nn.model_info</span><span class="w"> </span><span class="kn">import</span> <span class="n">print_model_info</span>
+</span><span id="__span-0-4636"><a id="__codelineno-0-4636" name="__codelineno-0-4636"></a>
+</span><span id="__span-0-4637"><a id="__codelineno-0-4637" name="__codelineno-0-4637"></a>    <span class="n">print_model_info</span><span class="p">(</span><span class="n">path</span><span class="p">)</span>
 </span></code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -9834,21 +9862,21 @@ evaluation metrics (if available), and files in the directory.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>sleap_nn/cli.py</code></summary>
-              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-4454">4454</a></span>
-<span class="normal"><a href="#__codelineno-0-4455">4455</a></span>
-<span class="normal"><a href="#__codelineno-0-4456">4456</a></span>
-<span class="normal"><a href="#__codelineno-0-4457">4457</a></span>
-<span class="normal"><a href="#__codelineno-0-4458">4458</a></span>
-<span class="normal"><a href="#__codelineno-0-4459">4459</a></span>
-<span class="normal"><a href="#__codelineno-0-4460">4460</a></span>
-<span class="normal"><a href="#__codelineno-0-4461">4461</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-4454"><a id="__codelineno-0-4454" name="__codelineno-0-4454"></a><span class="nd">@cli</span><span class="o">.</span><span class="n">command</span><span class="p">(</span><span class="n">context_settings</span><span class="o">=</span><span class="n">CONTEXT_SETTINGS</span><span class="p">)</span>
-</span><span id="__span-0-4455"><a id="__codelineno-0-4455" name="__codelineno-0-4455"></a><span class="nd">@_common_inference_options</span>
-</span><span id="__span-0-4456"><a id="__codelineno-0-4456" name="__codelineno-0-4456"></a><span class="k">def</span><span class="w"> </span><span class="nf">predict</span><span class="p">(</span><span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
-</span><span id="__span-0-4457"><a id="__codelineno-0-4457" name="__codelineno-0-4457"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Run inference on videos or labels files.</span>
-</span><span id="__span-0-4458"><a id="__codelineno-0-4458" name="__codelineno-0-4458"></a>
-</span><span id="__span-0-4459"><a id="__codelineno-0-4459" name="__codelineno-0-4459"></a><span class="sd">    Single unified inference entry point.</span>
-</span><span id="__span-0-4460"><a id="__codelineno-0-4460" name="__codelineno-0-4460"></a><span class="sd">    &quot;&quot;&quot;</span>
-</span><span id="__span-0-4461"><a id="__codelineno-0-4461" name="__codelineno-0-4461"></a>    <span class="k">return</span> <span class="n">_run_inference_impl</span><span class="p">(</span><span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-4472">4472</a></span>
+<span class="normal"><a href="#__codelineno-0-4473">4473</a></span>
+<span class="normal"><a href="#__codelineno-0-4474">4474</a></span>
+<span class="normal"><a href="#__codelineno-0-4475">4475</a></span>
+<span class="normal"><a href="#__codelineno-0-4476">4476</a></span>
+<span class="normal"><a href="#__codelineno-0-4477">4477</a></span>
+<span class="normal"><a href="#__codelineno-0-4478">4478</a></span>
+<span class="normal"><a href="#__codelineno-0-4479">4479</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-4472"><a id="__codelineno-0-4472" name="__codelineno-0-4472"></a><span class="nd">@cli</span><span class="o">.</span><span class="n">command</span><span class="p">(</span><span class="n">context_settings</span><span class="o">=</span><span class="n">CONTEXT_SETTINGS</span><span class="p">)</span>
+</span><span id="__span-0-4473"><a id="__codelineno-0-4473" name="__codelineno-0-4473"></a><span class="nd">@_common_inference_options</span>
+</span><span id="__span-0-4474"><a id="__codelineno-0-4474" name="__codelineno-0-4474"></a><span class="k">def</span><span class="w"> </span><span class="nf">predict</span><span class="p">(</span><span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+</span><span id="__span-0-4475"><a id="__codelineno-0-4475" name="__codelineno-0-4475"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Run inference on videos or labels files.</span>
+</span><span id="__span-0-4476"><a id="__codelineno-0-4476" name="__codelineno-0-4476"></a>
+</span><span id="__span-0-4477"><a id="__codelineno-0-4477" name="__codelineno-0-4477"></a><span class="sd">    Single unified inference entry point.</span>
+</span><span id="__span-0-4478"><a id="__codelineno-0-4478" name="__codelineno-0-4478"></a><span class="sd">    &quot;&quot;&quot;</span>
+</span><span id="__span-0-4479"><a id="__codelineno-0-4479" name="__codelineno-0-4479"></a>    <span class="k">return</span> <span class="n">_run_inference_impl</span><span class="p">(</span><span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
 </span></code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -9998,7 +10026,7 @@ evaluation metrics (if available), and files in the directory.</p>
 </span><span id="__span-0-494"><a id="__codelineno-0-494" name="__codelineno-0-494"></a><span class="s2">| Override | Description |</span>
 </span><span id="__span-0-495"><a id="__codelineno-0-495" name="__codelineno-0-495"></a><span class="s2">|----------|-------------|</span>
 </span><span id="__span-0-496"><a id="__codelineno-0-496" name="__codelineno-0-496"></a><span class="s2">| `trainer_config.max_epochs=100` | Set maximum training epochs |</span>
-</span><span id="__span-0-497"><a id="__codelineno-0-497" name="__codelineno-0-497"></a><span class="s2">| `trainer_config.batch_size=32` | Set batch size |</span>
+</span><span id="__span-0-497"><a id="__codelineno-0-497" name="__codelineno-0-497"></a><span class="s2">| `trainer_config.train_data_loader.batch_size=32` | Set batch size |</span>
 </span><span id="__span-0-498"><a id="__codelineno-0-498" name="__codelineno-0-498"></a><span class="s2">| `trainer_config.save_ckpt=true` | Enable checkpoint saving |</span>
 </span><span id="__span-0-499"><a id="__codelineno-0-499" name="__codelineno-0-499"></a>
 </span><span id="__span-0-500"><a id="__codelineno-0-500" name="__codelineno-0-500"></a><span class="s2">## Examples</span>
@@ -10172,25 +10200,25 @@ driver version with compatibility check, GPU details, and package versions.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>sleap_nn/cli.py</code></summary>
-              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-4588">4588</a></span>
-<span class="normal"><a href="#__codelineno-0-4589">4589</a></span>
-<span class="normal"><a href="#__codelineno-0-4590">4590</a></span>
-<span class="normal"><a href="#__codelineno-0-4591">4591</a></span>
-<span class="normal"><a href="#__codelineno-0-4592">4592</a></span>
-<span class="normal"><a href="#__codelineno-0-4593">4593</a></span>
-<span class="normal"><a href="#__codelineno-0-4594">4594</a></span>
-<span class="normal"><a href="#__codelineno-0-4595">4595</a></span>
-<span class="normal"><a href="#__codelineno-0-4596">4596</a></span>
-<span class="normal"><a href="#__codelineno-0-4597">4597</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-4588"><a id="__codelineno-0-4588" name="__codelineno-0-4588"></a><span class="nd">@cli</span><span class="o">.</span><span class="n">command</span><span class="p">(</span><span class="n">context_settings</span><span class="o">=</span><span class="n">CONTEXT_SETTINGS</span><span class="p">)</span>
-</span><span id="__span-0-4589"><a id="__codelineno-0-4589" name="__codelineno-0-4589"></a><span class="k">def</span><span class="w"> </span><span class="nf">system</span><span class="p">():</span>
-</span><span id="__span-0-4590"><a id="__codelineno-0-4590" name="__codelineno-0-4590"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Display system information and GPU status.</span>
-</span><span id="__span-0-4591"><a id="__codelineno-0-4591" name="__codelineno-0-4591"></a>
-</span><span id="__span-0-4592"><a id="__codelineno-0-4592" name="__codelineno-0-4592"></a><span class="sd">    Shows Python version, platform, PyTorch version, CUDA availability,</span>
-</span><span id="__span-0-4593"><a id="__codelineno-0-4593" name="__codelineno-0-4593"></a><span class="sd">    driver version with compatibility check, GPU details, and package versions.</span>
-</span><span id="__span-0-4594"><a id="__codelineno-0-4594" name="__codelineno-0-4594"></a><span class="sd">    &quot;&quot;&quot;</span>
-</span><span id="__span-0-4595"><a id="__codelineno-0-4595" name="__codelineno-0-4595"></a>    <span class="kn">from</span><span class="w"> </span><span class="nn">sleap_nn.system_info</span><span class="w"> </span><span class="kn">import</span> <span class="n">print_system_info</span>
-</span><span id="__span-0-4596"><a id="__codelineno-0-4596" name="__codelineno-0-4596"></a>
-</span><span id="__span-0-4597"><a id="__codelineno-0-4597" name="__codelineno-0-4597"></a>    <span class="n">print_system_info</span><span class="p">()</span>
+              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-4606">4606</a></span>
+<span class="normal"><a href="#__codelineno-0-4607">4607</a></span>
+<span class="normal"><a href="#__codelineno-0-4608">4608</a></span>
+<span class="normal"><a href="#__codelineno-0-4609">4609</a></span>
+<span class="normal"><a href="#__codelineno-0-4610">4610</a></span>
+<span class="normal"><a href="#__codelineno-0-4611">4611</a></span>
+<span class="normal"><a href="#__codelineno-0-4612">4612</a></span>
+<span class="normal"><a href="#__codelineno-0-4613">4613</a></span>
+<span class="normal"><a href="#__codelineno-0-4614">4614</a></span>
+<span class="normal"><a href="#__codelineno-0-4615">4615</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-4606"><a id="__codelineno-0-4606" name="__codelineno-0-4606"></a><span class="nd">@cli</span><span class="o">.</span><span class="n">command</span><span class="p">(</span><span class="n">context_settings</span><span class="o">=</span><span class="n">CONTEXT_SETTINGS</span><span class="p">)</span>
+</span><span id="__span-0-4607"><a id="__codelineno-0-4607" name="__codelineno-0-4607"></a><span class="k">def</span><span class="w"> </span><span class="nf">system</span><span class="p">():</span>
+</span><span id="__span-0-4608"><a id="__codelineno-0-4608" name="__codelineno-0-4608"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Display system information and GPU status.</span>
+</span><span id="__span-0-4609"><a id="__codelineno-0-4609" name="__codelineno-0-4609"></a>
+</span><span id="__span-0-4610"><a id="__codelineno-0-4610" name="__codelineno-0-4610"></a><span class="sd">    Shows Python version, platform, PyTorch version, CUDA availability,</span>
+</span><span id="__span-0-4611"><a id="__codelineno-0-4611" name="__codelineno-0-4611"></a><span class="sd">    driver version with compatibility check, GPU details, and package versions.</span>
+</span><span id="__span-0-4612"><a id="__codelineno-0-4612" name="__codelineno-0-4612"></a><span class="sd">    &quot;&quot;&quot;</span>
+</span><span id="__span-0-4613"><a id="__codelineno-0-4613" name="__codelineno-0-4613"></a>    <span class="kn">from</span><span class="w"> </span><span class="nn">sleap_nn.system_info</span><span class="w"> </span><span class="kn">import</span> <span class="n">print_system_info</span>
+</span><span id="__span-0-4614"><a id="__codelineno-0-4614" name="__codelineno-0-4614"></a>
+</span><span id="__span-0-4615"><a id="__codelineno-0-4615" name="__codelineno-0-4615"></a>    <span class="n">print_system_info</span><span class="p">()</span>
 </span></code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -10727,7 +10755,7 @@ inference pipeline, use <code>sleap-nn predict</code>.</p>
 </span><span id="__span-0-906"><a id="__codelineno-0-906" name="__codelineno-0-906"></a>    <span class="s2">&quot;-o&quot;</span><span class="p">,</span>
 </span><span id="__span-0-907"><a id="__codelineno-0-907" name="__codelineno-0-907"></a>    <span class="nb">type</span><span class="o">=</span><span class="nb">str</span><span class="p">,</span>
 </span><span id="__span-0-908"><a id="__codelineno-0-908" name="__codelineno-0-908"></a>    <span class="n">default</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-</span><span id="__span-0-909"><a id="__codelineno-0-909" name="__codelineno-0-909"></a>    <span class="n">help</span><span class="o">=</span><span class="s2">&quot;The output filename to use for the predicted data. If not provided, defaults to &#39;[data_path].slp&#39;.&quot;</span><span class="p">,</span>
+</span><span id="__span-0-909"><a id="__codelineno-0-909" name="__codelineno-0-909"></a>    <span class="n">help</span><span class="o">=</span><span class="s2">&quot;The output filename to use for the predicted data. If not provided, defaults to &#39;[data_path stem].predictions.slp&#39; (e.g. video.predictions.slp).&quot;</span><span class="p">,</span>
 </span><span id="__span-0-910"><a id="__codelineno-0-910" name="__codelineno-0-910"></a><span class="p">)</span>
 </span><span id="__span-0-911"><a id="__codelineno-0-911" name="__codelineno-0-911"></a><span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span>
 </span><span id="__span-0-912"><a id="__codelineno-0-912" name="__codelineno-0-912"></a>    <span class="s2">&quot;--device&quot;</span><span class="p">,</span>

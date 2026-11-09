@@ -1994,6 +1994,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#embedding-appearance-re-id" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Embedding (appearance / re-ID)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#bounding-boxes" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2135,6 +2146,34 @@
     
   
     CLI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Python API
   
 
     
@@ -8081,6 +8120,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#embedding-appearance-re-id" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Embedding (appearance / re-ID)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#bounding-boxes" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -8350,9 +8400,8 @@ resolution; inference collapses to a single-node <code>'centroid'</code> skeleto
 </tbody>
 </table>
 <h3 id="segmentation-masks">Segmentation (masks)<a class="headerlink" href="#segmentation-masks" title="Permanent link">&para;</a></h3>
-<p>Single-stage bottom-up instance <strong>segmentation</strong> (per-instance masks instead of
-keypoints). <code>fg_threshold</code> / <code>min_mask_area</code> are inference-time args; train at
-<code>scale: 1.0</code>.</p>
+<p>Masks instead of keypoints. <code>fg_threshold</code> / <code>min_mask_area</code> are inference-time
+args; train at <code>scale: 1.0</code>.</p>
 <table>
 <thead>
 <tr>
@@ -8371,6 +8420,35 @@ keypoints). <code>fg_threshold</code> / <code>min_mask_area</code> are inference
 <td><a href="https://github.com/talmolab/sleap-nn/blob/main/docs/sample_configs/config_bottomup_segmentation_pretrained.yaml">bottomup_segmentation_pretrained</a></td>
 <td>Pretrained (HuggingFace ConvNeXtV2)</td>
 <td>Reuse an external pretrained encoder; see the <a href="../../guides/pretrained-backbones/">Pretrained Backbones guide</a></td>
+</tr>
+<tr>
+<td><a href="https://github.com/talmolab/sleap-nn/blob/main/docs/sample_configs/config_topdown_centered_instance_segmentation_unet.yaml">centered_instance_segmentation_unet</a></td>
+<td>UNet</td>
+<td>Top-down stage 2: the centered instance's mask on a centroid crop; pair with a <code>centroid</code> model. See the <a href="../../guides/topdown-segmentation/">Top-down segmentation guide</a></td>
+</tr>
+<tr>
+<td><a href="https://github.com/talmolab/sleap-nn/blob/main/docs/sample_configs/config_semantic_segmentation_unet.yaml">semantic_segmentation_unet</a></td>
+<td>UNet</td>
+<td>Whole-frame foreground/background map, no instances. See the <a href="../../guides/semantic-segmentation/">Semantic segmentation guide</a></td>
+</tr>
+</tbody>
+</table>
+<h3 id="embedding-appearance-re-id">Embedding (appearance / re-ID)<a class="headerlink" href="#embedding-appearance-re-id" title="Permanent link">&para;</a></h3>
+<p>Maps each instance crop to an appearance vector for embedding-based tracking. See
+the <a href="../../guides/embedding-tracking/">Embedding tracking guide</a>.</p>
+<table>
+<thead>
+<tr>
+<th>Config</th>
+<th>Backbone</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="https://github.com/talmolab/sleap-nn/blob/main/docs/sample_configs/config_embedding_convnext.yaml">embedding_convnext</a></td>
+<td>ConvNeXt-Tiny (ImageNet weights)</td>
+<td>SupCon over global identities (<code>positives.scope: global_id</code>), P x K sampler; deliberately gentle augmentation</td>
 </tr>
 </tbody>
 </table>

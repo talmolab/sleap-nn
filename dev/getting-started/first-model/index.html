@@ -2184,6 +2184,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../reference/api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Python API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../reference/models/" class="md-nav__link">
         
   
@@ -8404,7 +8432,7 @@
 </span></code></pre></div>
 <hr />
 <h2 id="step-4-train">Step 4: Train<a class="headerlink" href="#step-4-train" title="Permanent link">&para;</a></h2>
-<p>Check the config and data first (one training batch, nothing left on disk), then run training:</p>
+<p>Check the config and data first (one training and one validation batch, nothing left on disk), then run training:</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>sleap-nn<span class="w"> </span>train<span class="w"> </span>--config<span class="w"> </span>config.yaml<span class="w"> </span>--dry-run
 </span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>sleap-nn<span class="w"> </span>train<span class="w"> </span>--config<span class="w"> </span>config.yaml
 </span></code></pre></div>
@@ -8431,8 +8459,8 @@
 </span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>├── training_config.yaml       # Full config with auto-computed values
 </span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>├── labels_gt.train.0.slp      # Training data split (ground truth)
 </span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>├── labels_gt.val.0.slp        # Validation data split (ground truth)
-</span><span id="__span-4-7"><a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a>├── labels_pr.train.slp        # Predictions on training data after training
-</span><span id="__span-4-8"><a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a>├── labels_pr.val.slp          # Predictions on validation data after training
+</span><span id="__span-4-7"><a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a>├── labels_pr.train.0.slp      # Predictions on training data after training
+</span><span id="__span-4-8"><a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a>├── labels_pr.val.0.slp        # Predictions on validation data after training
 </span><span id="__span-4-9"><a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a>├── metrics.train.0.npz        # Training metrics
 </span><span id="__span-4-10"><a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a>├── metrics.val.0.npz          # Validation metrics
 </span><span id="__span-4-11"><a id="__codelineno-4-11" name="__codelineno-4-11" href="#__codelineno-4-11"></a>└── training_log.csv           # Loss per epoch

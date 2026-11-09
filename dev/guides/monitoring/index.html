@@ -2159,6 +2159,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../reference/api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Python API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../reference/models/" class="md-nav__link">
         
   
@@ -8301,11 +8329,11 @@
 </thead>
 <tbody>
 <tr>
-<td><code>train_confmap_loss</code> / <code>val_confmap_loss</code></td>
+<td><code>train/confmaps_loss</code> / <code>val/confmaps_loss</code></td>
 <td>Confidence map head loss</td>
 </tr>
 <tr>
-<td><code>train_paf_loss</code> / <code>val_paf_loss</code></td>
+<td><code>train/paf_loss</code> / <code>val/paf_loss</code></td>
 <td>Part affinity field loss (bottom-up only)</td>
 </tr>
 </tbody>
@@ -8351,6 +8379,21 @@
 <td><code>CentroidEvaluationCallback</code></td>
 <td>Distance, precision/recall</td>
 </tr>
+<tr>
+<td>Segmentation (bottom-up, centered-instance, semantic)</td>
+<td><code>SegmentationEvaluationCallback</code></td>
+<td>Instance mask-IoU mAP / precision / recall; semantic: foreground IoU, clDice, boundary IoU</td>
+</tr>
+<tr>
+<td>Box detectors (<code>bbox_centernet</code>, <code>bbox_ssd</code>)</td>
+<td><code>BBoxEvaluationCallback</code></td>
+<td><code>eval/val/bbox_*</code> (COCO-style mAP, AP50/75, AR, F1) — see <a href="../bbox-detection/">Bounding boxes</a></td>
+</tr>
+<tr>
+<td>Embedding</td>
+<td><code>EmbeddingEvaluationCallback</code></td>
+<td>Retrieval metrics (rank-1, mAP, ...); runs even with <code>eval.enabled: false</code></td>
+</tr>
 </tbody>
 </table>
 <h3 id="pose-model-evaluation-oks-based">Pose Model Evaluation (OKS-based)<a class="headerlink" href="#pose-model-evaluation-oks-based" title="Permanent link">&para;</a></h3>
@@ -8372,24 +8415,32 @@
 </thead>
 <tbody>
 <tr>
-<td><code>eval/val/oks_voc</code></td>
-<td>OKS-based VOC score</td>
+<td><code>eval/val/mOKS</code></td>
+<td>Mean OKS</td>
 </tr>
 <tr>
-<td><code>eval/val/pck</code></td>
-<td>Percentage of Correct Keypoints</td>
+<td><code>eval/val/oks_voc_mAP</code> / <code>eval/val/oks_voc_mAR</code></td>
+<td>OKS-based VOC mean average precision / recall</td>
 </tr>
 <tr>
-<td><code>eval/val/dist_p50</code></td>
-<td>Median distance (pixels)</td>
+<td><code>eval/val/mPCK</code></td>
+<td>Mean Percentage of Correct Keypoints</td>
 </tr>
 <tr>
-<td><code>eval/val/dist_p90</code></td>
-<td>90<sup>th</sup> percentile distance</td>
+<td><code>eval/val/PCK_5</code> / <code>eval/val/PCK_10</code></td>
+<td>PCK at 5 / 10 px</td>
 </tr>
 <tr>
-<td><code>eval/val/dist_p95</code></td>
-<td>95<sup>th</sup> percentile distance</td>
+<td><code>eval/val/distance/avg</code></td>
+<td>Mean keypoint distance (pixels)</td>
+</tr>
+<tr>
+<td><code>eval/val/distance/p50</code> / <code>p95</code> / <code>p99</code></td>
+<td>Distance percentiles (pixels)</td>
+</tr>
+<tr>
+<td><code>eval/val/visibility_precision</code> / <code>eval/val/visibility_recall</code></td>
+<td>Node visibility precision / recall</td>
 </tr>
 </tbody>
 </table>
@@ -8470,6 +8521,7 @@
 </span><span id="__span-6-5"><a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="w">    </span><span class="nt">oks_stddev</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">float</span><span class="w">   </span><span class="c1"># OKS standard deviation (default: 0.025)</span>
 </span><span id="__span-6-6"><a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="w">    </span><span class="nt">oks_scale</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">float</span><span class="w">    </span><span class="c1"># OKS scale override, null for auto (default: null)</span>
 </span><span id="__span-6-7"><a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a><span class="w">    </span><span class="nt">match_threshold</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">float</span><span class="w">  </span><span class="c1"># Centroid matching threshold in pixels (default: 50.0)</span>
+</span><span id="__span-6-8"><a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a><span class="w">    </span><span class="nt">select_metric</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">str</span><span class="w">  </span><span class="c1"># Checkpoint metric for embedding / bbox models (default: rank1)</span>
 </span></code></pre></div>
 <p>See <a href="../../configuration/trainer/#evalconfig">Trainer Configuration</a> for complete reference.</p>
 <hr />

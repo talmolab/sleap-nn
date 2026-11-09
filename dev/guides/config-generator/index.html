@@ -2203,6 +2203,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../reference/api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Python API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../reference/models/" class="md-nav__link">
         
   
@@ -8479,24 +8507,23 @@ and a <code>config_centered_instance.yaml</code> with box-scaled crops (<code>cr
 <td><code>.rotation(min, max)</code></td>
 <td>Set rotation augmentation range</td>
 </tr>
-<tr>
-<td><code>.early_stopping(enabled, patience)</code></td>
-<td>Configure early stopping</td>
-</tr>
-<tr>
-<td><code>.crop_size(size)</code></td>
-<td>Set crop size (centered_instance)</td>
-</tr>
-<tr>
-<td><code>.anchor_part(name)</code></td>
-<td>Set anchor part (top-down)</td>
-</tr>
-<tr>
-<td><code>.centroid_method(method, fallback=None)</code></td>
-<td>How the centroid / crop center is derived: <code>center_of_mass</code>, <code>bbox_center</code>, <code>geometric_median</code>, <code>anchor</code> (#586)</td>
-</tr>
 </tbody>
 </table>
+<div class="admonition warning">
+<p class="admonition-title">Python pipeline names differ from <code>--pipeline</code></p>
+<p><code>.pipeline()</code> takes one model's type, not the CLI's pipeline names. There is
+no <code>"topdown"</code>: build a top-down pair as two configs, <code>.pipeline("centroid")</code>
+and <code>.pipeline("centered_instance")</code> (or call <code>.build_centroid()</code> and
+<code>.build_centered_instance()</code>). <code>"centroid_only"</code> is a standalone centroid
+model. Accepted values: <code>single_instance</code>, <code>centroid</code>, <code>centroid_only</code>,
+<code>centered_instance</code>, <code>bottomup</code>, <code>multi_class_bottomup</code>,
+<code>multi_class_topdown</code>, <code>bbox_centernet</code>, <code>bbox_ssd</code>,
+<code>topdown_bbox_centernet</code>, <code>topdown_bbox_ssd</code>.</p>
+</div>
+<p>| <code>.early_stopping(enabled, patience)</code> | Configure early stopping |
+| <code>.crop_size(size)</code> | Set crop size (centered_instance) |
+| <code>.anchor_part(name)</code> | Set anchor part (top-down) |
+| <code>.centroid_method(method, fallback=None)</code> | How the centroid / crop center is derived: <code>center_of_mass</code>, <code>bbox_center</code>, <code>geometric_median</code>, <code>anchor</code> (#586) |</p>
 <h3 id="get-recommendations">Get Recommendations<a class="headerlink" href="#get-recommendations" title="Permanent link">&para;</a></h3>
 <div class="language-python highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">sleap_nn.config_generator</span><span class="w"> </span><span class="kn">import</span> <span class="n">ConfigGenerator</span>
 </span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>
@@ -8519,7 +8546,8 @@ and a <code>config_centered_instance.yaml</code> with box-scaled crops (<code>cr
 </span></code></pre></div>
 <hr />
 <h2 id="pipeline-selection">Pipeline Selection<a class="headerlink" href="#pipeline-selection" title="Permanent link">&para;</a></h2>
-<p>The config generator analyzes your data to recommend a pipeline:</p>
+<p>The config generator analyzes your data to recommend a pipeline (these are
+the <code>sleap-nn config --pipeline</code> names):</p>
 <table>
 <thead>
 <tr>

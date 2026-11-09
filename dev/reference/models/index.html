@@ -11,7 +11,7 @@
         <link rel="canonical" href="https://nn.sleap.ai/dev/reference/models/">
       
       
-        <link rel="prev" href="../cli/">
+        <link rel="prev" href="../api/">
       
       
         <link rel="next" href="../evaluation_metrics/">
@@ -1915,6 +1915,34 @@
                 
   
   
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Python API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
     
   
   
@@ -2227,6 +2255,78 @@
     <span class="md-ellipsis">
       
         Multi-Class Top-Down
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#segmentation-detection-and-re-id-models" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Segmentation, Detection and Re-ID Models
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Segmentation, Detection and Re-ID Models">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#top-down-segmentation-centered_instance_segmentation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Top-Down Segmentation (centered_instance_segmentation)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bottom-up-segmentation-bottomup_segmentation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Bottom-Up Segmentation (bottomup_segmentation)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#semantic-segmentation-semantic_segmentation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Semantic Segmentation (semantic_segmentation)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bounding-box-detection-bbox_centernet-bbox_ssd" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Bounding-Box Detection (bbox_centernet, bbox_ssd)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#re-id-embedding-embedding" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Re-ID Embedding (embedding)
       
     </span>
   </a>
@@ -8468,6 +8568,78 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#segmentation-detection-and-re-id-models" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Segmentation, Detection and Re-ID Models
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Segmentation, Detection and Re-ID Models">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#top-down-segmentation-centered_instance_segmentation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Top-Down Segmentation (centered_instance_segmentation)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bottom-up-segmentation-bottomup_segmentation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Bottom-Up Segmentation (bottomup_segmentation)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#semantic-segmentation-semantic_segmentation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Semantic Segmentation (semantic_segmentation)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bounding-box-detection-bbox_centernet-bbox_ssd" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Bounding-Box Detection (bbox_centernet, bbox_ssd)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#re-id-embedding-embedding" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Re-ID Embedding (embedding)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#backbones" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -8760,7 +8932,7 @@
 <h3 id="when-to-use_1">When to Use<a class="headerlink" href="#when-to-use_1" title="Permanent link">&para;</a></h3>
 <ul>
 <li>Multiple animals that are clearly separated</li>
-<li>Animals vary in size (centroid crops normalize scale)</li>
+<li>Animals vary in size: use box-scaled crops (<code>crop_mode: bbox</code> behind a box detector, see <a href="../../guides/bbox-topdown/">Top-down pose with a box detector</a>). Default fixed crops keep native pixel size</li>
 <li>Need precise localization per individual</li>
 </ul>
 <div class="admonition tip">
@@ -8791,7 +8963,7 @@
 <div class="language-yaml highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="nt">head_configs</span><span class="p">:</span>
 </span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">  </span><span class="nt">centroid</span><span class="p">:</span>
 </span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">    </span><span class="nt">confmaps</span><span class="p">:</span>
-</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="w">      </span><span class="nt">anchor_part</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">null</span><span class="w">  </span><span class="c1"># Use bbox center</span>
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="w">      </span><span class="nt">anchor_part</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">null</span><span class="w">  </span><span class="c1"># Mean of visible nodes (center_of_mass)</span>
 </span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="w">      </span><span class="nt">sigma</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5.0</span>
 </span></code></pre></div></p>
 <p><strong>Instance model:</strong>
@@ -8888,6 +9060,19 @@ see the <a href="../../guides/supervised-id/">Supervised ID guide</a>.</p>
 </span><span id="__span-12-9"><a id="__codelineno-12-9" name="__codelineno-12-9" href="#__codelineno-12-9"></a><span class="w">      </span><span class="nt">num_fc_units</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">64</span>
 </span><span id="__span-12-10"><a id="__codelineno-12-10" name="__codelineno-12-10" href="#__codelineno-12-10"></a><span class="w">      </span><span class="nt">loss_weight</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1.0</span>
 </span></code></pre></div>
+<hr />
+<h2 id="segmentation-detection-and-re-id-models">Segmentation, Detection and Re-ID Models<a class="headerlink" href="#segmentation-detection-and-re-id-models" title="Permanent link">&para;</a></h2>
+<p>These model types predict masks, boxes or appearance vectors instead of (or alongside) poses.</p>
+<h3 id="top-down-segmentation-centered_instance_segmentation">Top-Down Segmentation (<code>centered_instance_segmentation</code>)<a class="headerlink" href="#top-down-segmentation-centered_instance_segmentation" title="Permanent link">&para;</a></h3>
+<p>A <code>centroid</code> model finds each animal, and a segmentation head predicts the mask of the centered instance in each crop. Output is one <code>sio.PredictedSegmentationMask</code> per instance. See the <a href="../../guides/topdown-segmentation/">Top-down segmentation guide</a>.</p>
+<h3 id="bottom-up-segmentation-bottomup_segmentation">Bottom-Up Segmentation (<code>bottomup_segmentation</code>)<a class="headerlink" href="#bottom-up-segmentation-bottomup_segmentation" title="Permanent link">&para;</a></h3>
+<p>A single whole-frame model with foreground, instance-center and offset heads. Foreground pixels are grouped into instances by their offset to the nearest center. See <a href="../../guides/inference-guide/#bottom-up-segmentation">Bottom-Up Segmentation</a> in the inference guide.</p>
+<h3 id="semantic-segmentation-semantic_segmentation">Semantic Segmentation (<code>semantic_segmentation</code>)<a class="headerlink" href="#semantic-segmentation-semantic_segmentation" title="Permanent link">&para;</a></h3>
+<p>A foreground head on the whole frame with no instance grouping: one instance-less foreground mask per frame. See the <a href="../../guides/semantic-segmentation/">Semantic segmentation guide</a>.</p>
+<h3 id="bounding-box-detection-bbox_centernet-bbox_ssd">Bounding-Box Detection (<code>bbox_centernet</code>, <code>bbox_ssd</code>)<a class="headerlink" href="#bounding-box-detection-bbox_centernet-bbox_ssd" title="Permanent link">&para;</a></h3>
+<p>Whole-frame detectors that write <code>sio.PredictedBoundingBox</code> objects to <code>LabeledFrame.bboxes</code>, either CenterNet-style (anchor-free) or SSD-style (anchor-based). A detector can also replace the centroid model as the first stage of top-down pose. See the <a href="../../guides/bbox-detection/">Bounding-box detection guide</a> and <a href="../../guides/bbox-topdown/">Top-down pose with a box detector</a>.</p>
+<h3 id="re-id-embedding-embedding">Re-ID Embedding (<code>embedding</code>)<a class="headerlink" href="#re-id-embedding-embedding" title="Permanent link">&para;</a></h3>
+<p>Maps each detection's crop to an appearance vector, which the tracker can use to keep identities across frames and occlusions. See the <a href="../../guides/embedding-tracking/">Embedding tracking guide</a> and the sample config <code>docs/sample_configs/config_embedding_convnext.yaml</code>.</p>
 <hr />
 <h2 id="backbones">Backbones<a class="headerlink" href="#backbones" title="Permanent link">&para;</a></h2>
 <h3 id="unet">UNet<a class="headerlink" href="#unet" title="Permanent link">&para;</a></h3>

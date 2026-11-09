@@ -1812,17 +1812,6 @@
   
 </li>
         
-          <li class="md-nav__item">
-  <a href="#benchmark-results" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Benchmark results
-      
-    </span>
-  </a>
-  
-</li>
-        
       </ul>
     </nav>
   
@@ -2346,6 +2335,34 @@
     
   
     CLI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Python API
   
 
     
@@ -8451,17 +8468,6 @@
   
 </li>
         
-          <li class="md-nav__item">
-  <a href="#benchmark-results" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Benchmark results
-      
-    </span>
-  </a>
-  
-</li>
-        
       </ul>
     </nav>
   
@@ -8698,13 +8704,13 @@ ignored.</p>
 <td><code>--features</code></td>
 <td>Features for matching</td>
 <td><code>keypoints</code>, <code>centroids</code>, <code>bboxes</code>, <code>masks</code>, <code>embeddings</code></td>
-<td><code>keypoints</code></td>
+<td><code>keypoints</code> (<code>centroids</code> for single-node skeletons, <code>masks</code> for segmentation-only output)</td>
 </tr>
 <tr>
 <td><code>--scoring_method</code></td>
 <td>Similarity scoring method</td>
 <td><code>oks</code>, <code>cosine_sim</code>, <code>iou</code>, <code>mask_iou</code>, <code>euclidean_dist</code></td>
-<td><code>oks</code></td>
+<td><code>oks</code> (<code>euclidean_dist</code> for single-node skeletons, <code>mask_iou</code> for masks, <code>cosine_sim</code> for <code>--features embeddings</code>)</td>
 </tr>
 <tr>
 <td><code>--appearance_weight</code></td>
@@ -8845,7 +8851,7 @@ instance <strong>centroid</strong>. The tracker runs a normal-tracker warm-up fo
 predicts each track's centroid forward and scores the current detections against the
 last observed pose <strong>rigidly translated</strong> by that predicted displacement (analogous to
 optical flow, but using a motion model instead of image displacements):</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/centroid<span class="w"> </span>models/centered_instance<span class="w"> </span><span class="se">\</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/centroid/<span class="w"> </span>-m<span class="w"> </span>models/centered_instance/<span class="w"> </span><span class="se">\</span>
 </span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">    </span>-t<span class="w"> </span><span class="se">\</span>
 </span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">    </span>--use_kalman<span class="w"> </span><span class="se">\</span>
 </span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="w">    </span>--tracking_target_instance_count<span class="w"> </span><span class="m">2</span><span class="w"> </span><span class="se">\</span>
@@ -9815,12 +9821,13 @@ JSON:</p>
 </span><span id="__span-10-15"><a id="__codelineno-10-15" name="__codelineno-10-15" href="#__codelineno-10-15"></a>            <span class="s2">&quot;score_normalizer&quot;</span><span class="p">:</span> <span class="mf">0.83</span><span class="p">,</span>  <span class="c1"># the video&#39;s score q95 (None: raw scores)</span>
 </span><span id="__span-10-16"><a id="__codelineno-10-16" name="__codelineno-10-16" href="#__codelineno-10-16"></a>            <span class="s2">&quot;calibration&quot;</span><span class="p">:</span> <span class="p">{</span><span class="o">...</span><span class="p">},</span>   <span class="c1"># VideoCalibration.as_dict(): status, body_size, gates, ...</span>
 </span><span id="__span-10-17"><a id="__codelineno-10-17" name="__codelineno-10-17" href="#__codelineno-10-17"></a>            <span class="s2">&quot;appearance&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;enabled&quot;</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span> <span class="s2">&quot;reason&quot;</span><span class="p">:</span> <span class="s2">&quot;calibration status=&#39;insufficient&#39;, ...&quot;</span><span class="p">,</span> <span class="o">...</span><span class="p">},</span>
-</span><span id="__span-10-18"><a id="__codelineno-10-18" name="__codelineno-10-18" href="#__codelineno-10-18"></a>            <span class="c1"># deepocsort also records &quot;association_term&quot;: &quot;standardized&quot; / &quot;raw_cosine&quot; / &quot;off</span>
-</span><span id="__span-10-19"><a id="__codelineno-10-19" name="__codelineno-10-19" href="#__codelineno-10-19"></a>            <span class="s2">&quot;linking&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;n_identities_before&quot;</span><span class="p">:</span> <span class="mi">5</span><span class="p">,</span> <span class="s2">&quot;n_identities&quot;</span><span class="p">:</span> <span class="mi">4</span><span class="p">,</span> <span class="s2">&quot;n_merges&quot;</span><span class="p">:</span> <span class="mi">1</span><span class="p">,</span>
-</span><span id="__span-10-20"><a id="__codelineno-10-20" name="__codelineno-10-20" href="#__codelineno-10-20"></a>                        <span class="s2">&quot;n_forced_merges&quot;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span> <span class="s2">&quot;n_swaps&quot;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span> <span class="s2">&quot;n_untracked&quot;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span> <span class="s2">&quot;notes&quot;</span><span class="p">:</span> <span class="p">[</span><span class="o">...</span><span class="p">]},</span>
-</span><span id="__span-10-21"><a id="__codelineno-10-21" name="__codelineno-10-21" href="#__codelineno-10-21"></a>        <span class="p">}</span>
-</span><span id="__span-10-22"><a id="__codelineno-10-22" name="__codelineno-10-22" href="#__codelineno-10-22"></a>    <span class="p">],</span>
-</span><span id="__span-10-23"><a id="__codelineno-10-23" name="__codelineno-10-23" href="#__codelineno-10-23"></a><span class="p">}</span>
+</span><span id="__span-10-18"><a id="__codelineno-10-18" name="__codelineno-10-18" href="#__codelineno-10-18"></a>            <span class="c1"># for deepocsort, &quot;appearance&quot; also holds &quot;association_term&quot;:</span>
+</span><span id="__span-10-19"><a id="__codelineno-10-19" name="__codelineno-10-19" href="#__codelineno-10-19"></a>            <span class="c1"># &quot;standardized&quot; / &quot;raw_cosine&quot; / &quot;off&quot;</span>
+</span><span id="__span-10-20"><a id="__codelineno-10-20" name="__codelineno-10-20" href="#__codelineno-10-20"></a>            <span class="s2">&quot;linking&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;n_identities_before&quot;</span><span class="p">:</span> <span class="mi">5</span><span class="p">,</span> <span class="s2">&quot;n_identities&quot;</span><span class="p">:</span> <span class="mi">4</span><span class="p">,</span> <span class="s2">&quot;n_merges&quot;</span><span class="p">:</span> <span class="mi">1</span><span class="p">,</span>
+</span><span id="__span-10-21"><a id="__codelineno-10-21" name="__codelineno-10-21" href="#__codelineno-10-21"></a>                        <span class="s2">&quot;n_forced_merges&quot;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span> <span class="s2">&quot;n_swaps&quot;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span> <span class="s2">&quot;n_untracked&quot;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span> <span class="s2">&quot;notes&quot;</span><span class="p">:</span> <span class="p">[</span><span class="o">...</span><span class="p">]},</span>
+</span><span id="__span-10-22"><a id="__codelineno-10-22" name="__codelineno-10-22" href="#__codelineno-10-22"></a>        <span class="p">}</span>
+</span><span id="__span-10-23"><a id="__codelineno-10-23" name="__codelineno-10-23" href="#__codelineno-10-23"></a>    <span class="p">],</span>
+</span><span id="__span-10-24"><a id="__codelineno-10-24" name="__codelineno-10-24" href="#__codelineno-10-24"></a><span class="p">}</span>
 </span></code></pre></div>
 <p><code>video</code> is the video's index in <code>labels.videos</code>; a video with no frames has no
 entry. <code>linking</code> appears only when linking ran. A classic run with
@@ -9859,10 +9866,6 @@ saved:</p>
 </span></code></pre></div>
 <p>To compare trackers, retrack the <strong>same</strong> prediction file once per tracker and
 score each output. The difference is then the tracker's and not the detector's.</p>
-<h3 id="benchmark-results">Benchmark results<a class="headerlink" href="#benchmark-results" title="Permanent link">&para;</a></h3>
-<!-- PLACEHOLDER: filled in from the benchmark run. -->
-
-<p>Results on GT-tracked animal clips: see PR description (to be filled in).</p>
 <hr />
 <h2 id="track-only-mode">Track-Only Mode<a class="headerlink" href="#track-only-mode" title="Permanent link">&para;</a></h2>
 <p>Assign tracks to existing predictions (no inference):</p>

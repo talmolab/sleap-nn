@@ -11,6 +11,10 @@
         <link rel="canonical" href="https://nn.sleap.ai/dev/reference/api/">
       
       
+        <link rel="prev" href="../cli/">
+      
+      
+        <link rel="next" href="../models/">
       
       
         
@@ -298,10 +302,12 @@
   
   
   
+    
+  
   
     
     
-      <li class="md-tabs__item">
+      <li class="md-tabs__item md-tabs__item--active">
         <a href="../overview/" class="md-tabs__link">
           
   
@@ -1586,26 +1592,31 @@
       
   
   
+    
   
   
+  
     
     
     
     
+      
+        
+        
       
       
         
       
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" checked>
         
           
-          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
             
   
   
@@ -1623,7 +1634,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_5">
             <span class="md-nav__icon md-icon"></span>
             
@@ -1675,10 +1686,13 @@
       
       
         
+          
+          
+        
       
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
       
         
         
@@ -1704,7 +1718,7 @@
             </a>
             
               
-              <label class="md-nav__link " for="__nav_5_2" id="__nav_5_2_label" tabindex="0">
+              <label class="md-nav__link " for="__nav_5_2" id="__nav_5_2_label" tabindex="">
                 <span class="md-nav__icon md-icon"></span>
               </label>
             
@@ -1892,6 +1906,375 @@
   
 
       </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Python API
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Python API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#training" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Training
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Training">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#using-config-file" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Using Config File
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#with-custom-labels" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        With Custom Labels
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#simplified-training" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Simplified Training
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#inference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Inference
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Inference">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#basic-inference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Basic Inference
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#reusable-predictor" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reusable Predictor
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#get-raw-outputs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Get Raw Outputs
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#legacy-run_inference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Legacy run_inference
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#evaluation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Evaluation
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#export" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Export
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Export">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#to-onnx" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        To ONNX
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#to-tensorrt" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        To TensorRT
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#inference-with-exported-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Inference with Exported Model
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configuration
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Configuration">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#load-config" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Load Config
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#modify-config" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Modify Config
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#save-config" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Save Config
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#convert-legacy-config" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Convert Legacy Config
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#data-io" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Data I/O
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Data I/O">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#load-labels" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Load Labels
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#access-predictions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Access Predictions
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#save-labels" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Save Labels
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#full-api-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Full API Reference
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -7825,6 +8208,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#reusable-predictor" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reusable Predictor
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#get-raw-outputs" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -7836,10 +8230,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#with-options" class="md-nav__link">
+  <a href="#legacy-run_inference" class="md-nav__link">
     <span class="md-ellipsis">
       
-        With Options
+        Legacy run_inference
       
     </span>
   </a>
@@ -8100,50 +8494,48 @@
 </span></code></pre></div>
 <hr />
 <h2 id="inference">Inference<a class="headerlink" href="#inference" title="Permanent link">&para;</a></h2>
-<div class="admonition tip">
-<p class="admonition-title">New inference API</p>
-<p>The examples below use the legacy <code>run_inference</code> entry point. The current
-public inference surface is <code>from sleap_nn.inference import Predictor, predict</code>
-— see the <a href="../../guides/inference-api/">Inference API guide</a> for the
-<code>Predictor</code> / <code>Outputs</code> / <code>FilterConfig</code> / <code>TrackerConfig</code> workflow. In
-particular, the raw outputs returned by the new pipeline are
-<a href="../../guides/inference-api/#the-outputs-dataclass"><code>Outputs</code></a> objects, not
-the per-frame dicts shown under "Get Raw Outputs" below.</p>
-</div>
+<p><code>sleap_nn.predict</code>, <code>sleap_nn.Predictor</code> and <code>sleap_nn.load_models</code> are the
+top-level entry points. <code>predict</code> and <code>Predictor</code> are also importable from
+<code>sleap_nn.inference</code>; <code>load_models</code> is top-level only. See the
+<a href="../../guides/inference-api/">Inference API guide</a> for streaming, raw
+<code>Outputs</code>, filtering and tracking.</p>
 <h3 id="basic-inference">Basic Inference<a class="headerlink" href="#basic-inference" title="Permanent link">&para;</a></h3>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">sleap_nn.legacy_predict</span><span class="w"> </span><span class="kn">import</span> <span class="n">run_inference</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">sleap_nn</span>
 </span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>
-</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="n">labels</span> <span class="o">=</span> <span class="n">run_inference</span><span class="p">(</span>
-</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>    <span class="n">data_path</span><span class="o">=</span><span class="s2">&quot;video.mp4&quot;</span><span class="p">,</span>
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="n">labels</span> <span class="o">=</span> <span class="n">sleap_nn</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span>
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>    <span class="s2">&quot;video.mp4&quot;</span><span class="p">,</span>
 </span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>    <span class="n">model_paths</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;models/bottomup/&quot;</span><span class="p">],</span>
-</span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>    <span class="n">output_path</span><span class="o">=</span><span class="s2">&quot;predictions.slp&quot;</span><span class="p">,</span>
-</span><span id="__span-3-7"><a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a>    <span class="n">make_labels</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
-</span><span id="__span-3-8"><a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a><span class="p">)</span>
+</span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>    <span class="n">output_path</span><span class="o">=</span><span class="s2">&quot;predictions.slp&quot;</span><span class="p">,</span>  <span class="c1"># optional: also save to disk</span>
+</span><span id="__span-3-7"><a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="p">)</span>
 </span></code></pre></div>
+<h3 id="reusable-predictor">Reusable Predictor<a class="headerlink" href="#reusable-predictor" title="Permanent link">&para;</a></h3>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">sleap_nn</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="c1"># Top-down: centroid + centered-instance models</span>
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="n">predictor</span> <span class="o">=</span> <span class="n">sleap_nn</span><span class="o">.</span><span class="n">load_models</span><span class="p">(</span>
+</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>    <span class="p">[</span><span class="s2">&quot;models/centroid/&quot;</span><span class="p">,</span> <span class="s2">&quot;models/centered_instance/&quot;</span><span class="p">],</span>
+</span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>    <span class="n">device</span><span class="o">=</span><span class="s2">&quot;cuda:0&quot;</span><span class="p">,</span>
+</span><span id="__span-4-7"><a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a>    <span class="n">batch_size</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span>
+</span><span id="__span-4-8"><a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a><span class="p">)</span>
+</span><span id="__span-4-9"><a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a><span class="n">labels</span> <span class="o">=</span> <span class="n">predictor</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span><span class="s2">&quot;video.mp4&quot;</span><span class="p">,</span> <span class="n">peak_threshold</span><span class="o">=</span><span class="mf">0.3</span><span class="p">)</span>
+</span></code></pre></div>
+<p><code>load_models</code> is shorthand for <code>Predictor.from_model_paths</code> and takes the same
+keyword arguments.</p>
 <h3 id="get-raw-outputs">Get Raw Outputs<a class="headerlink" href="#get-raw-outputs" title="Permanent link">&para;</a></h3>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="n">results</span> <span class="o">=</span> <span class="n">run_inference</span><span class="p">(</span>
-</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>    <span class="n">data_path</span><span class="o">=</span><span class="s2">&quot;video.mp4&quot;</span><span class="p">,</span>
-</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>    <span class="n">model_paths</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;models/bottomup/&quot;</span><span class="p">],</span>
-</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>    <span class="n">make_labels</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
-</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>    <span class="n">return_confmaps</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
-</span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="p">)</span>
-</span><span id="__span-4-7"><a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a>
-</span><span id="__span-4-8"><a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a><span class="c1"># results is a list of dicts with predictions per frame</span>
-</span><span id="__span-4-9"><a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a><span class="k">for</span> <span class="n">frame_result</span> <span class="ow">in</span> <span class="n">results</span><span class="p">:</span>
-</span><span id="__span-4-10"><a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a>    <span class="n">peaks</span> <span class="o">=</span> <span class="n">frame_result</span><span class="p">[</span><span class="s2">&quot;peaks&quot;</span><span class="p">]</span>
-</span><span id="__span-4-11"><a id="__codelineno-4-11" name="__codelineno-4-11" href="#__codelineno-4-11"></a>    <span class="n">confmaps</span> <span class="o">=</span> <span class="n">frame_result</span><span class="p">[</span><span class="s2">&quot;confmaps&quot;</span><span class="p">]</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="n">predictor</span> <span class="o">=</span> <span class="n">sleap_nn</span><span class="o">.</span><span class="n">load_models</span><span class="p">([</span><span class="s2">&quot;models/bottomup/&quot;</span><span class="p">])</span>
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="n">outputs_list</span> <span class="o">=</span> <span class="n">predictor</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span><span class="s2">&quot;video.mp4&quot;</span><span class="p">,</span> <span class="n">make_labels</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">return_confmaps</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>
+</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="k">for</span> <span class="n">outputs</span> <span class="ow">in</span> <span class="n">outputs_list</span><span class="p">:</span>  <span class="c1"># one Outputs per batch</span>
+</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>    <span class="n">arrays</span> <span class="o">=</span> <span class="n">outputs</span><span class="o">.</span><span class="n">numpy</span><span class="p">()</span>
+</span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a>    <span class="n">keypoints</span> <span class="o">=</span> <span class="n">arrays</span><span class="p">[</span><span class="s2">&quot;pred_keypoints&quot;</span><span class="p">]</span>  <span class="c1"># (batch, instances, nodes, 2)</span>
+</span><span id="__span-5-7"><a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a>    <span class="n">confmaps</span> <span class="o">=</span> <span class="n">arrays</span><span class="p">[</span><span class="s2">&quot;pred_confmaps&quot;</span><span class="p">]</span>    <span class="c1"># (batch, nodes, height, width)</span>
 </span></code></pre></div>
-<h3 id="with-options">With Options<a class="headerlink" href="#with-options" title="Permanent link">&para;</a></h3>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="n">labels</span> <span class="o">=</span> <span class="n">run_inference</span><span class="p">(</span>
-</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>    <span class="n">data_path</span><span class="o">=</span><span class="s2">&quot;video.mp4&quot;</span><span class="p">,</span>
-</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>    <span class="n">model_paths</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;models/centroid/&quot;</span><span class="p">,</span> <span class="s2">&quot;models/instance/&quot;</span><span class="p">],</span>
-</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>    <span class="n">output_path</span><span class="o">=</span><span class="s2">&quot;predictions.slp&quot;</span><span class="p">,</span>
-</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>    <span class="n">batch_size</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span>
-</span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a>    <span class="n">device</span><span class="o">=</span><span class="s2">&quot;cuda:0&quot;</span><span class="p">,</span>
-</span><span id="__span-5-7"><a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a>    <span class="n">peak_threshold</span><span class="o">=</span><span class="mf">0.3</span><span class="p">,</span>
-</span><span id="__span-5-8"><a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a>    <span class="n">make_labels</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
-</span><span id="__span-5-9"><a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a><span class="p">)</span>
-</span></code></pre></div>
+<p>Confidence maps are kept for single-instance and bottom-up models; top-down
+predictors do not return them.</p>
+<h3 id="legacy-run_inference">Legacy <code>run_inference</code><a class="headerlink" href="#legacy-run_inference" title="Permanent link">&para;</a></h3>
+<p><code>sleap_nn.legacy_predict.run_inference</code> is the older pipeline behind
+<code>sleap-nn track</code>. Calling it from Python is deprecated (it warns, and will be
+removed in a future release); use <code>sleap_nn.predict</code>.</p>
 <hr />
 <h2 id="evaluation">Evaluation<a class="headerlink" href="#evaluation" title="Permanent link">&para;</a></h2>
 <div class="language-python highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">sleap_io</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">sio</span>

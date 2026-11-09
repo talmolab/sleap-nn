@@ -2308,6 +2308,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../reference/api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Python API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../reference/models/" class="md-nav__link">
         
   
@@ -8542,7 +8570,7 @@ emits a <code>DeprecationWarning</code>. Prefer <code>predict</code> for all new
 </span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="c1"># Top-down (two models required)</span>
 </span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/centroid/<span class="w"> </span>-m<span class="w"> </span>models/centered_instance/
 </span></code></pre></div>
-<p><strong>Output:</strong> <code>video.mp4.predictions.slp</code></p>
+<p><strong>Output:</strong> <code>video.predictions.slp</code> (next to the input; set <code>-o</code> to choose the name)</p>
 <p><strong>If results aren't great</strong>, try these common fixes:</p>
 <ul>
 <li>Too many false detections? Add <code>--filter_min_instance_score 0.3</code></li>
@@ -8556,7 +8584,7 @@ emits a <code>DeprecationWarning</code>. Prefer <code>predict</code> for all new
 <h2 id="basic-inference">Basic Inference<a class="headerlink" href="#basic-inference" title="Permanent link">&para;</a></h2>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>--data_path<span class="w"> </span>video.mp4<span class="w"> </span>--model_paths<span class="w"> </span>models/my_model/
 </span></code></pre></div>
-<p>Output: <code>video.mp4.predictions.slp</code></p>
+<p>Output: <code>video.predictions.slp</code>, written next to the input (the input's extension replaced by <code>.predictions.slp</code>, as SLEAP's <code>sleap-track</code> names it). Use <code>-o</code> to choose another path.</p>
 <p>See the <a href="../../reference/cli/">CLI Reference</a> for all available parameters.</p>
 <h3 id="running-exported-models-onnxtensorrt">Running Exported Models (ONNX/TensorRT)<a class="headerlink" href="#running-exported-models-onnxtensorrt" title="Permanent link">&para;</a></h3>
 <p><code>sleap-nn predict</code> runs <strong>both</strong> trained checkpoints and exported ONNX/TensorRT
@@ -8598,13 +8626,13 @@ models and runtime details, see the <a href="../export/">Export guide</a>.</p>
 <h3 id="viewing-results">Viewing Results<a class="headerlink" href="#viewing-results" title="Permanent link">&para;</a></h3>
 <p>After inference, you'll have a <code>.slp</code> file containing predictions. To view them:</p>
 <p><strong>Option 1: Open in SLEAP GUI</strong></p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>sleap<span class="w"> </span>predictions.slp
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>sleap-label<span class="w"> </span>predictions.slp
 </span></code></pre></div>
 <p>This opens the predictions in the SLEAP labeling interface where you can visualize skeletons overlaid on video frames.</p>
 <p><strong>Option 2: Quick inspection with Python</strong></p>
 <div class="language-python highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">sleap_io</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">sio</span>
 </span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>
-</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="n">labels</span> <span class="o">=</span> <span class="n">sio</span><span class="o">.</span><span class="n">load_slp</span><span class="p">(</span><span class="s2">&quot;video.mp4.predictions.slp&quot;</span><span class="p">)</span>
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="n">labels</span> <span class="o">=</span> <span class="n">sio</span><span class="o">.</span><span class="n">load_slp</span><span class="p">(</span><span class="s2">&quot;video.predictions.slp&quot;</span><span class="p">)</span>
 </span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Frames with predictions: </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">labels</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
 </span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Total instances: </span><span class="si">{</span><span class="nb">sum</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">lf</span><span class="o">.</span><span class="n">instances</span><span class="p">)</span><span class="w"> </span><span class="k">for</span><span class="w"> </span><span class="n">lf</span><span class="w"> </span><span class="ow">in</span><span class="w"> </span><span class="n">labels</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
 </span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a>
@@ -8614,13 +8642,19 @@ models and runtime details, see the <a href="../export/">Export guide</a>.</p>
 </span><span id="__span-5-10"><a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a><span class="k">for</span> <span class="n">inst</span> <span class="ow">in</span> <span class="n">lf</span><span class="o">.</span><span class="n">instances</span><span class="p">:</span>
 </span><span id="__span-5-11"><a id="__codelineno-5-11" name="__codelineno-5-11" href="#__codelineno-5-11"></a>    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  Score: </span><span class="si">{</span><span class="n">inst</span><span class="o">.</span><span class="n">score</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2">, Points: </span><span class="si">{</span><span class="n">inst</span><span class="o">.</span><span class="n">numpy</span><span class="p">()</span><span class="o">.</span><span class="n">shape</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
 </span></code></pre></div>
-<p><strong>Option 3: Export to analysis formats</strong></p>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="c1"># Export to Analysis HDF5 for downstream analysis</span>
-</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="n">labels</span><span class="o">.</span><span class="n">export</span><span class="p">(</span><span class="s2">&quot;predictions.analysis.h5&quot;</span><span class="p">)</span>
-</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>
-</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="c1"># Or convert to CSV/DataFrames</span>
-</span><span id="__span-6-5"><a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="c1"># See sleap-io documentation for more export options</span>
+<p><strong>Option 3: Write analysis formats</strong></p>
+<p>Ask <code>predict</code> for a SLEAP Analysis HDF5 file (one <code>.analysis.h5</code> per video)
+next to, or instead of, the <code>.slp</code>:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/my_model/<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">    </span>--output_format<span class="w"> </span>slp<span class="w"> </span>--output_format<span class="w"> </span>analysis_h5
 </span></code></pre></div>
+<p>To convert a <code>.slp</code> you already have:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">sleap_io</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">sio</span>
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>
+</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="n">labels</span> <span class="o">=</span> <span class="n">sio</span><span class="o">.</span><span class="n">load_slp</span><span class="p">(</span><span class="s2">&quot;video.predictions.slp&quot;</span><span class="p">)</span>
+</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="n">sio</span><span class="o">.</span><span class="n">save_analysis_h5</span><span class="p">(</span><span class="n">labels</span><span class="p">,</span> <span class="s2">&quot;predictions.analysis.h5&quot;</span><span class="p">)</span>
+</span></code></pre></div>
+<p>For other formats, see the <a href="https://io.sleap.ai/">sleap-io documentation</a>.</p>
 <hr />
 <h2 id="essential-parameters">Essential Parameters<a class="headerlink" href="#essential-parameters" title="Permanent link">&para;</a></h2>
 <table>
@@ -8705,7 +8739,7 @@ models and runtime details, see the <a href="../export/">Export guide</a>.</p>
 <h2 id="model-types">Model Types<a class="headerlink" href="#model-types" title="Permanent link">&para;</a></h2>
 <h3 id="single-instance">Single Instance<a class="headerlink" href="#single-instance" title="Permanent link">&para;</a></h3>
 <p>For videos with exactly one animal:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/single_instance/
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/single_instance/
 </span></code></pre></div>
 <p><strong>How parameters apply:</strong></p>
 <ul>
@@ -8715,7 +8749,7 @@ models and runtime details, see the <a href="../export/">Export guide</a>.</p>
 </ul>
 <h3 id="bottom-up">Bottom-Up<a class="headerlink" href="#bottom-up" title="Permanent link">&para;</a></h3>
 <p>For multi-animal videos using part affinity fields:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/bottomup/
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/bottomup/
 </span></code></pre></div>
 <p><strong>How parameters apply:</strong></p>
 <ul>
@@ -8733,9 +8767,9 @@ models and runtime details, see the <a href="../export/">Export guide</a>.</p>
 </div>
 <h3 id="top-down">Top-Down<a class="headerlink" href="#top-down" title="Permanent link">&para;</a></h3>
 <p>For multi-animal videos using centroid + centered instance approach:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="w">    </span>-m<span class="w"> </span>models/centroid/<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-9-3"><a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="w">    </span>-m<span class="w"> </span>models/centered_instance/
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="w">    </span>-m<span class="w"> </span>models/centroid/<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-10-3"><a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="w">    </span>-m<span class="w"> </span>models/centered_instance/
 </span></code></pre></div>
 <p><strong>How parameters apply:</strong></p>
 <ul>
@@ -8760,10 +8794,10 @@ models and runtime details, see the <a href="../export/">Export guide</a>.</p>
 <p class="admonition-title">Avoiding NaN keypoints in top-down predictions</p>
 <p>When <code>--peak_threshold</code> is too high, good instances may have some keypoints set to NaN (below threshold).</p>
 <p><strong>Solution:</strong> Keep <code>--peak_threshold</code> low enough to detect all keypoints, then use <code>--filter_min_instance_score</code> to remove low-quality instances entirely. This preserves complete skeletons for good instances.</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="c1"># Instead of raising peak_threshold (which creates NaN keypoints)</span>
-</span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/centroid/<span class="w"> </span>-m<span class="w"> </span>models/ci/<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-10-3"><a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="w">    </span>--peak_threshold<span class="w"> </span><span class="m">0</span>.1<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-10-4"><a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="w">    </span>--filter_min_instance_score<span class="w"> </span><span class="m">0</span>.3
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="c1"># Instead of raising peak_threshold (which creates NaN keypoints)</span>
+</span><span id="__span-11-2"><a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/centroid/<span class="w"> </span>-m<span class="w"> </span>models/ci/<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-11-3"><a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a><span class="w">    </span>--peak_threshold<span class="w"> </span><span class="m">0</span>.1<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-11-4"><a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a><span class="w">    </span>--filter_min_instance_score<span class="w"> </span><span class="m">0</span>.3
 </span></code></pre></div>
 </div>
 <h3 id="bottom-up-segmentation">Bottom-Up Segmentation<a class="headerlink" href="#bottom-up-segmentation" title="Permanent link">&para;</a></h3>
@@ -8815,15 +8849,15 @@ instance is a single component). The default <code>--mask_output mask</code> doe
 <em>cheaper</em> than the pre-#618 behavior (masks are encoded at output-stride resolution, not upsampled
 to full resolution first). Memory for the default path is unaffected.</p>
 </div>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="c1"># Smaller .slp via stride encoding (default) + despeckle + a polygon ROI for interop</span>
-</span><span id="__span-11-2"><a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/bottomup_segmentation/<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-11-3"><a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a><span class="w">    </span>--mask_cleanup<span class="w"> </span>--mask_cleanup_radius<span class="w"> </span><span class="m">2</span><span class="w"> </span><span class="se">\</span>
-</span><span id="__span-11-4"><a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a><span class="w">    </span>--mask_output<span class="w"> </span>both<span class="w"> </span>--polygon_epsilon<span class="w"> </span><span class="m">0</span>.02
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="c1"># Smaller .slp via stride encoding (default) + despeckle + a polygon ROI for interop</span>
+</span><span id="__span-12-2"><a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/bottomup_segmentation/<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-12-3"><a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a><span class="w">    </span>--mask_cleanup<span class="w"> </span>--mask_cleanup_radius<span class="w"> </span><span class="m">2</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-12-4"><a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a><span class="w">    </span>--mask_output<span class="w"> </span>both<span class="w"> </span>--polygon_epsilon<span class="w"> </span><span class="m">0</span>.02
 </span></code></pre></div>
 <h3 id="bounding-boxes">Bounding Boxes<a class="headerlink" href="#bounding-boxes" title="Permanent link">&para;</a></h3>
 <p>Box detectors (<code>bbox_centernet</code>, <code>bbox_ssd</code>) write <code>sio.PredictedBoundingBox</code> on
 <code>LabeledFrame.bboxes</code>:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/bbox_ssd/<span class="w"> </span>--peak_threshold<span class="w"> </span><span class="m">0</span>.3<span class="w"> </span>--bbox_nms_iou<span class="w"> </span><span class="m">0</span>.5
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/bbox_ssd/<span class="w"> </span>--peak_threshold<span class="w"> </span><span class="m">0</span>.3<span class="w"> </span>--bbox_nms_iou<span class="w"> </span><span class="m">0</span>.5
 </span></code></pre></div>
 <p><strong>How parameters apply:</strong></p>
 <ul>
@@ -8845,19 +8879,19 @@ to full resolution first). Memory for the default path is unaffected.</p>
 </div>
 <p>When running inference, operations are applied in a specific order. Understanding this order helps you choose the right parameters to control your predictions.</p>
 <h3 id="overview">Overview<a class="headerlink" href="#overview" title="Permanent link">&para;</a></h3>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>1. Model Forward Pass
-</span><span id="__span-13-2"><a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a>   ├── peak_threshold: Filter low-confidence peaks
-</span><span id="__span-13-3"><a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a>   └── max_instances: Limit instances by score
-</span><span id="__span-13-4"><a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a>       ├── Top-down: limits centroids before instance prediction
-</span><span id="__span-13-5"><a id="__codelineno-13-5" name="__codelineno-13-5" href="#__codelineno-13-5"></a>       └── Bottom-up: limits instances after PAF grouping
-</span><span id="__span-13-6"><a id="__codelineno-13-6" name="__codelineno-13-6" href="#__codelineno-13-6"></a>
-</span><span id="__span-13-7"><a id="__codelineno-13-7" name="__codelineno-13-7" href="#__codelineno-13-7"></a>2. Post-processing Filters (in order)
-</span><span id="__span-13-8"><a id="__codelineno-13-8" name="__codelineno-13-8" href="#__codelineno-13-8"></a>   ├── Node count filter
-</span><span id="__span-13-9"><a id="__codelineno-13-9" name="__codelineno-13-9" href="#__codelineno-13-9"></a>   ├── Confidence score filter
-</span><span id="__span-13-10"><a id="__codelineno-13-10" name="__codelineno-13-10" href="#__codelineno-13-10"></a>   └── Overlap filter (NMS)
-</span><span id="__span-13-11"><a id="__codelineno-13-11" name="__codelineno-13-11" href="#__codelineno-13-11"></a>
-</span><span id="__span-13-12"><a id="__codelineno-13-12" name="__codelineno-13-12" href="#__codelineno-13-12"></a>3. Tracking
-</span><span id="__span-13-13"><a id="__codelineno-13-13" name="__codelineno-13-13" href="#__codelineno-13-13"></a>   └── Instance identity assignment across frames
+<div class="language-text highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>1. Model Forward Pass
+</span><span id="__span-14-2"><a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a>   ├── peak_threshold: Filter low-confidence peaks
+</span><span id="__span-14-3"><a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a>   └── max_instances: Limit instances by score
+</span><span id="__span-14-4"><a id="__codelineno-14-4" name="__codelineno-14-4" href="#__codelineno-14-4"></a>       ├── Top-down: limits centroids before instance prediction
+</span><span id="__span-14-5"><a id="__codelineno-14-5" name="__codelineno-14-5" href="#__codelineno-14-5"></a>       └── Bottom-up: limits instances after PAF grouping
+</span><span id="__span-14-6"><a id="__codelineno-14-6" name="__codelineno-14-6" href="#__codelineno-14-6"></a>
+</span><span id="__span-14-7"><a id="__codelineno-14-7" name="__codelineno-14-7" href="#__codelineno-14-7"></a>2. Post-processing Filters (in order)
+</span><span id="__span-14-8"><a id="__codelineno-14-8" name="__codelineno-14-8" href="#__codelineno-14-8"></a>   ├── Node count filter
+</span><span id="__span-14-9"><a id="__codelineno-14-9" name="__codelineno-14-9" href="#__codelineno-14-9"></a>   ├── Confidence score filter
+</span><span id="__span-14-10"><a id="__codelineno-14-10" name="__codelineno-14-10" href="#__codelineno-14-10"></a>   └── Overlap filter (NMS)
+</span><span id="__span-14-11"><a id="__codelineno-14-11" name="__codelineno-14-11" href="#__codelineno-14-11"></a>
+</span><span id="__span-14-12"><a id="__codelineno-14-12" name="__codelineno-14-12" href="#__codelineno-14-12"></a>3. Tracking
+</span><span id="__span-14-13"><a id="__codelineno-14-13" name="__codelineno-14-13" href="#__codelineno-14-13"></a>   └── Instance identity assignment across frames
 </span></code></pre></div>
 <h3 id="step-1-model-forward-pass">Step 1: Model Forward Pass<a class="headerlink" href="#step-1-model-forward-pass" title="Permanent link">&para;</a></h3>
 <p>The first filtering happens during the model's peak detection phase.</p>
@@ -8898,77 +8932,87 @@ to full resolution first). Memory for the default path is unaffected.</p>
 <h2 id="python-api">Python API<a class="headerlink" href="#python-api" title="Permanent link">&para;</a></h2>
 <p>The unified entry point is <code>sleap_nn.inference.predict</code> — one call handles
 checkpoints and exported models and returns a <code>sio.Labels</code>:</p>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">sleap_nn.inference</span><span class="w"> </span><span class="kn">import</span> <span class="n">predict</span>
-</span><span id="__span-14-2"><a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a>
-</span><span id="__span-14-3"><a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a><span class="c1"># Trained checkpoint(s)</span>
-</span><span id="__span-14-4"><a id="__codelineno-14-4" name="__codelineno-14-4" href="#__codelineno-14-4"></a><span class="n">labels</span> <span class="o">=</span> <span class="n">predict</span><span class="p">(</span>
-</span><span id="__span-14-5"><a id="__codelineno-14-5" name="__codelineno-14-5" href="#__codelineno-14-5"></a>    <span class="s2">&quot;video.mp4&quot;</span><span class="p">,</span>
-</span><span id="__span-14-6"><a id="__codelineno-14-6" name="__codelineno-14-6" href="#__codelineno-14-6"></a>    <span class="n">model_paths</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;models/my_model/&quot;</span><span class="p">],</span>
-</span><span id="__span-14-7"><a id="__codelineno-14-7" name="__codelineno-14-7" href="#__codelineno-14-7"></a>    <span class="n">output_path</span><span class="o">=</span><span class="s2">&quot;predictions.slp&quot;</span><span class="p">,</span>   <span class="c1"># also writes the .slp</span>
-</span><span id="__span-14-8"><a id="__codelineno-14-8" name="__codelineno-14-8" href="#__codelineno-14-8"></a><span class="p">)</span>
-</span><span id="__span-14-9"><a id="__codelineno-14-9" name="__codelineno-14-9" href="#__codelineno-14-9"></a>
-</span><span id="__span-14-10"><a id="__codelineno-14-10" name="__codelineno-14-10" href="#__codelineno-14-10"></a><span class="c1"># Exported ONNX/TensorRT directory</span>
-</span><span id="__span-14-11"><a id="__codelineno-14-11" name="__codelineno-14-11" href="#__codelineno-14-11"></a><span class="n">labels</span> <span class="o">=</span> <span class="n">predict</span><span class="p">(</span><span class="s2">&quot;video.mp4&quot;</span><span class="p">,</span> <span class="n">export_dir</span><span class="o">=</span><span class="s2">&quot;exports/my_model/&quot;</span><span class="p">,</span> <span class="n">runtime</span><span class="o">=</span><span class="s2">&quot;auto&quot;</span><span class="p">)</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">sleap_nn.inference</span><span class="w"> </span><span class="kn">import</span> <span class="n">predict</span>
+</span><span id="__span-15-2"><a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a>
+</span><span id="__span-15-3"><a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a><span class="c1"># Trained checkpoint(s)</span>
+</span><span id="__span-15-4"><a id="__codelineno-15-4" name="__codelineno-15-4" href="#__codelineno-15-4"></a><span class="n">labels</span> <span class="o">=</span> <span class="n">predict</span><span class="p">(</span>
+</span><span id="__span-15-5"><a id="__codelineno-15-5" name="__codelineno-15-5" href="#__codelineno-15-5"></a>    <span class="s2">&quot;video.mp4&quot;</span><span class="p">,</span>
+</span><span id="__span-15-6"><a id="__codelineno-15-6" name="__codelineno-15-6" href="#__codelineno-15-6"></a>    <span class="n">model_paths</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;models/my_model/&quot;</span><span class="p">],</span>
+</span><span id="__span-15-7"><a id="__codelineno-15-7" name="__codelineno-15-7" href="#__codelineno-15-7"></a>    <span class="n">output_path</span><span class="o">=</span><span class="s2">&quot;predictions.slp&quot;</span><span class="p">,</span>   <span class="c1"># also writes the .slp</span>
+</span><span id="__span-15-8"><a id="__codelineno-15-8" name="__codelineno-15-8" href="#__codelineno-15-8"></a><span class="p">)</span>
+</span><span id="__span-15-9"><a id="__codelineno-15-9" name="__codelineno-15-9" href="#__codelineno-15-9"></a>
+</span><span id="__span-15-10"><a id="__codelineno-15-10" name="__codelineno-15-10" href="#__codelineno-15-10"></a><span class="c1"># Exported ONNX/TensorRT directory</span>
+</span><span id="__span-15-11"><a id="__codelineno-15-11" name="__codelineno-15-11" href="#__codelineno-15-11"></a><span class="n">labels</span> <span class="o">=</span> <span class="n">predict</span><span class="p">(</span><span class="s2">&quot;video.mp4&quot;</span><span class="p">,</span> <span class="n">export_dir</span><span class="o">=</span><span class="s2">&quot;exports/my_model/&quot;</span><span class="p">,</span> <span class="n">runtime</span><span class="o">=</span><span class="s2">&quot;auto&quot;</span><span class="p">)</span>
 </span></code></pre></div>
 <p>For the reusable <code>Predictor</code> class, streaming, raw <code>Outputs</code>, filtering, and
 tracking from Python, see the <a href="../inference-api/">Inference API guide</a>.</p>
 <div class="admonition note">
 <p class="admonition-title">Legacy <code>run_inference</code></p>
 <p><code>from sleap_nn.legacy_predict import run_inference</code> is the older legacy-pipeline
-entry point (it backs <code>sleap-nn track</code>). Prefer <code>sleap_nn.inference.predict</code>
-for new code.</p>
+entry point (it backs <code>sleap-nn track</code>). Calling it from Python is deprecated
+and will be removed in a future release; use <code>sleap_nn.inference.predict</code>.</p>
 </div>
 <hr />
 <h2 id="provenance-metadata">Provenance Metadata<a class="headerlink" href="#provenance-metadata" title="Permanent link">&para;</a></h2>
 <p>Output files include metadata about how predictions were generated:</p>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">sleap_io</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">sio</span>
-</span><span id="__span-15-2"><a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a>
-</span><span id="__span-15-3"><a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a><span class="n">labels</span> <span class="o">=</span> <span class="n">sio</span><span class="o">.</span><span class="n">load_slp</span><span class="p">(</span><span class="s2">&quot;predictions.slp&quot;</span><span class="p">)</span>
-</span><span id="__span-15-4"><a id="__codelineno-15-4" name="__codelineno-15-4" href="#__codelineno-15-4"></a><span class="n">provenance</span> <span class="o">=</span> <span class="n">labels</span><span class="o">.</span><span class="n">provenance</span>
-</span><span id="__span-15-5"><a id="__codelineno-15-5" name="__codelineno-15-5" href="#__codelineno-15-5"></a>
-</span><span id="__span-15-6"><a id="__codelineno-15-6" name="__codelineno-15-6" href="#__codelineno-15-6"></a><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;sleap-nn version: </span><span class="si">{</span><span class="n">provenance</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;sleap_nn_version&#39;</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-</span><span id="__span-15-7"><a id="__codelineno-15-7" name="__codelineno-15-7" href="#__codelineno-15-7"></a><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Model type: </span><span class="si">{</span><span class="n">provenance</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;model_type&#39;</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-</span><span id="__span-15-8"><a id="__codelineno-15-8" name="__codelineno-15-8" href="#__codelineno-15-8"></a><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Runtime: </span><span class="si">{</span><span class="n">provenance</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;runtime_sec&#39;</span><span class="p">)</span><span class="si">}</span><span class="s2">s&quot;</span><span class="p">)</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">sleap_io</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">sio</span>
+</span><span id="__span-16-2"><a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a>
+</span><span id="__span-16-3"><a id="__codelineno-16-3" name="__codelineno-16-3" href="#__codelineno-16-3"></a><span class="n">labels</span> <span class="o">=</span> <span class="n">sio</span><span class="o">.</span><span class="n">load_slp</span><span class="p">(</span><span class="s2">&quot;predictions.slp&quot;</span><span class="p">)</span>
+</span><span id="__span-16-4"><a id="__codelineno-16-4" name="__codelineno-16-4" href="#__codelineno-16-4"></a><span class="n">provenance</span> <span class="o">=</span> <span class="n">labels</span><span class="o">.</span><span class="n">provenance</span>
+</span><span id="__span-16-5"><a id="__codelineno-16-5" name="__codelineno-16-5" href="#__codelineno-16-5"></a>
+</span><span id="__span-16-6"><a id="__codelineno-16-6" name="__codelineno-16-6" href="#__codelineno-16-6"></a><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;sleap-nn version: </span><span class="si">{</span><span class="n">provenance</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;sleap_nn_version&#39;</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</span><span id="__span-16-7"><a id="__codelineno-16-7" name="__codelineno-16-7" href="#__codelineno-16-7"></a><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Model type: </span><span class="si">{</span><span class="n">provenance</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;model_type&#39;</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</span><span id="__span-16-8"><a id="__codelineno-16-8" name="__codelineno-16-8" href="#__codelineno-16-8"></a><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Runtime: </span><span class="si">{</span><span class="n">provenance</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;inference_runtime_seconds&#39;</span><span class="p">)</span><span class="si">}</span><span class="s2">s&quot;</span><span class="p">)</span>
+</span><span id="__span-16-9"><a id="__codelineno-16-9" name="__codelineno-16-9" href="#__codelineno-16-9"></a><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Settings: </span><span class="si">{</span><span class="n">provenance</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;inference_config&#39;</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
 </span></code></pre></div>
 <h3 id="recorded-information">Recorded Information<a class="headerlink" href="#recorded-information" title="Permanent link">&para;</a></h3>
 <table>
 <thead>
 <tr>
 <th>Category</th>
-<th>Fields</th>
+<th>Keys</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><strong>Timestamps</strong></td>
-<td><code>timestamp_start</code>, <code>timestamp_end</code>, <code>runtime_sec</code></td>
+<td><code>inference_start_timestamp</code>, <code>inference_end_timestamp</code> (ISO 8601), <code>inference_runtime_seconds</code></td>
 </tr>
 <tr>
 <td><strong>Versions</strong></td>
-<td><code>sleap_nn_version</code>, <code>sleap_io_version</code>, <code>torch_version</code></td>
+<td><code>sleap_nn_version</code>, <code>sleap_io_version</code> (PyTorch version is under <code>system_info</code>)</td>
 </tr>
 <tr>
 <td><strong>Model</strong></td>
-<td><code>model_paths</code>, <code>model_type</code>, <code>head_type</code></td>
+<td><code>model_paths</code>, <code>model_type</code> (the inference layer that ran, e.g. <code>"TopDownLayer"</code>, <code>"BottomUpLayer"</code>)</td>
 </tr>
 <tr>
 <td><strong>Input</strong></td>
-<td><code>source_path</code>, <code>source_video_paths</code></td>
+<td><code>source_file</code>, plus <code>source_labels</code> / <code>input_provenance</code> when the input was a <code>.slp</code></td>
+</tr>
+<tr>
+<td><strong>Frames</strong></td>
+<td><code>frame_selection</code> (<code>method</code>, <code>frames_processed</code>, <code>frames_total</code>)</td>
 </tr>
 <tr>
 <td><strong>Config</strong></td>
-<td><code>peak_threshold</code>, <code>batch_size</code>, <code>max_instances</code></td>
+<td><code>inference_config</code> — a dict of the settings that were set, e.g. <code>batch_size</code>, <code>peak_threshold</code>, <code>centroid_threshold</code> / <code>keypoint_threshold</code>, <code>integral_refinement</code>, <code>max_instances</code>, input scale, and top-down <code>centroid_scale</code> / <code>instance_scale</code> / <code>crop_size</code>. Which keys appear depends on the model type and on whether you ran the CLI or the Python <code>predict()</code></td>
+</tr>
+<tr>
+<td><strong>Tracking</strong></td>
+<td><code>tracking_config</code> when tracking ran; <code>tracking</code> (resolved parameters per video) for the <a href="../tracking/#modern-mot-trackers">modern MOT trackers</a></td>
 </tr>
 <tr>
 <td><strong>System</strong></td>
-<td><code>device</code>, <code>python_version</code>, <code>cuda_version</code>, <code>gpu_names</code></td>
+<td><code>device</code>, and <code>system_info</code> (<code>python_version</code>, <code>platform</code>, <code>pytorch_version</code>, <code>cuda_version</code>, <code>accelerator</code>, <code>gpu_count</code>, <code>gpus</code>)</td>
 </tr>
 </tbody>
 </table>
+<p>Keys whose value is unknown are left out, so read optional ones with <code>.get()</code>.</p>
 <hr />
 <h2 id="legacy-sleap-model-support">Legacy SLEAP Model Support<a class="headerlink" href="#legacy-sleap-model-support" title="Permanent link">&para;</a></h2>
 <p>Run inference with SLEAP &lt;=v1.4 models (UNet only):</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>/path/to/sleap_model/
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>/path/to/sleap_model/
 </span></code></pre></div>
 <p>The directory should contain:
 - <code>best_model.h5</code>
@@ -8986,7 +9030,7 @@ for new code.</p>
 <ol>
 <li>
 <p><strong>Peak threshold too high</strong> - The model is detecting peaks but they're being filtered out
-   <div class="language-bash highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/<span class="w"> </span>--peak_threshold<span class="w"> </span><span class="m">0</span>.05
+   <div class="language-bash highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/<span class="w"> </span>--peak_threshold<span class="w"> </span><span class="m">0</span>.05
 </span></code></pre></div></p>
 </li>
 <li>
@@ -9011,47 +9055,47 @@ for new code.</p>
 <summary>Getting predictions on some frames but not others</summary>
 <p>This is usually normal - frames without confident detections won't have predictions.</p>
 <p>To get predictions on more frames:
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/<span class="w"> </span>--peak_threshold<span class="w"> </span><span class="m">0</span>.1
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/<span class="w"> </span>--peak_threshold<span class="w"> </span><span class="m">0</span>.1
 </span></code></pre></div></p>
 <p>To keep empty frames in output (useful for analysis):
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="c1"># Empty frames are kept by default; use --no_empty_frames to remove them</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-20-1"><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a><span class="c1"># Empty frames are kept by default; use --no_empty_frames to remove them</span>
 </span></code></pre></div></p>
 </details>
 <h3 id="too-many-predictions">Too Many Predictions<a class="headerlink" href="#too-many-predictions" title="Permanent link">&para;</a></h3>
 <details class="question">
 <summary>Getting many false positive detections</summary>
 <p><strong>Solution 1:</strong> Filter by instance confidence score
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-20-1"><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/<span class="w"> </span>--filter_min_instance_score<span class="w"> </span><span class="m">0</span>.3
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-21-1"><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/<span class="w"> </span>--filter_min_instance_score<span class="w"> </span><span class="m">0</span>.3
 </span></code></pre></div></p>
 <p><strong>Solution 2:</strong> Filter by number of visible keypoints
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-21-1"><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/<span class="w"> </span>--filter_min_visible_node_fraction<span class="w"> </span><span class="m">0</span>.5
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-22-1"><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/<span class="w"> </span>--filter_min_visible_node_fraction<span class="w"> </span><span class="m">0</span>.5
 </span></code></pre></div></p>
 <p><strong>Solution 3:</strong> If you know the exact number of animals
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-22-1"><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/<span class="w"> </span>--max_instances<span class="w"> </span><span class="m">3</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-23-1"><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/<span class="w"> </span>--max_instances<span class="w"> </span><span class="m">3</span>
 </span></code></pre></div></p>
 </details>
 <details class="question">
 <summary>Getting duplicate detections on the same animal</summary>
 <p>Enable overlap filtering with NMS:
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-23-1"><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a><span class="c1"># Basic overlap filter</span>
-</span><span id="__span-23-2"><a id="__codelineno-23-2" name="__codelineno-23-2" href="#__codelineno-23-2"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/<span class="w"> </span>--filter_overlapping
-</span><span id="__span-23-3"><a id="__codelineno-23-3" name="__codelineno-23-3" href="#__codelineno-23-3"></a>
-</span><span id="__span-23-4"><a id="__codelineno-23-4" name="__codelineno-23-4" href="#__codelineno-23-4"></a><span class="c1"># More aggressive filtering</span>
-</span><span id="__span-23-5"><a id="__codelineno-23-5" name="__codelineno-23-5" href="#__codelineno-23-5"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-23-6"><a id="__codelineno-23-6" name="__codelineno-23-6" href="#__codelineno-23-6"></a><span class="w">    </span>--filter_overlapping<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-23-7"><a id="__codelineno-23-7" name="__codelineno-23-7" href="#__codelineno-23-7"></a><span class="w">    </span>--filter_overlapping_threshold<span class="w"> </span><span class="m">0</span>.5
-</span><span id="__span-23-8"><a id="__codelineno-23-8" name="__codelineno-23-8" href="#__codelineno-23-8"></a>
-</span><span id="__span-23-9"><a id="__codelineno-23-9" name="__codelineno-23-9" href="#__codelineno-23-9"></a><span class="c1"># Pose-aware filtering (better for overlapping animals)</span>
-</span><span id="__span-23-10"><a id="__codelineno-23-10" name="__codelineno-23-10" href="#__codelineno-23-10"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-23-11"><a id="__codelineno-23-11" name="__codelineno-23-11" href="#__codelineno-23-11"></a><span class="w">    </span>--filter_overlapping<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-23-12"><a id="__codelineno-23-12" name="__codelineno-23-12" href="#__codelineno-23-12"></a><span class="w">    </span>--filter_overlapping_method<span class="w"> </span>oks
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-24-1"><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a><span class="c1"># Basic overlap filter</span>
+</span><span id="__span-24-2"><a id="__codelineno-24-2" name="__codelineno-24-2" href="#__codelineno-24-2"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/<span class="w"> </span>--filter_overlapping
+</span><span id="__span-24-3"><a id="__codelineno-24-3" name="__codelineno-24-3" href="#__codelineno-24-3"></a>
+</span><span id="__span-24-4"><a id="__codelineno-24-4" name="__codelineno-24-4" href="#__codelineno-24-4"></a><span class="c1"># More aggressive filtering</span>
+</span><span id="__span-24-5"><a id="__codelineno-24-5" name="__codelineno-24-5" href="#__codelineno-24-5"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-24-6"><a id="__codelineno-24-6" name="__codelineno-24-6" href="#__codelineno-24-6"></a><span class="w">    </span>--filter_overlapping<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-24-7"><a id="__codelineno-24-7" name="__codelineno-24-7" href="#__codelineno-24-7"></a><span class="w">    </span>--filter_overlapping_threshold<span class="w"> </span><span class="m">0</span>.5
+</span><span id="__span-24-8"><a id="__codelineno-24-8" name="__codelineno-24-8" href="#__codelineno-24-8"></a>
+</span><span id="__span-24-9"><a id="__codelineno-24-9" name="__codelineno-24-9" href="#__codelineno-24-9"></a><span class="c1"># Pose-aware filtering (better for overlapping animals)</span>
+</span><span id="__span-24-10"><a id="__codelineno-24-10" name="__codelineno-24-10" href="#__codelineno-24-10"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-24-11"><a id="__codelineno-24-11" name="__codelineno-24-11" href="#__codelineno-24-11"></a><span class="w">    </span>--filter_overlapping<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-24-12"><a id="__codelineno-24-12" name="__codelineno-24-12" href="#__codelineno-24-12"></a><span class="w">    </span>--filter_overlapping_method<span class="w"> </span>oks
 </span></code></pre></div></p>
 </details>
 <h3 id="too-few-predictions">Too Few Predictions<a class="headerlink" href="#too-few-predictions" title="Permanent link">&para;</a></h3>
 <details class="question">
 <summary>Missing animals that are clearly visible</summary>
 <p><strong>Solution 1:</strong> Lower the peak threshold
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-24-1"><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/<span class="w"> </span>--peak_threshold<span class="w"> </span><span class="m">0</span>.1
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-25-1"><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/<span class="w"> </span>--peak_threshold<span class="w"> </span><span class="m">0</span>.1
 </span></code></pre></div></p>
 <p><strong>Solution 2:</strong> For top-down models, check if centroids are being detected
 - The centroid model might be missing animals
@@ -9061,9 +9105,9 @@ for new code.</p>
 <summary>Predictions have missing keypoints (NaN values)</summary>
 <p>This happens when individual keypoint confidence is below the peak threshold.</p>
 <p><strong>Solution:</strong> Lower peak threshold and filter by instance score instead
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-25-1"><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-25-2"><a id="__codelineno-25-2" name="__codelineno-25-2" href="#__codelineno-25-2"></a><span class="w">    </span>--peak_threshold<span class="w"> </span><span class="m">0</span>.1<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-25-3"><a id="__codelineno-25-3" name="__codelineno-25-3" href="#__codelineno-25-3"></a><span class="w">    </span>--filter_min_instance_score<span class="w"> </span><span class="m">0</span>.3
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-26-1"><a id="__codelineno-26-1" name="__codelineno-26-1" href="#__codelineno-26-1"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-26-2"><a id="__codelineno-26-2" name="__codelineno-26-2" href="#__codelineno-26-2"></a><span class="w">    </span>--peak_threshold<span class="w"> </span><span class="m">0</span>.1<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-26-3"><a id="__codelineno-26-3" name="__codelineno-26-3" href="#__codelineno-26-3"></a><span class="w">    </span>--filter_min_instance_score<span class="w"> </span><span class="m">0</span>.3
 </span></code></pre></div></p>
 <p>This detects more keypoints while still removing low-quality instances.</p>
 </details>
@@ -9074,14 +9118,14 @@ for new code.</p>
 <ol>
 <li>
 <p><strong>Input scaling mismatch</strong> - Training used different scale than inference
-   <div class="language-bash highlight"><pre><span></span><code><span id="__span-26-1"><a id="__codelineno-26-1" name="__codelineno-26-1" href="#__codelineno-26-1"></a><span class="c1"># Check training config for scale value, then match it</span>
-</span><span id="__span-26-2"><a id="__codelineno-26-2" name="__codelineno-26-2" href="#__codelineno-26-2"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/<span class="w"> </span>--input_scale<span class="w"> </span><span class="m">0</span>.5
+   <div class="language-bash highlight"><pre><span></span><code><span id="__span-27-1"><a id="__codelineno-27-1" name="__codelineno-27-1" href="#__codelineno-27-1"></a><span class="c1"># Check training config for scale value, then match it</span>
+</span><span id="__span-27-2"><a id="__codelineno-27-2" name="__codelineno-27-2" href="#__codelineno-27-2"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/<span class="w"> </span>--input_scale<span class="w"> </span><span class="m">0</span>.5
 </span></code></pre></div></p>
 </li>
 <li>
 <p><strong>Crop size mismatch</strong> (top-down only)
-   <div class="language-bash highlight"><pre><span></span><code><span id="__span-27-1"><a id="__codelineno-27-1" name="__codelineno-27-1" href="#__codelineno-27-1"></a><span class="c1"># Check training config for crop_hw value</span>
-</span><span id="__span-27-2"><a id="__codelineno-27-2" name="__codelineno-27-2" href="#__codelineno-27-2"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/<span class="w"> </span>--crop_size<span class="w"> </span><span class="m">256</span>
+   <div class="language-bash highlight"><pre><span></span><code><span id="__span-28-1"><a id="__codelineno-28-1" name="__codelineno-28-1" href="#__codelineno-28-1"></a><span class="c1"># Check training config for crop_hw value</span>
+</span><span id="__span-28-2"><a id="__codelineno-28-2" name="__codelineno-28-2" href="#__codelineno-28-2"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/<span class="w"> </span>--crop_size<span class="w"> </span><span class="m">256</span>
 </span></code></pre></div></p>
 </li>
 </ol>
@@ -9099,23 +9143,23 @@ for new code.</p>
 <details class="question">
 <summary>Out of GPU memory (CUDA OOM)</summary>
 <p><strong>Solution 1:</strong> Reduce batch size
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-28-1"><a id="__codelineno-28-1" name="__codelineno-28-1" href="#__codelineno-28-1"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/<span class="w"> </span>--batch_size<span class="w"> </span><span class="m">2</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-29-1"><a id="__codelineno-29-1" name="__codelineno-29-1" href="#__codelineno-29-1"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/<span class="w"> </span>--batch_size<span class="w"> </span><span class="m">2</span>
 </span></code></pre></div></p>
 <p><strong>Solution 2:</strong> Use CPU (slower but no memory limit)
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-29-1"><a id="__codelineno-29-1" name="__codelineno-29-1" href="#__codelineno-29-1"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/<span class="w"> </span>--device<span class="w"> </span>cpu
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-30-1"><a id="__codelineno-30-1" name="__codelineno-30-1" href="#__codelineno-30-1"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/<span class="w"> </span>--device<span class="w"> </span>cpu
 </span></code></pre></div></p>
 <p><strong>Solution 3:</strong> Process fewer frames at once
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-30-1"><a id="__codelineno-30-1" name="__codelineno-30-1" href="#__codelineno-30-1"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/<span class="w"> </span>--frames<span class="w"> </span><span class="m">0</span>-1000
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-31-1"><a id="__codelineno-31-1" name="__codelineno-31-1" href="#__codelineno-31-1"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/<span class="w"> </span>--frames<span class="w"> </span><span class="m">0</span>-1000
 </span></code></pre></div></p>
 </details>
 <details class="question">
 <summary>Inference is very slow</summary>
 <p><strong>Check GPU is being used:</strong>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-31-1"><a id="__codelineno-31-1" name="__codelineno-31-1" href="#__codelineno-31-1"></a>sleap-nn<span class="w"> </span>system<span class="w">  </span><span class="c1"># Verify CUDA is available</span>
-</span><span id="__span-31-2"><a id="__codelineno-31-2" name="__codelineno-31-2" href="#__codelineno-31-2"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/<span class="w"> </span>--device<span class="w"> </span>cuda
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-32-1"><a id="__codelineno-32-1" name="__codelineno-32-1" href="#__codelineno-32-1"></a>sleap-nn<span class="w"> </span>system<span class="w">  </span><span class="c1"># Verify CUDA is available</span>
+</span><span id="__span-32-2"><a id="__codelineno-32-2" name="__codelineno-32-2" href="#__codelineno-32-2"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/<span class="w"> </span>--device<span class="w"> </span>cuda
 </span></code></pre></div></p>
 <p><strong>Increase batch size</strong> (if memory allows):
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-32-1"><a id="__codelineno-32-1" name="__codelineno-32-1" href="#__codelineno-32-1"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/<span class="w"> </span>--batch_size<span class="w"> </span><span class="m">16</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-33-1"><a id="__codelineno-33-1" name="__codelineno-33-1" href="#__codelineno-33-1"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/<span class="w"> </span>--batch_size<span class="w"> </span><span class="m">16</span>
 </span></code></pre></div></p>
 <p><strong>Tune opt-in flags</strong> — see the <a href="../inference-performance/">Inference Performance</a>
 guide for FP16 / <code>torch.compile</code> / <code>paf_workers</code> recommendations
@@ -9126,7 +9170,7 @@ backed by benchmark data on each model type.</p>
 <summary>Progress bar not moving / seems stuck</summary>
 <ul>
 <li>Large videos take time to process - check GPU utilization with <code>nvidia-smi</code></li>
-<li>First batch may be slow due to model compilation</li>
+<li>The first batch is slower while the model loads and warms up</li>
 <li>Try a smaller test: <code>--frames 0-100</code></li>
 </ul>
 </details>

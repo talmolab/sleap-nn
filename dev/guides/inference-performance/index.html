@@ -2180,6 +2180,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../reference/api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Python API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../reference/models/" class="md-nav__link">
         
   
@@ -8278,12 +8306,11 @@ and can be re-run to validate your own setup.</p>
 <li><strong><code>--device cuda</code></strong> — the only flag that matters for large videos.</li>
 <li><strong><code>--batch_size 4</code></strong> is a good starting point; raise to 8 / 16 if
   VRAM allows.</li>
-<li><strong>FP16</strong> delivers the biggest single-flag win (~1.5× on UNets) once
-  it's exposed via the CLI. For now, opt in by constructing the
-  predictor in Python with <code>use_fp16=True</code> (see <a href="#fp16">FP16</a>).</li>
+<li><strong>FP16</strong> delivers the biggest single-flag win (~1.5× on UNets).
+  It has no CLI flag yet; turn it on from Python (see <a href="#fp16">FP16</a>).</li>
 <li><strong><code>torch.compile</code></strong> adds another ~1.2-1.3×, but pays a 0.5-3 s
-  compile cost — only worth it on long videos. Opt in with
-  <code>use_compile=True</code>.</li>
+  compile cost — only worth it on long videos. Also Python-only (see
+  <a href="#torchcompile"><code>torch.compile</code></a>).</li>
 <li><strong><code>paf_workers=0</code></strong> is the right default. Workers are a net loss
   for typical bottom-up workloads at fixture-checkpoint scale.</li>
 <li><strong><code>--upload_batches</code></strong> copies each batch to the GPU before
@@ -8413,14 +8440,40 @@ relative speedups from FP16 + <code>torch.compile</code> are larger.</p>
 <h3 id="fp16">FP16<a class="headerlink" href="#fp16" title="Permanent link">&para;</a></h3>
 <p>Enable <strong>CUDA-only</strong>; on MPS the kernels exist but tensor cores don't,
 so there's no speedup (and we warn).</p>
+<p>FP16 and <code>torch.compile</code> are fields of each model's <code>TorchBackend</code>. A
+top-down predictor has two models (<code>predictor.layer.centroid_layer</code> and
+<code>predictor.layer.centered_instance_layer</code>), so set them on both stages.
+<code>torch.compile</code> is applied only when a backend is <strong>built</strong>, so setting
+<code>use_compile = True</code> on an existing backend does nothing; build a new backend
+around the same model instead. This helper does both, for any model type:</p>
 <div class="language-python highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">sleap_nn.inference</span><span class="w"> </span><span class="kn">import</span> <span class="n">Predictor</span>
-</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>
-</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="n">predictor</span> <span class="o">=</span> <span class="n">Predictor</span><span class="o">.</span><span class="n">from_model_paths</span><span class="p">(</span>
-</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>    <span class="p">[</span><span class="s2">&quot;models/my_model/&quot;</span><span class="p">],</span>
-</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>    <span class="n">device</span><span class="o">=</span><span class="s2">&quot;cuda&quot;</span><span class="p">,</span>
-</span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="p">)</span>
-</span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="n">predictor</span><span class="o">.</span><span class="n">layer</span><span class="o">.</span><span class="n">backend</span><span class="o">.</span><span class="n">use_fp16</span> <span class="o">=</span> <span class="kc">True</span>   <span class="c1"># opt-in</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">sleap_nn.inference.layers.backends.torch_backend</span><span class="w"> </span><span class="kn">import</span> <span class="n">TorchBackend</span>
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>
+</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="k">def</span><span class="w"> </span><span class="nf">use_fast_backends</span><span class="p">(</span><span class="n">predictor</span><span class="p">,</span> <span class="n">fp16</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="nb">compile</span><span class="o">=</span><span class="kc">True</span><span class="p">):</span>
+</span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Rebuild every model backend of `predictor` with FP16 / torch.compile.&quot;&quot;&quot;</span>
+</span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>    <span class="n">layer</span> <span class="o">=</span> <span class="n">predictor</span><span class="o">.</span><span class="n">layer</span>
+</span><span id="__span-1-8"><a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>    <span class="n">stages</span> <span class="o">=</span> <span class="p">[</span>
+</span><span id="__span-1-9"><a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>        <span class="nb">getattr</span><span class="p">(</span><span class="n">layer</span><span class="p">,</span> <span class="n">name</span><span class="p">)</span>
+</span><span id="__span-1-10"><a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a>        <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="p">(</span><span class="s2">&quot;centroid_layer&quot;</span><span class="p">,</span> <span class="s2">&quot;centered_instance_layer&quot;</span><span class="p">)</span>
+</span><span id="__span-1-11"><a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a>        <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">layer</span><span class="p">,</span> <span class="n">name</span><span class="p">)</span>
+</span><span id="__span-1-12"><a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a>    <span class="p">]</span> <span class="ow">or</span> <span class="p">[</span><span class="n">layer</span><span class="p">]</span>  <span class="c1"># top-down has two stages; other model types have one</span>
+</span><span id="__span-1-13"><a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a>    <span class="k">for</span> <span class="n">stage</span> <span class="ow">in</span> <span class="n">stages</span><span class="p">:</span>
+</span><span id="__span-1-14"><a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a>        <span class="n">old</span> <span class="o">=</span> <span class="n">stage</span><span class="o">.</span><span class="n">backend</span>
+</span><span id="__span-1-15"><a id="__codelineno-1-15" name="__codelineno-1-15" href="#__codelineno-1-15"></a>        <span class="n">stage</span><span class="o">.</span><span class="n">backend</span> <span class="o">=</span> <span class="n">TorchBackend</span><span class="p">(</span>
+</span><span id="__span-1-16"><a id="__codelineno-1-16" name="__codelineno-1-16" href="#__codelineno-1-16"></a>            <span class="n">model</span><span class="o">=</span><span class="n">old</span><span class="o">.</span><span class="n">model</span><span class="p">,</span>
+</span><span id="__span-1-17"><a id="__codelineno-1-17" name="__codelineno-1-17" href="#__codelineno-1-17"></a>            <span class="n">device</span><span class="o">=</span><span class="n">old</span><span class="o">.</span><span class="n">device</span><span class="p">,</span>
+</span><span id="__span-1-18"><a id="__codelineno-1-18" name="__codelineno-1-18" href="#__codelineno-1-18"></a>            <span class="n">use_fp16</span><span class="o">=</span><span class="n">fp16</span><span class="p">,</span>
+</span><span id="__span-1-19"><a id="__codelineno-1-19" name="__codelineno-1-19" href="#__codelineno-1-19"></a>            <span class="n">use_compile</span><span class="o">=</span><span class="nb">compile</span><span class="p">,</span>
+</span><span id="__span-1-20"><a id="__codelineno-1-20" name="__codelineno-1-20" href="#__codelineno-1-20"></a>            <span class="n">memory_format</span><span class="o">=</span><span class="n">old</span><span class="o">.</span><span class="n">memory_format</span><span class="p">,</span>
+</span><span id="__span-1-21"><a id="__codelineno-1-21" name="__codelineno-1-21" href="#__codelineno-1-21"></a>        <span class="p">)</span>
+</span><span id="__span-1-22"><a id="__codelineno-1-22" name="__codelineno-1-22" href="#__codelineno-1-22"></a>
+</span><span id="__span-1-23"><a id="__codelineno-1-23" name="__codelineno-1-23" href="#__codelineno-1-23"></a>
+</span><span id="__span-1-24"><a id="__codelineno-1-24" name="__codelineno-1-24" href="#__codelineno-1-24"></a><span class="n">predictor</span> <span class="o">=</span> <span class="n">Predictor</span><span class="o">.</span><span class="n">from_model_paths</span><span class="p">([</span><span class="s2">&quot;models/my_model/&quot;</span><span class="p">],</span> <span class="n">device</span><span class="o">=</span><span class="s2">&quot;cuda&quot;</span><span class="p">)</span>
+</span><span id="__span-1-25"><a id="__codelineno-1-25" name="__codelineno-1-25" href="#__codelineno-1-25"></a><span class="n">use_fast_backends</span><span class="p">(</span><span class="n">predictor</span><span class="p">,</span> <span class="n">fp16</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="nb">compile</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
 </span></code></pre></div>
+<p>This works for trained checkpoints only (an exported ONNX/TensorRT model has
+no <code>TorchBackend</code>).</p>
 <table>
 <thead>
 <tr>
@@ -8445,7 +8498,7 @@ the parity bench, but always benchmark your own checkpoint before
 shipping FP16 to production.</p>
 <h3 id="torchcompile"><code>torch.compile</code><a class="headerlink" href="#torchcompile" title="Permanent link">&para;</a></h3>
 <p>Mode: <code>reduce-overhead</code> (CUDA-graph capture), <code>dynamic=False</code>.</p>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="n">predictor</span><span class="o">.</span><span class="n">layer</span><span class="o">.</span><span class="n">backend</span><span class="o">.</span><span class="n">use_compile</span> <span class="o">=</span> <span class="kc">True</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="n">use_fast_backends</span><span class="p">(</span><span class="n">predictor</span><span class="p">,</span> <span class="n">fp16</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="nb">compile</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>  <span class="c1"># helper from FP16 above</span>
 </span></code></pre></div>
 <table>
 <thead>
@@ -8467,11 +8520,10 @@ shipping FP16 to production.</p>
 </table>
 <div class="admonition warning">
 <p class="admonition-title">Static shapes</p>
-<p><code>dynamic=False</code> means the compiled graph is locked to one input
-shape. If your batches have varying spatial dims, set
-<code>dynamic=True</code> (slower but tolerant), or pre-pad to a uniform
-shape — which the new flow's sizematcher does automatically when
-<code>max_height</code> / <code>max_width</code> are set in training config.</p>
+<p><code>dynamic=False</code> (not configurable) locks the compiled graph to one
+input shape; a new shape recompiles. Frames of one video share a shape,
+and setting <code>max_height</code> / <code>max_width</code> in the training config pads every
+frame to one size.</p>
 </div>
 <h3 id="batches-on-the-gpu-upload_batches">Batches on the GPU (<code>upload_batches</code>)<a class="headerlink" href="#batches-on-the-gpu-upload_batches" title="Permanent link">&para;</a></h3>
 <p><code>sleap-nn predict --upload_batches</code> (or <code>upload_batches=True</code> on
@@ -8705,12 +8757,10 @@ frame — workers can't parallelize what isn't there to parallelize.</p>
 </span><span id="__span-5-7"><a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a>    <span class="n">upload_batches</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
 </span><span id="__span-5-8"><a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a>    <span class="n">memory_format</span><span class="o">=</span><span class="s2">&quot;channels_last&quot;</span><span class="p">,</span>  <span class="c1"># NVIDIA</span>
 </span><span id="__span-5-9"><a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a><span class="p">)</span>
-</span><span id="__span-5-10"><a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a><span class="n">backend</span> <span class="o">=</span> <span class="n">predictor</span><span class="o">.</span><span class="n">layer</span><span class="o">.</span><span class="n">backend</span>  <span class="c1"># or .centroid_layer.backend for top-down</span>
-</span><span id="__span-5-11"><a id="__codelineno-5-11" name="__codelineno-5-11" href="#__codelineno-5-11"></a><span class="n">backend</span><span class="o">.</span><span class="n">use_fp16</span> <span class="o">=</span> <span class="kc">True</span>
-</span><span id="__span-5-12"><a id="__codelineno-5-12" name="__codelineno-5-12" href="#__codelineno-5-12"></a><span class="n">backend</span><span class="o">.</span><span class="n">use_compile</span> <span class="o">=</span> <span class="kc">True</span>
-</span><span id="__span-5-13"><a id="__codelineno-5-13" name="__codelineno-5-13" href="#__codelineno-5-13"></a>
-</span><span id="__span-5-14"><a id="__codelineno-5-14" name="__codelineno-5-14" href="#__codelineno-5-14"></a><span class="n">labels</span> <span class="o">=</span> <span class="n">predictor</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span><span class="s2">&quot;long_video.mp4&quot;</span><span class="p">)</span>
-</span><span id="__span-5-15"><a id="__codelineno-5-15" name="__codelineno-5-15" href="#__codelineno-5-15"></a><span class="n">labels</span><span class="o">.</span><span class="n">save</span><span class="p">(</span><span class="s2">&quot;predictions.slp&quot;</span><span class="p">)</span>
+</span><span id="__span-5-10"><a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a><span class="n">use_fast_backends</span><span class="p">(</span><span class="n">predictor</span><span class="p">,</span> <span class="n">fp16</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="nb">compile</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>  <span class="c1"># helper from FP16 above</span>
+</span><span id="__span-5-11"><a id="__codelineno-5-11" name="__codelineno-5-11" href="#__codelineno-5-11"></a>
+</span><span id="__span-5-12"><a id="__codelineno-5-12" name="__codelineno-5-12" href="#__codelineno-5-12"></a><span class="n">labels</span> <span class="o">=</span> <span class="n">predictor</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span><span class="s2">&quot;long_video.mp4&quot;</span><span class="p">)</span>
+</span><span id="__span-5-13"><a id="__codelineno-5-13" name="__codelineno-5-13" href="#__codelineno-5-13"></a><span class="n">labels</span><span class="o">.</span><span class="n">save</span><span class="p">(</span><span class="s2">&quot;predictions.slp&quot;</span><span class="p">)</span>
 </span></code></pre></div>
 <p>Expected speedup vs eager-CPU: 20–50× on CUDA for a 5-minute video.</p>
 <h3 id="i-want-a-quick-sanity-check-on-a-10-frame-clip">"I want a quick sanity check on a 10-frame clip"<a class="headerlink" href="#i-want-a-quick-sanity-check-on-a-10-frame-clip" title="Permanent link">&para;</a></h3>

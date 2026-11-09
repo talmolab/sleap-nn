@@ -2129,6 +2129,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../reference/api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Python API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../reference/models/" class="md-nav__link">
         
   
@@ -8627,7 +8655,8 @@ centered-instance model) yields single-node detections to embed + track.</p>
 <p>The output is always a <code>.slp</code> that references the source video: <code>--output_format
 analysis_h5</code> and <code>--embed true|auto</code> are rejected on this route rather than ignored.
 With <code>--video_index</code> on a multi-video <code>.slp</code>, the default output name includes the
-video's name (<code>&lt;input&gt;.&lt;video&gt;.tracked.slp</code>), as with <code>predict</code>, so per-video runs do
+video's name and drops the input's extension (<code>project.slp</code> →
+<code>project.&lt;video&gt;.tracked.slp</code>), as with <code>predict</code>, so per-video runs do
 not overwrite each other.</p>
 <hr />
 <h2 id="output-tracks-not-global-identities">Output: tracks, not global identities<a class="headerlink" href="#output-tracks-not-global-identities" title="Permanent link">&para;</a></h2>

@@ -2048,6 +2048,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../reference/api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Python API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../reference/models/" class="md-nav__link">
         
   
@@ -8048,7 +8076,8 @@ and attaching it with the link set:</p>
   <code>trainer_config.eval.enabled: true</code>, a <code>SegmentationEvaluationCallback</code> also logs
   instance-level mask metrics (<code>eval/val/mask_mean_iou</code>, <code>mask_precision</code>,
   <code>mask_recall</code>, <code>mask_f1</code>). Training viz overlays the GT mask on the predicted
-  foreground each epoch (<code>viz/.../gt_mask</code>).</li>
+  foreground each epoch (wandb key <code>viz/&lt;split&gt;/predictions</code>; saved locally as
+  <code>&lt;split&gt;.gt_mask.&lt;epoch&gt;.&lt;ext&gt;</code>).</li>
 </ul>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>sleap-nn<span class="w"> </span>train<span class="w"> </span>--config-name<span class="w"> </span>config_topdown_centered_instance_segmentation_unet<span class="w"> </span><span class="se">\</span>
 </span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">  </span>--labels<span class="w"> </span>train.pkg.slp<span class="w"> </span>--val-labels<span class="w"> </span>val.pkg.slp
@@ -8084,8 +8113,9 @@ the segmentation model in isolation:</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-i<span class="w"> </span>labeled.pkg.slp<span class="w"> </span>--model_paths<span class="w"> </span>centered_instance_segmentation_model_dir
 </span></code></pre></div>
 <h2 id="evaluation">Evaluation<a class="headerlink" href="#evaluation" title="Permanent link">&para;</a></h2>
-<p>Post-training evaluation runs automatically (<code>trainer_config.eval.enabled: true</code>)
-using mask-IoU matching, equivalent to:</p>
+<p>Post-training evaluation runs automatically when checkpoints are saved
+(<code>trainer_config.save_ckpt: true</code>; independent of <code>trainer_config.eval.enabled</code>,
+which only controls the per-epoch callback) using mask-IoU matching, equivalent to:</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>sleap-nn<span class="w"> </span><span class="nb">eval</span><span class="w"> </span>--ground_truth_path<span class="w"> </span>gt.slp<span class="w"> </span>--predicted_path<span class="w"> </span>pred.slp<span class="w"> </span>--match_method<span class="w"> </span>mask
 </span></code></pre></div>
 <p><code>match_method="mask"</code> matches predicted vs GT masks by IoU (Hungarian) and reports
@@ -8101,7 +8131,7 @@ single-source <code>.pkg.slp</code> or on-disk videos).</p>
 </blockquote>
 <h2 id="see-also">See also<a class="headerlink" href="#see-also" title="Permanent link">&para;</a></h2>
 <ul>
-<li><a href="../inference-guide/">Bottom-up segmentation</a> — single-pass, detector-free masks.</li>
+<li><a href="../inference-guide/#bottom-up-segmentation">Bottom-up segmentation</a> — single-pass, detector-free masks.</li>
 <li><a href="../centroid-only-inference/">Centroid-only inference</a> — the centroid stage standalone.</li>
 </ul>
 

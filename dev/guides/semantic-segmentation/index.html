@@ -2053,6 +2053,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../reference/api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Python API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../reference/models/" class="md-nav__link">
         
   
@@ -8169,10 +8197,10 @@ caps bottom-up instance segmentation.</p>
 </span></code></pre></div>
 <p>Applicable knobs: <code>--fg_threshold</code> (foreground probability binarization),
 <code>--min_mask_area</code> (drop a near-empty whole-frame mask, in original-image pixels),
-<code>--mask_output</code> (<code>mask</code> / <code>polygon</code> / <code>both</code>), <code>--full_res_masks</code>, and
-<code>--mask_cleanup</code>. The instance-grouping knobs (<code>--center_nms_kernel</code>,
-<code>--distance_gate_alpha</code>, <code>--merge_*</code>, <code>--peak_threshold</code>) do not apply — there are
-no instances to group.</p>
+<code>--mask_output</code> (<code>mask</code> / <code>polygon</code> / <code>both</code>), <code>--polygon_epsilon</code> and
+<code>--full_res_masks</code>. The instance-grouping and cleanup knobs (<code>--center_nms_kernel</code>,
+<code>--distance_gate_alpha</code>, <code>--merge_*</code>, <code>--mask_cleanup</code>, <code>--peak_threshold</code>) do not
+apply — there are no instances to group.</p>
 <p>The predicted foreground is a single <strong>semantic</strong> mask and may be spatially
 disconnected (multiple blobs); it is intentionally <strong>not</strong> connected-component
 cleaned.</p>
@@ -8180,7 +8208,8 @@ cleaned.</p>
 <p>Semantic evaluation is <strong>matching-free</strong>: each frame's masks are unioned into one
 foreground and scored directly against the ground-truth foreground with IoU,
 centerline Dice (clDice), and boundary IoU — no Hungarian matching, no IoU
-threshold. Post-training eval runs automatically; to run it standalone:</p>
+threshold. Post-training eval runs automatically when checkpoints are saved
+(<code>trainer_config.save_ckpt: true</code>); to run it standalone:</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>sleap-nn<span class="w"> </span><span class="nb">eval</span><span class="w"> </span>--ground_truth_path<span class="w"> </span>gt.slp<span class="w"> </span>--predicted_path<span class="w"> </span>preds.slp<span class="w"> </span><span class="se">\</span>
 </span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">    </span>--match_method<span class="w"> </span>semantic
 </span></code></pre></div>

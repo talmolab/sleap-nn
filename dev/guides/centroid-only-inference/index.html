@@ -2137,6 +2137,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../reference/api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Python API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../reference/models/" class="md-nav__link">
         
   
@@ -8230,7 +8258,7 @@ with <code>--centroid-output</code> (CLI) / <code>emit_centroid</code> (Python).
 </tbody>
 </table>
 <p>The <code>source</code> tag on a <code>PredictedCentroid</code> mirrors the trained target's meaning
-(see the <a href="#anchor-node-convention-586">anchor convention</a> below): an explicit
+(see the <a href="#choosing-what-centroid-means-586">anchor convention</a> below): an explicit
 anchor records <code>"anchor:&lt;node&gt;"</code>; no anchor records <code>"center_of_mass"</code>.</p>
 <h2 id="end-to-end-workflow">End-to-end workflow<a class="headerlink" href="#end-to-end-workflow" title="Permanent link">&para;</a></h2>
 <h3 id="1-train">1. Train<a class="headerlink" href="#1-train" title="Permanent link">&para;</a></h3>
@@ -8324,7 +8352,7 @@ bit-for-bit identical to the checkpoint path. See the
 <a href="../export/#standalone-centroid">Export guide</a> for details.</p>
 <h2 id="choosing-what-centroid-means-586">Choosing what "centroid" means (#586)<a class="headerlink" href="#choosing-what-centroid-means-586" title="Permanent link">&para;</a></h2>
 <p>The centroid's <em>meaning</em> is defined by
-<a href="../reference/sleap_nn/data/instance_centroids.md"><code>generate_centroids</code></a> — the
+<a href="../../api/data/instance_centroids/"><code>generate_centroids</code></a> — the
 same function used for training-target generation, top-down crop centers and
 GT-centroid evaluation, so all three can never disagree. Four methods are
 available, spelled exactly as in <code>sio.Instance.to_centroid</code>:</p>
@@ -8413,8 +8441,12 @@ always outranks a derived one. <code>anchor</code> does not apply here: a mask h
 <li><strong><code>min_instance_score</code></strong>: filters on the centroid confidence value.</li>
 <li><strong><code>min_visible_nodes</code> / <code>min_visible_node_fraction</code></strong>: a single-node
   detection has exactly one visible node, so keep any threshold <code>&lt;= 1</code>.</li>
-<li><strong><code>overlapping</code> with <code>overlapping_method="oks"</code></strong>: emits a <code>UserWarning</code> and
-  falls back to IoU. OKS needs the full keypoint set, which a centroid lacks.</li>
+<li><strong><code>min_centroid_distance</code></strong> (CLI <code>--filter_min_centroid_distance</code>, pixels,
+  default <code>0</code> = off): the centroid de-duplication filter. Greedy NMS drops any
+  centroid within this distance of a higher-scored kept centroid.</li>
+<li><strong><code>overlapping</code></strong> (either method): skipped for centroid-only output, with a
+  <code>UserWarning</code>. Bounding-box IoU and OKS are degenerate for single points; use
+  <code>min_centroid_distance</code> instead.</li>
 </ul>
 <h3 id="tracking">Tracking<a class="headerlink" href="#tracking" title="Permanent link">&para;</a></h3>
 <p>Use <code>features="centroids"</code>. For a single-node skeleton the scoring method

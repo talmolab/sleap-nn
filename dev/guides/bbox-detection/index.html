@@ -2053,6 +2053,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../reference/api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Python API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../reference/models/" class="md-nav__link">
         
   
@@ -8104,7 +8132,7 @@ marked as empty are added as all-background samples.</p>
 <p>The quickest start is the config generator, which writes a detector config for any
 pose project (boxes are derived from the poses):</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>sleap-nn<span class="w"> </span>config<span class="w"> </span>labels.slp<span class="w"> </span>--auto<span class="w"> </span>--pipeline<span class="w"> </span>bbox_ssd<span class="w"> </span>-o<span class="w"> </span>detector.yaml<span class="w">   </span><span class="c1"># or bbox_centernet</span>
-</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>sleap-nn<span class="w"> </span>config<span class="w"> </span>labels.slp<span class="w">   </span><span class="c1"># interactive: pick &quot;Bounding Boxes (CenterNet / SSD)&quot;</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>sleap-nn<span class="w"> </span>config<span class="w"> </span>labels.slp<span class="w">   </span><span class="c1"># interactive: pick &quot;Bounding Boxes (CenterNet)&quot; or &quot;Bounding Boxes (SSD)&quot;</span>
 </span></code></pre></div>
 <p>It uses <code>preprocessing.scale: 0.5</code>, <code>output_stride</code> 4 (CenterNet) / 8 (SSD, with
 <code>max_stride</code> &gt;= 32), turns rotation augmentation off and evaluation on (so the best
@@ -8174,8 +8202,9 @@ With evaluation off, detectors select on <code>val/loss</code>.</p>
 <p>From Python, <code>sleap_nn.train.train(..., head_configs="bbox_ssd")</code> builds the same
 config; it takes <code>bbox_source=</code> / <code>bbox_padding=</code> and, like <code>sleap-nn train</code>, defaults
 <code>geometry_aug</code> to rotation, so pass e.g. <code>geometry_aug="scale"</code> for a detector.</p>
-<p>After training, every split (and <code>data_config.test_file_path</code>) is predicted and
-evaluated automatically; metrics are saved as <code>metrics.&lt;split&gt;.npz/.json</code> and
+<p>After training, when checkpoints are saved (<code>trainer_config.save_ckpt: true</code>),
+every split (and <code>data_config.test_file_path</code>) is predicted and evaluated
+automatically; metrics are saved as <code>metrics.&lt;split&gt;.npz/.json</code> and
 logged to the wandb summary as <code>eval/&lt;split&gt;/bbox_*</code> (plus <code>predict_fps</code>).</p>
 <h2 id="inference">Inference<a class="headerlink" href="#inference" title="Permanent link">&para;</a></h2>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>--data_path<span class="w"> </span>video.mp4<span class="w"> </span>--model_paths<span class="w"> </span>models/my_detector<span class="w"> </span><span class="se">\</span>

@@ -2096,6 +2096,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../reference/api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Python API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../reference/models/" class="md-nav__link">
         
   
@@ -8122,7 +8150,7 @@
 </tr>
 <tr>
 <td><code>-s</code> / <code>--save_metrics</code></td>
-<td>Save metrics to .npz file</td>
+<td>Save metrics to a .npz file; a <code>.json</code> copy with the same stem is written next to it</td>
 <td>None</td>
 </tr>
 <tr>
@@ -8136,9 +8164,24 @@
 <td>None</td>
 </tr>
 <tr>
+<td><code>--match_threshold</code></td>
+<td>Matching threshold: minimum OKS (<code>oks</code>), maximum pixel distance (<code>centroid</code>; <code>0</code> becomes <code>50</code> px), or minimum mask IoU (<code>mask</code>; <code>0</code> becomes <code>0.5</code>)</td>
+<td><code>0.0</code></td>
+</tr>
+<tr>
 <td><code>--match_method</code></td>
-<td>Instance matcher: <code>oks</code>, <code>centroid</code>, <code>mask</code>, or <code>auto</code> (centroid when the prediction skeleton is single-node)</td>
+<td><code>oks</code> (full skeleton), <code>centroid</code> (single-point distance), <code>mask</code> (instance-mask IoU), <code>semantic</code> (whole-frame foreground, no matching), <code>bbox</code> (COCO box AP), or <code>auto</code>: <code>bbox</code> when the predictions are boxes only, <code>centroid</code> when the prediction skeleton is single-node, else <code>oks</code> (never <code>mask</code>/<code>semantic</code>)</td>
 <td><code>auto</code></td>
+</tr>
+<tr>
+<td><code>--bbox_source</code></td>
+<td><code>bbox</code> mode: where ground-truth boxes come from (<code>auto</code>, <code>bboxes</code>, <code>instances</code>, <code>masks</code>); pass the model's <code>data_config.bbox_source</code></td>
+<td><code>auto</code></td>
+</tr>
+<tr>
+<td><code>--bbox_padding</code></td>
+<td><code>bbox</code> mode: pixels of padding on ground-truth boxes derived from poses or masks; pass the model's <code>data_config.bbox_padding</code></td>
+<td><code>0.0</code></td>
 </tr>
 <tr>
 <td><code>--anchor_part</code></td>
@@ -8282,6 +8325,8 @@ per-pair distances are also available under <code>metrics['distance_metrics']['d
 </span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>
 </span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="nb">print</span><span class="p">(</span><span class="n">metrics</span><span class="o">.</span><span class="n">keys</span><span class="p">())</span>
 </span></code></pre></div>
+<p>The metrics are also written as JSON next to the <code>.npz</code> (<code>metrics.json</code> here),
+readable without NumPy; a few large raw arrays are left out of the JSON.</p>
 <hr />
 <h2 id="next-steps">Next Steps<a class="headerlink" href="#next-steps" title="Permanent link">&para;</a></h2>
 <ul>

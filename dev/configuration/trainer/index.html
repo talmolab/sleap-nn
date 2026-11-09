@@ -2282,6 +2282,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../reference/api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Python API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../reference/models/" class="md-nav__link">
         
   
@@ -8486,7 +8514,7 @@
 <tr>
 <td><code>max_epochs</code></td>
 <td>Training epochs</td>
-<td><code>10</code></td>
+<td><code>100</code></td>
 </tr>
 <tr>
 <td><code>save_ckpt</code></td>
@@ -8495,8 +8523,8 @@
 </tr>
 <tr>
 <td><code>ckpt_dir</code></td>
-<td>Checkpoint directory</td>
-<td><code>null</code></td>
+<td>Folder the run folder is created in</td>
+<td><code>.</code> (current directory)</td>
 </tr>
 <tr>
 <td><code>run_name</code></td>
@@ -8727,7 +8755,7 @@ already at or above the suggestion, or when there is nothing to suggest.</p>
 <h2 id="training-control">Training Control<a class="headerlink" href="#training-control" title="Permanent link">&para;</a></h2>
 <div class="language-yaml highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="nt">trainer_config</span><span class="p">:</span>
 </span><span id="__span-15-2"><a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a><span class="w">  </span><span class="nt">min_train_steps_per_epoch</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">200</span><span class="w">  </span><span class="c1"># Minimum steps</span>
-</span><span id="__span-15-3"><a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a><span class="w">  </span><span class="nt">train_steps_per_epoch</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">null</span><span class="w">     </span><span class="c1"># Exact steps (null=auto)</span>
+</span><span id="__span-15-3"><a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a><span class="w">  </span><span class="nt">train_steps_per_epoch</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">null</span><span class="w">     </span><span class="c1"># Steps per epoch (null=one pass); never below the minimum</span>
 </span><span id="__span-15-4"><a id="__codelineno-15-4" name="__codelineno-15-4" href="#__codelineno-15-4"></a><span class="w">  </span><span class="nt">enable_progress_bar</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
 </span><span id="__span-15-5"><a id="__codelineno-15-5" name="__codelineno-15-5" href="#__codelineno-15-5"></a><span class="w">  </span><span class="nt">seed</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">42</span><span class="w">                        </span><span class="c1"># Random seed (ensures deterministic train/val splits)</span>
 </span></code></pre></div>
@@ -8876,7 +8904,7 @@ commands on <code>tcp://127.0.0.1:{controller_port}</code>. Each is enabled inde
 <td><code>profiler</code></td>
 <td>str</td>
 <td><code>null</code></td>
-<td>PyTorch profiler: <code>simple</code>, <code>advanced</code>, <code>pytorch</code></td>
+<td>Lightning profiler: <code>simple</code>, <code>advanced</code>, <code>pytorch</code> or <code>passthrough</code></td>
 </tr>
 <tr>
 <td><code>enable_progress_bar</code></td>
@@ -8894,7 +8922,7 @@ commands on <code>tcp://127.0.0.1:{controller_port}</code>. Each is enabled inde
 <td><code>train_steps_per_epoch</code></td>
 <td>int</td>
 <td><code>null</code></td>
-<td>Exact steps per epoch (null = auto: one pass over the data; for <code>embedding</code>, in P×K batches — <code>min(P, groups in the video)</code>×K for <code>sampler.kind: within_video</code>)</td>
+<td>Steps per epoch, raised to <code>min_train_steps_per_epoch</code> if smaller (null = one pass over the data; for <code>embedding</code>, in P×K batches — <code>min(P, groups in the video)</code>×K for <code>sampler.kind: within_video</code>)</td>
 </tr>
 <tr>
 <td><code>visualize_preds_during_training</code></td>
@@ -8907,6 +8935,12 @@ commands on <code>tcp://127.0.0.1:{controller_port}</code>. Each is enabled inde
 <td>bool</td>
 <td><code>false</code></td>
 <td>Keep viz folder after training</td>
+</tr>
+<tr>
+<td><code>viz_img_format</code></td>
+<td>str</td>
+<td><code>png</code></td>
+<td>Format of the saved viz images: <code>png</code> or <code>jpg</code> (much smaller files)</td>
 </tr>
 <tr>
 <td><code>use_wandb</code></td>
@@ -9188,6 +9222,18 @@ commands on <code>tcp://127.0.0.1:{controller_port}</code>. Each is enabled inde
 <td><code>null</code></td>
 <td>Also write last.ckpt at the end of every epoch</td>
 </tr>
+<tr>
+<td><code>monitor</code></td>
+<td>str</td>
+<td><code>val/loss</code></td>
+<td>Metric that picks the best checkpoint: any logged metric, e.g. <code>eval/val/mask_mean_iou</code> or <code>eval/val/fg_mean_cldice</code> for segmentation with <code>eval.enabled</code>. Left at <code>val/loss</code>, <code>embedding</code> and <code>bbox_*</code> models use their model-type default (see <code>eval.select_metric</code>)</td>
+</tr>
+<tr>
+<td><code>mode</code></td>
+<td>str</td>
+<td><code>min</code></td>
+<td><code>min</code> or <code>max</code>: direction of improvement for <code>monitor</code> (use <code>max</code> for IoU/clDice). Only read when <code>monitor</code> is not <code>val/loss</code></td>
+</tr>
 </tbody>
 </table>
 <h3 id="wandbconfig">WandBConfig<a class="headerlink" href="#wandbconfig" title="Permanent link">&para;</a></h3>
@@ -9291,6 +9337,12 @@ commands on <code>tcp://127.0.0.1:{controller_port}</code>. Each is enabled inde
 <td><code>null</code></td>
 <td>Delete local logs (auto if online)</td>
 </tr>
+<tr>
+<td><code>current_run_id</code></td>
+<td>str</td>
+<td><code>null</code></td>
+<td>Set automatically: the WandB run ID of this training run</td>
+</tr>
 </tbody>
 </table>
 <h3 id="hardkeypointminingconfig">HardKeypointMiningConfig<a class="headerlink" href="#hardkeypointminingconfig" title="Permanent link">&para;</a></h3>
@@ -9375,7 +9427,13 @@ commands on <code>tcp://127.0.0.1:{controller_port}</code>. Each is enabled inde
 <td><code>match_threshold</code></td>
 <td>float</td>
 <td><code>50.0</code></td>
-<td>Max distance (px) for centroid matching (centroid models only)</td>
+<td>Centroid models: max matching distance in pixels. Instance segmentation (<code>bottomup_segmentation</code>, <code>centered_instance_segmentation</code>): minimum mask IoU in <code>(0, 1]</code>; values outside that range (including the default) fall back to <code>0.5</code></td>
+</tr>
+<tr>
+<td><code>select_metric</code></td>
+<td>str</td>
+<td><code>rank1</code></td>
+<td>Metric that selects the best checkpoint and drives early stopping. <code>embedding</code>: <code>rank1</code>, <code>mAP</code>, <code>auc</code>, <code>knn_acc</code> (higher is better) or <code>eer</code> (lower is better). <code>bbox_*</code>: <code>bbox_mAP</code>, <code>bbox_AP50</code>, <code>bbox_AP75</code>, <code>bbox_AR</code>, <code>bbox_f1</code> or <code>val_loss</code>; left at the default, detectors use <code>bbox_mAP</code> when <code>enabled</code>, else <code>val/loss</code>. Ignored by other model types</td>
 </tr>
 </tbody>
 </table>
@@ -9383,8 +9441,12 @@ commands on <code>tcp://127.0.0.1:{controller_port}</code>. Each is enabled inde
 <p class="admonition-title">Model-Type-Dependent Evaluation</p>
 <p>SLEAP-NN automatically selects the appropriate evaluation callback based on model type:</p>
 <ul>
-<li><strong>Pose models</strong> (single instance, bottom-up, centered instance): Uses OKS/PCK metrics with <code>oks_stddev</code> and <code>oks_scale</code></li>
+<li><strong>Pose models</strong> (single instance, bottom-up, centered instance, multi-class): Uses OKS/PCK metrics with <code>oks_stddev</code> and <code>oks_scale</code></li>
 <li><strong>Centroid models</strong>: Uses distance-based metrics with <code>match_threshold</code> for prediction-to-GT matching</li>
+<li><strong>Instance segmentation</strong> (<code>bottomup_segmentation</code>, <code>centered_instance_segmentation</code>): instance-level mask-IoU metrics, matched at the IoU in <code>match_threshold</code></li>
+<li><strong>Semantic segmentation</strong>: matching-free foreground IoU / clDice / boundary-IoU</li>
+<li><strong>Bounding-box detectors</strong> (<code>bbox_*</code>): COCO-style box mAP, AP50/AP75, AR and best F1</li>
+<li><strong>Embedding</strong>: retrieval metrics (<code>rank1</code>, <code>mAP</code>, <code>auc</code>, <code>knn_acc</code>, <code>eer</code>), computed every <code>frequency</code> epochs even when <code>enabled</code> is <code>false</code>, because they select the checkpoint</li>
 </ul>
 <p>See the <a href="../../guides/monitoring/#epoch-end-evaluation">Monitoring Guide</a> for details.</p>
 </div>

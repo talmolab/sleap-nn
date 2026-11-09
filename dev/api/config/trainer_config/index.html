@@ -1910,6 +1910,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../../reference/api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Python API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../../reference/models/" class="md-nav__link">
         
   
@@ -10670,7 +10698,7 @@ the first epoch does not train at <code>warmup_start_lr</code>. <em>Default</em>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>(str) Directory path where the <code>&lt;run_name&gt;</code> folder is created. If <code>None</code>, a new folder for the current run is created in the working dir. <strong>Default</strong>: <code>None</code></p>
+                <p>(str) Directory path where the <code>&lt;run_name&gt;</code> folder is created. <strong>Default</strong>: <code>"."</code> (the working dir)</p>
               </div>
             </td>
           </tr>
@@ -10931,7 +10959,7 @@ the first epoch does not train at <code>warmup_start_lr</code>. <em>Default</em>
 </span><span id="__span-0-386"><a id="__codelineno-0-386" name="__codelineno-0-386"></a><span class="sd">        seed: (int) Seed value for the current experiment. This ensures deterministic train/val splits across runs, which is critical for safe checkpoint resume. *Default*: `42`.</span>
 </span><span id="__span-0-387"><a id="__codelineno-0-387" name="__codelineno-0-387"></a><span class="sd">        use_wandb: (bool) True to enable wandb logging. *Default*: `False`.</span>
 </span><span id="__span-0-388"><a id="__codelineno-0-388" name="__codelineno-0-388"></a><span class="sd">        save_ckpt: (bool) True to enable checkpointing. *Default*: `False`.</span>
-</span><span id="__span-0-389"><a id="__codelineno-0-389" name="__codelineno-0-389"></a><span class="sd">        ckpt_dir: (str) Directory path where the `&lt;run_name&gt;` folder is created. If `None`, a new folder for the current run is created in the working dir. **Default**: `None`</span>
+</span><span id="__span-0-389"><a id="__codelineno-0-389" name="__codelineno-0-389"></a><span class="sd">        ckpt_dir: (str) Directory path where the `&lt;run_name&gt;` folder is created. **Default**: `&quot;.&quot;` (the working dir)</span>
 </span><span id="__span-0-390"><a id="__codelineno-0-390" name="__codelineno-0-390"></a><span class="sd">        run_name: (str) Name of the current run. The ckpts will be created in `&lt;ckpt_dir&gt;/&lt;run_name&gt;`. If `None`, a run name is generated with `&lt;timestamp&gt;_&lt;head_name&gt;`. *Default*: `None`.</span>
 </span><span id="__span-0-391"><a id="__codelineno-0-391" name="__codelineno-0-391"></a><span class="sd">        resume_ckpt_path: (str) Path to `.ckpt` file from which training is resumed. *Default*: `None`.</span>
 </span><span id="__span-0-392"><a id="__codelineno-0-392" name="__codelineno-0-392"></a><span class="sd">        wandb: (Only if use_wandb is True, else skip this)</span>

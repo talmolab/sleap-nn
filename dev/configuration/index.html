@@ -1920,6 +1920,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../reference/api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Python API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../reference/models/" class="md-nav__link">
         
   
@@ -7896,6 +7924,43 @@
 </span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="w">  </span><span class="nt">max_epochs</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">100</span>
 </span><span id="__span-0-12"><a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a><span class="w">  </span><span class="nt">optimizer</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nv">...</span><span class="p p-Indicator">}</span>
 </span></code></pre></div>
+<p>Alongside the three sections, a config has four top-level fields:</p>
+<table>
+<thead>
+<tr>
+<th>Option</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>name</code></td>
+<td>str</td>
+<td><code>""</code></td>
+<td>Optional name for this config</td>
+</tr>
+<tr>
+<td><code>description</code></td>
+<td>str</td>
+<td><code>""</code></td>
+<td>Optional description of this config</td>
+</tr>
+<tr>
+<td><code>sleap_nn_version</code></td>
+<td>str</td>
+<td>installed version</td>
+<td>Set automatically: training writes the sleap-nn version that ran it</td>
+</tr>
+<tr>
+<td><code>filename</code></td>
+<td>str</td>
+<td><code>""</code></td>
+<td>Optional path of this config file (informational; training does not read it)</td>
+</tr>
+</tbody>
+</table>
 <hr />
 <h2 id="usage">Usage<a class="headerlink" href="#usage" title="Permanent link">&para;</a></h2>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>sleap-nn<span class="w"> </span>train<span class="w"> </span>--config<span class="w"> </span>config.yaml

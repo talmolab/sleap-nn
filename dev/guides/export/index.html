@@ -2212,6 +2212,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../reference/api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Python API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../reference/models/" class="md-nav__link">
         
   
@@ -8414,7 +8442,7 @@ point <code>-m</code> at the export directory and it is auto-detected as an expo
 <td><code>-o</code>, <code>--output</code></td>
 <td>Output directory</td>
 <td><code>PATH</code></td>
-<td>Required</td>
+<td><code>&lt;model dir&gt;/exported</code> (top-down pair: <code>&lt;centroid dir&gt;/exported_topdown</code>)</td>
 </tr>
 <tr>
 <td><code>-f</code>, <code>--format</code></td>
@@ -8613,14 +8641,17 @@ the export directory written by <code>sleap-nn export</code> (it contains <code>
 <div class="language-text highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>exports/my_model/
 </span><span id="__span-13-2"><a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a>├── model.onnx
 </span><span id="__span-13-3"><a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a>├── export_metadata.json
-</span><span id="__span-13-4"><a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a>├── model.trt                   # If TensorRT
-</span><span id="__span-13-5"><a id="__codelineno-13-5" name="__codelineno-13-5" href="#__codelineno-13-5"></a>└── model.trt.metadata.json     # If TensorRT
+</span><span id="__span-13-4"><a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a>├── training_config.yaml        # Copied from the model dir (.json for legacy models)
+</span><span id="__span-13-5"><a id="__codelineno-13-5" name="__codelineno-13-5" href="#__codelineno-13-5"></a>├── model.trt                   # If TensorRT
+</span><span id="__span-13-6"><a id="__codelineno-13-6" name="__codelineno-13-6" href="#__codelineno-13-6"></a>└── model.trt.metadata.json     # If TensorRT
 </span></code></pre></div>
+<p>A top-down export copies both configs instead, as <code>training_config_centroid.yaml</code>
+and <code>training_config_centered_instance.yaml</code>.</p>
 <hr />
 <h2 id="limitations">Limitations<a class="headerlink" href="#limitations" title="Permanent link">&para;</a></h2>
 <ul>
 <li><strong>TensorRT engines are GPU-specific</strong> - Regenerate for different hardware</li>
-<li><strong>Fixed image size</strong> - Height/width set at export time</li>
+<li><strong>Image size</strong> - ONNX graphs keep batch, height and width dynamic, except for RoPE (rotary-embedding ViT) backbones, which export with a static height/width. TensorRT shape profiles allow inputs up to 2x the export height/width (clamped to the static size for RoPE backbones)</li>
 <li><strong>Bottom-up grouping on CPU</strong> - PAF matching can't be GPU-accelerated</li>
 <li><strong>No standalone centered-instance</strong> - Export a combined top-down bundle (a standalone <em>centroid</em> model exports fine — see <a href="#standalone-centroid">Standalone Centroid</a>)</li>
 </ul>
