@@ -6061,6 +6061,8 @@ class DetrBBoxDataset(BBoxDataset):
                 shortest_sides=[int(v) for v in aug["shortest_sides"]],
                 crop_range=tuple(int(v) for v in aug["crop_range"]),
                 flip_p=float(aug["flip_p"]),
+                vflip_p=float(aug.get("vflip_p", 0.0) or 0.0),
+                rot90_p=float(aug.get("rot90_p", 0.0) or 0.0),
             )
             scale_xy = (self.train_hw[1] / in_hw[1], self.train_hw[0] / in_hw[0])
         else:

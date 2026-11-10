@@ -9,6 +9,11 @@ trains its detectors with:
    cropped out, and the crop is resized to the training size. Boxes are clipped
    to the crop; boxes left with no area are dropped.
 2. **Horizontal flip** with probability 0.5.
+   Not in RF-DETR, off by default: a **vertical flip** (``vflip_p``) and a
+   **90 degree rotation** (``rot90_p``, clockwise or counterclockwise at random),
+   exact for boxes, for overhead footage where every orientation is equally
+   likely. With both flips and ``rot90_p=0.5`` every one of the 8 symmetries of
+   the frame is equally likely.
 3. **Per-batch multi-scale**: every sample is made at the largest scale and the
    collated batch is resized to one scale per optimizer step, drawn from the
    base resolution +/- 5 steps of ``patch_size * num_windows`` (the backbone's
@@ -83,6 +88,13 @@ def resize_frame(
 ) -> Tuple[torch.Tensor, torch.Tensor, Tuple[float, float]]:
     """Fit a frame to ``out_hw`` by ``squash`` or ``letterbox``, with its boxes.
 
+    Boxes are first clipped to the frame (a box left with no area stays, with zero
+    width or height, for ``BBoxDataset`` to drop). Later clipping is to the
+    training size, which under ``letterbox`` includes the padding, so a box
+    reaching past the frame's right or bottom edge (a mouse outside a random
+    crop, or a padded keypoint box at the frame edge) would otherwise be kept
+    over blank padding.
+
     Args:
         image: ``(..., C, H, W)`` image.
         boxes: ``(n, 4)`` xyxy boxes in the frame's pixels.
@@ -94,6 +106,16 @@ def resize_frame(
         ``(image, boxes, (scale_x, scale_y))``.
     """
     in_hw = tuple(image.shape[-2:])
+    h, w = in_hw
+    boxes = torch.stack(
+        [
+            boxes[:, 0].clamp(0, w),
+            boxes[:, 1].clamp(0, h),
+            boxes[:, 2].clamp(0, w),
+            boxes[:, 3].clamp(0, h),
+        ],
+        dim=-1,
+    )
     if mode == "squash":
         sx, sy = compute_squash_scale(in_hw, out_hw)
         if in_hw != tuple(out_hw):
@@ -178,6 +200,37 @@ def hflip(
     return image, boxes
 
 
+def vflip(
+    image: torch.Tensor, boxes: torch.Tensor
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Mirror an image and its xyxy edge-coordinate boxes top-bottom."""
+    height = image.shape[-2]
+    image = image.flip(-2)
+    boxes = torch.stack(
+        [boxes[:, 0], height - boxes[:, 3], boxes[:, 2], height - boxes[:, 1]], dim=-1
+    )
+    return image, boxes
+
+
+def rot90(
+    image: torch.Tensor, boxes: torch.Tensor, clockwise: bool
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Rotate an image by 90 degrees with its xyxy edge-coordinate boxes.
+
+    The output is ``W x H``. Counterclockwise, the point ``(x, y)`` goes to
+    ``(y, W - x)``; clockwise, to ``(H - y, x)``.
+    """
+    height, width = image.shape[-2:]
+    x1, y1, x2, y2 = boxes.unbind(-1)
+    if clockwise:
+        image = image.rot90(-1, dims=(-2, -1))
+        boxes = torch.stack([height - y2, x1, height - y1, x2], dim=-1)
+    else:
+        image = image.rot90(1, dims=(-2, -1))
+        boxes = torch.stack([y1, width - x2, y2, width - x1], dim=-1)
+    return image, boxes
+
+
 def detr_train_transform(
     image: torch.Tensor,
     boxes: torch.Tensor,
@@ -187,6 +240,8 @@ def detr_train_transform(
     shortest_sides: Sequence[int] = SHORTEST_SIDES,
     crop_range: Tuple[int, int] = CROP_RANGE,
     flip_p: float = 0.5,
+    vflip_p: float = 0.0,
+    rot90_p: float = 0.0,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """RF-DETR's training geometry: resize or resize + crop to ``out_hw``, and flip.
 
@@ -203,6 +258,10 @@ def detr_train_transform(
         shortest_sides: Pre-crop shortest sides.
         crop_range: Crop side range.
         flip_p: Horizontal flip probability.
+        vflip_p: Vertical flip probability.
+        rot90_p: Probability of a 90 degree rotation (either direction, 50/50),
+            applied before the final resize, so a rotated frame is fitted to
+            ``out_hw`` like any other.
 
     Returns:
         ``(image, boxes)`` at ``out_hw`` (boxes unclipped).
@@ -211,5 +270,9 @@ def detr_train_transform(
         image, boxes = random_resize_crop(image, boxes, shortest_sides, crop_range)
     if flip_p > 0 and float(torch.rand(())) < flip_p:
         image, boxes = hflip(image, boxes)
+    if vflip_p > 0 and float(torch.rand(())) < vflip_p:
+        image, boxes = vflip(image, boxes)
+    if rot90_p > 0 and float(torch.rand(())) < rot90_p:
+        image, boxes = rot90(image, boxes, clockwise=bool(float(torch.rand(())) < 0.5))
     image, boxes, _ = resize_frame(image, boxes, out_hw, mode)
     return image, boxes
