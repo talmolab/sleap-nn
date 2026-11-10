@@ -663,7 +663,11 @@ def train(
     import hydra
     import sleap_io as sio
     from omegaconf import OmegaConf
+    from sleap_nn import _use_training_rank_for_logs
     from sleap_nn.train import run_training
+
+    # One message per training run, not one per DDP process (also under srun).
+    _use_training_rank_for_logs()
 
     # Convert overrides to a mutable list
     overrides = list(overrides)

@@ -3016,6 +3016,8 @@ class ModelTrainer:
                 the run folder, removed afterwards with any folder the dry run had
                 to create, so nothing is left behind. No logs or wandb run.
         """
+        # Training's logs print on global rank 0 only, also under srun.
+        sleap_nn._use_training_rank_for_logs()
         if not dry_run:
             return self._train(dry_run=False)
         self._dry_run_dirs = []

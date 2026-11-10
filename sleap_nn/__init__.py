@@ -33,8 +33,28 @@ def _get_rank() -> int:
 
 # Rank for distributed training, read once at import (before the Lightning
 # Trainer exists). -1 means "not distributed"; 0 and -1 both mean the main
-# process, which alone writes run-folder files and logs INFO messages.
+# process, which alone writes the run folder's files during training.
 RANK = _get_rank()
+
+# Rank the log filter below uses: only ranks 0 and -1 print INFO and WARNING.
+# At import it is read from LOCAL_RANK alone, as before, NOT from SLURM_PROCID:
+# commands other than training can be started as several independent srun tasks
+# (for example ``srun -n 4`` running a wrapper that predicts a different video in
+# each task), and each of those keeps its own logs. Training switches it to
+# ``RANK`` when it starts (`_use_training_rank_for_logs`), so the DDP processes
+# of one training run print each message once.
+_LOG_RANK = int(os.environ.get("LOCAL_RANK", -1))
+
+
+def _use_training_rank_for_logs() -> None:
+    """Quiet INFO/WARNING logs on every training process but global rank 0.
+
+    Called at the start of training (``sleap-nn train``, ``run_training``,
+    ``ModelTrainer.train``). Re-reads the environment, so it also sees a rank set
+    after import. ERROR messages still print on every rank.
+    """
+    global _LOG_RANK
+    _LOG_RANK = _get_rank()
 
 
 # Force-disable Apple Metal (MPS) acceleration when ``SLEAP_NN_DISABLE_MPS=1``.
@@ -67,7 +87,7 @@ def _should_log(record):
         return True
 
     # Log info only on rank 0
-    if RANK in [0, -1] and record["level"].no >= logger.level("INFO").no:
+    if _LOG_RANK in [0, -1] and record["level"].no >= logger.level("INFO").no:
         return True
 
     return False
