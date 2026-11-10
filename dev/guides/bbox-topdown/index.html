@@ -8099,8 +8099,10 @@ way. Fixed crops keep pixel size and need a crop big enough for the largest anim
 <li><strong>Use the detector's box definition.</strong> Each training box is derived exactly as the
   detector's ground truth is: <code>bbox_source</code> and <code>bbox_padding</code> mean the same thing in
   both configs (a user box linked to the instance, the user mask linked to it, or the
-  tight box of its visible keypoints). Train both models with the same two values —
-  <code>sleap-nn predict</code> warns when they differ.</li>
+  tight box of its visible keypoints). Train both models with the same two values.
+  For a box-scaled model, <code>sleap-nn predict</code> warns when they differ (a
+  <code>bbox_source</code> of <code>auto</code> on either side is not compared, since it is resolved per
+  labels file).</li>
 <li><strong><code>crop_size</code> sets resolution, not coverage.</strong> Every box is resized to the crop, so
   the crop no longer has to hold the largest animal. Left unset it is the median
   padded box side (rounded up to the backbone's max stride), so a typical animal

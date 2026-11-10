@@ -8291,9 +8291,8 @@ from a benchmark on an <strong>NVIDIA A40 (sm_86, CUDA 12.8, torch 2.9.1)</stron
 the project's standard test fixtures. Treat them as <strong>relative speedups</strong>,
 not absolute ceilings — your numbers will scale with backbone size, video
 resolution, and GPU class.</p>
-<p>The bench script that produced these numbers lives at
-<code>scratch/2026-04-30-inference-refactor-implementation/cuda_bench/run_cuda_bench.py</code>
-and can be re-run to validate your own setup.</p>
+<p>The numbers come from an internal benchmark run; the script is not part of the
+repository. Time your own setup (see <a href="#when-to-re-benchmark">When to re-benchmark</a>).</p>
 <hr />
 <h2 id="tldr">TL;DR<a class="headerlink" href="#tldr" title="Permanent link">&para;</a></h2>
 <div class="admonition success">
@@ -8445,7 +8444,9 @@ top-down predictor has two models (<code>predictor.layer.centroid_layer</code> a
 <code>predictor.layer.centered_instance_layer</code>), so set them on both stages.
 <code>torch.compile</code> is applied only when a backend is <strong>built</strong>, so setting
 <code>use_compile = True</code> on an existing backend does nothing; build a new backend
-around the same model instead. This helper does both, for any model type:</p>
+around the same model instead. This helper does both, for any trained-checkpoint
+model type (a tiled model runs its inner layer's backend, so the helper rebuilds
+that one):</p>
 <div class="language-python highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">sleap_nn.inference</span><span class="w"> </span><span class="kn">import</span> <span class="n">Predictor</span>
 </span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">sleap_nn.inference.layers.backends.torch_backend</span><span class="w"> </span><span class="kn">import</span> <span class="n">TorchBackend</span>
 </span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>
@@ -8459,18 +8460,19 @@ around the same model instead. This helper does both, for any model type:</p>
 </span><span id="__span-1-11"><a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a>        <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">layer</span><span class="p">,</span> <span class="n">name</span><span class="p">)</span>
 </span><span id="__span-1-12"><a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a>    <span class="p">]</span> <span class="ow">or</span> <span class="p">[</span><span class="n">layer</span><span class="p">]</span>  <span class="c1"># top-down has two stages; other model types have one</span>
 </span><span id="__span-1-13"><a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a>    <span class="k">for</span> <span class="n">stage</span> <span class="ow">in</span> <span class="n">stages</span><span class="p">:</span>
-</span><span id="__span-1-14"><a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a>        <span class="n">old</span> <span class="o">=</span> <span class="n">stage</span><span class="o">.</span><span class="n">backend</span>
-</span><span id="__span-1-15"><a id="__codelineno-1-15" name="__codelineno-1-15" href="#__codelineno-1-15"></a>        <span class="n">stage</span><span class="o">.</span><span class="n">backend</span> <span class="o">=</span> <span class="n">TorchBackend</span><span class="p">(</span>
-</span><span id="__span-1-16"><a id="__codelineno-1-16" name="__codelineno-1-16" href="#__codelineno-1-16"></a>            <span class="n">model</span><span class="o">=</span><span class="n">old</span><span class="o">.</span><span class="n">model</span><span class="p">,</span>
-</span><span id="__span-1-17"><a id="__codelineno-1-17" name="__codelineno-1-17" href="#__codelineno-1-17"></a>            <span class="n">device</span><span class="o">=</span><span class="n">old</span><span class="o">.</span><span class="n">device</span><span class="p">,</span>
-</span><span id="__span-1-18"><a id="__codelineno-1-18" name="__codelineno-1-18" href="#__codelineno-1-18"></a>            <span class="n">use_fp16</span><span class="o">=</span><span class="n">fp16</span><span class="p">,</span>
-</span><span id="__span-1-19"><a id="__codelineno-1-19" name="__codelineno-1-19" href="#__codelineno-1-19"></a>            <span class="n">use_compile</span><span class="o">=</span><span class="nb">compile</span><span class="p">,</span>
-</span><span id="__span-1-20"><a id="__codelineno-1-20" name="__codelineno-1-20" href="#__codelineno-1-20"></a>            <span class="n">memory_format</span><span class="o">=</span><span class="n">old</span><span class="o">.</span><span class="n">memory_format</span><span class="p">,</span>
-</span><span id="__span-1-21"><a id="__codelineno-1-21" name="__codelineno-1-21" href="#__codelineno-1-21"></a>        <span class="p">)</span>
-</span><span id="__span-1-22"><a id="__codelineno-1-22" name="__codelineno-1-22" href="#__codelineno-1-22"></a>
+</span><span id="__span-1-14"><a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a>        <span class="n">stage</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">stage</span><span class="p">,</span> <span class="s2">&quot;inner&quot;</span><span class="p">,</span> <span class="n">stage</span><span class="p">)</span>  <span class="c1"># tiled layers run `.inner.backend`</span>
+</span><span id="__span-1-15"><a id="__codelineno-1-15" name="__codelineno-1-15" href="#__codelineno-1-15"></a>        <span class="n">old</span> <span class="o">=</span> <span class="n">stage</span><span class="o">.</span><span class="n">backend</span>
+</span><span id="__span-1-16"><a id="__codelineno-1-16" name="__codelineno-1-16" href="#__codelineno-1-16"></a>        <span class="n">stage</span><span class="o">.</span><span class="n">backend</span> <span class="o">=</span> <span class="n">TorchBackend</span><span class="p">(</span>
+</span><span id="__span-1-17"><a id="__codelineno-1-17" name="__codelineno-1-17" href="#__codelineno-1-17"></a>            <span class="n">model</span><span class="o">=</span><span class="n">old</span><span class="o">.</span><span class="n">model</span><span class="p">,</span>
+</span><span id="__span-1-18"><a id="__codelineno-1-18" name="__codelineno-1-18" href="#__codelineno-1-18"></a>            <span class="n">device</span><span class="o">=</span><span class="n">old</span><span class="o">.</span><span class="n">device</span><span class="p">,</span>
+</span><span id="__span-1-19"><a id="__codelineno-1-19" name="__codelineno-1-19" href="#__codelineno-1-19"></a>            <span class="n">use_fp16</span><span class="o">=</span><span class="n">fp16</span><span class="p">,</span>
+</span><span id="__span-1-20"><a id="__codelineno-1-20" name="__codelineno-1-20" href="#__codelineno-1-20"></a>            <span class="n">use_compile</span><span class="o">=</span><span class="nb">compile</span><span class="p">,</span>
+</span><span id="__span-1-21"><a id="__codelineno-1-21" name="__codelineno-1-21" href="#__codelineno-1-21"></a>            <span class="n">memory_format</span><span class="o">=</span><span class="n">old</span><span class="o">.</span><span class="n">memory_format</span><span class="p">,</span>
+</span><span id="__span-1-22"><a id="__codelineno-1-22" name="__codelineno-1-22" href="#__codelineno-1-22"></a>        <span class="p">)</span>
 </span><span id="__span-1-23"><a id="__codelineno-1-23" name="__codelineno-1-23" href="#__codelineno-1-23"></a>
-</span><span id="__span-1-24"><a id="__codelineno-1-24" name="__codelineno-1-24" href="#__codelineno-1-24"></a><span class="n">predictor</span> <span class="o">=</span> <span class="n">Predictor</span><span class="o">.</span><span class="n">from_model_paths</span><span class="p">([</span><span class="s2">&quot;models/my_model/&quot;</span><span class="p">],</span> <span class="n">device</span><span class="o">=</span><span class="s2">&quot;cuda&quot;</span><span class="p">)</span>
-</span><span id="__span-1-25"><a id="__codelineno-1-25" name="__codelineno-1-25" href="#__codelineno-1-25"></a><span class="n">use_fast_backends</span><span class="p">(</span><span class="n">predictor</span><span class="p">,</span> <span class="n">fp16</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="nb">compile</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+</span><span id="__span-1-24"><a id="__codelineno-1-24" name="__codelineno-1-24" href="#__codelineno-1-24"></a>
+</span><span id="__span-1-25"><a id="__codelineno-1-25" name="__codelineno-1-25" href="#__codelineno-1-25"></a><span class="n">predictor</span> <span class="o">=</span> <span class="n">Predictor</span><span class="o">.</span><span class="n">from_model_paths</span><span class="p">([</span><span class="s2">&quot;models/my_model/&quot;</span><span class="p">],</span> <span class="n">device</span><span class="o">=</span><span class="s2">&quot;cuda&quot;</span><span class="p">)</span>
+</span><span id="__span-1-26"><a id="__codelineno-1-26" name="__codelineno-1-26" href="#__codelineno-1-26"></a><span class="n">use_fast_backends</span><span class="p">(</span><span class="n">predictor</span><span class="p">,</span> <span class="n">fp16</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="nb">compile</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
 </span></code></pre></div>
 <p>This works for trained checkpoints only (an exported ONNX/TensorRT model has
 no <code>TorchBackend</code>).</p>
@@ -8770,7 +8772,7 @@ frame — workers can't parallelize what isn't there to parallelize.</p>
 <h3 id="im-on-a-mac-mps">"I'm on a Mac, MPS"<a class="headerlink" href="#im-on-a-mac-mps" title="Permanent link">&para;</a></h3>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/my_model/<span class="w"> </span>--device<span class="w"> </span>mps<span class="w"> </span>--batch_size<span class="w"> </span><span class="m">4</span>
 </span></code></pre></div>
-<p>FP16 silently has no effect on MPS (warning logged). <code>torch.compile</code>
+<p>FP16 has no effect on MPS (a warning says so). <code>torch.compile</code>
 on MPS is unreliable — the new flow disables it for you with a clear
 warning. Expect ~2-3× speedup over CPU; not 20× like CUDA.</p>
 <h3 id="multi-animal-bottom-up-on-a-crowded-video">"Multi-animal bottom-up on a crowded video"<a class="headerlink" href="#multi-animal-bottom-up-on-a-crowded-video" title="Permanent link">&para;</a></h3>
@@ -8796,13 +8798,11 @@ deploying to:</p>
   gains grow; compile cost grows linearly with graph size; <code>fuse_layers</code>
   may finally start mattering.</li>
 <li><strong>Variable-resolution input</strong> (different videos with different
-  shapes): turn <code>dynamic=True</code> on compile or skip it.</li>
+  shapes): skip <code>torch.compile</code>. The backend compiles with <code>dynamic=False</code>
+  (not configurable), so every new input shape recompiles.</li>
 </ul>
-<p>Re-run the bench:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="nv">SLEAP_NN_REPO</span><span class="o">=</span>/path/to/sleap-nn<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="w">  </span>python<span class="w"> </span>scratch/2026-04-30-inference-refactor-implementation/cuda_bench/run_cuda_bench.py
-</span></code></pre></div>
-<p>Output lands in the same folder as a timestamped log file.</p>
+<p>To compare settings on your own data, time <code>predictor.predict(...)</code> on a few
+hundred frames of your video (after one warm-up call) with each setting.</p>
 <hr />
 <h2 id="parity-guarantee">Parity guarantee<a class="headerlink" href="#parity-guarantee" title="Permanent link">&para;</a></h2>
 <p>The new inference flow has been validated bit-exactly against the legacy

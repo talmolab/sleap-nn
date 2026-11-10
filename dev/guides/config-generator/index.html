@@ -8507,23 +8507,42 @@ and a <code>config_centered_instance.yaml</code> with box-scaled crops (<code>cr
 <td><code>.rotation(min, max)</code></td>
 <td>Set rotation augmentation range</td>
 </tr>
+<tr>
+<td><code>.early_stopping(enabled, patience)</code></td>
+<td>Configure early stopping</td>
+</tr>
+<tr>
+<td><code>.crop_size(size)</code></td>
+<td>Set crop size (centered_instance)</td>
+</tr>
+<tr>
+<td><code>.anchor_part(name)</code></td>
+<td>Set anchor part (top-down)</td>
+</tr>
+<tr>
+<td><code>.centroid_method(method, fallback=None)</code></td>
+<td>How the centroid / crop center is derived: <code>center_of_mass</code>, <code>bbox_center</code>, <code>geometric_median</code>, <code>anchor</code> (#586)</td>
+</tr>
 </tbody>
 </table>
 <div class="admonition warning">
 <p class="admonition-title">Python pipeline names differ from <code>--pipeline</code></p>
-<p><code>.pipeline()</code> takes one model's type, not the CLI's pipeline names. There is
-no <code>"topdown"</code>: build a top-down pair as two configs, <code>.pipeline("centroid")</code>
-and <code>.pipeline("centered_instance")</code> (or call <code>.build_centroid()</code> and
-<code>.build_centered_instance()</code>). <code>"centroid_only"</code> is a standalone centroid
-model. Accepted values: <code>single_instance</code>, <code>centroid</code>, <code>centroid_only</code>,
+<p><code>.pipeline()</code> accepts <code>single_instance</code>, <code>centroid</code>, <code>centroid_only</code>,
 <code>centered_instance</code>, <code>bottomup</code>, <code>multi_class_bottomup</code>,
 <code>multi_class_topdown</code>, <code>bbox_centernet</code>, <code>bbox_ssd</code>,
-<code>topdown_bbox_centernet</code>, <code>topdown_bbox_ssd</code>.</p>
+<code>topdown_bbox_centernet</code> and <code>topdown_bbox_ssd</code>. There is no <code>"topdown"</code>:</p>
+<ul>
+<li><code>.pipeline("centroid")</code> <strong>is</strong> the top-down pipeline (the CLI's
+  <code>--pipeline topdown</code> maps to it). <code>.save("cfg.yaml")</code> writes both
+  <code>cfg_centroid.yaml</code> and <code>cfg_centered_instance.yaml</code>; <code>.build()</code> returns
+  only the centroid stage, and <code>.build_centered_instance()</code> the second stage.
+  <code>multi_class_topdown</code> also saves a pair (<code>cfg_centroid.yaml</code> +
+  <code>cfg_centered_instance.yaml</code> with the multi-class head), but its
+  <code>.build()</code> returns the multi-class stage.</li>
+<li><code>.pipeline("centroid_only")</code> is a standalone centroid model, one config
+  (the CLI's <code>--pipeline centroid</code>).</li>
+</ul>
 </div>
-<p>| <code>.early_stopping(enabled, patience)</code> | Configure early stopping |
-| <code>.crop_size(size)</code> | Set crop size (centered_instance) |
-| <code>.anchor_part(name)</code> | Set anchor part (top-down) |
-| <code>.centroid_method(method, fallback=None)</code> | How the centroid / crop center is derived: <code>center_of_mass</code>, <code>bbox_center</code>, <code>geometric_median</code>, <code>anchor</code> (#586) |</p>
 <h3 id="get-recommendations">Get Recommendations<a class="headerlink" href="#get-recommendations" title="Permanent link">&para;</a></h3>
 <div class="language-python highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">sleap_nn.config_generator</span><span class="w"> </span><span class="kn">import</span> <span class="n">ConfigGenerator</span>
 </span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>
@@ -8569,6 +8588,10 @@ the <code>sleap-nn config --pipeline</code> names):</p>
 <td>Multiple animals, need centroids + instances</td>
 </tr>
 <tr>
+<td><code>centroid</code></td>
+<td>Standalone centroid model: one point per animal (e.g. single-node skeletons)</td>
+</tr>
+<tr>
 <td><code>multi_class_bottomup</code></td>
 <td>Multiple animals with identity classes</td>
 </tr>
@@ -8586,12 +8609,15 @@ the <code>sleap-nn config --pipeline</code> names):</p>
 </tr>
 </tbody>
 </table>
-<p>The recommendation is based on:</p>
+<p>The recommendation is based on, in order:</p>
 <ul>
-<li>Number of instances per frame</li>
-<li>Skeleton complexity</li>
-<li>Image size and resolution</li>
+<li>One instance per frame → <code>single_instance</code></li>
+<li>A single-node skeleton → standalone <code>centroid</code></li>
+<li>Animals covering less than ~20% of the frame → <code>topdown</code></li>
+<li>Larger animals → <code>bottomup</code>, or <code>topdown</code> if the skeleton has no edges</li>
 </ul>
+<p>The multi-class and box-detector pipelines are never recommended automatically;
+pick them with <code>--pipeline</code>.</p>
 <hr />
 <h2 id="output-files">Output Files<a class="headerlink" href="#output-files" title="Permanent link">&para;</a></h2>
 <h3 id="single-animal-or-bottom-up-pipelines">Single-Animal or Bottom-Up Pipelines<a class="headerlink" href="#single-animal-or-bottom-up-pipelines" title="Permanent link">&para;</a></h3>

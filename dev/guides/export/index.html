@@ -1748,6 +1748,50 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#standalone-centered-instance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Standalone Centered-Instance
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bounding-box-detectors" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Bounding-Box Detectors
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#re-id-embedding" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Re-ID Embedding
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#not-exportable-yet" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Not Exportable Yet
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#standalone-centroid" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -8205,6 +8249,50 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#standalone-centered-instance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Standalone Centered-Instance
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bounding-box-detectors" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Bounding-Box Detectors
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#re-id-embedding" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Re-ID Embedding
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#not-exportable-yet" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Not Exportable Yet
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#standalone-centroid" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -8442,7 +8530,7 @@ point <code>-m</code> at the export directory and it is auto-detected as an expo
 <td><code>-o</code>, <code>--output</code></td>
 <td>Output directory</td>
 <td><code>PATH</code></td>
-<td><code>&lt;model dir&gt;/exported</code> (top-down pair: <code>&lt;centroid dir&gt;/exported_topdown</code>)</td>
+<td><code>&lt;model dir&gt;/exported</code> (top-down pair: <code>&lt;centroid dir&gt;/exported_topdown</code>; multi-class top-down pair: <code>&lt;centroid dir&gt;/exported_multi_class_topdown</code>)</td>
 </tr>
 <tr>
 <td><code>-f</code>, <code>--format</code></td>
@@ -8468,8 +8556,29 @@ point <code>-m</code> at the export directory and it is auto-detected as an expo
 <td><code>INT</code></td>
 <td><code>8</code></td>
 </tr>
+<tr>
+<td><code>--peak-threshold</code></td>
+<td>Peak confidence threshold baked into the graph</td>
+<td><code>FLOAT</code></td>
+<td><code>0.2</code></td>
+</tr>
+<tr>
+<td><code>--crop-size</code></td>
+<td>Crop size for crop-input models (required for <code>embedding</code> when the config has none)</td>
+<td><code>INT</code></td>
+<td>from config</td>
+</tr>
+<tr>
+<td><code>--device</code></td>
+<td>Device used for export</td>
+<td><code>TEXT</code></td>
+<td><code>cpu</code></td>
+</tr>
 </tbody>
 </table>
+<p>For every option (opset, input size/scale, bottom-up grouping knobs, TensorRT
+workspace, <code>--verify/--no-verify</code>), see the
+<a href="../../reference/cli/#sleap-nn-export">CLI reference</a>.</p>
 <hr />
 <h2 id="model-types">Model Types<a class="headerlink" href="#model-types" title="Permanent link">&para;</a></h2>
 <h3 id="single-instance-bottom-up">Single Instance / Bottom-Up<a class="headerlink" href="#single-instance-bottom-up" title="Permanent link">&para;</a></h3>
@@ -8484,22 +8593,44 @@ point <code>-m</code> at the export directory and it is auto-detected as an expo
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>sleap-nn<span class="w"> </span><span class="nb">export</span><span class="w"> </span>models/multi_class_bottomup<span class="w"> </span><span class="se">\</span>
 </span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="w">    </span>-o<span class="w"> </span>exports/multiclass<span class="w"> </span>--format<span class="w"> </span>onnx
 </span></code></pre></div>
+<p>A multi-class top-down model exports as a pair with its centroid model. Without
+<code>-o</code> it is written to <code>&lt;centroid dir&gt;/exported_multi_class_topdown</code>, with the
+configs copied as <code>training_config_centroid.yaml</code> and
+<code>training_config_multi_class_topdown.yaml</code>:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>sleap-nn<span class="w"> </span><span class="nb">export</span><span class="w"> </span>models/centroid<span class="w"> </span>models/multi_class_topdown<span class="w"> </span>--format<span class="w"> </span>onnx
+</span></code></pre></div>
+<h3 id="standalone-centered-instance">Standalone Centered-Instance<a class="headerlink" href="#standalone-centered-instance" title="Permanent link">&para;</a></h3>
+<p>A single <code>centered_instance</code> directory exports on its own. The network takes
+crops (it is traced at the model's <code>crop_size</code>), not full frames. Box-scaled
+centered-instance models (<code>crop_mode: bbox</code>) can only be exported this way; see
+<a href="../bbox-topdown/">Top-down pose with a box detector</a>.</p>
+<h3 id="bounding-box-detectors">Bounding-Box Detectors<a class="headerlink" href="#bounding-box-detectors" title="Permanent link">&para;</a></h3>
+<p><code>bbox_centernet</code> and <code>bbox_ssd</code> export the network only; box decoding runs on
+the host. See <a href="../bbox-detection/#export-onnx-tensorrt">Bounding-box detection</a>.
+A detector + top-down pair cannot be exported as one bundle yet.</p>
+<h3 id="re-id-embedding">Re-ID Embedding<a class="headerlink" href="#re-id-embedding" title="Permanent link">&para;</a></h3>
+<p>An <code>embedding</code> model exports from a single directory and takes fixed-size crops,
+so it needs a crop size (<code>data_config.preprocessing.crop_size</code> or <code>--crop-size</code>).</p>
+<h3 id="not-exportable-yet">Not Exportable Yet<a class="headerlink" href="#not-exportable-yet" title="Permanent link">&para;</a></h3>
+<p>Segmentation models (<code>bottomup_segmentation</code>, <code>centered_instance_segmentation</code>,
+<code>semantic_segmentation</code>) cannot be exported yet; <code>sleap-nn export</code> raises an
+error for them.</p>
 <h3 id="standalone-centroid">Standalone Centroid<a class="headerlink" href="#standalone-centroid" title="Permanent link">&para;</a></h3>
 <p>A standalone centroid model (a first-class single-stage "animals-as-points"
 pipeline, <em>not</em> a top-down stage-1) exports from a <strong>single</strong> directory. The
 exported runtime reads the full training skeleton from <code>training_config.yaml</code>
 and collapses the output to a single-node <code>'centroid'</code> skeleton, bit-for-bit
 identical to the checkpoint flow.</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="c1"># Export one centroid directory (NOT a centroid + centered_instance pair).</span>
-</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>sleap-nn<span class="w"> </span><span class="nb">export</span><span class="w"> </span>models/centroid<span class="w"> </span>-o<span class="w"> </span>exports/centroid<span class="w"> </span>--format<span class="w"> </span>onnx
-</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>
-</span><span id="__span-8-4"><a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="c1"># Run the exported model via the unified predict command. Choose the output</span>
-</span><span id="__span-8-5"><a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a><span class="c1"># representation with --centroid-output:</span>
-</span><span id="__span-8-6"><a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a><span class="c1">#   instance (default) -&gt; single-node PredictedInstance (frontend-compatible)</span>
-</span><span id="__span-8-7"><a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a><span class="c1">#   centroid           -&gt; sio.PredictedCentroid</span>
-</span><span id="__span-8-8"><a id="__codelineno-8-8" name="__codelineno-8-8" href="#__codelineno-8-8"></a><span class="c1">#   both               -&gt; both</span>
-</span><span id="__span-8-9"><a id="__codelineno-8-9" name="__codelineno-8-9" href="#__codelineno-8-9"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-m<span class="w"> </span>exports/centroid<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-o<span class="w"> </span>centroids.slp<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-8-10"><a id="__codelineno-8-10" name="__codelineno-8-10" href="#__codelineno-8-10"></a><span class="w">    </span>--centroid-output<span class="w"> </span>instance
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="c1"># Export one centroid directory (NOT a centroid + centered_instance pair).</span>
+</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>sleap-nn<span class="w"> </span><span class="nb">export</span><span class="w"> </span>models/centroid<span class="w"> </span>-o<span class="w"> </span>exports/centroid<span class="w"> </span>--format<span class="w"> </span>onnx
+</span><span id="__span-9-3"><a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a>
+</span><span id="__span-9-4"><a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="c1"># Run the exported model via the unified predict command. Choose the output</span>
+</span><span id="__span-9-5"><a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a><span class="c1"># representation with --centroid-output:</span>
+</span><span id="__span-9-6"><a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a><span class="c1">#   instance (default) -&gt; single-node PredictedInstance (frontend-compatible)</span>
+</span><span id="__span-9-7"><a id="__codelineno-9-7" name="__codelineno-9-7" href="#__codelineno-9-7"></a><span class="c1">#   centroid           -&gt; sio.PredictedCentroid</span>
+</span><span id="__span-9-8"><a id="__codelineno-9-8" name="__codelineno-9-8" href="#__codelineno-9-8"></a><span class="c1">#   both               -&gt; both</span>
+</span><span id="__span-9-9"><a id="__codelineno-9-9" name="__codelineno-9-9" href="#__codelineno-9-9"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-m<span class="w"> </span>exports/centroid<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-o<span class="w"> </span>centroids.slp<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-9-10"><a id="__codelineno-9-10" name="__codelineno-9-10" href="#__codelineno-9-10"></a><span class="w">    </span>--centroid-output<span class="w"> </span>instance
 </span></code></pre></div>
 <div class="admonition note">
 <p class="admonition-title">One directory only</p>
@@ -8517,7 +8648,7 @@ When <code>-m</code>/<code>--model_paths</code> points at a directory containing
 <code>model.trt</code>, <code>predict</code> auto-detects it as an exported model and runs the
 exported runtime; otherwise it loads a trained checkpoint. Use <code>--runtime</code> to
 choose between ONNX and TensorRT (it is ignored for checkpoints).</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-m<span class="w"> </span>EXPORT_DIR<span class="w"> </span>-i<span class="w"> </span>VIDEO<span class="w"> </span><span class="o">[</span>options<span class="o">]</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-m<span class="w"> </span>EXPORT_DIR<span class="w"> </span>-i<span class="w"> </span>VIDEO<span class="w"> </span><span class="o">[</span>options<span class="o">]</span>
 </span></code></pre></div>
 <table>
 <thead>
@@ -8545,7 +8676,7 @@ choose between ONNX and TensorRT (it is ignored for checkpoints).</p>
 <td><code>-o</code>, <code>--output_path</code></td>
 <td>Output path</td>
 <td><code>PATH</code></td>
-<td><code>&lt;input&gt;.predictions.slp</code></td>
+<td>input's extension replaced by <code>.predictions.slp</code> (<code>video.mp4</code> → <code>video.predictions.slp</code>)</td>
 </tr>
 <tr>
 <td><code>--runtime</code></td>
@@ -8576,11 +8707,11 @@ passed via <code>-m</code>. See the <a href="../inference-guide/">Inference guid
 <code>predict</code> options (data selection, filtering, device, tracking, etc.).</p>
 </div>
 <h3 id="examples">Examples<a class="headerlink" href="#examples" title="Permanent link">&para;</a></h3>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="c1"># Maximum speed with TensorRT</span>
-</span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-m<span class="w"> </span>exports/model<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>--runtime<span class="w"> </span>tensorrt<span class="w"> </span>--batch_size<span class="w"> </span><span class="m">8</span>
-</span><span id="__span-10-3"><a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a>
-</span><span id="__span-10-4"><a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="c1"># CPU inference with ONNX</span>
-</span><span id="__span-10-5"><a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-m<span class="w"> </span>exports/model<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>--runtime<span class="w"> </span>onnx<span class="w"> </span>--device<span class="w"> </span>cpu
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="c1"># Maximum speed with TensorRT</span>
+</span><span id="__span-11-2"><a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-m<span class="w"> </span>exports/model<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>--runtime<span class="w"> </span>tensorrt<span class="w"> </span>--batch_size<span class="w"> </span><span class="m">8</span>
+</span><span id="__span-11-3"><a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a>
+</span><span id="__span-11-4"><a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a><span class="c1"># CPU inference with ONNX</span>
+</span><span id="__span-11-5"><a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-m<span class="w"> </span>exports/model<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>--runtime<span class="w"> </span>onnx<span class="w"> </span>--device<span class="w"> </span>cpu
 </span></code></pre></div>
 <hr />
 <h2 id="performance">Performance<a class="headerlink" href="#performance" title="Permanent link">&para;</a></h2>
@@ -8622,48 +8753,50 @@ passed via <code>-m</code>. See the <a href="../inference-guide/">Inference guid
 <hr />
 <h2 id="python-api">Python API<a class="headerlink" href="#python-api" title="Permanent link">&para;</a></h2>
 <h3 id="export_1">Export<a class="headerlink" href="#export_1" title="Permanent link">&para;</a></h3>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">sleap_nn.export</span><span class="w"> </span><span class="kn">import</span> <span class="n">export_to_onnx</span><span class="p">,</span> <span class="n">export_to_tensorrt</span>
-</span><span id="__span-11-2"><a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a>
-</span><span id="__span-11-3"><a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a><span class="n">export_to_onnx</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="s2">&quot;model.onnx&quot;</span><span class="p">,</span> <span class="n">input_shape</span><span class="o">=</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">192</span><span class="p">,</span> <span class="mi">192</span><span class="p">))</span>
-</span><span id="__span-11-4"><a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a><span class="n">export_to_tensorrt</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="s2">&quot;model.trt&quot;</span><span class="p">,</span> <span class="n">input_shape</span><span class="o">=</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">192</span><span class="p">,</span> <span class="mi">192</span><span class="p">))</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">sleap_nn.export</span><span class="w"> </span><span class="kn">import</span> <span class="n">export_to_onnx</span><span class="p">,</span> <span class="n">export_to_tensorrt</span>
+</span><span id="__span-12-2"><a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a>
+</span><span id="__span-12-3"><a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a><span class="n">export_to_onnx</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="s2">&quot;model.onnx&quot;</span><span class="p">,</span> <span class="n">input_shape</span><span class="o">=</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">192</span><span class="p">,</span> <span class="mi">192</span><span class="p">))</span>
+</span><span id="__span-12-4"><a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a><span class="n">export_to_tensorrt</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="s2">&quot;model.trt&quot;</span><span class="p">,</span> <span class="n">input_shape</span><span class="o">=</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">192</span><span class="p">,</span> <span class="mi">192</span><span class="p">))</span>
 </span></code></pre></div>
 <h3 id="inference">Inference<a class="headerlink" href="#inference" title="Permanent link">&para;</a></h3>
 <p>Run an exported model through the unified pipeline by pointing a <code>Predictor</code> at
 the export directory written by <code>sleap-nn export</code> (it contains <code>export_metadata.json</code>):</p>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">sleap_nn.inference</span><span class="w"> </span><span class="kn">import</span> <span class="n">Predictor</span>
-</span><span id="__span-12-2"><a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a>
-</span><span id="__span-12-3"><a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a><span class="n">predictor</span> <span class="o">=</span> <span class="n">Predictor</span><span class="o">.</span><span class="n">from_export_dir</span><span class="p">(</span><span class="s2">&quot;exports/my_model&quot;</span><span class="p">,</span> <span class="n">runtime</span><span class="o">=</span><span class="s2">&quot;onnx&quot;</span><span class="p">)</span>
-</span><span id="__span-12-4"><a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a><span class="n">labels</span> <span class="o">=</span> <span class="n">predictor</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span><span class="s2">&quot;video.mp4&quot;</span><span class="p">)</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">sleap_nn.inference</span><span class="w"> </span><span class="kn">import</span> <span class="n">Predictor</span>
+</span><span id="__span-13-2"><a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a>
+</span><span id="__span-13-3"><a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a><span class="n">predictor</span> <span class="o">=</span> <span class="n">Predictor</span><span class="o">.</span><span class="n">from_export_dir</span><span class="p">(</span><span class="s2">&quot;exports/my_model&quot;</span><span class="p">,</span> <span class="n">runtime</span><span class="o">=</span><span class="s2">&quot;onnx&quot;</span><span class="p">)</span>
+</span><span id="__span-13-4"><a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a><span class="n">labels</span> <span class="o">=</span> <span class="n">predictor</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span><span class="s2">&quot;video.mp4&quot;</span><span class="p">)</span>
 </span></code></pre></div>
 <p>The CLI equivalent is <code>sleap-nn predict -m exports/my_model --runtime onnx -i video.mp4</code>.</p>
 <hr />
 <h2 id="output-files">Output Files<a class="headerlink" href="#output-files" title="Permanent link">&para;</a></h2>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>exports/my_model/
-</span><span id="__span-13-2"><a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a>├── model.onnx
-</span><span id="__span-13-3"><a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a>├── export_metadata.json
-</span><span id="__span-13-4"><a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a>├── training_config.yaml        # Copied from the model dir (.json for legacy models)
-</span><span id="__span-13-5"><a id="__codelineno-13-5" name="__codelineno-13-5" href="#__codelineno-13-5"></a>├── model.trt                   # If TensorRT
-</span><span id="__span-13-6"><a id="__codelineno-13-6" name="__codelineno-13-6" href="#__codelineno-13-6"></a>└── model.trt.metadata.json     # If TensorRT
+<div class="language-text highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>exports/my_model/
+</span><span id="__span-14-2"><a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a>├── model.onnx
+</span><span id="__span-14-3"><a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a>├── export_metadata.json
+</span><span id="__span-14-4"><a id="__codelineno-14-4" name="__codelineno-14-4" href="#__codelineno-14-4"></a>├── training_config.yaml        # Copied from the model dir (.json for legacy models)
+</span><span id="__span-14-5"><a id="__codelineno-14-5" name="__codelineno-14-5" href="#__codelineno-14-5"></a>├── model.trt                   # If TensorRT
+</span><span id="__span-14-6"><a id="__codelineno-14-6" name="__codelineno-14-6" href="#__codelineno-14-6"></a>└── model.trt.metadata.json     # If TensorRT
 </span></code></pre></div>
 <p>A top-down export copies both configs instead, as <code>training_config_centroid.yaml</code>
-and <code>training_config_centered_instance.yaml</code>.</p>
+and <code>training_config_centered_instance.yaml</code> (<code>training_config_multi_class_topdown.yaml</code>
+for a multi-class top-down pair).</p>
 <hr />
 <h2 id="limitations">Limitations<a class="headerlink" href="#limitations" title="Permanent link">&para;</a></h2>
 <ul>
 <li><strong>TensorRT engines are GPU-specific</strong> - Regenerate for different hardware</li>
 <li><strong>Image size</strong> - ONNX graphs keep batch, height and width dynamic, except for RoPE (rotary-embedding ViT) backbones, which export with a static height/width. TensorRT shape profiles allow inputs up to 2x the export height/width (clamped to the static size for RoPE backbones)</li>
 <li><strong>Bottom-up grouping on CPU</strong> - PAF matching can't be GPU-accelerated</li>
-<li><strong>No standalone centered-instance</strong> - Export a combined top-down bundle (a standalone <em>centroid</em> model exports fine — see <a href="#standalone-centroid">Standalone Centroid</a>)</li>
+<li><strong>No segmentation export</strong> - Segmentation model types are not exportable yet (see <a href="#not-exportable-yet">Not Exportable Yet</a>)</li>
+<li><strong>Standalone centered-instance takes crops</strong> - For full-frame inference export a combined top-down bundle (a standalone <em>centroid</em> model exports fine — see <a href="#standalone-centroid">Standalone Centroid</a>)</li>
 </ul>
 <hr />
 <h2 id="troubleshooting">Troubleshooting<a class="headerlink" href="#troubleshooting" title="Permanent link">&para;</a></h2>
 <details class="question">
 <summary>ONNX Runtime falls back to CPU</summary>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="c1"># Check available providers</span>
-</span><span id="__span-14-2"><a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a>python<span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;import onnxruntime as ort; print(ort.get_available_providers())&quot;</span>
-</span><span id="__span-14-3"><a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a>
-</span><span id="__span-14-4"><a id="__codelineno-14-4" name="__codelineno-14-4" href="#__codelineno-14-4"></a><span class="c1"># Install GPU support</span>
-</span><span id="__span-14-5"><a id="__codelineno-14-5" name="__codelineno-14-5" href="#__codelineno-14-5"></a>pip<span class="w"> </span>install<span class="w"> </span>onnxruntime-gpu
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="c1"># Check available providers</span>
+</span><span id="__span-15-2"><a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a>python<span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;import onnxruntime as ort; print(ort.get_available_providers())&quot;</span>
+</span><span id="__span-15-3"><a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a>
+</span><span id="__span-15-4"><a id="__codelineno-15-4" name="__codelineno-15-4" href="#__codelineno-15-4"></a><span class="c1"># Install GPU support</span>
+</span><span id="__span-15-5"><a id="__codelineno-15-5" name="__codelineno-15-5" href="#__codelineno-15-5"></a>pip<span class="w"> </span>install<span class="w"> </span>onnxruntime-gpu
 </span></code></pre></div>
 </details>
 <details class="question">

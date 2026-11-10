@@ -1135,6 +1135,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#segmentation-model-evaluation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Segmentation Model Evaluation
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -8140,6 +8151,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#segmentation-model-evaluation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Segmentation Model Evaluation
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -8375,6 +8397,11 @@
 <td>OKS, PCK, distance metrics</td>
 </tr>
 <tr>
+<td>Multi-Class (<code>multi_class_bottomup</code>, <code>multi_class_topdown</code>)</td>
+<td><code>EpochEndEvaluationCallback</code></td>
+<td>OKS, PCK, distance metrics</td>
+</tr>
+<tr>
 <td><strong>Centroid</strong></td>
 <td><code>CentroidEvaluationCallback</code></td>
 <td>Distance, precision/recall</td>
@@ -8382,7 +8409,7 @@
 <tr>
 <td>Segmentation (bottom-up, centered-instance, semantic)</td>
 <td><code>SegmentationEvaluationCallback</code></td>
-<td>Instance mask-IoU mAP / precision / recall; semantic: foreground IoU, clDice, boundary IoU</td>
+<td>Instance: matched mask IoU, clDice, precision / recall / F1; semantic: foreground IoU, clDice, boundary IoU (see <a href="#segmentation-model-evaluation">below</a>)</td>
 </tr>
 <tr>
 <td>Box detectors (<code>bbox_centernet</code>, <code>bbox_ssd</code>)</td>
@@ -8511,6 +8538,67 @@
 </tr>
 </tbody>
 </table>
+<h3 id="segmentation-model-evaluation">Segmentation Model Evaluation<a class="headerlink" href="#segmentation-model-evaluation" title="Permanent link">&para;</a></h3>
+<p><code>bottomup_segmentation</code> and <code>centered_instance_segmentation</code> match predicted to ground-truth masks by IoU (pairs below the IoU threshold don't count; the threshold is <code>match_threshold</code> when it is in <code>(0, 1]</code>, else <code>0.5</code>). <code>semantic_segmentation</code> has no instances, so it scores each frame's whole foreground without matching.</p>
+<p><strong>Instance mode (metrics logged to WandB):</strong></p>
+<table>
+<thead>
+<tr>
+<th>Metric</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>eval/val/mask_mean_iou</code></td>
+<td>Mean IoU over matched mask pairs</td>
+</tr>
+<tr>
+<td><code>eval/val/mask_mean_iou_all_gt</code></td>
+<td>Mean IoU over all GT masks (missed GT counts as 0)</td>
+</tr>
+<tr>
+<td><code>eval/val/mask_mean_cldice</code></td>
+<td>Mean clDice over matched pairs</td>
+</tr>
+<tr>
+<td><code>eval/val/mask_precision</code> / <code>mask_recall</code> / <code>mask_f1</code></td>
+<td>Detection precision / recall / F1</td>
+</tr>
+<tr>
+<td><code>eval/val/mask_n_tp</code> / <code>mask_n_fp</code> / <code>mask_n_fn</code></td>
+<td>Match counts</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Semantic mode (metrics logged to WandB):</strong></p>
+<table>
+<thead>
+<tr>
+<th>Metric</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>eval/val/fg_mean_iou</code></td>
+<td>Mean foreground IoU per frame</td>
+</tr>
+<tr>
+<td><code>eval/val/fg_mean_cldice</code></td>
+<td>Mean foreground clDice per frame</td>
+</tr>
+<tr>
+<td><code>eval/val/fg_mean_boundary_iou</code></td>
+<td>Mean foreground boundary IoU per frame</td>
+</tr>
+<tr>
+<td><code>eval/val/fg_frame_recall</code></td>
+<td>Fraction of frames where the model predicted any foreground</td>
+</tr>
+</tbody>
+</table>
+<p>In semantic mode, frames with an empty ground-truth foreground are skipped. Mask AP is not computed during training; it comes from post-training evaluation (the run's <code>metrics.*.npz</code>, or <code>sleap-nn eval --match_method mask</code>).</p>
 <hr />
 <h2 id="configuration-reference">Configuration Reference<a class="headerlink" href="#configuration-reference" title="Permanent link">&para;</a></h2>
 <h3 id="full-eval-config">Full Eval Config<a class="headerlink" href="#full-eval-config" title="Permanent link">&para;</a></h3>
@@ -8523,6 +8611,7 @@
 </span><span id="__span-6-7"><a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a><span class="w">    </span><span class="nt">match_threshold</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">float</span><span class="w">  </span><span class="c1"># Centroid matching threshold in pixels (default: 50.0)</span>
 </span><span id="__span-6-8"><a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a><span class="w">    </span><span class="nt">select_metric</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">str</span><span class="w">  </span><span class="c1"># Checkpoint metric for embedding / bbox models (default: rank1)</span>
 </span></code></pre></div>
+<p><code>select_metric</code> is ignored by every other model type, which selects checkpoints on <code>val/loss</code>. For <code>embedding</code> it is one of <code>rank1</code>, <code>mAP</code>, <code>auc</code>, <code>knn_acc</code>, <code>eer</code>. For the <code>bbox_*</code> detectors it is one of <code>bbox_mAP</code>, <code>bbox_AP50</code>, <code>bbox_AP75</code>, <code>bbox_AR</code>, <code>bbox_f1</code>, <code>val_loss</code>; left at the default <code>rank1</code>, a detector selects on <code>bbox_mAP</code> when <code>enabled: true</code> and on <code>val/loss</code> otherwise.</p>
 <p>See <a href="../../configuration/trainer/#evalconfig">Trainer Configuration</a> for complete reference.</p>
 <hr />
 <h2 id="example-configurations">Example Configurations<a class="headerlink" href="#example-configurations" title="Permanent link">&para;</a></h2>

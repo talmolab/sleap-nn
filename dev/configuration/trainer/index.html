@@ -8672,6 +8672,12 @@ already at or above the suggestion, or when there is nothing to suggest.</p>
 </span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="w">    </span><span class="nt">amsgrad</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
 </span></code></pre></div>
 <h3 id="learning-rate-schedulers">Learning Rate Schedulers<a class="headerlink" href="#learning-rate-schedulers" title="Permanent link">&para;</a></h3>
+<p><code>reduce_lr_on_plateau</code> is <strong>on by default</strong>: the schema fills it in even when the
+config has no <code>lr_scheduler</code> block. Setting another scheduler does not switch it off
+(it stays populated after the merge), but only one scheduler ever runs, picked in this
+priority order: <code>cosine_annealing_warmup</code> &gt; <code>linear_warmup_linear_decay</code> &gt; <code>step_lr</code> &gt;
+<code>reduce_lr_on_plateau</code>. For a constant learning rate, set <code>lr_scheduler: null</code> (or set
+all four to <code>null</code>).</p>
 <p>Choose <strong>one</strong> scheduler:</p>
 <div class="tabbed-set tabbed-alternate" data-tabs="1:4"><input checked="checked" id="__tabbed_1_1" name="__tabbed_1" type="radio" /><input id="__tabbed_1_2" name="__tabbed_1" type="radio" /><input id="__tabbed_1_3" name="__tabbed_1" type="radio" /><input id="__tabbed_1_4" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="__tabbed_1_1">Reduce on Plateau</label><label for="__tabbed_1_2">Step LR</label><label for="__tabbed_1_3">Cosine Annealing + Warmup</label><label for="__tabbed_1_4">Linear Warmup + Decay</label></div>
 <div class="tabbed-content">
@@ -8716,6 +8722,9 @@ already at or above the suggestion, or when there is nothing to suggest.</p>
 </span><span id="__span-10-4"><a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="w">    </span><span class="nt">patience</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10</span><span class="w">        </span><span class="c1"># Epochs without improvement (embedding, bbox_* with eval on: evaluations)</span>
 </span><span id="__span-10-5"><a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a><span class="w">    </span><span class="nt">min_delta</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1e-8</span><span class="w">     </span><span class="c1"># Minimum improvement</span>
 </span></code></pre></div>
+<p>Early stopping monitors <code>val/loss</code>, or the <code>eval.select_metric</code> metric for
+<code>embedding</code> models and for <code>bbox_*</code> models with <code>eval.enabled</code>. It ignores
+<code>model_ckpt.monitor</code>.</p>
 <hr />
 <h2 id="hardware">Hardware<a class="headerlink" href="#hardware" title="Permanent link">&para;</a></h2>
 <div class="language-yaml highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="nt">trainer_config</span><span class="p">:</span>
@@ -9019,7 +9028,10 @@ commands on <code>tcp://127.0.0.1:{controller_port}</code>. Each is enabled inde
 </tbody>
 </table>
 <h3 id="lrschedulerconfig">LRSchedulerConfig<a class="headerlink" href="#lrschedulerconfig" title="Permanent link">&para;</a></h3>
-<p>Only one scheduler should be set at a time.</p>
+<p>Only one scheduler runs. <code>reduce_lr_on_plateau</code> is populated by default; when several
+are set, the first of <code>cosine_annealing_warmup</code>, <code>linear_warmup_linear_decay</code>,
+<code>step_lr</code>, <code>reduce_lr_on_plateau</code> wins. <code>lr_scheduler: null</code> (or all four <code>null</code>) =
+constant learning rate.</p>
 <h4 id="reducelronplateauconfig">ReduceLROnPlateauConfig<a class="headerlink" href="#reducelronplateauconfig" title="Permanent link">&para;</a></h4>
 <table>
 <thead>
@@ -9226,7 +9238,7 @@ commands on <code>tcp://127.0.0.1:{controller_port}</code>. Each is enabled inde
 <td><code>monitor</code></td>
 <td>str</td>
 <td><code>val/loss</code></td>
-<td>Metric that picks the best checkpoint: any logged metric, e.g. <code>eval/val/mask_mean_iou</code> or <code>eval/val/fg_mean_cldice</code> for segmentation with <code>eval.enabled</code>. Left at <code>val/loss</code>, <code>embedding</code> and <code>bbox_*</code> models use their model-type default (see <code>eval.select_metric</code>)</td>
+<td>Metric that picks the best checkpoint: any logged metric, e.g. <code>eval/val/mask_mean_iou</code> or <code>eval/val/fg_mean_cldice</code> for segmentation with <code>eval.enabled</code>. Left at <code>val/loss</code>, <code>embedding</code> and <code>bbox_*</code> models use their model-type default (see <code>eval.select_metric</code>). Early stopping does <strong>not</strong> follow this field: it always monitors the model-type default (<code>val/loss</code>, or the <code>eval.select_metric</code> metric for <code>embedding</code> / <code>bbox_*</code>)</td>
 </tr>
 <tr>
 <td><code>mode</code></td>

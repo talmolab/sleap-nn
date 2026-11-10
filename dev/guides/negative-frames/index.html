@@ -8286,9 +8286,19 @@
 <td>No</td>
 <td>Operates on instance crops, not full frames</td>
 </tr>
+<tr>
+<td>Centered Instance Segmentation</td>
+<td>No</td>
+<td>Operates on instance crops, not full frames</td>
+</tr>
+<tr>
+<td>Embedding (re-ID)</td>
+<td>No</td>
+<td>Operates on instance crops, not full frames</td>
+</tr>
 </tbody>
 </table>
-<p>For unsupported model types, a warning is logged and the feature is automatically disabled:</p>
+<p>For these unsupported model types, a warning is logged and the feature is automatically disabled:</p>
 <div class="language-text highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>use_negative_frames is enabled but model_type=&#39;centered_instance&#39; operates at
 </span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>instance-crop level and does not support frame-level negatives. Negative frames
 </span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>will be disabled.

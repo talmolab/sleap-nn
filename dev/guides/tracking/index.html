@@ -9207,7 +9207,10 @@ ignored. Checks that do not need the labels run before any inference:</p>
   <code>--mot_param similarity=oks</code>). The <code>auto</code> similarity never resolves to <code>oks</code>.</li>
 <li><code>--features masks</code> when no frame holds a mask, and <code>--features keypoints</code> when
   the labels hold masks but no predicted pose. With <code>-m</code> this is checked from the
-  models' types before inference (a pose model's predictions never hold masks).</li>
+  models' types before inference (a pose model's predictions never hold masks).
+  (A <code>--tracker classic</code> retrack of a <code>.slp</code> with <code>--features masks</code> and no
+  masks currently fails with an <code>AttributeError</code> instead of this error: use
+  <code>--features masks</code> only on a file that holds masks.)</li>
 <li>Identity linking (<code>--link_tracklets</code>, <code>--max_tracks</code>) after a geometry-only
   tracker on an embedding route whose re-ID vectors will land on the carrier it
   does not track: linking reads only the tracked carrier's vectors, so the
@@ -9375,7 +9378,7 @@ own:</p>
 <td><code>score_mode</code></td>
 <td><code>auto</code></td>
 <td>all</td>
-<td>Detection score: <code>auto</code> (mean point score), <code>instance</code> or <code>none</code> (all 1.0). See <a href="#detection-scores">Detection scores</a>.</td>
+<td>Detection score: <code>auto</code> (mean point score), <code>instance</code> or <code>none</code> (all 1.0). See <a href="#detection-scores">Detection scores</a>. <code>none</code> is currently settable only from Python: <code>--mot_param score_mode=none</code> is rejected ("score_mode cannot be None").</td>
 </tr>
 <tr>
 <td><code>box_padding</code></td>
@@ -9385,7 +9388,7 @@ own:</p>
 </tr>
 <tr>
 <td><code>kalman</code></td>
-<td><code>auto</code></td>
+<td><code>xysr</code> for <code>sort</code> / <code>ocsort</code>, <code>xywh</code> for the rest</td>
 <td>all</td>
 <td>Replace the tracker's own filter with <code>xywh</code>, <code>xyah</code> or <code>xysr</code>.</td>
 </tr>
@@ -9500,7 +9503,7 @@ own:</p>
 </tbody>
 </table>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-i<span class="w"> </span>predictions.slp<span class="w"> </span>-t<span class="w"> </span>--tracker<span class="w"> </span>ocsort<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="w">    </span>--mot_param<span class="w"> </span><span class="nv">use_byte</span><span class="o">=</span><span class="nb">true</span><span class="w"> </span>--mot_param<span class="w"> </span><span class="nv">delta_t</span><span class="o">=</span><span class="m">5</span><span class="w"> </span>--mot_param<span class="w"> </span><span class="nv">score_mode</span><span class="o">=</span>none
+</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="w">    </span>--mot_param<span class="w"> </span><span class="nv">use_byte</span><span class="o">=</span><span class="nb">true</span><span class="w"> </span>--mot_param<span class="w"> </span><span class="nv">delta_t</span><span class="o">=</span><span class="m">5</span><span class="w"> </span>--mot_param<span class="w"> </span><span class="nv">score_mode</span><span class="o">=</span>instance
 </span></code></pre></div>
 <h3 id="detection-scores">Detection scores<a class="headerlink" href="#detection-scores" title="Permanent link">&para;</a></h3>
 <p>The score thresholds compare against one confidence per detection, chosen by
@@ -9511,7 +9514,10 @@ own:</p>
   predicted mask scores its <code>score</code>. A user-labeled <code>Instance</code> scores 1.0.</li>
 <li><code>instance</code>. The detection's own <code>score</code> (1.0 if it has none).</li>
 <li><code>none</code>. Every detection scores 1.0, which turns the score logic off. Use it for
-  curated detections, such as ground-truth poses saved as predictions.</li>
+  curated detections, such as ground-truth poses saved as predictions. The CLI
+  currently rejects <code>--mot_param score_mode=none</code>; set it from Python with
+  <code>TrackerConfig(tracker=..., mot_params={"score_mode": "none"})</code> or
+  <code>MOTParams.for_tracker(..., score_mode="none")</code>.</li>
 </ul>
 <p>Every score is clipped to <code>[0, 1]</code>, and non-finite scores become 1.0. <code>auto</code> uses
 the mean point score because SLEAP instance scores are not on a common scale.
@@ -10233,7 +10239,8 @@ that never reached <code>--min_hits</code>.</p>
   thresholds (<code>--track_low_threshold</code>, <code>--track_high_threshold</code>,
   <code>--new_track_threshold</code>), and lower the thresholds if needed.</li>
 <li>For curated detections, turn the score logic off with
-  <code>--mot_param score_mode=none</code>.</li>
+  <code>TrackerConfig(..., mot_params={"score_mode": "none"})</code> in Python (the
+  CLI currently rejects <code>--mot_param score_mode=none</code>).</li>
 <li>Lower <code>--min_hits</code>.</li>
 </ul>
 </details>

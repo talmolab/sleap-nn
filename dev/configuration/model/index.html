@@ -9016,7 +9016,7 @@
 <p>Most flexible, good for any resolution:</p>
 <div class="language-yaml highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="nt">backbone_config</span><span class="p">:</span>
 </span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">  </span><span class="nt">unet</span><span class="p">:</span>
-</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">    </span><span class="nt">in_channels</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1</span><span class="w">          </span><span class="c1"># 1=grayscale, 3=RGB</span>
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">    </span><span class="nt">in_channels</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1</span><span class="w">          </span><span class="c1"># 1=grayscale, 3=RGB; reset at training to match the images</span>
 </span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="w">    </span><span class="nt">filters</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">32</span><span class="w">             </span><span class="c1"># Base filters (16, 32, 64)</span>
 </span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="w">    </span><span class="nt">filters_rate</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2.0</span><span class="w">       </span><span class="c1"># Filter multiplier per level</span>
 </span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="w">    </span><span class="nt">max_stride</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">16</span><span class="w">          </span><span class="c1"># Receptive field (16 or 32)</span>
@@ -9027,41 +9027,37 @@
 </span><span id="__span-1-11"><a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a><span class="w">    </span><span class="nt">convs_per_block</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2</span>
 </span><span id="__span-1-12"><a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a><span class="w">    </span><span class="nt">output_stride</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2</span><span class="w">        </span><span class="c1"># Output resolution divisor</span>
 </span></code></pre></div>
-<p><strong>Size presets:</strong></p>
+<p><strong>Receptive-field presets</strong> (the <code>unet_medium_rf</code> / <code>unet_large_rf</code> backbones of
+<code>sleap-nn config</code> and the Python config API):</p>
 <table>
 <thead>
 <tr>
 <th>Preset</th>
 <th>filters</th>
+<th>filters_rate</th>
 <th>max_stride</th>
-<th>Speed</th>
-<th>Accuracy</th>
+<th>Receptive field</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>Small</td>
-<td>16</td>
-<td>16</td>
-<td>Fast</td>
-<td>Good</td>
-</tr>
-<tr>
-<td>Medium</td>
+<td><code>unet_medium_rf</code></td>
 <td>32</td>
+<td>2.0</td>
 <td>16</td>
 <td>Medium</td>
-<td>Better</td>
 </tr>
 <tr>
+<td><code>unet_large_rf</code></td>
+<td>24</td>
+<td>1.5</td>
+<td>32</td>
 <td>Large</td>
-<td>64</td>
-<td>32</td>
-<td>Slow</td>
-<td>Best</td>
 </tr>
 </tbody>
 </table>
+<p>A larger <code>max_stride</code> adds a down/up-sampling level, so the model sees more context
+per output pixel at a higher cost.</p>
 <h3 id="convnext">ConvNeXt<a class="headerlink" href="#convnext" title="Permanent link">&para;</a></h3>
 <p>Modern CNN, good with pretrained weights:</p>
 <div class="language-yaml highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="nt">backbone_config</span><span class="p">:</span>
@@ -9405,7 +9401,19 @@ the labels' own boxes or are derived from poses / masks
 <p>At training setup the backbone's <code>output_stride</code> is set to the smallest head
 <code>output_stride</code>, and its <code>max_stride</code> is raised to the largest head stride if it
 is smaller. The values written in <code>backbone_config</code> are overridden, so set the
-strides on the heads.</p>
+strides on the heads. Every head counts, including the pooled ones:
+<code>embedding.output_stride</code> (default <code>32</code>) and
+<code>multi_class_topdown.class_vectors.output_stride</code> raise the backbone
+<code>max_stride</code> first and are then set equal to it, so an <code>embedding</code> model on a
+UNet with <code>max_stride: 16</code> trains at <code>max_stride: 32</code> unless you lower the
+head's <code>output_stride</code> to 16.</p>
+</div>
+<div class="admonition tip">
+<p class="admonition-title">in_channels is set from the images</p>
+<p>At training setup the backbone's <code>in_channels</code> is reset to the channel count of
+the training images (after <code>ensure_rgb</code> / <code>ensure_grayscale</code>). A ConvNeXt / Swin
+backbone with <code>pre_trained_weights</code>, or a <code>pretrained</code> backbone, is forced to 3
+channels (for non-<code>embedding</code> models, grayscale images are also converted to RGB).</p>
 </div>
 <div class="admonition tip">
 <p class="admonition-title">Sigma tuning</p>
@@ -10068,7 +10076,8 @@ strides on the heads.</p>
 </span><span id="__span-25-7"><a id="__codelineno-25-7" name="__codelineno-25-7" href="#__codelineno-25-7"></a><span class="w">      </span><span class="nt">output_stride</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2</span>
 </span></code></pre></div>
 <h3 id="bottomupconfmaps">bottomup.confmaps<a class="headerlink" href="#bottomupconfmaps" title="Permanent link">&para;</a></h3>
-<p>For detecting all keypoints in bottom-up models.</p>
+<p>For detecting all keypoints in bottom-up models. A <code>bottomup</code> head needs <strong>both</strong>
+<code>confmaps</code> and <code>pafs</code>; leaving either one out fails at training setup.</p>
 <table>
 <thead>
 <tr>
@@ -10112,6 +10121,9 @@ strides on the heads.</p>
 </span><span id="__span-26-5"><a id="__codelineno-26-5" name="__codelineno-26-5" href="#__codelineno-26-5"></a><span class="w">      </span><span class="nt">sigma</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2.5</span>
 </span><span id="__span-26-6"><a id="__codelineno-26-6" name="__codelineno-26-6" href="#__codelineno-26-6"></a><span class="w">      </span><span class="nt">output_stride</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">4</span>
 </span><span id="__span-26-7"><a id="__codelineno-26-7" name="__codelineno-26-7" href="#__codelineno-26-7"></a><span class="w">      </span><span class="nt">loss_weight</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1.0</span>
+</span><span id="__span-26-8"><a id="__codelineno-26-8" name="__codelineno-26-8" href="#__codelineno-26-8"></a><span class="w">    </span><span class="nt">pafs</span><span class="p">:</span><span class="w">                </span><span class="c1"># required alongside confmaps (see below)</span>
+</span><span id="__span-26-9"><a id="__codelineno-26-9" name="__codelineno-26-9" href="#__codelineno-26-9"></a><span class="w">      </span><span class="nt">sigma</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">75.0</span>
+</span><span id="__span-26-10"><a id="__codelineno-26-10" name="__codelineno-26-10" href="#__codelineno-26-10"></a><span class="w">      </span><span class="nt">output_stride</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">8</span>
 </span></code></pre></div>
 <h3 id="bottomuppafs">bottomup.pafs<a class="headerlink" href="#bottomuppafs" title="Permanent link">&para;</a></h3>
 <p>Part Affinity Fields for grouping keypoints into instances.</p>
@@ -10358,7 +10370,7 @@ strides on the heads.</p>
 <td><code>output_stride</code></td>
 <td>int</td>
 <td><code>1</code></td>
-<td>Set by the trainer to the backbone <code>max_stride</code></td>
+<td>Set by the trainer to the backbone <code>max_stride</code> (a value above the backbone's <code>max_stride</code> raises it first)</td>
 </tr>
 <tr>
 <td><code>loss_weight</code></td>
@@ -10581,7 +10593,7 @@ strides on the heads.</p>
 <td><code>output_stride</code></td>
 <td>int</td>
 <td><code>32</code></td>
-<td>Set by the trainer to the backbone <code>max_stride</code></td>
+<td>Set by the trainer to the backbone <code>max_stride</code>. It is first counted among the head strides, so the default <code>32</code> raises a smaller backbone <code>max_stride</code> (e.g. a UNet's <code>16</code>) to <code>32</code>; set it to the backbone's <code>max_stride</code> to keep that</td>
 </tr>
 <tr>
 <td><code>freeze_backbone</code></td>

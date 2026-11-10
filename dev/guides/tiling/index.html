@@ -8054,8 +8054,8 @@ inference for tiled prediction.</p>
 <code>scale</code>/<code>max_height</code>/<code>max_width</code> path is fine. Tiling for <code>single_instance</code>
 specifically targets <strong>one small animal in a large frame</strong> (single-instance keeps
 its "one pose per frame" contract; if you have many animals per frame, use a
-multi-instance model type instead — training warns if a single-instance model is
-given multi-instance labels).</p>
+multi-instance model type instead — training stops with an error if a
+single-instance model is given a frame with more than one instance).</p>
 <h2 id="scale-parity-a-precondition-not-an-add-on">Scale parity: a precondition, not an add-on<a class="headerlink" href="#scale-parity-a-precondition-not-an-add-on" title="Permanent link">&para;</a></h2>
 <p>A model trained on downscaled full frames cannot benefit from native-resolution
 tiling at inference — it would see objects several times larger than it was trained

@@ -8096,8 +8096,9 @@ the crop <code>scale</code>/<code>offset</code> baked in). Top-down segmentation
 <code>--fg_threshold</code>, <code>--mask_output {mask,polygon,both}</code>, and <code>--polygon_epsilon</code>
 post-processing flags, and adds no new flags. The remaining segmentation flags
 — <code>--min_mask_area</code>, <code>--mask_cleanup</code>/<code>--mask_cleanup_radius</code>, and
-<code>--full_res_masks</code> — are <strong>bottom-up-only</strong> (each crop already yields one clean
-mask, so they are no-ops for top-down). Rendering needs no extra wiring:</p>
+<code>--full_res_masks</code> — are <strong>ignored for top-down</strong> (each crop already yields one
+clean mask); they apply to bottom-up segmentation, and <code>--min_mask_area</code> /
+<code>--full_res_masks</code> also to semantic segmentation. Rendering needs no extra wiring:</p>
 <div class="language-python highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">sleap_io</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">sio</span>
 </span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>
 </span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="n">labels</span> <span class="o">=</span> <span class="n">sio</span><span class="o">.</span><span class="n">load_slp</span><span class="p">(</span><span class="s2">&quot;predictions.slp&quot;</span><span class="p">)</span>

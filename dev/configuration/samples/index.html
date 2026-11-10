@@ -8329,7 +8329,7 @@
 <p>First-class single-stage "animals-as-points" model: one centroid per animal, no
 per-keypoint pose. This is a <strong>standalone</strong> centroid model — distinct from the
 top-down stage-1 centroid configs above, which are paired with a
-centered-instance model and trained on downscaled crops. Trains at full
+centered-instance model and trained on downscaled whole frames. Trains at full
 resolution; inference collapses to a single-node <code>'centroid'</code> skeleton. See the
 <a href="../../guides/centroid-only-inference/">Centroid-Only Inference guide</a>.</p>
 <table>
@@ -8595,7 +8595,7 @@ the <a href="../../guides/embedding-tracking/">Embedding tracking guide</a>.</p>
 </div>
 <div class="admonition tip">
 <p class="admonition-title">Use augmentation</p>
-<p>All sample configs have augmentation enabled. Disable with <code>use_augmentations_train: false</code> for debugging.</p>
+<p>All sample configs set <code>use_augmentations_train: true</code>; disable it with <code>use_augmentations_train: false</code> for debugging. One exception in practice: <code>config_bottomup_segmentation_pretrained.yaml</code> leaves <code>geometric: null</code> and every intensity probability at <code>0.0</code>, so no transform runs until you add a geometric block or raise a <code>*_p</code>.</p>
 </div>
 <div class="admonition tip">
 <p class="admonition-title">Check your data first</p>

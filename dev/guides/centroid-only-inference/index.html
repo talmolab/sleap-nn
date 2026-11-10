@@ -8259,7 +8259,8 @@ with <code>--centroid-output</code> (CLI) / <code>emit_centroid</code> (Python).
 </table>
 <p>The <code>source</code> tag on a <code>PredictedCentroid</code> mirrors the trained target's meaning
 (see the <a href="#choosing-what-centroid-means-586">anchor convention</a> below): an explicit
-anchor records <code>"anchor:&lt;node&gt;"</code>; no anchor records <code>"center_of_mass"</code>.</p>
+anchor records <code>"anchor:&lt;node&gt;"</code>; any other method records its own name
+(<code>"center_of_mass"</code> by default, or <code>"bbox_center"</code> / <code>"geometric_median"</code>).</p>
 <h2 id="end-to-end-workflow">End-to-end workflow<a class="headerlink" href="#end-to-end-workflow" title="Permanent link">&para;</a></h2>
 <h3 id="1-train">1. Train<a class="headerlink" href="#1-train" title="Permanent link">&para;</a></h3>
 <p>Train a standalone centroid head (full-resolution, no cropping). Start from the
@@ -8430,10 +8431,12 @@ derives a <code>UserCentroid</code> per mask at load time (via
 <code>sio.SegmentationMask.to_centroid</code>), after which the ordinary
 <code>centroid_source: user</code> path takes over unchanged:</p>
 <div class="language-yaml highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="nt">data_config</span><span class="p">:</span>
-</span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="w">  </span><span class="nt">centroids_from_masks</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">center_of_mass</span><span class="w">   </span><span class="c1"># or bbox_center / geometric_median</span>
+</span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="w">  </span><span class="nt">centroids_from_masks</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">center_of_mass</span><span class="w">   </span><span class="c1"># or bbox_center</span>
 </span></code></pre></div>
 <p>Frames that already carry user centroids are left alone — a real annotation
-always outranks a derived one. <code>anchor</code> does not apply here: a mask has no nodes.</p>
+always outranks a derived one. Only <code>center_of_mass</code> and <code>bbox_center</code> are
+accepted: <code>anchor</code> does not apply (a mask has no nodes), and <code>geometric_median</code>
+is defined over a point set, so both raise a <code>ValueError</code>.</p>
 <h2 id="interaction-with-filtering-tracking-and-metrics">Interaction with filtering, tracking, and metrics<a class="headerlink" href="#interaction-with-filtering-tracking-and-metrics" title="Permanent link">&para;</a></h2>
 <h3 id="filtering">Filtering<a class="headerlink" href="#filtering" title="Permanent link">&para;</a></h3>
 <p><code>FilterConfig</code> knobs apply to centroid-only outputs:</p>

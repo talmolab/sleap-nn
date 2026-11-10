@@ -8429,7 +8429,7 @@ The most common:</p>
 </tr>
 <tr>
 <td><code>centroid_only</code></td>
-<td>Force centroid-only output (see below)</td>
+<td>Centroid-only output from a centroid + centered-instance pair (see <a href="../centroid-only-inference/">Centroid-only inference</a>)</td>
 <td><code>False</code></td>
 </tr>
 <tr>
@@ -8984,7 +8984,7 @@ the classic tracker with any MOT-only field set (except <code>mot_params</code> 
 </span></code></pre></div>
 <p>Each <code>record["videos"]</code> entry describes one tracked video: <code>"video"</code> is its index
 in <code>labels.videos</code> (a video with no frames has no entry) and <code>"video_filename"</code> its
-file name, next to the resolved <code>kalman</code>, <code>time_base</code>, <code>similarity</code>, <code>body_size</code>
+file name, next to the resolved <code>kalman</code>, <code>time_base</code>, <code>frame_step</code>, <code>similarity</code>, <code>body_size</code>
 (and <code>body_size_source</code>), <code>score_normalizer</code>, <code>calibration</code>, <code>appearance</code> and,
 when linking ran, <code>linking</code>. The record describes the latest tracking run;
 retracking replaces it.</p>

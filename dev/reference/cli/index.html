@@ -8928,7 +8928,7 @@ either. Boolean options shown as <code>--x</code> / <code>--no-x</code> take eit
 <tr>
 <td><code>--max_instances</code></td>
 <td><code>-n</code></td>
-<td>Max instances per frame (forward pass only)</td>
+<td>Max instances per frame in the forward pass. The classic tracker also uses it as the target count when <code>--tracking_target_instance_count</code> is unset (see <a href="#tracking">Tracking</a>)</td>
 <td><code>INT</code></td>
 <td>None</td>
 </tr>
@@ -8957,7 +8957,7 @@ to the model directory and load <code>best.ckpt</code>. (A different checkpoint 
 <code>--head_ckpt_path</code> for a specific checkpoint.)</p>
 <p>The default output replaces the input's extension with <code>.predictions.slp</code>, next
 to the input (<code>video.mp4</code> → <code>video.predictions.slp</code>, <code>labels.pkg.slp</code> →
-<code>labels.pkg.predictions.slp</code>), as SLEAP's <code>sleap-track</code> names it. With
+<code>labels.pkg.predictions.slp</code>), as SLEAP 1.4's <code>sleap-track</code> and legacy <code>sleap-nn track</code> name it. With
 <code>--video_index</code>, the video's name is inserted (<code>project.slp</code> →
 <code>project.&lt;video&gt;.predictions.slp</code>). A remote input writes to the current directory under the
 URL's file name.</p>
@@ -9480,7 +9480,7 @@ URL's file name.</p>
 </table>
 <div class="admonition note">
 <p class="admonition-title">Processing order</p>
-<p><code>--max_instances</code> (forward pass) → node count filter → confidence filter → overlap filter → tracking. In track-only mode, filtering is applied before tracking on existing predictions. See <a href="../../guides/post-processing-filters/">Post-Processing Filters</a>.</p>
+<p><code>--max_instances</code> (forward pass) → node count filter → confidence filter → overlap filter → centroid-distance filter → tracking. In track-only mode the <code>--filter_*</code> options are accepted but <strong>not</strong> applied; the existing predictions are tracked as they are. See <a href="../../guides/post-processing-filters/">Post-Processing Filters</a>.</p>
 </div>
 <h3 id="tracking">Tracking<a class="headerlink" href="#tracking" title="Permanent link">&para;</a></h3>
 <p>These are the options of the default <code>classic</code> tracker. See the <a href="../../guides/tracking/#tracking-parameters">tracking
@@ -9593,7 +9593,7 @@ guide</a> for details.</p>
 </tr>
 <tr>
 <td><code>--use_kalman</code></td>
-<td>Kalman-filter motion model (needs a target instance count)</td>
+<td>Kalman-filter motion model (needs a target instance count: <code>--tracking_target_instance_count</code>, else <code>--max_instances</code>)</td>
 <td>Flag</td>
 <td><code>false</code></td>
 </tr>
@@ -9623,7 +9623,7 @@ guide</a> for details.</p>
 </tr>
 <tr>
 <td><code>--tracking_target_instance_count</code></td>
-<td>Target instances per frame</td>
+<td>Target instances per frame. Unset: <code>--max_instances</code> is used by <code>--use_kalman</code>, <code>--tracking_pre_cull_to_target</code> and <code>--post_connect_single_breaks</code></td>
 <td><code>INT</code></td>
 <td>None</td>
 </tr>
@@ -9653,7 +9653,7 @@ guide</a> for details.</p>
 </tr>
 <tr>
 <td><code>--post_connect_single_breaks</code></td>
-<td>Join a break where exactly one track is lost and one new track starts (needs <code>--tracking_target_instance_count</code>)</td>
+<td>Join a break where exactly one track is lost and one new track starts (needs a target count: <code>--tracking_target_instance_count</code>, else <code>--max_instances</code>; without <code>--max_tracks</code>, <code>--max_instances</code> also sets <code>max_tracks</code>)</td>
 <td>Flag</td>
 <td><code>false</code></td>
 </tr>
@@ -9773,6 +9773,13 @@ shown). Giving a classic-only option to a MOT tracker, or a MOT-only option to
 <p><code>predict</code> auto-detects exported models: if <code>--model_paths</code>/<code>-m</code> points to a
 directory containing <code>model.onnx</code> or <code>model.trt</code>, it runs the exported-model
 runtime instead of loading a trained checkpoint.</p>
+<p>On an exported model, the peak threshold and refinement, preprocessing
+overrides, checkpoint paths, <code>--anchor_part</code>, <code>--centroid_only</code>, the PAF options
+<code>--max_edge_length_ratio</code> / <code>--dist_penalty_weight</code> / <code>--n_points</code>, and the
+segmentation and box options were baked in at export time or do not exist there:
+they are ignored without a warning. <code>--max_instances</code>, <code>--min_instance_peaks</code>,
+<code>--min_line_scores</code>, <code>--centroid_output</code>, <code>--paf-workers</code>, the filters and tracking
+still apply. See <a href="../../guides/inference-guide/#running-exported-models-onnxtensorrt">Running exported models</a>.</p>
 <table>
 <thead>
 <tr>
@@ -9846,18 +9853,21 @@ recommended command.</p>
 </span></code></pre></div>
 <p><code>track</code> accepts a subset of <code>predict</code>'s options, with the same meanings: the
 essential, input/frame-selection, preprocessing, peak-finding, bottom-up PAF
-grouping, filtering and classic-tracker options above, plus <code>--gui</code>. It does
+grouping, filtering and classic-tracker options above, plus <code>--gui</code> and
+<code>--queue_maxsize</code> (size of the frame-buffer queue, default <code>32</code>). It does
 <strong>not</strong> support:</p>
 <ul>
 <li>exported ONNX/TensorRT models (<code>--runtime</code>), <code>--upload_batches</code>, <code>--memory_format</code>, <code>--paf-workers</code>, <code>--stream-to-file</code></li>
+<li><code>--centroid_peak_threshold</code>, the <code>--peak-conf-threshold</code> alias (use <code>--peak_threshold</code>) and <code>--filter_min_centroid_distance</code></li>
 <li>centroid-only output, segmentation, box detectors and SAM masks</li>
 <li>the modern MOT trackers (<code>--tracker</code> and its options), <code>--link_tracklets</code>, <code>--appearance_weight</code> / <code>--euclidean_scale</code></li>
 <li><code>--output_format</code>, <code>--embed</code>, <code>--restore_source_videos</code>, <code>--save_embeddings</code>, remote inputs (<code>--headers</code>, <code>--stream-mode</code>)</li>
 </ul>
-<p>Differences in behavior:</p>
+<p>The default output name is the same as <code>predict</code>'s (<code>video.mp4</code> →
+<code>video.predictions.slp</code>). Differences in behavior:</p>
 <ul>
-<li>The default output drops the input's extension: <code>&lt;input stem&gt;.predictions.slp</code> (<code>video.mp4</code> → <code>video.predictions.slp</code>).</li>
 <li>The classic-tracker defaults are fixed (<code>--candidates_method fixed_window</code>, <code>--features keypoints</code>, <code>--scoring_method oks</code>) instead of being chosen from the model type.</li>
+<li>In track-only mode (a <code>.slp</code> input with <code>-t</code> and no <code>-m</code>), <code>track</code> applies the <code>--filter_*</code> options (node count, confidence, overlap) to the existing predictions before tracking; <code>predict</code> currently does not.</li>
 </ul>
 <hr />
 <h2 id="sleap-nn-eval"><code>sleap-nn eval</code><a class="headerlink" href="#sleap-nn-eval" title="Permanent link">&para;</a></h2>

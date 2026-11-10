@@ -8584,7 +8584,7 @@ emits a <code>DeprecationWarning</code>. Prefer <code>predict</code> for all new
 <h2 id="basic-inference">Basic Inference<a class="headerlink" href="#basic-inference" title="Permanent link">&para;</a></h2>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>--data_path<span class="w"> </span>video.mp4<span class="w"> </span>--model_paths<span class="w"> </span>models/my_model/
 </span></code></pre></div>
-<p>Output: <code>video.predictions.slp</code>, written next to the input (the input's extension replaced by <code>.predictions.slp</code>, as SLEAP's <code>sleap-track</code> names it). Use <code>-o</code> to choose another path.</p>
+<p>Output: <code>video.predictions.slp</code>, written next to the input (the input's extension replaced by <code>.predictions.slp</code>, as SLEAP 1.4's <code>sleap-track</code> and legacy <code>sleap-nn track</code> name it). Use <code>-o</code> to choose another path.</p>
 <p>See the <a href="../../reference/cli/">CLI Reference</a> for all available parameters.</p>
 <h3 id="running-exported-models-onnxtensorrt">Running Exported Models (ONNX/TensorRT)<a class="headerlink" href="#running-exported-models-onnxtensorrt" title="Permanent link">&para;</a></h3>
 <p><code>sleap-nn predict</code> runs <strong>both</strong> trained checkpoints and exported ONNX/TensorRT
@@ -8620,8 +8620,27 @@ exported-model runtime instead of loading a checkpoint:</p>
 </tr>
 </tbody>
 </table>
-<p><code>--runtime</code> is ignored for trained checkpoints. Most other options (device,
-batch size, filters, tracking) apply to exported models too. For exporting
+<p><code>--runtime</code> is ignored for trained checkpoints. With an exported model these
+options still apply: input/frame selection, output options, <code>--device</code>,
+<code>--batch_size</code>, <code>--max_instances</code>, <code>--min_instance_peaks</code>, <code>--min_line_scores</code>,
+<code>--centroid_output</code>, <code>--paf-workers</code>, the filters and tracking.</p>
+<p>The other model options have no effect on an exported model. They are ignored
+without a warning, because the value was baked in at export time or the exported
+runtime has no such option:</p>
+<ul>
+<li><code>--peak_threshold</code> / <code>--centroid_peak_threshold</code>, <code>--integral_refinement</code>,
+  <code>--integral_patch_size</code></li>
+<li>the preprocessing overrides (<code>--input_scale</code>, <code>--max_height</code> / <code>--max_width</code>,
+  <code>--crop_size</code>, <code>--ensure_rgb</code> / <code>--ensure_grayscale</code>), <code>--anchor_part</code>,
+  <code>--backbone_ckpt_path</code> / <code>--head_ckpt_path</code>, <code>--centroid_only</code></li>
+<li>the bottom-up PAF options <code>--max_edge_length_ratio</code>, <code>--dist_penalty_weight</code>,
+  <code>--n_points</code></li>
+<li>the segmentation and box options (<code>--fg_threshold</code>, <code>--min_mask_area</code>,
+  <code>--center_nms_kernel</code>, <code>--mask_cleanup*</code>, <code>--distance_gate_alpha</code>, <code>--merge_*</code>,
+  <code>--full_res_masks</code>, <code>--mask_output</code>, <code>--polygon_epsilon</code>, <code>--bbox_nms_iou</code>)</li>
+</ul>
+<p><code>--upload_batches</code> and <code>--memory_format</code> are ignored with a warning. To change a
+baked-in value, re-export (see <code>sleap-nn export --peak-threshold</code>). For exporting
 models and runtime details, see the <a href="../export/">Export guide</a>.</p>
 <h3 id="viewing-results">Viewing Results<a class="headerlink" href="#viewing-results" title="Permanent link">&para;</a></h3>
 <p>After inference, you'll have a <code>.slp</code> file containing predictions. To view them:</p>
@@ -8732,7 +8751,7 @@ next to, or instead of, the <code>.slp</code>:</p>
 </div>
 <div class="admonition note">
 <p class="admonition-title">Max instances</p>
-<p>The <code>--max_instances</code> / <code>-n</code> parameter is only applied during the model forward pass. When running in <strong>track-only mode</strong> (without model inference), this parameter has no effect since no peak detection is performed.</p>
+<p>The <code>--max_instances</code> / <code>-n</code> parameter caps instances during the model forward pass. In <strong>track-only mode</strong> (without model inference) nothing is capped. The classic tracker still reads it, in both modes: without <code>--tracking_target_instance_count</code>, <code>--use_kalman</code>, <code>--tracking_pre_cull_to_target</code> and <code>--post_connect_single_breaks</code> take their target instance count from <code>-n</code>, and <code>--post_connect_single_breaks</code> without <code>--max_tracks</code> also uses it as <code>max_tracks</code>.</p>
 </div>
 <p>For all parameters including image pre-processing and data selection options, see the <a href="../../reference/cli/">CLI Reference</a>.</p>
 <hr />
@@ -8927,7 +8946,7 @@ to full resolution first). Memory for the default path is unaffected.</p>
 <p class="admonition-title">Why filtering happens before tracking</p>
 <p>Filtering is applied <strong>before</strong> tracking to prevent spurious track creation. If low-quality instances were tracked first and then filtered out, their track IDs would be lost, causing track switches in subsequent frames.</p>
 </div>
-<p>In <strong>track-only mode</strong> (no model paths), filtering is still applied before tracking on existing predictions.</p>
+<p>In <strong>track-only mode</strong> (no model paths), the <code>--filter_*</code> options are <strong>not</strong> applied: they are accepted but ignored, and the existing predictions are tracked as they are.</p>
 <hr />
 <h2 id="python-api">Python API<a class="headerlink" href="#python-api" title="Permanent link">&para;</a></h2>
 <p>The unified entry point is <code>sleap_nn.inference.predict</code> — one call handles
@@ -8988,11 +9007,11 @@ and will be removed in a future release; use <code>sleap_nn.inference.predict</c
 </tr>
 <tr>
 <td><strong>Input</strong></td>
-<td><code>source_file</code>, plus <code>source_labels</code> / <code>input_provenance</code> when the input was a <code>.slp</code></td>
+<td><code>source_file</code>, when the input was given as a path (not for a <code>sio.Labels</code> / <code>sio.Video</code> passed from Python, or a <code>--video_index</code> run)</td>
 </tr>
 <tr>
 <td><strong>Frames</strong></td>
-<td><code>frame_selection</code> (<code>method</code>, <code>frames_processed</code>, <code>frames_total</code>)</td>
+<td><code>frame_selection</code> (<code>frames_processed</code>: the number of frames in the output)</td>
 </tr>
 <tr>
 <td><strong>Config</strong></td>
@@ -9009,6 +9028,11 @@ and will be removed in a future release; use <code>sleap_nn.inference.predict</c
 </tbody>
 </table>
 <p>Keys whose value is unknown are left out, so read optional ones with <code>.get()</code>.</p>
+<p>A track-only run (<code>sleap-nn predict -i labels.slp -t</code>, no model) writes a
+different set: <code>pipeline_type</code> (<code>"tracking_only"</code>), <code>tracking_start_timestamp</code> /
+<code>tracking_end_timestamp</code> / <code>tracking_runtime_seconds</code>, the versions,
+<code>source_file</code>, <code>input_provenance</code> (the input's own provenance) and
+<code>source_labels</code>, <code>frames_processed</code>, <code>tracking_config</code> and <code>system_info</code>.</p>
 <hr />
 <h2 id="legacy-sleap-model-support">Legacy SLEAP Model Support<a class="headerlink" href="#legacy-sleap-model-support" title="Permanent link">&para;</a></h2>
 <p>Run inference with SLEAP &lt;=v1.4 models (UNet only):</p>
@@ -9124,7 +9148,7 @@ and will be removed in a future release; use <code>sleap_nn.inference.predict</c
 </li>
 <li>
 <p><strong>Crop size mismatch</strong> (top-down only)
-   <div class="language-bash highlight"><pre><span></span><code><span id="__span-28-1"><a id="__codelineno-28-1" name="__codelineno-28-1" href="#__codelineno-28-1"></a><span class="c1"># Check training config for crop_hw value</span>
+   <div class="language-bash highlight"><pre><span></span><code><span id="__span-28-1"><a id="__codelineno-28-1" name="__codelineno-28-1" href="#__codelineno-28-1"></a><span class="c1"># Check data_config.preprocessing.crop_size in the training config</span>
 </span><span id="__span-28-2"><a id="__codelineno-28-2" name="__codelineno-28-2" href="#__codelineno-28-2"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/<span class="w"> </span>--crop_size<span class="w"> </span><span class="m">256</span>
 </span></code></pre></div></p>
 </li>

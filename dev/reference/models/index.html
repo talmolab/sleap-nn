@@ -8948,7 +8948,7 @@
 </div>
 <div class="admonition tip">
 <p class="admonition-title">Use a specific anchor part</p>
-<p>Choosing a specific node as the centroid (e.g., thorax) leads to more consistent results than using the bounding box center, which often falls on different parts of the animal. This matters because the centered instance model depends on consistent positioning within the crop.</p>
+<p>Choosing a specific node as the centroid (e.g., thorax) leads to more consistent results than the default (the mean of the visible nodes, <code>center_of_mass</code>), which can shift across the animal as nodes are occluded or the pose changes. This matters because the centered instance model depends on consistent positioning within the crop.</p>
 </div>
 <div class="admonition tip">
 <p class="admonition-title">Reduce resolution for centroid model</p>

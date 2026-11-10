@@ -8494,8 +8494,10 @@ per-track Kalman motion model:</p>
   the other nearby tracks by the calibrated margin. Crops taken during a crossing
   would otherwise pull the track's appearance toward the wrong animal.</li>
 <li><strong><code>--appearance_weight</code> and <code>--features embeddings</code> belong to the classic
-  tracker.</strong> A MOT tracker refuses both and suggests an appearance tracker
-  instead. Pick the carrier with <code>--features keypoints</code> or <code>masks</code>. Left unset,
+  tracker.</strong> A MOT tracker refuses both: <code>--features embeddings</code> with a pointer
+  to the appearance trackers, <code>--appearance_weight</code> as a classic-only option
+  (the error lists the MOT tuning flags). For appearance, pick an appearance
+  tracker. Pick the carrier with <code>--features keypoints</code> or <code>masks</code>. Left unset,
   an appearance tracker follows the carrier that holds more vectors.
   <code>deepsort</code> / <code>strongsort</code> refuse vectors that are on the other carrier;
   <code>botsort</code> / <code>deepocsort</code> warn and track on geometry alone.</li>
