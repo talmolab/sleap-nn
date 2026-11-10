@@ -62,7 +62,7 @@ The most common:
 | `centroid_threshold` | Override centroid-stage threshold (top-down) | `None` |
 | `keypoint_threshold` | Override centered-instance threshold (top-down) | `None` |
 | `max_instances` | Cap instances per frame | `None` |
-| `centroid_only` | Force centroid-only output (see below) | `False` |
+| `centroid_only` | Centroid-only output from a centroid + centered-instance pair (see [Centroid-only inference](centroid-only-inference.md)) | `False` |
 | `filter_config` | A [`FilterConfig`](#post-processing-filterconfig) | `None` |
 | `tracker_config` | A [`TrackerConfig`](#tracking-trackerconfig) | `None` |
 | `output_path` | Save the result to this `.slp` | `None` |
@@ -450,7 +450,7 @@ tracked.save("tracked_ocsort.slp")
 
 Each `record["videos"]` entry describes one tracked video: `"video"` is its index
 in `labels.videos` (a video with no frames has no entry) and `"video_filename"` its
-file name, next to the resolved `kalman`, `time_base`, `similarity`, `body_size`
+file name, next to the resolved `kalman`, `time_base`, `frame_step`, `similarity`, `body_size`
 (and `body_size_source`), `score_normalizer`, `calibration`, `appearance` and,
 when linking ran, `linking`. The record describes the latest tracking run;
 retracking replaces it.

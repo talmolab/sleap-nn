@@ -1712,13 +1712,13 @@ Input → [Encoder] → [Middle] → [Decoder] → Head → Output
                                 <label style="font-size: 0.8rem;">Patience (epochs)
                                     <span class="tooltip">?<span class="tooltip-text">Number of epochs to wait for improvement before stopping. Higher values allow more time for the model to recover from plateaus but risk overfitting.</span></span>
                                 </label>
-                                <input type="number" id="es-patience" value="5" min="1" max="50" style="padding: 6px;">
+                                <input type="number" id="es-patience" value="10" min="1" max="50" style="padding: 6px;">
                             </div>
                             <div class="form-group" style="margin: 0;">
                                 <label style="font-size: 0.8rem;">Min Delta
                                     <span class="tooltip">?<span class="tooltip-text">Minimum change in validation loss to qualify as an improvement. Very small values (1e-6 to 1e-8) ensure training continues until truly converged.</span></span>
                                 </label>
-                                <input type="number" id="es-min-delta" value="0.000001" min="0" step="0.000001" style="padding: 6px;">
+                                <input type="number" id="es-min-delta" value="1e-8" min="0" step="any" style="padding: 6px;">
                             </div>
                         </div>
                     </div>
@@ -1737,10 +1737,10 @@ Input → [Encoder] → [Middle] → [Decoder] → Head → Output
                             <label>
                                 Random Seed
                                 <span class="tooltip">?
-                                    <span class="tooltip-text">Seed for reproducibility. Leave empty for random initialization.</span>
+                                    <span class="tooltip-text">Seed for reproducibility and a deterministic train/val split (needed for a safe resume). Default: 42, the sleap-nn default.</span>
                                 </span>
                             </label>
-                            <input type="number" id="random-seed" placeholder="None (random)">
+                            <input type="number" id="random-seed" value="42" placeholder="42">
                         </div>
                     </div>
 
@@ -1873,7 +1873,7 @@ Input → [Encoder] → [Middle] → [Decoder] → Head → Output
                         </div>
                         <div class="form-group" style="margin: 0; display: flex; align-items: center;">
                             <label style="font-size: 0.85rem;">
-                                <input type="checkbox" id="ckpt-save-last" checked style="margin-right: 5px;">
+                                <input type="checkbox" id="ckpt-save-last" style="margin-right: 5px;">
                                 Save Last Checkpoint
                             </label>
                         </div>
@@ -1893,9 +1893,9 @@ Input → [Encoder] → [Middle] → [Decoder] → Head → Output
                         <div class="grid-2" style="gap: 10px;">
                             <div class="form-group" style="margin: 0;">
                                 <label style="font-size: 0.8rem;">Checkpoint Directory
-                                    <span class="tooltip">?<span class="tooltip-text">Directory where the run folder will be created. Default: ./models</span></span>
+                                    <span class="tooltip">?<span class="tooltip-text">Directory where the run folder will be created. Default: . (the working directory)</span></span>
                                 </label>
-                                <input type="text" id="ckpt-dir" value="./models" placeholder="./models" style="padding: 6px;">
+                                <input type="text" id="ckpt-dir" value="." placeholder="." style="padding: 6px;">
                             </div>
                             <div class="form-group" style="margin: 0;">
                                 <label style="font-size: 0.8rem;">Run Name
@@ -2647,13 +2647,13 @@ Input → [Encoder] → [Middle] → [Decoder] → Head → Output
                             <label style="font-size: 0.8rem;">Patience
                                 <span class="tooltip">?<span class="tooltip-text">Epochs to wait for improvement before stopping.</span></span>
                             </label>
-                            <input type="number" id="ci-es-patience" value="5" min="1" max="50" style="padding: 6px;">
+                            <input type="number" id="ci-es-patience" value="10" min="1" max="50" style="padding: 6px;">
                         </div>
                         <div class="form-group" style="margin: 0;">
                             <label style="font-size: 0.8rem;">Min Delta
                                 <span class="tooltip">?<span class="tooltip-text">Minimum loss change to count as improvement.</span></span>
                             </label>
-                            <input type="number" id="ci-es-min-delta" value="0.000001" min="0" max="0.1" step="0.000001" style="padding: 6px;">
+                            <input type="number" id="ci-es-min-delta" value="1e-8" min="0" max="0.1" step="any" style="padding: 6px;">
                         </div>
                     </div>
                 </div>
@@ -2672,10 +2672,10 @@ Input → [Encoder] → [Middle] → [Decoder] → Head → Output
                             <label>
                                 Random Seed
                                 <span class="tooltip">?
-                                    <span class="tooltip-text">Seed for reproducibility. Leave empty for random initialization.</span>
+                                    <span class="tooltip-text">Seed for reproducibility and a deterministic train/val split (needed for a safe resume). Default: 42, the sleap-nn default.</span>
                                 </span>
                             </label>
-                            <input type="number" id="ci-random-seed" placeholder="None (random)">
+                            <input type="number" id="ci-random-seed" value="42" placeholder="42">
                         </div>
                     </div>
 
@@ -2806,7 +2806,7 @@ Input → [Encoder] → [Middle] → [Decoder] → Head → Output
                         </div>
                         <div class="form-group" style="margin: 0; display: flex; align-items: center;">
                             <label style="font-size: 0.85rem;">
-                                <input type="checkbox" id="ci-ckpt-save-last" checked style="margin-right: 5px;">
+                                <input type="checkbox" id="ci-ckpt-save-last" style="margin-right: 5px;">
                                 Save Last Checkpoint
                             </label>
                         </div>
@@ -2826,9 +2826,9 @@ Input → [Encoder] → [Middle] → [Decoder] → Head → Output
                     <div class="grid-2" style="gap: 10px;">
                         <div class="form-group" style="margin: 0;">
                             <label style="font-size: 0.8rem;">Checkpoint Directory
-                                <span class="tooltip">?<span class="tooltip-text">Directory where the run folder will be created. Default: ./models</span></span>
+                                <span class="tooltip">?<span class="tooltip-text">Directory where the run folder will be created. Default: . (the working directory)</span></span>
                             </label>
-                            <input type="text" id="ci-ckpt-dir" value="./models" placeholder="./models" style="padding: 6px;">
+                            <input type="text" id="ci-ckpt-dir" value="." placeholder="." style="padding: 6px;">
                         </div>
                         <div class="form-group" style="margin: 0;">
                             <label style="font-size: 0.8rem;">Run Name
@@ -7250,10 +7250,10 @@ Input → [Encoder] → [Middle] → [Decoder] → Head → Output
                 ohkmMinHard: parseInt(document.getElementById('ohkm-min-hard')?.value) || 2,
                 ohkmMaxHard: document.getElementById('ohkm-max-hard')?.value ? parseInt(document.getElementById('ohkm-max-hard').value) : null,
                 // Checkpoints
-                ckptDir: document.getElementById('ckpt-dir')?.value || './models',
+                ckptDir: document.getElementById('ckpt-dir')?.value || '.',
                 runName: document.getElementById('run-name')?.value || null,
                 ckptSaveTopK: parseInt(document.getElementById('ckpt-save-top-k')?.value) || 1,
-                ckptSaveLast: document.getElementById('ckpt-save-last')?.checked ?? true,
+                ckptSaveLast: document.getElementById('ckpt-save-last')?.checked ?? false,
                 // WandB
                 enableWandb: document.getElementById('enable-wandb')?.checked || false,
                 wandbEntity: document.getElementById('wandb-entity')?.value || null,
@@ -7326,10 +7326,10 @@ Input → [Encoder] → [Middle] → [Decoder] → Head → Output
                 ohkmMinHard: parseInt(document.getElementById('ci-ohkm-min-hard')?.value) || 2,
                 ohkmMaxHard: document.getElementById('ci-ohkm-max-hard')?.value ? parseInt(document.getElementById('ci-ohkm-max-hard').value) : null,
                 // Checkpoints
-                ckptDir: document.getElementById('ci-ckpt-dir')?.value || './models',
+                ckptDir: document.getElementById('ci-ckpt-dir')?.value || '.',
                 runName: document.getElementById('ci-run-name')?.value || null,
                 ckptSaveTopK: parseInt(document.getElementById('ci-ckpt-save-top-k')?.value) || 1,
-                ckptSaveLast: document.getElementById('ci-ckpt-save-last')?.checked ?? true,
+                ckptSaveLast: document.getElementById('ci-ckpt-save-last')?.checked ?? false,
                 resumeCkptPath: document.getElementById('ci-resume-ckpt-path')?.value || null,
                 // WandB
                 enableWandb: document.getElementById('ci-enable-wandb')?.checked || false,
@@ -7344,8 +7344,8 @@ Input → [Encoder] → [Middle] → [Decoder] → Head → Output
                 enableViz: document.getElementById('ci-enable-viz')?.checked || false,
                 vizKeepFolder: document.getElementById('ci-viz-keep-folder')?.checked || false,
                 // Early stopping
-                esPatience: parseInt(document.getElementById('ci-es-patience')?.value) || 5,
-                esMinDelta: parseFloat(document.getElementById('ci-es-min-delta')?.value) || 1e-6,
+                esPatience: parseInt(document.getElementById('ci-es-patience')?.value) || 10,
+                esMinDelta: parseFloat(document.getElementById('ci-es-min-delta')?.value) || 1e-8,
                 // Evaluation
                 enableEval: document.getElementById('ci-enable-eval')?.checked || false,
                 evalFrequency: parseInt(document.getElementById('ci-eval-frequency')?.value) || 1,
@@ -8098,10 +8098,10 @@ trainer_config:
   visualize_preds_during_training: ${adv.enableViz}
   keep_viz: ${adv.vizKeepFolder}
   max_epochs: ${maxEpochs}
-  seed: ${adv.seed !== null && adv.seed !== undefined ? adv.seed : lcTrainer.seed ?? 'null'}
+  seed: ${adv.seed !== null && adv.seed !== undefined && !Number.isNaN(adv.seed) ? adv.seed : lcTrainer.seed ?? 42}
   use_wandb: ${adv.enableWandb}
   save_ckpt: ${saveCkpt}
-  ckpt_dir: ${adv.ckptDir && adv.ckptDir !== './models' ? adv.ckptDir : lcTrainer.ckpt_dir || './models'}
+  ckpt_dir: ${adv.ckptDir && adv.ckptDir !== '.' ? adv.ckptDir : lcTrainer.ckpt_dir || '.'}
   run_name: ${adv.runName ? `"${adv.runName}"` : lcTrainer.run_name ? `"${lcTrainer.run_name}"` : 'null'}
   resume_ckpt_path: ${adv.resumeCkptPath ? `"${adv.resumeCkptPath}"` : 'null'}
   optimizer_name: ${optimizer}

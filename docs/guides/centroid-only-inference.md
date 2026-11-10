@@ -50,7 +50,8 @@ with `--centroid-output` (CLI) / `emit_centroid` (Python). The choices are:
 
 The `source` tag on a `PredictedCentroid` mirrors the trained target's meaning
 (see the [anchor convention](#choosing-what-centroid-means-586) below): an explicit
-anchor records `"anchor:<node>"`; no anchor records `"center_of_mass"`.
+anchor records `"anchor:<node>"`; any other method records its own name
+(`"center_of_mass"` by default, or `"bbox_center"` / `"geometric_median"`).
 
 ## End-to-end workflow
 
@@ -238,11 +239,13 @@ derives a `UserCentroid` per mask at load time (via
 
 ```yaml
 data_config:
-  centroids_from_masks: center_of_mass   # or bbox_center / geometric_median
+  centroids_from_masks: center_of_mass   # or bbox_center
 ```
 
 Frames that already carry user centroids are left alone — a real annotation
-always outranks a derived one. `anchor` does not apply here: a mask has no nodes.
+always outranks a derived one. Only `center_of_mass` and `bbox_center` are
+accepted: `anchor` does not apply (a mask has no nodes), and `geometric_median`
+is defined over a point set, so both raise a `ValueError`.
 
 ## Interaction with filtering, tracking, and metrics
 

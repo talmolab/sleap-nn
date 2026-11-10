@@ -37,7 +37,7 @@ data_config:
       brightness_p: 0.0
     # Geometric augmentation IS supported for segmentation: the image and its
     # per-instance masks share the same affine matrix (masks resampled
-    # nearest-neighbor); erase/mixup stay image-only.
+    # nearest-neighbor); erase stays image-only.
     geometric:
       rotation_min: -15.0
       rotation_max: 15.0

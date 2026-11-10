@@ -153,6 +153,13 @@ trainer_config:
 
 ### Learning Rate Schedulers
 
+`reduce_lr_on_plateau` is **on by default**: the schema fills it in even when the
+config has no `lr_scheduler` block. Setting another scheduler does not switch it off
+(it stays populated after the merge), but only one scheduler ever runs, picked in this
+priority order: `cosine_annealing_warmup` > `linear_warmup_linear_decay` > `step_lr` >
+`reduce_lr_on_plateau`. For a constant learning rate, set `lr_scheduler: null` (or set
+all four to `null`).
+
 Choose **one** scheduler:
 
 === "Reduce on Plateau"
@@ -201,6 +208,10 @@ trainer_config:
     patience: 10        # Epochs without improvement (embedding, bbox_* with eval on: evaluations)
     min_delta: 1e-8     # Minimum improvement
 ```
+
+Early stopping monitors `val/loss`, or the `eval.select_metric` metric for
+`embedding` models and for `bbox_*` models with `eval.enabled`. It ignores
+`model_ckpt.monitor`.
 
 ---
 
@@ -399,7 +410,10 @@ trainer_config:
 
 ### LRSchedulerConfig
 
-Only one scheduler should be set at a time.
+Only one scheduler runs. `reduce_lr_on_plateau` is populated by default; when several
+are set, the first of `cosine_annealing_warmup`, `linear_warmup_linear_decay`,
+`step_lr`, `reduce_lr_on_plateau` wins. `lr_scheduler: null` (or all four `null`) =
+constant learning rate.
 
 #### ReduceLROnPlateauConfig
 
@@ -451,7 +465,7 @@ Only one scheduler should be set at a time.
 |--------|------|---------|-------------|
 | `save_top_k` | int | `1` | Keep N best models |
 | `save_last` | bool | `null` | Also write last.ckpt at the end of every epoch |
-| `monitor` | str | `val/loss` | Metric that picks the best checkpoint: any logged metric, e.g. `eval/val/mask_mean_iou` or `eval/val/fg_mean_cldice` for segmentation with `eval.enabled`. Left at `val/loss`, `embedding` and `bbox_*` models use their model-type default (see `eval.select_metric`) |
+| `monitor` | str | `val/loss` | Metric that picks the best checkpoint: any logged metric, e.g. `eval/val/mask_mean_iou` or `eval/val/fg_mean_cldice` for segmentation with `eval.enabled`. Left at `val/loss`, `embedding` and `bbox_*` models use their model-type default (see `eval.select_metric`). Early stopping does **not** follow this field: it always monitors the model-type default (`val/loss`, or the `eval.select_metric` metric for `embedding` / `bbox_*`) |
 | `mode` | str | `min` | `min` or `max`: direction of improvement for `monitor` (use `max` for IoU/clDice). Only read when `monitor` is not `val/loss` |
 
 ### WandBConfig

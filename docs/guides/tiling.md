@@ -36,8 +36,8 @@ If one big animal fills the frame, you don't need tiling — the normal
 `scale`/`max_height`/`max_width` path is fine. Tiling for `single_instance`
 specifically targets **one small animal in a large frame** (single-instance keeps
 its "one pose per frame" contract; if you have many animals per frame, use a
-multi-instance model type instead — training warns if a single-instance model is
-given multi-instance labels).
+multi-instance model type instead — training stops with an error if a
+single-instance model is given a frame with more than one instance).
 
 ## Scale parity: a precondition, not an add-on
 
