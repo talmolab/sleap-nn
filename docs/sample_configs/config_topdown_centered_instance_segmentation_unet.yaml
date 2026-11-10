@@ -45,7 +45,7 @@ data_config:
       brightness_max: 1.1
       brightness_p: 0.0
     # Geometric augmentation IS supported for segmentation (the mask is
-    # co-transformed with the crop; erase/mixup stay image-only). Left null here;
+    # co-transformed with the crop; erase stays image-only). Left null here;
     # add a geometric block to use it.
     geometric: null
   skeletons:

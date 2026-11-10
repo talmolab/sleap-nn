@@ -340,6 +340,9 @@ ignored. Checks that do not need the labels run before any inference:
 - `--features masks` when no frame holds a mask, and `--features keypoints` when
   the labels hold masks but no predicted pose. With `-m` this is checked from the
   models' types before inference (a pose model's predictions never hold masks).
+  (A `--tracker classic` retrack of a `.slp` with `--features masks` and no
+  masks currently fails with an `AttributeError` instead of this error: use
+  `--features masks` only on a file that holds masks.)
 - Identity linking (`--link_tracklets`, `--max_tracks`) after a geometry-only
   tracker on an embedding route whose re-ID vectors will land on the carrier it
   does not track: linking reads only the tracked carrier's vectors, so the
@@ -424,9 +427,9 @@ own:
 |---|---|---|---|
 | `preset` | `animal` | all | `animal` or `paper`. |
 | `similarity` | `auto` | all | `auto`, `iou`, `oks` or `centroid`: the same choice as `--scoring_method`, under the MOT names. |
-| `score_mode` | `auto` | all | Detection score: `auto` (mean point score), `instance` or `none` (all 1.0). See [Detection scores](#detection-scores). |
+| `score_mode` | `auto` | all | Detection score: `auto` (mean point score), `instance` or `none` (all 1.0). See [Detection scores](#detection-scores). `none` is currently settable only from Python: `--mot_param score_mode=none` is rejected ("score_mode cannot be None"). |
 | `box_padding` | `0.1` | all | Padding added to each side of a keypoint or mask box, as a fraction of `max(w, h)`. |
-| `kalman` | `auto` | all | Replace the tracker's own filter with `xywh`, `xyah` or `xysr`. |
+| `kalman` | `xysr` for `sort` / `ocsort`, `xywh` for the rest | all | Replace the tracker's own filter with `xywh`, `xyah` or `xysr`. |
 | `time_base` | `auto` | all, identity linking | `frames` or `steps`. See [Time base](#time-base). Also read by the classic tracker's identity linking. |
 | `normalize_scores` | `true` (`paper`: `false`) | all | Divide each detection score by the video's 95th-percentile score before the score thresholds apply. `false` compares raw scores. |
 | `body_size` | measured per video | all, identity linking | Animal size in px (box diagonal). Scales the `centroid` similarity, sizes single-node detections and scales linking's gates and duplicate test; set it for centroid-only models whose calibration cannot size the animal (see [Body size](#body-size)). Also read by the classic tracker's identity linking. |
@@ -448,7 +451,7 @@ own:
 
 ```bash
 sleap-nn predict -i predictions.slp -t --tracker ocsort \
-    --mot_param use_byte=true --mot_param delta_t=5 --mot_param score_mode=none
+    --mot_param use_byte=true --mot_param delta_t=5 --mot_param score_mode=instance
 ```
 
 ### Detection scores
@@ -461,7 +464,10 @@ The score thresholds compare against one confidence per detection, chosen by
   predicted mask scores its `score`. A user-labeled `Instance` scores 1.0.
 - `instance`. The detection's own `score` (1.0 if it has none).
 - `none`. Every detection scores 1.0, which turns the score logic off. Use it for
-  curated detections, such as ground-truth poses saved as predictions.
+  curated detections, such as ground-truth poses saved as predictions. The CLI
+  currently rejects `--mot_param score_mode=none`; set it from Python with
+  `TrackerConfig(tracker=..., mot_params={"score_mode": "none"})` or
+  `MOTParams.for_tracker(..., score_mode="none")`.
 
 Every score is clipped to `[0, 1]`, and non-finite scores become 1.0. `auto` uses
 the mean point score because SLEAP instance scores are not on a common scale.
@@ -1142,7 +1148,8 @@ arms = {
       thresholds (`--track_low_threshold`, `--track_high_threshold`,
       `--new_track_threshold`), and lower the thresholds if needed.
     - For curated detections, turn the score logic off with
-      `--mot_param score_mode=none`.
+      `TrackerConfig(..., mot_params={"score_mode": "none"})` in Python (the
+      CLI currently rejects `--mot_param score_mode=none`).
     - Lower `--min_hits`.
 
 ??? question "A MOT tracker fragments tracks"

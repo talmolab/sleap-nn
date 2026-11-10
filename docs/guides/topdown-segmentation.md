@@ -88,8 +88,9 @@ the crop `scale`/`offset` baked in). Top-down segmentation honors the
 `--fg_threshold`, `--mask_output {mask,polygon,both}`, and `--polygon_epsilon`
 post-processing flags, and adds no new flags. The remaining segmentation flags
 — `--min_mask_area`, `--mask_cleanup`/`--mask_cleanup_radius`, and
-`--full_res_masks` — are **bottom-up-only** (each crop already yields one clean
-mask, so they are no-ops for top-down). Rendering needs no extra wiring:
+`--full_res_masks` — are **ignored for top-down** (each crop already yields one
+clean mask); they apply to bottom-up segmentation, and `--min_mask_area` /
+`--full_res_masks` also to semantic segmentation. Rendering needs no extra wiring:
 
 ```python
 import sleap_io as sio

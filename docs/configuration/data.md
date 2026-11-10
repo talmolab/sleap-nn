@@ -55,8 +55,8 @@ data_config:
     ensure_rgb: false          # Force 3 channels
     ensure_grayscale: false    # Force 1 channel
     scale: 1.0                 # Resize factor (0.5 = half size)
-    max_height: null           # Resize to fit, then pad to this height
-    max_width: null            # Resize to fit, then pad to this width
+    max_height: null           # Resize to fit, then pad to this height (null = largest training frame)
+    max_width: null            # Resize to fit, then pad to this width (null = largest training frame)
     crop_size: null            # For centered-instance models
     min_crop_size: 100         # Minimum auto crop size
     crop_padding: null         # Extra padding for crops
@@ -159,7 +159,7 @@ augmentation_config:
     erase_scale_min: 0.0001
     erase_scale_max: 0.01
 
-    # Mixup
+    # Mixup: accepted for config compatibility but NOT implemented (ignored)
     mixup_p: 0.0
     mixup_lambda_min: 0.01
     mixup_lambda_max: 0.05
@@ -291,8 +291,8 @@ Used by the `embedding` model type (see the [embedding tracking guide](../guides
 |--------|------|---------|-------------|
 | `ensure_rgb` | bool | `false` | Convert images to 3 channels (RGB). Single-channel images are replicated |
 | `ensure_grayscale` | bool | `false` | Convert images to 1 channel (grayscale) |
-| `max_height` | int | `null` | Resize images to fit (one scale for both axes), then pad to this height |
-| `max_width` | int | `null` | Resize images to fit (one scale for both axes), then pad to this width |
+| `max_height` | int | `null` | Resize images to fit (one scale for both axes), then pad to this height. `null` = set at training to the largest frame height across the training labels and saved into the config |
+| `max_width` | int | `null` | Resize images to fit (one scale for both axes), then pad to this width. `null` = set at training to the largest frame width across the training labels and saved into the config |
 | `scale` | float | `1.0` | Resize factor (e.g., 0.5 = half size) |
 | `crop_size` | int | `null` | Crop size for centered-instance models. If `null`, auto-computed from data |
 | `min_crop_size` | int | `100` | Minimum crop size when auto-computing |
@@ -342,7 +342,7 @@ Used by the `embedding` model type (see the [embedding tracking guide](../guides
 | `erase_ratio_min` | float | `1.0` | Minimum aspect ratio of erased area |
 | `erase_ratio_max` | float | `1.0` | Maximum aspect ratio of erased area |
 | `erase_p` | float | `0.0` | Probability of random erasing |
-| `mixup_lambda_min` | float | `0.01` | Minimum mixup strength |
-| `mixup_lambda_max` | float | `0.05` | Maximum mixup strength |
-| `mixup_p` | float | `0.0` | Probability of applying mixup |
+| `mixup_lambda_min` | float | `0.01` | Minimum mixup strength. Mixup is not implemented: accepted and validated, but ignored |
+| `mixup_lambda_max` | float | `0.05` | Maximum mixup strength (ignored; see `mixup_lambda_min`) |
+| `mixup_p` | float | `0.0` | Probability of mixup. Not implemented: any value is ignored and no mixup is applied |
 | `flip_p` | float | `0.0` | Probability of mirroring image + keypoints left/right (swaps symmetric node pairs) |

@@ -6,9 +6,8 @@ the project's standard test fixtures. Treat them as **relative speedups**,
 not absolute ceilings — your numbers will scale with backbone size, video
 resolution, and GPU class.
 
-The bench script that produced these numbers lives at
-`scratch/2026-04-30-inference-refactor-implementation/cuda_bench/run_cuda_bench.py`
-and can be re-run to validate your own setup.
+The numbers come from an internal benchmark run; the script is not part of the
+repository. Time your own setup (see [When to re-benchmark](#when-to-re-benchmark)).
 
 ---
 
@@ -104,7 +103,8 @@ top-down predictor has two models (`predictor.layer.centroid_layer` and
 `predictor.layer.centered_instance_layer`), so set them on both stages.
 Both can be set on an existing backend: setting `use_compile = True`
 compiles its model right away. This helper sets them on every stage, for any
-model type:
+trained-checkpoint model type (a tiled model runs its inner layer's backend,
+so the helper sets that one):
 
 ```python
 from sleap_nn.inference import Predictor
@@ -119,6 +119,7 @@ def use_fast_backends(predictor, fp16=True, compile=True):
         if hasattr(layer, name)
     ] or [layer]  # top-down has two stages; other model types have one
     for stage in stages:
+        stage = getattr(stage, "inner", stage)  # tiled layers run `.inner.backend`
         stage.backend.use_fp16 = fp16
         stage.backend.use_compile = compile
 
@@ -396,7 +397,7 @@ Skip FP16 + compile — both add overhead that dominates short runs.
 sleap-nn predict -i video.mp4 -m models/my_model/ --device mps --batch_size 4
 ```
 
-FP16 silently has no effect on MPS (warning logged). `torch.compile`
+FP16 has no effect on MPS (a warning says so). `torch.compile`
 on MPS is unreliable — the new flow disables it for you with a clear
 warning. Expect ~2-3× speedup over CPU; not 20× like CUDA.
 
@@ -429,16 +430,12 @@ deploying to:
   gains grow; compile cost grows linearly with graph size; `fuse_layers`
   may finally start mattering.
 - **Variable-resolution input** (different videos with different
-  shapes): turn `dynamic=True` on compile or skip it.
+  shapes): skip `torch.compile`. The backend compiles with `dynamic=False`
+  (not configurable): the batch size is padded to one size, but every new
+  frame size recompiles.
 
-Re-run the bench:
-
-```bash
-SLEAP_NN_REPO=/path/to/sleap-nn \
-  python scratch/2026-04-30-inference-refactor-implementation/cuda_bench/run_cuda_bench.py
-```
-
-Output lands in the same folder as a timestamped log file.
+To compare settings on your own data, time `predictor.predict(...)` on a few
+hundred frames of your video (after one warm-up call) with each setting.
 
 ---
 

@@ -146,4 +146,4 @@ sleap-nn predict -i video.mp4 \
 ```
 
 !!! note "Inference only"
-    Filters are only applied during inference. When running in **track-only mode** (without model paths), these parameters have no effect.
+    Filters are only applied during inference. In **track-only mode** (`-i labels.slp -t`, without model paths) the `--filter_*` options are accepted but ignored: the existing predictions are tracked as they are.

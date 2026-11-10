@@ -19,9 +19,11 @@ Other model types use their own metrics:
 
 This metric computes the Euclidean distance between pairs of predicted and ground-truth (gt) instances. For each instance pair, we calculate the L2 norm of the difference between the predicted and corresponding ground-truth keypoints. The following statistics are reported:
 
-- *`Avg_dist`*: Mean Euclidean distance across all (pred, gt) pairs.
+- `distance_metrics['avg']`: Mean Euclidean distance across all (pred, gt) pairs.
 
-- *`Dist@k`*: Percentile-based distance metrics which includes the distance at the 50th, 75th, 90th, 95th, and 99th percentiles (denoted as p50, p75, p90, p95, p99).
+- `distance_metrics['p50']`, `['p75']`, `['p90']`, `['p95']`, `['p99']`: The distance at the 50th, 75th, 90th, 95th, and 99th percentiles.
+
+- `distance_metrics['dists']`: The raw distances, one row per matched pair and one column per node (NaN where a node is missing).
 
 These metrics provide insight into the distribution of how far off the predictions are from the ground-truth key-points.
 
@@ -39,9 +41,11 @@ The implementation is based off of the descriptions in: [Ronch & Perona. "Benchm
 
 This metric measures the fraction of keypoints that fall within a certain pixel distance (threshold) from the ground-truth location. This is useful to evaluate how precise the predicted points are. The following are generated using PCK metric:
 
-- *`PCKs`*: PCK on each predicted instances for each node at different thresholds. (Thresholds: [1, 2, 3, ..., 10])
-- *`mPCK part`*: Mean PCK per node averaged over all predicted instances across thresholds.
-- *`mPCK`*: Mean PCK across all predicted nodes and thresholds.
+- `pck_metrics['pcks']`: Whether each node of each matched pair is within each threshold (left out of the `.json` copy).
+- `pck_metrics['thresholds']`: The pixel thresholds used: [1, 2, 3, ..., 10].
+- `pck_metrics['mPCK_parts']`: Mean PCK per node averaged over all predicted instances across thresholds.
+- `pck_metrics['mPCK']`: Mean PCK across all predicted nodes and thresholds.
+- `pck_metrics['PCK@5']`, `['PCK@10']`: PCK at the 5 px and 10 px thresholds.
 
 ## Visibility metrics
 
@@ -152,5 +156,6 @@ Detectors (`bbox_centernet`, `bbox_ssd`) are evaluated with `--match_method bbox
 | `bbox_n_tp`, `bbox_n_fp`, `bbox_n_fn` | Counts at the operating point |
 | `n_frames`, `n_gt`, `n_pred` | Frames, GT boxes and predicted boxes evaluated |
 | `ap_per_class`, `ar_per_class`, `pr_curve`, `categories` | Per-class AP/AR arrays, the IoU-0.5 precision-recall curve, and the class names |
+| `iou_thresholds` | The IoU thresholds (0.50:0.05:0.95) that `bbox_mAP` and `bbox_AR` average over |
 
 See the [Bounding-box detection guide](../guides/bbox-detection.md#evaluation) for how GT boxes are derived and how classes are matched.

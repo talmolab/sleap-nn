@@ -148,20 +148,26 @@ config = (
 | `.input_scale(scale)` | Set input scaling (0.0-1.0) |
 | `.sigma(sigma)` | Set confidence map sigma |
 | `.rotation(min, max)` | Set rotation augmentation range |
-
-!!! warning "Python pipeline names differ from `--pipeline`"
-    `.pipeline()` takes one model's type, not the CLI's pipeline names. There is
-    no `"topdown"`: build a top-down pair as two configs, `.pipeline("centroid")`
-    and `.pipeline("centered_instance")` (or call `.build_centroid()` and
-    `.build_centered_instance()`). `"centroid_only"` is a standalone centroid
-    model. Accepted values: `single_instance`, `centroid`, `centroid_only`,
-    `centered_instance`, `bottomup`, `multi_class_bottomup`,
-    `multi_class_topdown`, `bbox_centernet`, `bbox_ssd`,
-    `topdown_bbox_centernet`, `topdown_bbox_ssd`.
 | `.early_stopping(enabled, patience)` | Configure early stopping |
 | `.crop_size(size)` | Set crop size (centered_instance) |
 | `.anchor_part(name)` | Set anchor part (top-down) |
 | `.centroid_method(method, fallback=None)` | How the centroid / crop center is derived: `center_of_mass`, `bbox_center`, `geometric_median`, `anchor` (#586) |
+
+!!! warning "Python pipeline names differ from `--pipeline`"
+    `.pipeline()` accepts `single_instance`, `centroid`, `centroid_only`,
+    `centered_instance`, `bottomup`, `multi_class_bottomup`,
+    `multi_class_topdown`, `bbox_centernet`, `bbox_ssd`,
+    `topdown_bbox_centernet` and `topdown_bbox_ssd`. There is no `"topdown"`:
+
+    - `.pipeline("centroid")` **is** the top-down pipeline (the CLI's
+      `--pipeline topdown` maps to it). `.save("cfg.yaml")` writes both
+      `cfg_centroid.yaml` and `cfg_centered_instance.yaml`; `.build()` returns
+      only the centroid stage, and `.build_centered_instance()` the second stage.
+      `multi_class_topdown` also saves a pair (`cfg_centroid.yaml` +
+      `cfg_centered_instance.yaml` with the multi-class head), but its
+      `.build()` returns the multi-class stage.
+    - `.pipeline("centroid_only")` is a standalone centroid model, one config
+      (the CLI's `--pipeline centroid`).
 
 ### Get Recommendations
 
@@ -198,16 +204,21 @@ the `sleap-nn config --pipeline` names):
 | `single_instance` | One animal per frame |
 | `bottomup` | Multiple animals, same skeleton |
 | `topdown` | Multiple animals, need centroids + instances |
+| `centroid` | Standalone centroid model: one point per animal (e.g. single-node skeletons) |
 | `multi_class_bottomup` | Multiple animals with identity classes |
 | `multi_class_topdown` | Multiple animals with classes, top-down approach |
 | `bbox_centernet` / `bbox_ssd` | A bounding-box detector (boxes derived from the poses) |
 | `topdown_bbox_centernet` / `topdown_bbox_ssd` | Top-down with a box detector as stage 1 and box-scaled crops |
 
-The recommendation is based on:
+The recommendation is based on, in order:
 
-- Number of instances per frame
-- Skeleton complexity
-- Image size and resolution
+- One instance per frame → `single_instance`
+- A single-node skeleton → standalone `centroid`
+- Animals covering less than ~20% of the frame → `topdown`
+- Larger animals → `bottomup`, or `topdown` if the skeleton has no edges
+
+The multi-class and box-detector pipelines are never recommended automatically;
+pick them with `--pipeline`.
 
 ---
 

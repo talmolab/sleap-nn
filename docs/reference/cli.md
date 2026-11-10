@@ -105,7 +105,7 @@ either. Boolean options shown as `--x` / `--no-x` take either form.
 | `--output_path` | `-o` | Output file path | `PATH` | `<input>.predictions.slp` |
 | `--device` | `-d` | Compute device | `auto`, `cuda`, `cuda:0`, `cpu`, `mps` | `auto` |
 | `--batch_size` | `-b` | Frames per batch | `INT` | `4` |
-| `--max_instances` | `-n` | Max instances per frame (forward pass only) | `INT` | None |
+| `--max_instances` | `-n` | Max instances per frame in the forward pass. The classic tracker also uses it as the target count when `--tracking_target_instance_count` is unset (see [Tracking](#tracking)) | `INT` | None |
 | `--peak_threshold` | | Minimum confidence-map value for a peak (alias `--peak-conf-threshold`). For box detectors, the score threshold | `FLOAT` | `0.2` |
 | `--tracking` | `-t` | Track the predictions | Flag | `false` |
 
@@ -120,7 +120,7 @@ to the model directory and load `best.ckpt`. (A different checkpoint such as
 
 The default output replaces the input's extension with `.predictions.slp`, next
 to the input (`video.mp4` → `video.predictions.slp`, `labels.pkg.slp` →
-`labels.pkg.predictions.slp`), as SLEAP's `sleap-track` names it. With
+`labels.pkg.predictions.slp`), as SLEAP 1.4's `sleap-track` and legacy `sleap-nn track` name it. With
 `--video_index`, the video's name is inserted (`project.slp` →
 `project.<video>.predictions.slp`). A remote input writes to the current directory under the
 URL's file name.
@@ -231,7 +231,7 @@ SAM-prompted masks from existing poses (no trained segmentation model; see
 | `--filter_min_centroid_distance` | Centroid-only de-duplication radius in pixels (use instead of `--filter_overlapping` for centroids) | `FLOAT` | `0` (off) |
 
 !!! note "Processing order"
-    `--max_instances` (forward pass) → node count filter → confidence filter → overlap filter → tracking. In track-only mode, filtering is applied before tracking on existing predictions. See [Post-Processing Filters](../guides/post-processing-filters.md).
+    `--max_instances` (forward pass) → node count filter → confidence filter → overlap filter → centroid-distance filter → tracking. In track-only mode the `--filter_*` options are accepted but **not** applied; the existing predictions are tracked as they are. See [Post-Processing Filters](../guides/post-processing-filters.md).
 
 ### Tracking
 
@@ -256,17 +256,17 @@ guide](../guides/tracking.md#tracking-parameters) for details.
 | `--link_tracklets` | Identity linking after tracking each video ([details](../guides/tracking.md#identity-linking-long-term-identity-memory)) | Flag | `false` |
 | `--use_flow` | Optical-flow motion model | Flag | `false` |
 | `--of_img_scale` / `--of_window_size` / `--of_max_levels` | Optical-flow image scale, window size and pyramid levels | `FLOAT` / `INT` / `INT` | `1.0` / `21` / `3` |
-| `--use_kalman` | Kalman-filter motion model (needs a target instance count) | Flag | `false` |
+| `--use_kalman` | Kalman-filter motion model (needs a target instance count: `--tracking_target_instance_count`, else `--max_instances`) | Flag | `false` |
 | `--kf_track_features` | What the Kalman filter tracks | `centroid`, `keypoints` | `centroid` |
 | `--kf_init_frame_count` | Warm-up frames before the filters are fit | `INT` | `10` |
 | `--kf_node_indices` | Node indices to track (comma-separated) | `STR` | All nodes |
 | `--kf_reset_gap_size` | Missed frames after which a track's filter is reset | `INT` | `5` |
-| `--tracking_target_instance_count` | Target instances per frame | `INT` | None |
+| `--tracking_target_instance_count` | Target instances per frame. Unset: `--max_instances` is used by `--use_kalman`, `--tracking_pre_cull_to_target` and `--post_connect_single_breaks` | `INT` | None |
 | `--tracking_pre_cull_to_target` | Cull instances above the target count before tracking | `INT` | `0` |
 | `--tracking_pre_cull_iou_threshold` | IoU for that pre-tracking cull | `FLOAT` | `0` |
 | `--tracking_clean_instance_count` | Target instance count for cleaning after tracking | `INT` | `0` |
 | `--tracking_clean_iou_threshold` | IoU for that post-tracking cull | `FLOAT` | `0` |
-| `--post_connect_single_breaks` | Join a break where exactly one track is lost and one new track starts (needs `--tracking_target_instance_count`) | Flag | `false` |
+| `--post_connect_single_breaks` | Join a break where exactly one track is lost and one new track starts (needs a target count: `--tracking_target_instance_count`, else `--max_instances`; without `--max_tracks`, `--max_instances` also sets `max_tracks`) | Flag | `false` |
 
 !!! note "`--max_tracks` requires `local_queues`"
     With the classic tracker, `--max_tracks` is honored only by `local_queues`;
@@ -305,6 +305,14 @@ shown). Giving a classic-only option to a MOT tracker, or a MOT-only option to
 `predict` auto-detects exported models: if `--model_paths`/`-m` points to a
 directory containing `model.onnx` or `model.trt`, it runs the exported-model
 runtime instead of loading a trained checkpoint.
+
+On an exported model, the peak threshold and refinement, preprocessing
+overrides, checkpoint paths, `--anchor_part`, `--centroid_only`, the PAF options
+`--max_edge_length_ratio` / `--dist_penalty_weight` / `--n_points`, and the
+segmentation and box options were baked in at export time or do not exist there:
+they are ignored without a warning. `--max_instances`, `--min_instance_peaks`,
+`--min_line_scores`, `--centroid_output`, `--paf-workers`, the filters and tracking
+still apply. See [Running exported models](../guides/inference-guide.md#running-exported-models-onnxtensorrt).
 
 | Option | Description | Values | Default |
 |--------|-------------|--------|---------|
@@ -356,18 +364,21 @@ sleap-nn track --data_path INPUT --model_paths MODEL [OPTIONS]
 
 `track` accepts a subset of `predict`'s options, with the same meanings: the
 essential, input/frame-selection, preprocessing, peak-finding, bottom-up PAF
-grouping, filtering and classic-tracker options above, plus `--gui`. It does
+grouping, filtering and classic-tracker options above, plus `--gui` and
+`--queue_maxsize` (size of the frame-buffer queue, default `32`). It does
 **not** support:
 
 - exported ONNX/TensorRT models (`--runtime`), `--upload_batches`, `--memory_format`, `--paf-workers`, `--stream-to-file`
+- `--centroid_peak_threshold`, the `--peak-conf-threshold` alias (use `--peak_threshold`) and `--filter_min_centroid_distance`
 - centroid-only output, segmentation, box detectors and SAM masks
 - the modern MOT trackers (`--tracker` and its options), `--link_tracklets`, `--appearance_weight` / `--euclidean_scale`
 - `--output_format`, `--embed`, `--restore_source_videos`, `--save_embeddings`, remote inputs (`--headers`, `--stream-mode`)
 
-Differences in behavior:
+The default output name is the same as `predict`'s (`video.mp4` →
+`video.predictions.slp`). Differences in behavior:
 
-- The default output drops the input's extension: `<input stem>.predictions.slp` (`video.mp4` → `video.predictions.slp`).
 - The classic-tracker defaults are fixed (`--candidates_method fixed_window`, `--features keypoints`, `--scoring_method oks`) instead of being chosen from the model type.
+- In track-only mode (a `.slp` input with `-t` and no `-m`), `track` applies the `--filter_*` options (node count, confidence, overlap) to the existing predictions before tracking; `predict` currently does not.
 
 ---
 

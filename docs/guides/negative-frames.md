@@ -66,8 +66,10 @@ config.data_config.negative_loss_weight = 1.0
 | Bottom-Up Multi-Class | Yes | |
 | Centered Instance (Top-Down) | No | Operates on instance crops, not full frames |
 | Multi-Class Top-Down | No | Operates on instance crops, not full frames |
+| Centered Instance Segmentation | No | Operates on instance crops, not full frames |
+| Embedding (re-ID) | No | Operates on instance crops, not full frames |
 
-For unsupported model types, a warning is logged and the feature is automatically disabled:
+For these unsupported model types, a warning is logged and the feature is automatically disabled:
 
 ```
 use_negative_frames is enabled but model_type='centered_instance' operates at

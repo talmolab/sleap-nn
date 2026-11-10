@@ -114,7 +114,7 @@ Stage 2: Crop → Backbone → Confidence Maps → Keypoints
     Increasing `sigma` makes centroid confidence maps coarser—easier to detect animals but less precise. This is often a good trade-off for the centroid stage.
 
 !!! tip "Use a specific anchor part"
-    Choosing a specific node as the centroid (e.g., thorax) leads to more consistent results than using the bounding box center, which often falls on different parts of the animal. This matters because the centered instance model depends on consistent positioning within the crop.
+    Choosing a specific node as the centroid (e.g., thorax) leads to more consistent results than the default (the mean of the visible nodes, `center_of_mass`), which can shift across the animal as nodes are occluded or the pose changes. This matters because the centered instance model depends on consistent positioning within the crop.
 
 !!! tip "Reduce resolution for centroid model"
     Since centroids can be detected coarsely, you can reduce input image resolution (`preprocessing.scale`) to save computation. This is especially useful early in labeling when training data is limited.
