@@ -4,8 +4,37 @@ import os
 import sys
 from loguru import logger
 
-# Get RANK for distributed training
-RANK = int(os.environ.get("LOCAL_RANK", -1))
+
+def _get_rank() -> int:
+    """Return this process's global rank, or -1 if no launcher set one.
+
+    Checked in the same order Lightning uses (``lightning.fabric.utilities.
+    rank_zero._get_rank``), so ``RANK`` agrees with ``trainer.global_rank``:
+
+    - ``RANK``: the global rank, set by ``torchrun`` (also on multi-node runs,
+      where ``LOCAL_RANK`` is 0 once per node).
+    - ``LOCAL_RANK``: set by Lightning for the processes it spawns itself
+      (``sleap-nn train`` with ``trainer_devices > 1``), and by ``torchrun``.
+    - ``SLURM_PROCID``: the global rank under Slurm's ``srun``, which starts one
+      task per GPU and sets neither of the above. Lightning's
+      ``SLURMEnvironment`` uses it, so without this check every srun task
+      would see -1 and act as rank 0.
+    - ``JSM_NAMESPACE_RANK``: the global rank under LSF's ``jsrun``.
+
+    ``LOCAL_RANK`` comes before ``SLURM_PROCID`` because a Lightning-spawned
+    child inside a Slurm job inherits ``SLURM_PROCID=0`` from its parent.
+    """
+    for key in ("RANK", "LOCAL_RANK", "SLURM_PROCID", "JSM_NAMESPACE_RANK"):
+        value = os.environ.get(key)
+        if value is not None and value.strip() != "":
+            return int(value)
+    return -1
+
+
+# Rank for distributed training, read once at import (before the Lightning
+# Trainer exists). -1 means "not distributed"; 0 and -1 both mean the main
+# process, which alone writes run-folder files and logs INFO messages.
+RANK = _get_rank()
 
 
 # Force-disable Apple Metal (MPS) acceleration when ``SLEAP_NN_DISABLE_MPS=1``.
