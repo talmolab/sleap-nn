@@ -4,8 +4,80 @@ import os
 import sys
 from loguru import logger
 
-# Get RANK for distributed training
-RANK = int(os.environ.get("LOCAL_RANK", -1))
+
+def _get_rank() -> int:
+    """Return this process's global rank, or -1 if no launcher set one.
+
+    Checked in the same order Lightning uses (``lightning.fabric.utilities.
+    rank_zero._get_rank``), so ``RANK`` agrees with ``trainer.global_rank``:
+
+    - ``RANK``: the global rank, set by ``torchrun`` (also on multi-node runs,
+      where ``LOCAL_RANK`` is 0 once per node).
+    - ``LOCAL_RANK``: set by Lightning for the processes it spawns itself
+      (``sleap-nn train`` with ``trainer_devices > 1``), and by ``torchrun``.
+    - ``SLURM_PROCID``: the global rank under Slurm's ``srun``, which starts one
+      task per GPU and sets neither of the above. Lightning's
+      ``SLURMEnvironment`` uses it, so without this check every srun task
+      would see -1 and act as rank 0.
+    - ``JSM_NAMESPACE_RANK``: the global rank under LSF's ``jsrun``.
+
+    ``LOCAL_RANK`` comes before ``SLURM_PROCID`` because a Lightning-spawned
+    child inside a Slurm job inherits ``SLURM_PROCID=0`` from its parent.
+    """
+    for key in ("RANK", "LOCAL_RANK", "SLURM_PROCID", "JSM_NAMESPACE_RANK"):
+        value = os.environ.get(key)
+        if value is not None and value.strip() != "":
+            return int(value)
+    return -1
+
+
+# Rank for distributed training, read once at import (before the Lightning
+# Trainer exists). -1 means "not distributed"; 0 and -1 both mean the main
+# process, which alone writes the run folder's files during training.
+RANK = _get_rank()
+
+# Rank the log filter below uses: only ranks 0 and -1 print INFO and WARNING.
+# At import it is read from LOCAL_RANK alone, as before, NOT from SLURM_PROCID:
+# commands other than training can be started as several independent srun tasks
+# (for example ``srun -n 4`` running a wrapper that predicts a different video in
+# each task), and each of those keeps its own logs. Training switches it to the
+# training rank when it starts (`_use_training_rank`), so the DDP processes of
+# one training run print each message once.
+_LOG_RANK = int(os.environ.get("LOCAL_RANK", -1))
+
+# Modules that copy ``RANK`` at import (``from sleap_nn import RANK``), so
+# `_use_training_rank` updates their copy too.
+_RANK_COPIES = ("sleap_nn.training.model_trainer", "sleap_nn.training.callbacks")
+
+
+def _use_training_rank(trainer_devices=None) -> None:
+    """Set the rank training uses for its logs and the run folder's files.
+
+    Called at the start of training (``sleap-nn train``, ``run_training``,
+    ``ModelTrainer.train``) with the config's ``trainer_config.trainer_devices``.
+    Re-reads the environment, so it also sees a rank set after import.
+
+    - ``trainer_devices`` set to 1: this process trains on its own, whatever rank
+      its launcher gave it, so it is the main process: rank -1 for the logs and for
+      the run folder's files. This covers several independent trainings started
+      as the tasks of one ``srun`` (for example ``srun -n 2`` running a wrapper that
+      picks a different config in each task): task 1 is not a DDP worker.
+    - Anything else (``"auto"``, several devices, not set): INFO and WARNING logs
+      print on global rank 0 only, also under srun. ``RANK`` keeps the value it
+      got at import. Set ``trainer_devices: 1`` explicitly for independent
+      trainings started as srun tasks.
+
+    ERROR messages print on every rank either way.
+    """
+    global RANK, _LOG_RANK
+    if trainer_devices == 1 and not isinstance(trainer_devices, bool):
+        RANK = _LOG_RANK = -1
+        for name in _RANK_COPIES:
+            module = sys.modules.get(name)
+            if module is not None:
+                module.RANK = -1
+    else:
+        _LOG_RANK = _get_rank()
 
 
 # Force-disable Apple Metal (MPS) acceleration when ``SLEAP_NN_DISABLE_MPS=1``.
@@ -38,7 +110,7 @@ def _should_log(record):
         return True
 
     # Log info only on rank 0
-    if RANK in [0, -1] and record["level"].no >= logger.level("INFO").no:
+    if _LOG_RANK in [0, -1] and record["level"].no >= logger.level("INFO").no:
         return True
 
     return False

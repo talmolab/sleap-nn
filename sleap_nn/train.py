@@ -7,6 +7,7 @@ from time import time
 from omegaconf import DictConfig, OmegaConf
 from typing import Any, Dict, Optional, List, Tuple, Union
 import sleap_io as sio
+import sleap_nn
 from sleap_nn.config.training_job_config import TrainingJobConfig
 from sleap_nn.training.model_trainer import ModelTrainer
 from sleap_nn.evaluation import run_evaluation
@@ -503,6 +504,9 @@ def run_training(
             (leaving nothing behind), and skip post-training evaluation. See
             `ModelTrainer.train`.
     """
+    sleap_nn._use_training_rank(
+        OmegaConf.select(config, "trainer_config.trainer_devices", default=None)
+    )
     if dry_run:
         logger.info(get_startup_info_string())
         trainer = ModelTrainer.get_model_trainer_from_config(
