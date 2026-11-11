@@ -40,21 +40,44 @@ RANK = _get_rank()
 # At import it is read from LOCAL_RANK alone, as before, NOT from SLURM_PROCID:
 # commands other than training can be started as several independent srun tasks
 # (for example ``srun -n 4`` running a wrapper that predicts a different video in
-# each task), and each of those keeps its own logs. Training switches it to
-# ``RANK`` when it starts (`_use_training_rank_for_logs`), so the DDP processes
-# of one training run print each message once.
+# each task), and each of those keeps its own logs. Training switches it to the
+# training rank when it starts (`_use_training_rank`), so the DDP processes of
+# one training run print each message once.
 _LOG_RANK = int(os.environ.get("LOCAL_RANK", -1))
 
+# Modules that copy ``RANK`` at import (``from sleap_nn import RANK``), so
+# `_use_training_rank` updates their copy too.
+_RANK_COPIES = ("sleap_nn.training.model_trainer", "sleap_nn.training.callbacks")
 
-def _use_training_rank_for_logs() -> None:
-    """Quiet INFO/WARNING logs on every training process but global rank 0.
+
+def _use_training_rank(trainer_devices=None) -> None:
+    """Set the rank training uses for its logs and the run folder's files.
 
     Called at the start of training (``sleap-nn train``, ``run_training``,
-    ``ModelTrainer.train``). Re-reads the environment, so it also sees a rank set
-    after import. ERROR messages still print on every rank.
+    ``ModelTrainer.train``) with the config's ``trainer_config.trainer_devices``.
+    Re-reads the environment, so it also sees a rank set after import.
+
+    - ``trainer_devices`` set to 1: this process trains on its own, whatever rank
+      its launcher gave it, so it is the main process: rank -1 for the logs and for
+      the run folder's files. This covers several independent trainings started
+      as the tasks of one ``srun`` (for example ``srun -n 2`` running a wrapper that
+      picks a different config in each task): task 1 is not a DDP worker.
+    - Anything else (``"auto"``, several devices, not set): INFO and WARNING logs
+      print on global rank 0 only, also under srun. ``RANK`` keeps the value it
+      got at import. Set ``trainer_devices: 1`` explicitly for independent
+      trainings started as srun tasks.
+
+    ERROR messages print on every rank either way.
     """
-    global _LOG_RANK
-    _LOG_RANK = _get_rank()
+    global RANK, _LOG_RANK
+    if trainer_devices == 1 and not isinstance(trainer_devices, bool):
+        RANK = _LOG_RANK = -1
+        for name in _RANK_COPIES:
+            module = sys.modules.get(name)
+            if module is not None:
+                module.RANK = -1
+    else:
+        _LOG_RANK = _get_rank()
 
 
 # Force-disable Apple Metal (MPS) acceleration when ``SLEAP_NN_DISABLE_MPS=1``.

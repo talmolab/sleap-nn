@@ -189,6 +189,11 @@ def test_prediction_superseded_by_a_user_instance_is_not_trained_on(
     same animal (same track) on one frame are one sample, the user one. Predictions
     on frames nobody proofread stay samples."""
     monkeypatch.setattr("sleap_nn.training.model_trainer.RANK", rank)
+    # The config trains on one device, which makes a process the main one
+    # (`sleap_nn._use_training_rank`); keep the patched rank instead.
+    monkeypatch.setattr(
+        "sleap_nn._use_training_rank", lambda trainer_devices=None: None
+    )
     # Under DDP, rank 0 creates the run directory; this process stands in for a
     # worker, so create it here.
     (tmp_path / "merged").mkdir()

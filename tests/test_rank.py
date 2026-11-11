@@ -115,7 +115,7 @@ LOG_SCRIPT = """
 import sleap_nn
 from loguru import logger
 logger.info("setup-info")
-sleap_nn._use_training_rank_for_logs()
+sleap_nn._use_training_rank()
 logger.info("train-info")
 logger.warning("train-warning")
 logger.error("train-error")
@@ -157,6 +157,69 @@ def test_model_trainer_train_switches_logs_to_training_rank(clean_env):
 
     clean_env.setenv("SLURM_PROCID", "1")
     clean_env.setattr(sleap_nn, "_LOG_RANK", -1)
-    fake = SimpleNamespace(_train=lambda dry_run: "trained")
+    fake = SimpleNamespace(
+        _train=lambda dry_run: "trained",
+        config=OmegaConf.create({"trainer_config": {"trainer_devices": "auto"}}),
+    )
     assert ModelTrainer.train(fake) == "trained"
     assert sleap_nn._LOG_RANK == 1
+
+
+ONE_DEVICE_SCRIPT = """
+import sleap_nn
+import sleap_nn.training.callbacks as callbacks
+import sleap_nn.training.model_trainer as model_trainer
+from loguru import logger
+sleap_nn._use_training_rank({devices!r})
+print("ranks", sleap_nn.RANK, model_trainer.RANK, callbacks.RANK, sleap_nn._LOG_RANK)
+logger.info("train-info")
+"""
+
+
+@pytest.mark.parametrize(
+    "devices, ranks, logs",
+    [
+        # Several independent trainings as the tasks of one srun: task 1 trains on
+        # its own, so it writes its run folder's files and prints its logs.
+        (1, "ranks -1 -1 -1 -1", True),
+        # "auto" (or several devices): task 1 is a DDP worker, as before.
+        ("auto", "ranks 1 1 1 1", False),
+        (2, "ranks 1 1 1 1", False),
+        (None, "ranks 1 1 1 1", False),
+    ],
+)
+def test_one_device_srun_task_is_its_own_main_process(devices, ranks, logs):
+    out = _run_fresh(
+        ONE_DEVICE_SCRIPT.format(devices=devices),
+        {"SLURM_PROCID": "1", "SLURM_LOCALID": "1"},
+    )
+    assert ranks in out
+    assert ("train-info" in out) == logs
+
+
+def test_run_training_passes_trainer_devices(clean_env):
+    from sleap_nn.train import ModelTrainer, run_training
+
+    seen = []
+    clean_env.setattr(sleap_nn, "_use_training_rank", seen.append)
+
+    def stop(*args, **kwargs):
+        raise RuntimeError("stop before training")
+
+    clean_env.setattr(ModelTrainer, "get_model_trainer_from_config", stop)
+    with pytest.raises(RuntimeError, match="stop before training"):
+        run_training(OmegaConf.create({"trainer_config": {"trainer_devices": 1}}))
+    assert seen == [1]
+
+
+def test_model_trainer_train_passes_trainer_devices(clean_env):
+    from sleap_nn.training.model_trainer import ModelTrainer
+
+    seen = []
+    clean_env.setattr(sleap_nn, "_use_training_rank", seen.append)
+    fake = SimpleNamespace(
+        _train=lambda dry_run: "trained",
+        config=OmegaConf.create({"trainer_config": {"trainer_devices": 1}}),
+    )
+    assert ModelTrainer.train(fake) == "trained"
+    assert seen == [1]

@@ -663,11 +663,11 @@ def train(
     import hydra
     import sleap_io as sio
     from omegaconf import OmegaConf
-    from sleap_nn import _use_training_rank_for_logs
+    from sleap_nn import _use_training_rank
     from sleap_nn.train import run_training
 
     # One message per training run, not one per DDP process (also under srun).
-    _use_training_rank_for_logs()
+    _use_training_rank()
 
     # Convert overrides to a mutable list
     overrides = list(overrides)
@@ -738,6 +738,10 @@ def train(
         cfg = hydra.compose(config_name=config_name, overrides=overrides)
         cfg = _adjust_train_config(
             cfg, overrides, resume_target, dry_run, labels, val_labels
+        )
+        # Now that the config is known: a run on one device is its own main process.
+        _use_training_rank(
+            OmegaConf.select(cfg, "trainer_config.trainer_devices", default=None)
         )
         # Logged here, not in `_adjust_train_config`: every route below composes
         # the config again.
