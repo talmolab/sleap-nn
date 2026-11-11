@@ -25,9 +25,10 @@ repository. Time your own setup (see [When to re-benchmark](#when-to-re-benchmar
       VRAM allows.
     - **FP16** delivers the biggest single-flag win (~1.5× on UNets).
       It has no CLI flag yet; turn it on from Python (see [FP16](#fp16)).
-    - **`torch.compile`** adds another ~1.2-1.3×, but pays a 0.5-3 s
-      compile cost — only worth it on long videos. Also Python-only (see
-      [`torch.compile`](#torchcompile)).
+    - **`torch.compile`** (`use_compile=True` on
+      `Predictor.from_model_paths`, Python-only) ran a top-down pair
+      1.4-1.9× faster on an RTX 6000 Ada, but compiling took ~30 s — only
+      worth it on long videos (see [`torch.compile`](#torchcompile)).
     - **`paf_workers=0`** is the right default. Workers are a net loss
       for typical bottom-up workloads at fixture-checkpoint scale.
     - **`--upload_batches`** copies each batch to the GPU before
@@ -100,19 +101,17 @@ so there's no speedup (and we warn).
 FP16 and `torch.compile` are fields of each model's `TorchBackend`. A
 top-down predictor has two models (`predictor.layer.centroid_layer` and
 `predictor.layer.centered_instance_layer`), so set them on both stages.
-`torch.compile` is applied only when a backend is **built**, so setting
-`use_compile = True` on an existing backend does nothing; build a new backend
-around the same model instead. This helper does both, for any trained-checkpoint
-model type (a tiled model runs its inner layer's backend, so the helper rebuilds
-that one):
+Both can be set on an existing backend: setting `use_compile = True`
+compiles its model right away. This helper sets them on every stage, for any
+trained-checkpoint model type (a tiled model runs its inner layer's backend,
+so the helper sets that one):
 
 ```python
 from sleap_nn.inference import Predictor
-from sleap_nn.inference.layers.backends.torch_backend import TorchBackend
 
 
 def use_fast_backends(predictor, fp16=True, compile=True):
-    """Rebuild every model backend of `predictor` with FP16 / torch.compile."""
+    """Turn FP16 / torch.compile on or off for every model backend of `predictor`."""
     layer = predictor.layer
     stages = [
         getattr(layer, name)
@@ -121,14 +120,8 @@ def use_fast_backends(predictor, fp16=True, compile=True):
     ] or [layer]  # top-down has two stages; other model types have one
     for stage in stages:
         stage = getattr(stage, "inner", stage)  # tiled layers run `.inner.backend`
-        old = stage.backend
-        stage.backend = TorchBackend(
-            model=old.model,
-            device=old.device,
-            use_fp16=fp16,
-            use_compile=compile,
-            memory_format=old.memory_format,
-        )
+        stage.backend.use_fp16 = fp16
+        stage.backend.use_compile = compile
 
 
 predictor = Predictor.from_model_paths(["models/my_model/"], device="cuda")
@@ -150,22 +143,89 @@ shipping FP16 to production.
 
 ### `torch.compile`
 
-Mode: `reduce-overhead` (CUDA-graph capture), `dynamic=False`.
+`use_compile=True` on `Predictor.from_model_paths` compiles every model in
+the composition (both models of a top-down pair) with `torch.compile`,
+mode `reduce-overhead` (CUDA graphs). On a built backend,
+`backend.use_compile = True` (and `backend.compile_mode = ...`) compile it
+right away. Not on MPS.
 
 ```python
-use_fast_backends(predictor, fp16=False, compile=True)  # helper from FP16 above
+predictor = Predictor.from_model_paths(
+    ["models/centroid/", "models/centered_instance/"],
+    device="cuda",
+    max_instances=5,     # top-down: lets the instance model compile once
+    use_compile=True,
+)
 ```
+
+The models are compiled for fixed input shapes, so the backend pads every
+batch with zeros to the largest batch it has seen and cuts the outputs back
+to the real batch before peak finding: the pad samples never become
+instances. A top-down pair sends the centered-instance model one crop per
+animal found, a number that changes from batch to batch. The top-down
+layer therefore reserves one crop per centroid slot (`batch_size ×
+max_instances`) up front, and the instance model compiles once for the
+whole run. A video's last, smaller batch is padded too, instead of
+compiling again. Without `max_instances` the slot count is the most
+centroids found in one frame so far, so the instance model compiles again
+each time that maximum rises. In the fp32 run below without
+`max_instances`, it compiled twice (the second time when a frame first
+held 6 detections) and then ran at 628 fps, against 709 with
+`max_instances=5`: the crops were padded to 6 per frame instead of 5.
+
+Measured on an **RTX 6000 Ada** (Windows, torch 2.14.1+cu130, Triton
+3.8), same top-down pair as below, 3,600 frames of a 1280×1024 video with
+5 animals, `max_instances=5`, batches already on the GPU. "Steady state"
+is a second pass over the frames in the same process; the first pass
+includes compiling:
+
+| | eager fps | compiled, steady state | compiled, first pass | compiles |
+|---|---:|---:|---:|---:|
+| fp32, batch 16 | 370 | 709 | 107 | 1 per model |
+| fp16 + channels-last, batch 64 | 997 | 1410 | 108 | 1 per model |
+| fp32 TF32 off, batch 16 | 321 | 400 | 95 | 1 per model |
+
+Compiling both models took ~29 s the first time (the first batch), and
+2 s in a later process with the same compile cache (inductor caches
+compiled kernels on disk). So with a cold cache, compiling paid off after
+about 22,000 frames in fp32 and 100,000 frames in fp16 + channels-last.
+
+!!! note "Before padding"
+    Before batches were padded, the instance model compiled again for
+    every new crop count. In the fp32 run above the crop count took 12
+    different values (64-80), so it compiled 8 times (about 18 s each)
+    before reaching torch's recompile limit; from then on, new counts ran
+    uncompiled. The first pass ran at
+    24 fps (fp32) and 29 fps (fp16 + channels-last).
+
+**It changes results slightly.** Compiled kernels round differently from
+eager ones. Same frames, compared with eager at the same precision: the
+same animals were found in every case, and
+
+| | keypoints moved > 1 px | keypoints bit-identical |
+|---|---:|---:|
+| fp32 TF32 off | 1 of 213,653 | 86% |
+| fp32 (TF32 convolutions, PyTorch's default) | 0.37% | < 0.1% |
+| fp16 + channels-last | 0.65% (and 3 keypoints found by one only) | < 0.1% |
+
+For scale, turning TF32 off in eager moves 0.29% of keypoints by more than
+1 px. The median keypoint moved 0.002 px. Padding alone (eager, every
+batch padded) changes much less: with TF32 off no keypoint moved by more
+than 0.0001 px; with TF32 on 11 keypoints (0.005%), and in fp16 80
+(0.04%), moved by more than 1 px (a different batch size can run
+different cuDNN kernels).
 
 | Reason to enable | Reason to skip |
 |---|---|
-| Long videos (>1000 frames) where compile cost amortizes | Notebook / interactive use — the 0.5–3 s compile cost dominates short runs |
-| Multiple inference passes on the same model in the same process | One-shot inference where you'll never reuse the compiled module |
+| Long videos, or several in one process (the compiled model is reused) | Short clips: compiling takes longer than it saves |
+| A warm compile cache (same machine, same models) | Results must match eager bit for bit |
 
 !!! warning "Static shapes"
     `dynamic=False` (not configurable) locks the compiled graph to one
-    input shape; a new shape recompiles. Frames of one video share a shape,
-    and setting `max_height` / `max_width` in the training config pads every
-    frame to one size.
+    input shape. The batch dimension is padded (above), but a new frame
+    size still recompiles. Frames of one video share a size, and setting
+    `max_height` / `max_width` in the training config pads every frame to
+    one size.
 
 ### Batches on the GPU (`upload_batches`)
 
@@ -371,7 +431,8 @@ deploying to:
   may finally start mattering.
 - **Variable-resolution input** (different videos with different
   shapes): skip `torch.compile`. The backend compiles with `dynamic=False`
-  (not configurable), so every new input shape recompiles.
+  (not configurable): the batch size is padded to one size, but every new
+  frame size recompiles.
 
 To compare settings on your own data, time `predictor.predict(...)` on a few
 hundred frames of your video (after one warm-up call) with each setting.

@@ -175,3 +175,89 @@ def test_centroid_nms_dedupes_close_centroids(monkeypatch):
 # end-to-end byte-for-byte parity is captured at the top of the stack
 # via the PR 0 goldens (the topdown golden is captured there directly
 # from the full predictor and is the canonical comparison point).
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# use_compile: one compile however many animals are found (#783)
+# ─────────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.skipif(
+    not CENTROID_CKPT.exists() or not CENTERED_CKPT.exists(),
+    reason="topdown checkpoints not present",
+)
+def test_compiled_topdown_compiles_each_model_once(monkeypatch):
+    """The crop count changes from batch to batch; each model still compiles once.
+
+    ``torch.compile`` runs real dynamo on its eager backend: it guards on input
+    shapes and builds a new graph for each new shape exactly as with inductor,
+    without inductor's compile time. The crops are padded to one crop per
+    centroid slot (batch size x max_instances); the pad crops must never become
+    instances, so the output equals the uncompiled pipeline's.
+    """
+    import sleap_io as sio
+    import torch._dynamo
+
+    from sleap_nn.inference.predictor import Predictor
+
+    real_compile = torch.compile
+    graphs = []
+
+    def counting_backend(gm, example_inputs):
+        graphs.append(gm)
+        return gm.forward
+
+    def compile_on_eager_backend(model, mode=None, dynamic=None):
+        return real_compile(model, backend=counting_backend, dynamic=dynamic)
+
+    video = sio.load_video(
+        str(CKPT_ROOT.parent / "datasets" / "centered_pair_small.mp4")
+    )
+    frames = np.stack([video[i] for i in range(14)])
+    # Blank frames have no animals: batches of 4 then hold 8, 6, 4 and 2 crops
+    # (2 animals per frame), and the last batch has 2 frames.
+    frames[[5, 9, 10, 13]] = 0
+
+    def run(use_compile):
+        predictor = Predictor.from_model_paths(
+            [str(CENTROID_CKPT), str(CENTERED_CKPT)],
+            device="cpu",
+            batch_size=4,
+            max_instances=2,
+            use_compile=use_compile,
+        )
+        layer = predictor.layer
+        crop_counts = []
+        inner_predict = layer.centered_instance_layer.predict
+
+        def spy(crops, *args, **kwargs):
+            crop_counts.append(crops.shape[0])
+            return inner_predict(crops, *args, **kwargs)
+
+        layer.centered_instance_layer.predict = spy
+        outs = [layer.predict(frames[s : s + 4]) for s in range(0, len(frames), 4)]
+        return outs, crop_counts
+
+    torch._dynamo.reset()
+    monkeypatch.setattr(torch, "compile", compile_on_eager_backend)
+    try:
+        compiled_outs, crop_counts = run(use_compile=True)
+    finally:
+        torch._dynamo.reset()
+    monkeypatch.undo()
+    eager_outs, eager_counts = run(use_compile=False)
+
+    assert crop_counts == eager_counts
+    assert len(set(crop_counts)) >= 3, crop_counts
+    # One graph per model: the centroid model (whose last, smaller batch of
+    # frames is padded too) and the centered-instance model.
+    assert len(graphs) == 2
+
+    for c, e in zip(compiled_outs, eager_outs):
+        assert torch.equal(torch.isnan(c.pred_keypoints), torch.isnan(e.pred_keypoints))
+        torch.testing.assert_close(
+            c.pred_keypoints, e.pred_keypoints, equal_nan=True, atol=1e-3, rtol=0
+        )
+        torch.testing.assert_close(
+            c.pred_peak_values, e.pred_peak_values, equal_nan=True, atol=1e-4, rtol=0
+        )

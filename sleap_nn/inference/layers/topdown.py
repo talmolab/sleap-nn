@@ -338,7 +338,7 @@ class TopDownLayer:
             )
 
         # Run centered-instance model on the crops.
-        stage2_out = self.centered_instance_layer.predict(crops)
+        stage2_out = self._predict_crops(crops, B * max_inst)
 
         # All downstream arithmetic + scatter must run on the device where the
         # centered-instance model actually executed. In the GT-centroid path the
@@ -490,6 +490,22 @@ class TopDownLayer:
             pred_class_vectors=full_class_vectors,
             crops=full_crops,
         )
+
+    def _predict_crops(self, crops: torch.Tensor, n_slots: int) -> Outputs:
+        """Run the stage-2 model on ``crops`` (one per valid centroid slot).
+
+        The crop count changes with the number of animals found. A compiled
+        ``TorchBackend`` pads every batch to the largest one it has seen;
+        reserving one crop per centroid slot (``B * max_inst``, at most
+        ``batch_size * max_instances``) up front lets it compile once for the
+        whole run. The pad crops are cut off again inside the backend, so
+        they never produce instances.
+        """
+        backend = getattr(self.centered_instance_layer, "backend", None)
+        reserve = getattr(backend, "reserve_batch", None)
+        if reserve is not None:
+            reserve(n_slots)
+        return self.centered_instance_layer.predict(crops)
 
     # ──────────────────────────────────────────────────────────────────
     # Stage B: optional centroid NMS
