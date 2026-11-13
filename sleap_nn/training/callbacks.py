@@ -1337,7 +1337,7 @@ class UnifiedVizCallback(Callback):
 
 
 class WandBGalleryCallback(Callback):
-    """Always-on W&B prediction gallery for box detectors and top-down pose models.
+    """W&B prediction gallery for box detectors and top-down pose models.
 
     On by default whenever W&B logging is on (``trainer_config.wandb.gallery``).
     At the end of a validation epoch (rank 0 only, no barrier) it logs:

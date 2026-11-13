@@ -136,6 +136,20 @@ class WandBConfig:
             training. If False, keep the folder. If None (default), automatically delete
             if logging online (wandb_mode != "offline") and keep if logging offline.
             *Default*: `None`.
+        gallery: (bool) Log a prediction gallery at the end of every validation epoch
+            (box detectors and centered-instance models): a fixed, stratified panel of
+            validation samples with ground truth and predictions (`viz/gallery/val`)
+            and a few augmented training inputs with their targets
+            (`viz/gallery/train`). On whenever `use_wandb` is on; independent of
+            `visualize_preds_during_training` and the `viz_*` options. *Default*: `True`.
+        gallery_size: (int) Maximum number of validation samples in the gallery panel.
+            *Default*: `64`.
+        gallery_max_logs: (int) Approximate maximum number of gallery logging events
+            per run; runs that validate more often log every k-th validation (always
+            the first and the last). *Default*: `50`.
+        gallery_labs: (dict, optional) Validation/training file display name -> lab
+            (or any group label) shown in gallery captions. Without it, a file's
+            `provenance["lab"]` is used if present. *Default*: `None`.
     """
 
     entity: Optional[str] = None
@@ -154,6 +168,10 @@ class WandBConfig:
     viz_confmap_threshold: float = 0.1
     log_viz_table: bool = False
     delete_local_logs: Optional[bool] = None
+    gallery: bool = True
+    gallery_size: int = 64
+    gallery_max_logs: int = 50
+    gallery_labs: Optional[Dict[str, str]] = None
 
 
 @define

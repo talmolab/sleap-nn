@@ -117,6 +117,7 @@ from sleap_nn.training.callbacks import (
     LastEpochCheckpoint,
     UnifiedVizCallback,
     ThroughputMonitor,
+    WandBGalleryCallback,
     WeightEMA,
 )
 from sleap_nn import RANK
@@ -2458,6 +2459,100 @@ class ModelTrainer:
             return None, None, None
         return train, val, names
 
+    def _gallery_callback(self) -> Optional["WandBGalleryCallback"]:
+        """The W&B prediction gallery, or ``None`` when it is off or unsupported.
+
+        On when ``trainer_config.use_wandb`` and ``trainer_config.wandb.gallery``
+        (default ``True``) are both on, for box detectors (``bbox_*``) and
+        ``centered_instance`` models.
+        """
+        cfg = self.config.trainer_config
+        if not cfg.use_wandb or not OmegaConf.select(
+            self.config, "trainer_config.wandb.gallery", default=True
+        ):
+            return None
+        from sleap_nn.training import gallery
+
+        if self.model_type in BBOX_MODEL_TYPES:
+            kind = "bbox"
+        elif self.model_type == "centered_instance":
+            kind = "keypoints"
+        else:
+            logger.info(
+                f"W&B gallery: not available for {self.model_type!r} models; skipped."
+            )
+            return None
+
+        def stems(paths, n, prefix):
+            paths = list(paths or [])
+            out = []
+            for i in range(n):
+                if i < len(paths) and paths[i]:
+                    name = Path(str(paths[i])).name
+                    for ext in (".slp", ".pkg"):
+                        name = name[: -len(ext)] if name.endswith(ext) else name
+                    out.append(name)
+                else:
+                    out.append(f"{prefix}{i}")
+            return out
+
+        n_val, n_train = len(self.val_labels), len(self.train_labels)
+        val_names = OmegaConf.select(self.config, "data_config.val_names", default=None)
+        if val_names is not None and len(val_names) == n_val:
+            val_names = [str(x) for x in val_names]
+        else:
+            fallback = self._val_file_names() or stems(
+                OmegaConf.select(
+                    self.config, "data_config.val_labels_path", default=None
+                ),
+                n_val,
+                "val",
+            )
+            val_names = gallery.file_display_names(self.val_labels, fallback)
+        train_names = gallery.file_display_names(
+            self.train_labels,
+            stems(
+                OmegaConf.select(
+                    self.config, "data_config.train_labels_path", default=None
+                ),
+                n_train,
+                "train",
+            ),
+        )
+        labs = OmegaConf.select(self.config, "trainer_config.wandb.gallery_labs")
+        labs = OmegaConf.to_container(labs) if OmegaConf.is_config(labs) else labs
+
+        kwargs = {}
+        if kind == "keypoints" and self.skeletons:
+            model_nodes = list(self.skeletons[0].node_names)
+            train_nodes, val_nodes, _ = self._viz_file_nodes()
+            kwargs = dict(
+                train_file_nodes=train_nodes,
+                val_file_nodes=val_nodes,
+                train_edges=[
+                    gallery.file_edges(lab.skeletons, model_nodes)
+                    for lab in self.train_labels
+                ],
+                val_edges=[
+                    gallery.file_edges(lab.skeletons, model_nodes)
+                    for lab in self.val_labels
+                ],
+            )
+        return WandBGalleryCallback(
+            kind=kind,
+            val_names=val_names,
+            train_names=train_names,
+            val_labs=gallery.file_labs(self.val_labels, val_names, labs),
+            train_labs=gallery.file_labs(self.train_labels, train_names, labs),
+            size=OmegaConf.select(
+                self.config, "trainer_config.wandb.gallery_size", default=64
+            ),
+            max_logs=OmegaConf.select(
+                self.config, "trainer_config.wandb.gallery_max_logs", default=50
+            ),
+            **kwargs,
+        )
+
     def _setup_viz_datasets(self):
         """Setup dataloaders."""
         data_viz_config = self.config.copy()
@@ -3100,6 +3195,11 @@ class ModelTrainer:
                     ),
                 )
             )
+
+        # W&B prediction gallery: on by default while W&B logging is on.
+        gallery_callback = self._gallery_callback()
+        if gallery_callback is not None:
+            callbacks.append(gallery_callback)
 
         # Add custom progress bar with better metric formatting
         if self.config.trainer_config.enable_progress_bar:

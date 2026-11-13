@@ -439,7 +439,29 @@ trainer_config:
     wandb_mode: online        # online, offline
     save_viz_imgs_wandb: true
     delete_local_logs: null   # Auto-delete online logs
+    gallery: true             # Prediction gallery (default on with use_wandb)
 ```
+
+With `use_wandb: true`, box detectors (`bbox_*`) and centered-instance models log a
+**prediction gallery** at the end of every validation epoch, independent of
+`visualize_preds_during_training`:
+
+- `viz/gallery/val`: a fixed panel of up to `gallery_size` validation samples, chosen once
+  per run and stratified by validation file (a seeded "typical" draw plus each file's
+  hardest samples: most animals / smallest box for detectors, smallest animal for pose).
+  The same samples are logged every time, so the W&B step slider shows them improving.
+  Detectors use native W&B boxes (toggle ground truth / predictions, filter by score);
+  pose crops are drawn with each file's own nodes and skeleton edges, with the median
+  error in the caption.
+- `viz/gallery/train`: the first samples of the first training batch after each
+  validation, as the model received them (augmented), with their targets.
+- `viz/gallery/seconds`, `viz/gallery/bytes`: time of the event, JPEG bytes so far.
+
+It runs on rank 0 only (one no-grad forward over the panel per event), restores the RNG
+states and module modes it found, and turns itself off with a warning if anything in it
+fails. Events are capped at about `gallery_max_logs` per run and skipped while their
+time would exceed 1% of the training time so far (the first and last always log).
+Set `gallery: false` to turn it off.
 
 ---
 
@@ -757,6 +779,10 @@ Only one scheduler is used. Priority: `cosine_annealing_warmup` >
 | `viz_confmap_threshold` | float | `0.1` | Confidence map mask threshold |
 | `log_viz_table` | bool | `false` | Log images to wandb.Table |
 | `delete_local_logs` | bool | `null` | Delete local logs (auto if online) |
+| `gallery` | bool | `true` | Log the prediction gallery (`viz/gallery/*`) when `use_wandb` |
+| `gallery_size` | int | `64` | Maximum validation samples in the gallery panel |
+| `gallery_max_logs` | int | `50` | Approximate maximum gallery events per run |
+| `gallery_labs` | dict | `null` | File name -> lab (or group) shown in gallery captions |
 
 ### HardKeypointMiningConfig
 

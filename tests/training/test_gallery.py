@@ -1,13 +1,16 @@
-"""W&B prediction gallery: panel selection, drawing and callback safety."""
+"""W&B prediction gallery: panel selection, drawing, callback safety and training runs."""
 
 import os
 import random
+from pathlib import Path
 
 import numpy as np
 import pytest
 import torch
 import wandb
+from omegaconf import OmegaConf
 
+from sleap_nn.config.trainer_config import TrainerConfig, WandBConfig
 from sleap_nn.training import gallery
 from sleap_nn.training.callbacks import WandBGalleryCallback
 
@@ -24,6 +27,21 @@ def wandb_offline():
         os.environ.pop("WANDB_MODE", None)
     else:
         os.environ["WANDB_MODE"] = mode
+
+
+# --------------------------------------------------------------------------- #
+# Defaults
+# --------------------------------------------------------------------------- #
+def test_gallery_is_on_by_default():
+    w = WandBConfig()
+    assert w.gallery is True
+    assert (w.gallery_size, w.gallery_max_logs, w.gallery_labs) == (64, 50, None)
+    assert TrainerConfig().wandb.gallery is True
+    # A config written before the key existed gets the default.
+    cfg = OmegaConf.merge(
+        OmegaConf.structured(WandBConfig), OmegaConf.create({"viz_enabled": False})
+    )
+    assert cfg.gallery is True
 
 
 # --------------------------------------------------------------------------- #
@@ -221,3 +239,75 @@ def test_time_budget(monkeypatch):
     now[0] = 250.0  # 2.5 s budget >= 1 + 1
     assert not cb._over_budget(1)
     assert not cb._over_budget(9)  # the last planned validation always logs
+
+
+# --------------------------------------------------------------------------- #
+# Training runs (CPU, W&B offline)
+# --------------------------------------------------------------------------- #
+def _gallery_callback(model_trainer):
+    cbs = [
+        cb
+        for cb in model_trainer.trainer.callbacks
+        if isinstance(cb, WandBGalleryCallback)
+    ]
+    assert len(cbs) == 1
+    return cbs[0]
+
+
+def _logged_media(run_dir: Path):
+    media = list(run_dir.rglob("media/images/viz/gallery/*.jpg"))
+    return [p.name for p in media if p.name.startswith("val_")], [
+        p.name for p in media if p.name.startswith("train_")
+    ]
+
+
+def test_gallery_centered_instance_training(config, tmp_path):
+    from sleap_nn.training.model_trainer import ModelTrainer
+
+    cfg = config.copy()
+    OmegaConf.update(cfg, "trainer_config.use_wandb", True)
+    OmegaConf.update(cfg, "trainer_config.save_ckpt", True)
+    OmegaConf.update(cfg, "trainer_config.ckpt_dir", str(tmp_path))
+    OmegaConf.update(cfg, "trainer_config.run_name", "ci")
+    OmegaConf.update(cfg, "trainer_config.wandb.delete_local_logs", False)
+    OmegaConf.update(cfg, "trainer_config.wandb.gallery_labs", {"minimal": "lab"})
+    model_trainer = ModelTrainer.get_model_trainer_from_config(cfg)
+    model_trainer.train()
+    cb = _gallery_callback(model_trainer)
+    assert cb.enabled and cb.kind == "keypoints"
+    assert len(cb.event_seconds) == cfg.trainer_config.max_epochs
+    val, train = _logged_media(tmp_path / "ci")
+    assert val and train
+
+
+def test_gallery_off_switch_and_without_wandb(config, tmp_path):
+    from sleap_nn.training.model_trainer import ModelTrainer
+
+    cfg = config.copy()
+    OmegaConf.update(cfg, "trainer_config.ckpt_dir", str(tmp_path))
+    OmegaConf.update(cfg, "trainer_config.use_wandb", True)
+    model_trainer = ModelTrainer.get_model_trainer_from_config(cfg)
+    assert isinstance(model_trainer._gallery_callback(), WandBGalleryCallback)
+    OmegaConf.update(model_trainer.config, "trainer_config.wandb.gallery", False)
+    assert model_trainer._gallery_callback() is None
+    OmegaConf.update(model_trainer.config, "trainer_config.wandb.gallery", True)
+    OmegaConf.update(model_trainer.config, "trainer_config.use_wandb", False)
+    assert model_trainer._gallery_callback() is None
+
+
+def test_gallery_bbox_detr_training(config, tmp_path):
+    from sleap_nn.training.model_trainer import ModelTrainer
+    from tests.test_bbox_detr_training import _detr_train_config
+
+    cfg = _detr_train_config(config, tmp_path, run_name="det", multi_scale=True)
+    cfg.trainer_config.visualize_preds_during_training = False
+    cfg.trainer_config.eval = {"enabled": False}
+    cfg.trainer_config.use_wandb = True
+    OmegaConf.update(cfg, "trainer_config.wandb.delete_local_logs", False)
+    model_trainer = ModelTrainer.get_model_trainer_from_config(cfg)
+    model_trainer.train()
+    cb = _gallery_callback(model_trainer)
+    assert cb.enabled and cb.kind == "bbox"
+    assert len(cb.event_seconds) == cfg.trainer_config.max_epochs
+    val, train = _logged_media(tmp_path / "det")
+    assert val and train
