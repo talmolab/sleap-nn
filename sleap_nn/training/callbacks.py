@@ -3413,12 +3413,13 @@ class BBoxEvaluationCallback(Callback):
     """
 
     # Lower-is-better keys (counts of errors); everything else is higher-is-better.
-    _LOWER_IS_BETTER = ("bbox_n_fp", "bbox_n_fn")
+    _LOWER_IS_BETTER = ("bbox_n_fp", "bbox_n_fn", "bbox_false_per_frame")
 
-    def __init__(self, eval_frequency: int = 1):
+    def __init__(self, eval_frequency: int = 1, cover_metrics: bool = False):
         """Initialize the callback."""
         super().__init__()
         self.eval_frequency = eval_frequency
+        self.cover_metrics = cover_metrics
 
     def on_validation_epoch_start(self, trainer, pl_module):
         """Enable detection collection on scored epochs (not the sanity check)."""
@@ -3431,7 +3432,12 @@ class BBoxEvaluationCallback(Callback):
 
     def on_validation_epoch_end(self, trainer, pl_module):
         """Score the collected detections and log the metrics."""
-        from sleap_nn.evaluation import BBOX_EVAL_LOG_KEYS, compute_bbox_metrics
+        from sleap_nn.evaluation import (
+            BBOX_COVER_LOG_KEYS,
+            BBOX_EVAL_LOG_KEYS,
+            compute_bbox_cover_metrics,
+            compute_bbox_metrics,
+        )
 
         scored = (
             trainer.current_epoch + 1
@@ -3451,6 +3457,8 @@ class BBoxEvaluationCallback(Callback):
                         num_classes=len(pl_module.categories),
                         max_detections=pl_module.decoder.max_detections,
                     )
+                    if self.cover_metrics:
+                        metrics.update(compute_bbox_cover_metrics(frames))
                     logger.info(
                         f"Epoch {trainer.current_epoch} bbox evaluation: "
                         f"mAP={metrics['bbox_mAP']:.4f}, "
@@ -3466,7 +3474,10 @@ class BBoxEvaluationCallback(Callback):
             # monitor, so every rank gets rank 0's values, even after a failed eval.
             values = None
             if metrics is not None:
-                values = {key: metrics.get(key) for key in BBOX_EVAL_LOG_KEYS}
+                keys = BBOX_EVAL_LOG_KEYS + (
+                    BBOX_COVER_LOG_KEYS if self.cover_metrics else ()
+                )
+                values = {key: metrics.get(key) for key in keys}
             values = trainer.strategy.broadcast(values, src=0)
             self._log_metrics(trainer, values or {}, trainer.current_epoch)
 
@@ -3512,10 +3523,11 @@ class BBoxEvaluationCallback(Callback):
         import numpy as np
         import torch
         from lightning.pytorch.loggers import WandbLogger
-        from sleap_nn.evaluation import BBOX_EVAL_LOG_KEYS
+        from sleap_nn.evaluation import BBOX_COVER_LOG_KEYS, BBOX_EVAL_LOG_KEYS
 
         log_dict = {}
-        for key in BBOX_EVAL_LOG_KEYS:
+        keys = BBOX_EVAL_LOG_KEYS + (BBOX_COVER_LOG_KEYS if self.cover_metrics else ())
+        for key in keys:
             raw_value = metrics.get(key, float("nan"))
             lower_is_better = key in self._LOWER_IS_BETTER
             if raw_value is None or np.isnan(raw_value):

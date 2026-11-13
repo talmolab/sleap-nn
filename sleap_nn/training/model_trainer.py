@@ -3236,6 +3236,13 @@ class ModelTrainer:
                 callbacks.append(
                     BBoxEvaluationCallback(
                         eval_frequency=self.config.trainer_config.eval.frequency,
+                        cover_metrics=bool(
+                            OmegaConf.select(
+                                self.config,
+                                "trainer_config.eval.bbox_cover_metrics",
+                                default=False,
+                            )
+                        ),
                     )
                 )
             elif self.model_type in (

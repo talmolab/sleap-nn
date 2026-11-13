@@ -2516,21 +2516,164 @@ def _greedy_match_bboxes(
     return gt_idx, matched_iou
 
 
+def _box_area(b: np.ndarray) -> np.ndarray:
+    return np.clip(b[:, 2] - b[:, 0], 0, None) * np.clip(b[:, 3] - b[:, 1], 0, None)
+
+
+def _box_intersection(a: np.ndarray, b: np.ndarray) -> np.ndarray:
+    """Pairwise intersection area of ``(n, 4)`` and ``(m, 4)`` xyxy boxes -> ``(n, m)``."""
+    if a.shape[0] == 0 or b.shape[0] == 0:
+        return np.zeros((a.shape[0], b.shape[0]))
+    lt = np.maximum(a[:, None, :2], b[None, :, :2])
+    rb = np.minimum(a[:, None, 2:], b[None, :, 2:])
+    return np.prod(np.clip(rb - lt, 0, None), axis=-1)
+
+
+def _covers_ignore_region(
+    pred: np.ndarray, gt: np.ndarray, ignore: Any, cover: float = 0.5
+) -> np.ndarray:
+    """Predictions to drop: covering an ignore region and matching no kept GT (IoU 0.5)."""
+    ign = np.asarray(ignore, dtype=np.float64).reshape(-1, 4)
+    if pred.shape[0] == 0 or ign.shape[0] == 0:
+        return np.zeros(pred.shape[0], dtype=bool)
+    covers = (
+        _box_intersection(pred, ign) / np.maximum(_box_area(ign), 1e-12)[None]
+    ).max(axis=1) >= cover
+    matches = (
+        bbox_iou_matrix(pred, gt).max(axis=1) >= 0.5
+        if gt.shape[0]
+        else np.zeros(pred.shape[0], dtype=bool)
+    )
+    return covers & ~matches
+
+
+BBOX_COVER_FPPF = (0.1, 0.25, 0.5)
+
+
+def compute_bbox_cover_metrics(
+    frames: List[Dict[str, np.ndarray]],
+    cover: float = 0.5,
+    false_per_frame: Tuple[float, ...] = BBOX_COVER_FPPF,
+    score_threshold: Optional[float] = 0.1,
+    ignore_cover: float = 0.5,
+) -> Dict[str, Any]:
+    """Share of objects covered by a box at fixed false boxes per frame (class-agnostic).
+
+    A predicted box *covers* a GT box when it holds at least ``cover`` of the GT box's
+    area (intersection / GT area). Per frame, boxes are taken by descending score and
+    each goes to the free GT box it covers most; a box that covers no free GT box is a
+    false box (a second box on an already covered object is one). The assignment at any
+    score threshold is a prefix of the assignment of all boxes, so one pass gives the
+    whole curve of (covered share, false boxes per frame) over thresholds. Unlike
+    IoU-based recall, the cover rule does not penalise a box for being larger than a GT
+    box that is thin or partial (for example a box built from a few keypoints), and
+    reading the curve at fixed false boxes per frame does not depend on how a detector's
+    scores are calibrated. ``gt_ignore_bboxes`` are handled as in
+    :func:`compute_bbox_metrics`.
+
+    Args:
+        frames: Dicts with ``gt_bboxes``, ``pred_bboxes``, ``pred_scores`` (and optional
+            ``gt_ignore_bboxes``), as for :func:`compute_bbox_metrics`.
+        cover: Share of a GT box a prediction must hold to cover it.
+        false_per_frame: Budgets of false boxes per frame to read the curve at.
+        score_threshold: Also report the covered share and false boxes per frame at
+            this score threshold (``None`` to skip).
+        ignore_cover: As in :func:`compute_bbox_metrics`.
+
+    Returns:
+        ``bbox_cover_recall_at_{t}fppf`` per budget (the covered share at the lowest
+        threshold whose false boxes per frame stay within ``t``), ``bbox_cover_AP``
+        (101-point interpolated AP with the cover rule), ``bbox_cover_recall`` /
+        ``bbox_false_per_frame`` at ``score_threshold``, ``n_frames``, ``n_gt``.
+    """
+    scores, hits = [], []
+    n_gt = 0
+    for f in frames:
+        gt = np.asarray(f["gt_bboxes"], dtype=np.float64).reshape(-1, 4)
+        pb = np.asarray(f["pred_bboxes"], dtype=np.float64).reshape(-1, 4)
+        ps = np.asarray(f["pred_scores"], dtype=np.float64).reshape(-1)
+        keep = np.isfinite(ps) & np.isfinite(pb).all(axis=1)
+        pb, ps = pb[keep], ps[keep]
+        if f.get("gt_ignore_bboxes") is not None:
+            keep = ~_covers_ignore_region(pb, gt, f["gt_ignore_bboxes"], ignore_cover)
+            pb, ps = pb[keep], ps[keep]
+        n_gt += len(gt)
+        hit = np.zeros(len(pb), dtype=bool)
+        if len(pb) and len(gt):
+            v = _box_intersection(pb, gt) / np.maximum(_box_area(gt), 1e-12)[None]
+            taken = np.zeros(len(gt), dtype=bool)
+            for i in np.argsort(-ps, kind="mergesort"):
+                cand = np.where(~taken & (v[i] >= cover))[0]
+                if cand.size:
+                    taken[cand[np.argmax(v[i, cand])]] = True
+                    hit[i] = True
+        scores.append(ps)
+        hits.append(hit)
+    n_frames = len(frames)
+    s = np.concatenate(scores) if scores else np.zeros(0)
+    h = np.concatenate(hits) if hits else np.zeros(0, dtype=bool)
+    order = np.argsort(-s, kind="mergesort")
+    s, h = s[order], h[order]
+    tp, fp = np.cumsum(h), np.cumsum(~h)
+    out: Dict[str, Any] = {"n_frames": n_frames, "n_gt": int(n_gt)}
+    rec = tp / n_gt if n_gt else np.full(len(s), np.nan)
+    fppf = fp / max(n_frames, 1)
+    for t in false_per_frame:
+        ok = np.nonzero(fppf <= t + 1e-12)[0]
+        out[f"bbox_cover_recall_at_{t}fppf"] = (
+            float(rec[ok[-1]]) if ok.size and n_gt else (0.0 if n_gt else float("nan"))
+        )
+    if n_gt and len(s):
+        prec = np.maximum.accumulate((tp / (tp + fp))[::-1])[::-1]
+        grid = np.linspace(0.0, 1.0, 101)
+        inds = np.searchsorted(rec, grid, side="left")
+        valid = inds < len(s)
+        p101 = np.zeros(101)
+        p101[valid] = prec[inds[valid]]
+        out["bbox_cover_AP"] = float(p101.mean())
+    else:
+        out["bbox_cover_AP"] = 0.0 if n_gt else float("nan")
+    if score_threshold is not None:
+        k = int(np.searchsorted(-s, -score_threshold, side="right"))
+        out["bbox_cover_recall"] = float(tp[k - 1] / n_gt) if (k and n_gt) else 0.0
+        out["bbox_false_per_frame"] = float(fp[k - 1] / max(n_frames, 1)) if k else 0.0
+    return out
+
+
+BBOX_COVER_LOG_KEYS = (
+    "bbox_cover_AP",
+    "bbox_cover_recall_at_0.1fppf",
+    "bbox_cover_recall_at_0.25fppf",
+    "bbox_cover_recall_at_0.5fppf",
+    "bbox_cover_recall",
+    "bbox_false_per_frame",
+)
+
+
 def compute_bbox_metrics(
     frames: List[Dict[str, np.ndarray]],
     num_classes: Optional[int] = None,
     iou_thresholds: np.ndarray = BBOX_IOU_THRESHOLDS,
     max_detections: int = 100,
+    ignore_cover: float = 0.5,
 ) -> Dict[str, Any]:
     """COCO-style detection metrics over a set of frames.
 
     Args:
         frames: One dict per evaluated frame with ``gt_bboxes (n, 4)``,
             ``gt_classes (n,)``, ``pred_bboxes (m, 4)``, ``pred_scores (m,)`` and
-            ``pred_classes (m,)`` (xyxy, any consistent pixel space).
+            ``pred_classes (m,)`` (xyxy, any consistent pixel space). Optional
+            ``gt_ignore_bboxes (k, 4)``: ignore regions (COCO "crowd"-like; for example
+            instances with too few labeled points to define a box). A prediction that
+            covers an ignore region (intersection >= ``ignore_cover`` of the region's
+            area) is dropped unless it matches a kept GT box at IoU >= 0.5, so a box on
+            an ignored object is neither a hit nor a false positive. Ignore regions are
+            class-agnostic and never counted as GT. Frames without the key are scored
+            exactly as before.
         num_classes: Number of classes (inferred from the class ids if ``None``).
         iou_thresholds: IoU thresholds averaged by mAP / AR.
         max_detections: Highest-scoring detections kept per frame (COCO's 100).
+        ignore_cover: Share of an ignore region a prediction must cover to be dropped.
 
     Returns:
         A dict with ``bbox_mAP`` (AP@[.5:.95]), ``bbox_AP50``, ``bbox_AP75``,
@@ -2564,6 +2707,11 @@ def compute_bbox_metrics(
         pr_c = np.asarray(f["pred_classes"], dtype=np.int64).reshape(-1)
         keep = np.isfinite(pr_s) & np.isfinite(pr_b).all(axis=1)
         pr_b, pr_s, pr_c = pr_b[keep], pr_s[keep], pr_c[keep]
+        if f.get("gt_ignore_bboxes") is not None:
+            keep = ~_covers_ignore_region(
+                pr_b, gt_b, f["gt_ignore_bboxes"], ignore_cover
+            )
+            pr_b, pr_s, pr_c = pr_b[keep], pr_s[keep], pr_c[keep]
         order = np.argsort(-pr_s, kind="mergesort")[:max_detections]
         pr_b, pr_s, pr_c = pr_b[order], pr_s[order], pr_c[order]
         n_pred += len(pr_s)
