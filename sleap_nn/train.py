@@ -53,6 +53,17 @@ def _oks_run_evaluation_overrides(config: DictConfig) -> Dict[str, Any]:
         )
     if OmegaConf.select(config, "trainer_config.eval.coco_metrics", default=False):
         overrides["coco_metrics"] = True
+    norm_scale = OmegaConf.select(
+        config, "trainer_config.eval.norm_scale", default=None
+    )
+    if norm_scale is not None:
+        overrides["norm_scale"] = norm_scale
+        for key in ("missing_error", "pad_frac", "bootstrap", "bootstrap_by"):
+            value = OmegaConf.select(
+                config, f"trainer_config.eval.norm_{key}", default=None
+            )
+            if value is not None:
+                overrides[f"norm_{key}"] = value
     return overrides
 
 
@@ -927,6 +938,12 @@ def run_training(
                 logger.info(f"Average distance: {metrics['distance_metrics']['avg']}")
                 logger.info(f"p90 dist: {metrics['distance_metrics']['p90']}")
                 logger.info(f"p50 dist: {metrics['distance_metrics']['p50']}")
+                if "normalized_distance_metrics" in metrics:
+                    nm = metrics["normalized_distance_metrics"]
+                    logger.info(
+                        f"normalized p50 {nm['p50']:.4f} / p95 {nm['p95']:.4f} of the "
+                        f"instance scale ({nm['scale']}), miss rate {nm['miss_rate']:.4f}"
+                    )
 
                 # Log test metrics to wandb summary
                 if (

@@ -3268,6 +3268,19 @@ class ModelTrainer:
                         oks_scale=self.config.trainer_config.eval.oks_scale,
                         # Several val files: each file's own videos and nodes.
                         val_files=self._val_files(),
+                        norm_scale=OmegaConf.select(
+                            self.config, "trainer_config.eval.norm_scale", default=None
+                        ),
+                        norm_missing_error=OmegaConf.select(
+                            self.config,
+                            "trainer_config.eval.norm_missing_error",
+                            default=1.0,
+                        ),
+                        norm_pad_frac=OmegaConf.select(
+                            self.config,
+                            "trainer_config.eval.norm_pad_frac",
+                            default=0.0,
+                        ),
                     )
                 )
 
