@@ -64,6 +64,7 @@ from sleap_nn.data.node_weights import (
     get_labeled_nodes_weights,
     instance_node_weights,
 )
+from sleap_nn.data.photometric_extra import ExtraPhotometric
 from sleap_nn.data.utils import make_grid_vectors
 
 try:  # cv2 is a hard dependency of the warp path only.
@@ -526,6 +527,8 @@ class WarpAug:
     erase_scale: Tuple[float, float] = (0.0001, 0.01)
     erase_ratio: Tuple[float, float] = (1.0, 1.0)
     erase_p: float = 0.0
+    # E19 appearance ops (gray, channel shuffle/gain, gamma, invert, down-up, JPEG).
+    extra: ExtraPhotometric = field(default_factory=ExtraPhotometric)
     # Bound to the model's nodes by :meth:`bind_nodes`.
     upper_idx: Optional[np.ndarray] = field(default=None, repr=False)
     lower_idx: Optional[np.ndarray] = field(default=None, repr=False)
@@ -649,6 +652,7 @@ class WarpAug:
                 float(fi("gaussian_noise_std", 0.0)),
             )
             a.gaussian_noise_p = float(fi("gaussian_noise_p", 0.0))
+            a.extra = ExtraPhotometric.from_intensity(i)
         return a
 
     def bind_nodes(self, node_names: Sequence[str]) -> "WarpAug":
@@ -816,6 +820,11 @@ class WarpAug:
             lut = self._hsv_lut(rng)
             if lut is not None:
                 imgs = [_apply_hsv_lut(im, lut) for im in imgs]
+        if self.extra.active:
+            imgs = [_hwc(im) for im in self.extra.color(imgs, rng)]
+            tone = self.extra.tone_lut(rng)
+            if tone is not None:
+                imgs = [_hwc(cv2.LUT(im, tone)) for im in imgs]
         if self.blur_p > 0 and rng.random() < self.blur_p:
             k = _odd_kernel(rng, *self.blur_kernel)
             imgs = [
@@ -855,6 +864,8 @@ class WarpAug:
                 noise = noise * np.float32(sd * 255.0) + np.float32(m * 255.0)
                 out.append(np.clip(im + noise, 0, 255).astype(np.uint8))
             imgs = out
+        if self.extra.active:
+            imgs = [_hwc(im) for im in self.extra.degrade(imgs, rng)]
         if self.coarse_dropout_p > 0 and rng.random() < self.coarse_dropout_p:
             rects = self._dropout_rects(H, W, rng)
             imgs = [_fill_rects(im, rects, r, 0) for im, r in zip(imgs, ratios)]

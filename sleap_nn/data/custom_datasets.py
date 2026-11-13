@@ -5934,7 +5934,12 @@ class BBoxDataset(BaseDataset):
             "frame_idx": torch.tensor(sample["frame_idx"], dtype=torch.int32),
             "orig_size": torch.Tensor(orig_hw).unsqueeze(0),
         }
+        if getattr(self, "_carries_classes", False):
+            sample_dict["_classes"] = classes
         sample_dict = self._apply_common_preprocessing(sample_dict)
+        if "_classes" in sample_dict:  # E19 zoom-out onto a frame may add canvas boxes
+            classes = sample_dict.pop("_classes")
+            n_boxes = int(classes.shape[0])
         if decode_scale is not None and "eff_scale" in sample_dict:
             # Relative to the original frame, not the smaller decode.
             sample_dict["eff_scale"] = sample_dict["eff_scale"] * torch.tensor(
@@ -6021,6 +6026,17 @@ class DetrBBoxDataset(BBoxDataset):
         self.resize_mode = resize_mode
         self.train_hw = (int(train_hw[0]), int(train_hw[1]))
         self.detr_aug = detr_aug
+        self._carries_classes = bool(
+            detr_aug is not None
+            and str(detr_aug.get("zoom_out_canvas", "zero") or "zero") == "frame"
+            and float(detr_aug.get("zoom_out_p", 0.0) or 0.0) > 0
+        )
+        if self._carries_classes:
+            # A frame zoomed out onto another training frame keeps the visible mice of
+            # both, so a sample holds up to twice the largest per-frame box count.
+            self.max_instances = 2 * int(self.max_instances)
+            if hasattr(self.target_encoder, "max_targets"):
+                self.target_encoder.max_targets = self.max_instances
 
     def min_decode_scale(self, height: int, width: int) -> float:
         """Smallest scale of a ``height x width`` frame that no later step enlarges.
@@ -6047,8 +6063,16 @@ class DetrBBoxDataset(BBoxDataset):
         elif self.ensure_grayscale:
             sample["image"] = convert_to_grayscale(sample["image"])
 
+        frame_photo = self.apply_aug and bool(
+            self.intensity_aug is not None
+            and self.intensity_aug.get("frame_photometric", False)
+        )
+        if frame_photo:
+            sample["image"] = self._frame_photometric(sample["image"])
+
         corners = sample["instances"]  # (1, n, 4, 2)
         boxes = corners_to_bboxes(corners[0])
+        boxes = boxes[torch.isfinite(boxes).all(-1)] if "_classes" in sample else boxes
         in_hw = tuple(sample["image"].shape[-2:])
         if self.apply_aug and self.detr_aug is not None:
             aug = self.detr_aug
@@ -6063,7 +6087,28 @@ class DetrBBoxDataset(BBoxDataset):
                 flip_p=float(aug["flip_p"]),
                 vflip_p=float(aug.get("vflip_p", 0.0) or 0.0),
                 rot90_p=float(aug.get("rot90_p", 0.0) or 0.0),
+                zoom_out_p=(
+                    0.0
+                    if str(aug.get("zoom_out_canvas", "zero") or "zero") == "frame"
+                    else float(aug.get("zoom_out_p", 0.0) or 0.0)
+                ),
+                zoom_out_range=(
+                    float(aug.get("zoom_out_min", 0.4) or 0.4),
+                    float(aug.get("zoom_out_max", 1.0) or 1.0),
+                ),
             )
+            if str(aug.get("zoom_out_canvas", "zero") or "zero") == "frame":
+                p_zo = float(aug.get("zoom_out_p", 0.0) or 0.0)
+                if p_zo > 0 and float(torch.rand(())) < p_zo:
+                    sample["image"], boxes, sample["_classes"] = self._zoom_out_on_frame(
+                        sample["image"],
+                        boxes,
+                        sample["_classes"],
+                        (
+                            float(aug.get("zoom_out_min", 0.4) or 0.4),
+                            float(aug.get("zoom_out_max", 1.0) or 1.0),
+                        ),
+                    )
             scale_xy = (self.train_hw[1] / in_hw[1], self.train_hw[0] / in_hw[0])
         else:
             sample["image"], boxes, scale_xy = resize_frame(
@@ -6077,7 +6122,7 @@ class DetrBBoxDataset(BBoxDataset):
         )
 
         if self.apply_aug:
-            if self.intensity_aug is not None:
+            if self.intensity_aug is not None and not frame_photo:
                 sample["image"], sample["instances"] = apply_intensity_augmentation(
                     sample["image"], sample["instances"], **self.intensity_aug
                 )
@@ -6089,6 +6134,99 @@ class DetrBBoxDataset(BBoxDataset):
                     **self.geometric_aug,
                 )[:2]
         return sample
+
+    def _zoom_out_on_frame(self, image, boxes, classes, zoom_range):
+        """Shrink the fitted frame onto another random training frame (E19).
+
+        The canvas frame is read, channel-coerced and fitted to ``train_hw`` like any
+        frame (no other augmentation); its boxes covered >= 50% by the pasted frame are
+        dropped and the rest clipped to outside it (a box straddling the paste keeps
+        only its visible side when that side is a full strip of the box).
+        """
+        import math
+
+        from sleap_nn.data.detr_augmentation import resize_frame, zoom_out
+
+        # Canvas: a uniformly drawn labels file, then a uniform frame of it (a frame-uniform
+        # draw would make the largest set nearly every background).
+        if getattr(self, "_by_file", None) is None:
+            lid = np.asarray(self.labels_idx)
+            self._by_file = [np.flatnonzero(lid == u) for u in np.unique(lid)]
+        grp = self._by_file[int(torch.randint(len(self._by_file), ()))]
+        j = int(grp[int(torch.randint(len(grp), ()))])
+        s2 = self.lf_idx_list[j]
+        img2, dscale = self._read_frame(s2)
+        bg = torch.from_numpy(np.transpose(img2, (2, 0, 1))[None].copy())
+        if self.ensure_rgb:
+            bg = convert_to_rgb(bg)
+        elif self.ensure_grayscale:
+            bg = convert_to_grayscale(bg)
+        if bg.shape[-3] != image.shape[-3]:
+            bg = bg.expand(*bg.shape[:-3], image.shape[-3], *bg.shape[-2:]).clone()
+        xyxy2 = s2["bboxes"].astype(np.float32)
+        if dscale is not None:
+            sx, sy = dscale
+            xyxy2 = xyxy2 * np.asarray([sx, sy, sx, sy], dtype=np.float32)
+        b2 = torch.from_numpy(xyxy2).reshape(-1, 4)
+        bg, b2, _ = resize_frame(bg, b2, self.train_hw, self.resize_mode)
+        bg = bg.to(image.dtype)
+        c2 = torch.from_numpy(s2["bbox_classes"]).long()
+        lo, hi = (math.log(float(v)) for v in zoom_range)
+        f = math.exp(lo + (hi - lo) * float(torch.rand(())))
+        off = (float(torch.rand(())), float(torch.rand(())))
+        small, b1 = zoom_out(image, boxes, f, off)
+        H, W = image.shape[-2:]
+        h, w = max(1, int(round(H * f))), max(1, int(round(W * f)))
+        oy, ox = int(round(off[0] * (H - h))), int(round(off[1] * (W - w)))
+        out = bg.clone()
+        out[..., oy : oy + h, ox : ox + w] = small[..., oy : oy + h, ox : ox + w]
+        keep_b, keep_c = [], []
+        for bb, cc in zip(b2, c2):
+            x1, y1, x2, y2 = [float(v) for v in bb]
+            area = max(0.0, x2 - x1) * max(0.0, y2 - y1)
+            if area <= 0:
+                continue
+            ix = max(0.0, min(x2, ox + w) - max(x1, ox))
+            iy = max(0.0, min(y2, oy + h) - max(y1, oy))
+            if ix * iy >= 0.5 * area:
+                continue
+            if ix * iy > 0:  # clip to the visible side when it is a full strip
+                if y1 >= oy and y2 <= oy + h:
+                    x1, x2 = (x1, ox) if x1 < ox else (ox + w, x2)
+                elif x1 >= ox and x2 <= ox + w:
+                    y1, y2 = (y1, oy) if y1 < oy else (oy + h, y2)
+            keep_b.append([x1, y1, x2, y2])
+            keep_c.append(int(cc))
+        if keep_b:
+            boxes = torch.cat([b1, torch.tensor(keep_b, dtype=b1.dtype)], 0)
+            classes = torch.cat([classes, torch.tensor(keep_c, dtype=classes.dtype)], 0)
+        else:
+            boxes = b1
+        return out, boxes, classes
+
+    def _frame_photometric(self, image: torch.Tensor) -> torch.Tensor:
+        """The warp pipeline's photometric ops on a whole ``(1, C, H, W)`` uint8 frame.
+
+        ``intensity.frame_photometric`` (E19): contrast, brightness, HSV, blurs,
+        noise and :mod:`sleap_nn.data.photometric_extra`, drawn from one generator
+        per worker process.
+        """
+        from sleap_nn.data.topdown_warp import WarpAug
+
+        if getattr(self, "_photo_pid", None) != os.getpid():
+            self._photo_aug = WarpAug.from_configs(None, self.intensity_aug)
+            self._photo_rng = np.random.default_rng((17, torch.initial_seed()))
+            self._photo_pid = os.getpid()
+        dtype = image.dtype
+        x = image[0] if image.ndim == 4 else image
+        hwc = x.permute(1, 2, 0).contiguous().numpy()
+        if hwc.dtype != np.uint8:
+            hwc = np.clip(hwc, 0, 255).astype(np.uint8)
+        out = self._photo_aug.intensity(hwc, self._photo_rng)
+        if out.ndim == 2:
+            out = out[:, :, None]
+        t = torch.from_numpy(np.ascontiguousarray(out)).permute(2, 0, 1).to(dtype)
+        return t[None] if image.ndim == 4 else t
 
 
 # Minimum number of tile-local foreground pixels for a mask to be "owned" by a tile.

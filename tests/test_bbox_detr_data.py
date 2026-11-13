@@ -368,3 +368,39 @@ def test_train_pretrained_backbone_with_mixing(config, minimal_instance, tmp_pat
     assert saved.model_config.backbone_config.pretrained.mode == "tokens"
     assert isinstance(trainer.trainer.train_dataloader, BalancedDataLoader)
     assert torch.isfinite(trainer.trainer.callback_metrics["train/loss"])
+
+
+# --------------------------------------------------------------------------- #
+# E19: zoom-out onto another training frame
+# --------------------------------------------------------------------------- #
+def test_zoom_out_on_frame_keeps_both_frames_boxes(tmp_path):
+    """A frame shrunk onto another frame keeps the canvas mice that stay visible, so a
+    sample can hold more boxes than any one frame; the dataset pads for that instead of
+    failing in the target encoder ("boxes exceed max_targets")."""
+    corners = [(4, 4, 40, 40), (216, 4, 252, 40), (4, 216, 40, 252), (216, 216, 252, 252)]
+    files = [
+        _image_labels(tmp_path, f"z{i}", (256, 256), corners, seed=i) for i in range(2)
+    ]
+    aug = {
+        "crop_p": 0.0,
+        "shortest_sides": [256],
+        "crop_range": [256, 256],
+        "flip_p": 0.0,
+        "zoom_out_p": 1.0,
+        "zoom_out_min": 0.3,
+        "zoom_out_max": 0.3,
+        "zoom_out_canvas": "frame",
+    }
+    ds = _detr_dataset(files, hw=(256, 256), apply_aug=True, detr_aug=aug)
+    assert ds.max_instances == 8 and ds.target_encoder.max_targets == 8
+    torch.manual_seed(0)
+    counts = []
+    for _ in range(20):
+        s = ds[0]
+        counts.append(int(s["num_instances"]))
+        assert s["bboxes"].shape == (8, 4)
+    # 4 pasted mice + the canvas corner mice the small paste does not cover (>= 3).
+    assert max(counts) > 4 and min(counts) >= 7
+    # Off by default: the frame limit stays the largest per-frame count.
+    plain = _detr_dataset(files, hw=(256, 256), apply_aug=True, detr_aug={**aug, "zoom_out_p": 0.0})
+    assert plain.max_instances == 4 and plain.target_encoder.max_targets == 4
