@@ -84,7 +84,7 @@ jobs:
           - os: windows
             runs-on: windows-latest
           - os: mac
-            runs-on: macos-14
+            runs-on: macos-15
           # - os: self-hosted-gpu
           #   runs-on: [self-hosted, puma, gpu, 2xgpu]
         python: [3.13]
