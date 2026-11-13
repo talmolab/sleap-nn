@@ -411,3 +411,125 @@ def test_zoom_out_on_frame_keeps_both_frames_boxes(tmp_path):
         files, hw=(256, 256), apply_aug=True, detr_aug={**aug, "zoom_out_p": 0.0}
     )
     assert plain.max_instances == 4 and plain.target_encoder.max_targets == 4
+
+
+# --------------------------------------------------------------------------- #
+# Copy-paste of animals from other training frames (default off)
+# --------------------------------------------------------------------------- #
+def _animal_labels(tmp_path, name, size_hw, rects, seed=0, link=True):
+    """One frame with a bright blob in each rect, a 5-point instance inside it and its
+    linked person box (unlinked boxes with ``link=False``)."""
+    h, w = size_hw
+    rng = np.random.default_rng(seed)
+    img = np.full((h, w, 3), 40, np.uint8)
+    skel = sio.Skeleton(["a", "b", "c", "d", "e"])
+    insts, boxes = [], []
+    for x1, y1, x2, y2 in rects:
+        img[int(y1) + 2 : int(y2) - 2, int(x1) + 2 : int(x2) - 2] = rng.integers(
+            150, 255, 3
+        )
+        cx, cy = (x1 + x2) / 2, (y1 + y2) / 2
+        pts = np.array(
+            [[x1 + 3, cy], [cx, y1 + 3], [x2 - 3, cy], [cx, y2 - 3], [cx, cy]], float
+        )
+        inst = sio.Instance.from_numpy(pts, skeleton=skel)
+        insts.append(inst)
+        box = _box(x1, y1, x2, y2, "person")
+        if link:
+            box.instance = inst
+        boxes.append(box)
+    path = tmp_path / f"{name}.png"
+    Image.fromarray(img).save(path)
+    video = sio.Video.from_filename([str(path)])
+    lf = sio.LabeledFrame(video=video, frame_idx=0, instances=insts)
+    lf.bboxes = boxes
+    return sio.Labels(videos=[video], labeled_frames=[lf], skeletons=[skel])
+
+
+_PASTE_AUG = {
+    "crop_p": 0.0,
+    "shortest_sides": [256],
+    "crop_range": [256, 256],
+    "flip_p": 0.0,
+    "paste_p": 1.0,
+    "paste_max": 4,
+    "paste_frames": 2,
+    "paste_scale_min": 0.5,
+    "paste_scale_max": 0.5,
+}
+
+
+def test_instance_hull_keeps_points_inside_box():
+    from sleap_nn.data.bboxes import HULL_VERTICES, instance_hull
+
+    pts = np.array([[1, 1], [10, 2], [9, 9], [2, 8], [5, 5], [50, 50], [np.nan, 1]])
+    hull = instance_hull(pts, (0, 0, 12, 12))
+    assert hull.shape == (HULL_VERTICES, 2)
+    kept = hull[np.isfinite(hull).all(1)]
+    assert len(kept) == 4 and not (kept == 50).any()  # interior point and tail out
+    assert np.isnan(instance_hull(pts[:3], (0, 0, 12, 12))).all()  # < 4 points
+    assert np.isnan(instance_hull([[0, 0], [1, 1], [2, 2], [3, 3]], (0, 0, 9, 9))).all()
+
+
+def test_hull_mask_is_soft_and_inside_patch():
+    from sleap_nn.data.detr_augmentation import hull_mask
+
+    m = hull_mask(np.array([[5, 5], [30, 8], [25, 30], [6, 25]]), (36, 40), 2, 1.5)
+    assert m.shape == (36, 40) and float(m[18, 18]) == 1.0 and float(m[0, 39]) == 0.0
+    assert ((m > 0) & (m < 1)).any()  # feathered edge
+
+
+def test_paste_adds_animals_from_other_frames(tmp_path):
+    rects = [(20, 20, 80, 60), (150, 150, 220, 200)]
+    files = [
+        _animal_labels(tmp_path, f"p{i}", (256, 256), rects, seed=i) for i in range(2)
+    ]
+    ds = _detr_dataset(files, hw=(256, 256), apply_aug=True, detr_aug=_PASTE_AUG)
+    assert ds.max_instances == 2 + 4 and ds.target_encoder.max_targets == 6
+    torch.manual_seed(0)
+    counts = []
+    orig = torch.tensor(rects, dtype=torch.float32)
+    for _ in range(20):
+        s = ds[0]
+        n = int(s["num_instances"])
+        counts.append(n)
+        b = s["bboxes"][:n]
+        assert torch.isfinite(b).all()
+        assert (b[:, :2] >= 0).all() and (b[:, 2:] <= 256).all()
+        # pasted boxes (after the frame's own two) never cover half of another box
+        lt = torch.maximum(b[2:, None, :2], orig[None, :, :2])
+        rb = torch.minimum(b[2:, None, 2:], orig[None, :, 2:])
+        inter = (rb - lt).clamp(min=0).prod(-1)
+        assert (inter < 0.5 * (orig[:, 2:] - orig[:, :2]).prod(-1)).all()
+    assert min(counts) >= 3 and max(counts) > 3
+
+
+def test_paste_skips_boxes_without_instances(tmp_path):
+    rects = [(20, 20, 80, 60)]
+    files = [
+        _animal_labels(tmp_path, f"u{i}", (256, 256), rects, seed=i, link=False)
+        for i in range(2)
+    ]
+    ds = _detr_dataset(files, hw=(256, 256), apply_aug=True, detr_aug=_PASTE_AUG)
+    torch.manual_seed(0)
+    assert all(int(ds[0]["num_instances"]) == 1 for _ in range(5))
+
+
+def test_paste_off_by_default_and_in_validation(tmp_path):
+    rects = [(20, 20, 80, 60), (150, 150, 220, 200)]
+    files = [
+        _animal_labels(tmp_path, f"d{i}", (256, 256), rects, seed=i) for i in range(2)
+    ]
+    base = {k: v for k, v in _PASTE_AUG.items() if not k.startswith("paste")}
+    off = _detr_dataset(files, hw=(256, 256), apply_aug=True, detr_aug=base)
+    zero = _detr_dataset(
+        files, hw=(256, 256), apply_aug=True, detr_aug={**_PASTE_AUG, "paste_p": 0.0}
+    )
+    val = _detr_dataset(files, hw=(256, 256), apply_aug=False, detr_aug=_PASTE_AUG)
+    for ds in (off, zero, val):
+        assert ds.max_instances == 2 and "paste_hulls" not in ds.lf_idx_list[0]
+    torch.manual_seed(0)
+    a = off[0]
+    torch.manual_seed(0)
+    b = zero[0]
+    assert torch.equal(a["image"], b["image"]) and torch.equal(a["bboxes"], b["bboxes"])

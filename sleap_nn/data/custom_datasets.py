@@ -86,11 +86,13 @@ from sleap_nn.data.node_weights import (
     node_weights_active,
 )
 from sleap_nn.data.bboxes import (
+    HULL_VERTICES,
     bboxes_to_corners,
     clip_bboxes,
     corners_to_bboxes,
     bbox_head_categories,
     frame_bbox_arrays,
+    frame_bbox_hulls,
     frame_user_bboxes,
     get_bbox_target_encoder,
     instance_crop_bbox,
@@ -5809,18 +5811,19 @@ class BBoxDataset(BaseDataset):
                 if xyxy.shape[0] == 0:
                     continue
                 max_boxes = max(max_boxes, xyxy.shape[0])
-                lf_idx_list.append(
-                    {
-                        "labels_idx": labels_idx,
-                        "lf_idx": lf_idx,
-                        "video_idx": label.videos.index(lf.video),
-                        "frame_idx": lf.frame_idx,
-                        "is_negative": False,
-                        "instances": None,
-                        "bboxes": xyxy,
-                        "bbox_classes": classes,
-                    }
-                )
+                entry = {
+                    "labels_idx": labels_idx,
+                    "lf_idx": lf_idx,
+                    "video_idx": label.videos.index(lf.video),
+                    "frame_idx": lf.frame_idx,
+                    "is_negative": False,
+                    "instances": None,
+                    "bboxes": xyxy,
+                    "bbox_classes": classes,
+                }
+                if getattr(self, "_capture_hulls", False):
+                    entry["paste_hulls"] = frame_bbox_hulls(lf, self.categories)
+                lf_idx_list.append(entry)
         if skipped:
             logger.info(
                 f"Boxes of categories outside {self.categories} are not ground "
@@ -5831,6 +5834,8 @@ class BBoxDataset(BaseDataset):
             for neg in neg_samples:
                 neg["bboxes"] = np.zeros((0, 4), dtype=np.float32)
                 neg["bbox_classes"] = np.zeros((0,), dtype=np.int64)
+                if getattr(self, "_capture_hulls", False):
+                    neg["paste_hulls"] = np.zeros((0, HULL_VERTICES, 2), np.float32)
             if neg_samples:
                 logger.info(
                     f"Added {len(neg_samples)} negative samples "
@@ -6010,6 +6015,12 @@ class DetrBBoxDataset(BBoxDataset):
     ) -> None:
         """Initialize class attributes (see :class:`BBoxDataset`)."""
         kwargs.setdefault("min_visible_fraction", 0.0)
+        paste_p = (
+            float(detr_aug.get("paste_p", 0.0) or 0.0) if detr_aug is not None else 0.0
+        )
+        apply_aug = bool(kwargs.get("apply_aug", False))
+        # Copy-paste needs each box's instance hull, captured while indexing.
+        self._capture_hulls = paste_p > 0 and apply_aug
         super().__init__(*args, **kwargs)
         if self.scale != 1.0:
             raise ValueError(
@@ -6035,6 +6046,14 @@ class DetrBBoxDataset(BBoxDataset):
             # A frame zoomed out onto another training frame keeps the visible mice of
             # both, so a sample holds up to twice the largest per-frame box count.
             self.max_instances = 2 * int(self.max_instances)
+            if hasattr(self.target_encoder, "max_targets"):
+                self.target_encoder.max_targets = self.max_instances
+        if self._capture_hulls:
+            # Copy-paste adds up to `paste_max` boxes to a sample.
+            self._carries_classes = True
+            self.max_instances = int(self.max_instances) + int(
+                detr_aug.get("paste_max", 6) or 6
+            )
             if hasattr(self.target_encoder, "max_targets"):
                 self.target_encoder.max_targets = self.max_instances
 
@@ -6111,6 +6130,11 @@ class DetrBBoxDataset(BBoxDataset):
                             ),
                         )
                     )
+            p_paste = float(aug.get("paste_p", 0.0) or 0.0)
+            if self._capture_hulls and p_paste > 0 and float(torch.rand(())) < p_paste:
+                sample["image"], boxes, sample["_classes"] = self._paste_animals(
+                    sample["image"], boxes, sample["_classes"]
+                )
             scale_xy = (self.train_hw[1] / in_hw[1], self.train_hw[0] / in_hw[0])
         else:
             sample["image"], boxes, scale_xy = resize_frame(
@@ -6204,6 +6228,151 @@ class DetrBBoxDataset(BBoxDataset):
             classes = torch.cat([classes, torch.tensor(keep_c, dtype=classes.dtype)], 0)
         else:
             boxes = b1
+        return out, boxes, classes
+
+    def _paste_animals(self, image, boxes, classes):
+        """Paste animals cut from other training frames onto the fitted frame.
+
+        ``augmentation_config.detr.paste_*``. Source frames (a uniformly drawn file,
+        then frame, up to ``paste_frames`` of them) are read and fitted to
+        ``train_hw`` like any frame, so an animal starts at the size it has in its own
+        fitted frame; each is then scaled by a log-uniform factor, flipped and turned
+        by a multiple of 90 degrees at random, and blended in with a soft mask (its
+        instance's point hull, dilated and feathered:
+        :func:`~sleap_nn.data.detr_augmentation.hull_mask`) at a random place inside
+        the frame's content (not on the letterbox padding), overlapping the boxes
+        already there by at most ``paste_overlap`` of its own box and never covering
+        half of one. Its box is its source box, transformed the same way.
+        """
+        import math
+
+        from sleap_nn.data.detr_augmentation import hull_mask, resize_frame
+
+        aug = self.detr_aug
+        n_max = int(aug.get("paste_max", 6) or 6)
+        n_frames = int(aug.get("paste_frames", 2) or 2)
+        lo = math.log(float(aug.get("paste_scale_min", 0.3) or 0.3))
+        hi = math.log(float(aug.get("paste_scale_max", 1.2) or 1.2))
+        overlap = float(aug.get("paste_overlap", 0.3))
+        dilate = float(aug.get("paste_dilate", 0.08))
+        feather = float(aug.get("paste_feather", 0.04))
+        budget = int(torch.randint(1, n_max + 1, ()))
+
+        H, W = image.shape[-2:]
+        nz = (image.reshape(-1, H, W) != 0).any(0)
+        rows, cols = nz.any(1).nonzero(), nz.any(0).nonzero()
+        if not len(rows):
+            return image, boxes, classes
+        Hc, Wc = int(rows.max()) + 1, int(cols.max()) + 1
+        placed = boxes.reshape(-1, 4).clone().float()
+        out = image.clone()
+        new_b, new_c = [], []
+        if getattr(self, "_by_file", None) is None:
+            lid = np.asarray(self.labels_idx)
+            self._by_file = [np.flatnonzero(lid == u) for u in np.unique(lid)]
+        for _ in range(n_frames):
+            if len(new_b) >= budget:
+                break
+            grp = self._by_file[int(torch.randint(len(self._by_file), ()))]
+            s2 = self.lf_idx_list[int(grp[int(torch.randint(len(grp), ()))])]
+            hulls = s2.get("paste_hulls")
+            if hulls is None or not np.isfinite(hulls).any():
+                continue
+            img2, dscale = self._read_frame(s2)
+            src = torch.from_numpy(np.transpose(img2, (2, 0, 1))[None].copy())
+            if self.ensure_rgb:
+                src = convert_to_rgb(src)
+            elif self.ensure_grayscale:
+                src = convert_to_grayscale(src)
+            if src.shape[-3] != image.shape[-3]:
+                src = src.expand(*src.shape[:-3], image.shape[-3], *src.shape[-2:])
+            xyxy2 = s2["bboxes"].astype(np.float32)
+            hulls = hulls.astype(np.float32)
+            if dscale is not None:
+                sx, sy = dscale
+                xyxy2 = xyxy2 * np.asarray([sx, sy, sx, sy], dtype=np.float32)
+                hulls = hulls * np.asarray([sx, sy], dtype=np.float32)
+            src, b2, (fx, fy) = resize_frame(
+                src,
+                torch.from_numpy(xyxy2).reshape(-1, 4),
+                self.train_hw,
+                self.resize_mode,
+            )
+            hulls = hulls * np.asarray([fx, fy], dtype=np.float32)
+            src = src.to(torch.float32)
+            c2 = s2["bbox_classes"]
+            for k in torch.randperm(len(b2)).tolist():
+                if len(new_b) >= budget:
+                    break
+                if not np.isfinite(hulls[k]).any():
+                    continue
+                x1, y1 = int(math.floor(float(b2[k, 0]))), int(
+                    math.floor(float(b2[k, 1]))
+                )
+                x2, y2 = int(math.ceil(float(b2[k, 2]))), int(
+                    math.ceil(float(b2[k, 3]))
+                )
+                x1, y1 = max(x1, 0), max(y1, 0)
+                x2, y2 = min(x2, src.shape[-1]), min(y2, src.shape[-2])
+                if x2 - x1 < 4 or y2 - y1 < 4:
+                    continue
+                patch = src[0, :, y1:y2, x1:x2]
+                mask = hull_mask(
+                    hulls[k] - np.asarray([x1, y1], dtype=np.float32),
+                    (y2 - y1, x2 - x1),
+                    dilate * max(x2 - x1, y2 - y1),
+                    feather * max(x2 - x1, y2 - y1),
+                )
+                f = math.exp(lo + (hi - lo) * float(torch.rand(())))
+                ph, pw = int(round((y2 - y1) * f)), int(round((x2 - x1) * f))
+                if ph < 4 or pw < 4:
+                    continue
+                pm = torch.cat([patch, mask[None]], 0)
+                pm = torch.nn.functional.interpolate(
+                    pm[None],
+                    size=(ph, pw),
+                    mode="bilinear",
+                    antialias=f < 1,
+                    align_corners=False,
+                )[0]
+                if float(torch.rand(())) < 0.5:
+                    pm = pm.flip(-1)
+                turns = int(torch.randint(4, ()))
+                if turns:
+                    pm = pm.rot90(turns, dims=(-2, -1))
+                ph, pw = pm.shape[-2:]
+                if ph > Hc or pw > Wc:
+                    continue
+                for _try in range(10):
+                    oy = int(torch.randint(Hc - ph + 1, ()))
+                    ox = int(torch.randint(Wc - pw + 1, ()))
+                    cand = torch.tensor(
+                        [[ox, oy, ox + pw, oy + ph]], dtype=torch.float32
+                    )
+                    if len(placed):
+                        lt = torch.maximum(cand[:, :2], placed[:, :2])
+                        rb = torch.minimum(cand[:, 2:], placed[:, 2:])
+                        inter = (rb - lt).clamp(min=0).prod(-1)
+                        area_p = (placed[:, 2:] - placed[:, :2]).clamp(min=0).prod(-1)
+                        if float(inter.max()) > overlap * ph * pw or bool(
+                            (inter >= 0.5 * area_p.clamp(min=1e-6)).any()
+                        ):
+                            continue
+                    region = out[..., oy : oy + ph, ox : ox + pw].to(torch.float32)
+                    alpha = pm[-1:].clamp(0, 1)
+                    blend = alpha * pm[:-1] + (1 - alpha) * region
+                    if not out.dtype.is_floating_point:
+                        blend = blend.round().clamp(0, 255)
+                    out[..., oy : oy + ph, ox : ox + pw] = blend.to(out.dtype)
+                    placed = torch.cat([placed, cand], 0)
+                    new_b.append(cand[0])
+                    new_c.append(int(c2[k]))
+                    break
+        if new_b:
+            boxes = torch.cat(
+                [boxes.reshape(-1, 4), torch.stack(new_b).to(boxes.dtype)], 0
+            )
+            classes = torch.cat([classes, torch.tensor(new_c, dtype=classes.dtype)], 0)
         return out, boxes, classes
 
     def _frame_photometric(self, image: torch.Tensor) -> torch.Tensor:
