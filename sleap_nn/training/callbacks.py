@@ -1336,6 +1336,553 @@ class UnifiedVizCallback(Callback):
         return fig
 
 
+class WandBGalleryCallback(Callback):
+    """W&B prediction gallery for box detectors and top-down pose models.
+
+    On by default whenever W&B logging is on (``trainer_config.wandb.gallery``).
+    At the end of a validation epoch (rank 0 only, no barrier) it logs:
+
+    * ``viz/gallery/val``: a fixed panel of validation samples with ground truth and
+      predictions. The panel is chosen once (on the first event) from the val
+      dataset's sample metadata by :func:`~sleap_nn.training.gallery.select_panel`
+      (stratified by val file, a seeded "typical" draw plus the "hard" samples), and
+      the same images are logged at every event, so the W&B step slider shows the
+      same samples improving. Detectors: frames with native W&B boxes
+      (``ground_truth`` / ``predictions`` with scores, toggled and filtered in the
+      viewer). Pose: crops drawn with OpenCV on the crop's own skeleton (its file's
+      nodes and edges), with the median error in the caption.
+    * ``viz/gallery/train``: the first samples of the first training batch after the
+      previous validation, exactly as the loader produced them (augmented), with
+      their targets; ``bbox_detr`` frames are resized to that step's multi-scale size
+      as the model received them.
+    * ``viz/gallery/seconds`` (wall time of the event) and ``viz/gallery/bytes``
+      (JPEG bytes logged so far).
+
+    Cost: one no-grad forward over the panel per event, in chunks of
+    ``batch_size``, eager even when the model is compiled (no recompilation for a new
+    batch size), under the trainer's precision context, with the weights the
+    validation pass used (EMA swaps out at ``on_validation_end``, after this hook).
+    Events are capped at about ``max_logs`` per run (a stride over the planned
+    validations) and by a time budget: an event is skipped while the gallery's
+    running time would exceed ``max_fraction`` of the training time so far (runs that
+    validate every few seconds). The first and the last planned validation always
+    log. Panel frames are decoded, downscaled and JPEG-encoded once; each event
+    only re-encodes the boxes (detectors) or the drawn crops (pose).
+
+    It never changes training: Python, NumPy, torch CPU and CUDA RNG states and every
+    submodule's train/eval mode are restored after each hook, and the panel and
+    training samples are drawn without touching the training loaders. Any error
+    inside the gallery is logged once as a warning and turns the gallery off for the
+    rest of the run; training continues.
+
+    Attributes:
+        kind: ``"bbox"`` (box detectors) or ``"keypoints"`` (centered instance).
+        size: Maximum validation panel size.
+        max_logs: Approximate maximum number of logging events per run.
+        train_size: Training samples shown per event.
+        frame_long_side: Detector frames are downscaled to this long side.
+        max_fraction: Time budget of the events, as a fraction of training time.
+        enabled: False after an error (or when W&B is not configured).
+    """
+
+    def __init__(
+        self,
+        kind: str,
+        val_names: Sequence[str],
+        train_names: Sequence[str],
+        val_labs: Optional[Sequence[Optional[str]]] = None,
+        train_labs: Optional[Sequence[Optional[str]]] = None,
+        val_file_nodes: Optional[List[List[int]]] = None,
+        train_file_nodes: Optional[List[List[int]]] = None,
+        val_edges: Optional[List[list]] = None,
+        train_edges: Optional[List[list]] = None,
+        categories: Optional[Sequence[str]] = None,
+        size: int = 64,
+        max_logs: int = 50,
+        train_size: int = 8,
+        frame_long_side: int = 640,
+        max_fraction: float = 0.01,
+    ):
+        """Initialize the gallery.
+
+        Args:
+            kind: ``"bbox"`` or ``"keypoints"``.
+            val_names: Display name of every validation labels file.
+            train_names: Display name of every training labels file.
+            val_labs: Optional lab (or other group) per validation file, shown in
+                captions.
+            train_labs: The same per training file.
+            val_file_nodes: Per validation file, the model channels of its nodes
+                (multi-skeleton pose heads); ``None``: every channel.
+            train_file_nodes: The same per training file.
+            val_edges: Per validation file, skeleton edges as model channel pairs.
+            train_edges: The same per training file.
+            categories: Box class names (detectors); default: the module's
+                ``categories``.
+            size: Maximum validation panel size.
+            max_logs: Approximate maximum number of logging events per run.
+            train_size: Training samples shown per event.
+            frame_long_side: Detector frames are downscaled to this long side.
+            max_fraction: Time budget: skip an event while the events so far plus
+                the last event's time would exceed this fraction of the elapsed
+                training time (the one-time panel load is not counted).
+        """
+        super().__init__()
+        if kind not in ("bbox", "keypoints"):
+            raise ValueError(f"Unknown gallery kind {kind!r}.")
+        self.kind = kind
+        self.val_names = list(val_names)
+        self.train_names = list(train_names)
+        self.val_labs = list(val_labs or [None] * len(self.val_names))
+        self.train_labs = list(train_labs or [None] * len(self.train_names))
+        self.val_file_nodes = val_file_nodes
+        self.train_file_nodes = train_file_nodes
+        self.val_edges = val_edges
+        self.train_edges = train_edges
+        self.categories = list(categories) if categories else None
+        self.size = int(size)
+        self.max_logs = max(1, int(max_logs))
+        self.train_size = int(train_size)
+        self.frame_long_side = int(frame_long_side)
+        self.max_fraction = float(max_fraction)
+        self.enabled = True
+        self._panel = None  # list of panel sample dicts (CPU)
+        self._panel_images = None  # (N, 1, C, H, W) uint8 CPU
+        self._train = None  # captured training samples (pinned CPU) + event
+        self._need_train = True
+        self._val_count = 0  # validation epochs seen (sanity check excluded)
+        self._stride = None
+        self._planned = None
+        self._events = 0
+        self._bytes = 0
+        #: Wall time of every logging event (seconds; the first includes the
+        #: panel load, also kept in ``panel_seconds``).
+        self.event_seconds = []
+        self.panel_seconds = 0.0
+        self.skipped_for_budget = 0
+        self._t0 = None
+        self._cache_dir = None
+
+    # ── hooks ──────────────────────────────────────────────────────────────
+    def on_train_start(self, trainer, pl_module):
+        """Start the clock of the time budget."""
+        self._t0 = time.perf_counter()
+
+    def teardown(self, trainer, pl_module, stage):
+        """Remove the cached panel JPEGs."""
+        import shutil
+
+        if self._cache_dir is not None:
+            shutil.rmtree(self._cache_dir, ignore_errors=True)
+            self._cache_dir = None
+
+    def on_train_batch_start(self, trainer, pl_module, batch, batch_idx):
+        """Copy the first samples of the first batch after a validation (async)."""
+        if not (self.enabled and self._need_train and trainer.is_global_zero):
+            return
+        self._need_train = False
+        self._guarded(self._capture_train, trainer, pl_module, batch)
+
+    def on_validation_end(self, trainer, pl_module):
+        """Capture the next training batch."""
+        if not trainer.sanity_checking:
+            self._need_train = True
+
+    def on_validation_epoch_end(self, trainer, pl_module):
+        """Log the gallery (rank 0, capped frequency)."""
+        if not self.enabled or trainer.sanity_checking or not trainer.is_global_zero:
+            return
+        count = self._val_count
+        self._val_count += 1
+        if not self._should_log(trainer, count):
+            return
+        if self._over_budget(count):
+            self.skipped_for_budget += 1
+            return
+        self._guarded(self._log_event, trainer, pl_module)
+
+    # ── scheduling ─────────────────────────────────────────────────────────
+    def _planned_validations(self, trainer) -> Optional[int]:
+        max_epochs = getattr(trainer, "max_epochs", None)
+        if max_epochs is None or max_epochs < 0:
+            return None
+        every = getattr(trainer, "check_val_every_n_epoch", None) or 1
+        per_epoch = 1
+        interval = getattr(trainer, "val_check_interval", 1.0)
+        if isinstance(interval, float) and 0 < interval < 1:
+            per_epoch = int(math.floor(1.0 / interval))
+        return max(1, int(math.ceil(max_epochs / every)) * per_epoch)
+
+    def _should_log(self, trainer, count: int) -> bool:
+        if self._stride is None:
+            self._planned = self._planned_validations(trainer)
+            self._stride = (
+                1
+                if self._planned is None
+                else max(1, math.ceil(self._planned / self.max_logs))
+            )
+        if self._planned is None and self._events >= self.max_logs:
+            # Unknown run length: halve the rate each time the cap is reached.
+            self._stride *= 2
+            self.max_logs *= 2
+        return count % self._stride == 0 or self._is_last(count)
+
+    def _is_last(self, count: int) -> bool:
+        return self._planned is not None and count == self._planned - 1
+
+    def _over_budget(self, count: int) -> bool:
+        """Would this event push the events' time over ``max_fraction``?"""
+        if not self.event_seconds or self._t0 is None or self._is_last(count):
+            return False
+        spent = sum(self.event_seconds) - self.panel_seconds
+        last = self.event_seconds[-1]
+        if len(self.event_seconds) == 1:
+            last -= self.panel_seconds
+        elapsed = time.perf_counter() - self._t0
+        return spent + last > self.max_fraction * elapsed
+
+    # ── safety ─────────────────────────────────────────────────────────────
+    def _guarded(self, fn, trainer, pl_module, *args):
+        """Run ``fn`` with RNG states and module modes restored; never raise."""
+        import random
+
+        import numpy as np
+
+        device = getattr(pl_module, "device", None)
+        cuda = device is not None and device.type == "cuda"
+        states = (
+            random.getstate(),
+            np.random.get_state(),
+            torch.get_rng_state(),
+            torch.cuda.get_rng_state(device) if cuda else None,
+        )
+        modes = [(m, m.training) for m in pl_module.modules()]
+        try:
+            fn(trainer, pl_module, *args)
+        except Exception as e:  # noqa: BLE001 -- the gallery must never stop training
+            self.enabled = False
+            logger.warning(
+                f"W&B gallery turned off for this run after an error: "
+                f"{type(e).__name__}: {e}"
+            )
+        finally:
+            for m, mode in modes:
+                m.training = mode
+            random.setstate(states[0])
+            np.random.set_state(states[1])
+            torch.set_rng_state(states[2])
+            if cuda:
+                torch.cuda.set_rng_state(states[3], device)
+
+    @staticmethod
+    def _wandb_logger(trainer):
+        from lightning.pytorch.loggers import WandbLogger
+
+        for log in trainer.loggers:
+            if isinstance(log, WandbLogger):
+                return log
+        return None
+
+    @staticmethod
+    def _val_dataset(trainer):
+        loaders = trainer.val_dataloaders
+        if isinstance(loaders, (list, tuple)):
+            loaders = loaders[0]
+        return getattr(loaders, "dataset", None), getattr(loaders, "batch_size", None)
+
+    # ── training samples ───────────────────────────────────────────────────
+    def _capture_train(self, trainer, pl_module, batch):
+        key = "image" if self.kind == "bbox" else "instance_image"
+        if not isinstance(batch, dict) or key not in batch:
+            return
+        k = min(self.train_size, int(batch[key].shape[0]))
+        if k <= 0:
+            return
+        keys = [key, "labels_idx", "video_idx", "frame_idx"]
+        keys += (
+            ["bboxes", "bbox_classes", "num_instances"]
+            if self.kind == "bbox"
+            else ["instance", "node_weights"]
+        )
+        out = {}
+        for name in keys:
+            t = batch.get(name)
+            if not isinstance(t, torch.Tensor):
+                continue
+            t = t[:k]
+            if t.is_cuda:
+                dst = torch.empty(t.shape, dtype=t.dtype, pin_memory=True)
+                dst.copy_(t, non_blocking=True)
+                out[name] = dst
+            else:
+                out[name] = t.clone()
+        event = None
+        if out[key].is_pinned():
+            event = torch.cuda.Event()
+            event.record()
+        size = None
+        sizes = getattr(pl_module, "multi_scale_sizes", None)
+        if self.kind == "bbox" and sizes:
+            from sleap_nn.data.detr_augmentation import batch_scale
+
+            # `_train_input` resizes this step's batch to this size.
+            size = tuple(batch_scale(trainer.global_step, sizes))
+        self._train = {"tensors": out, "event": event, "size": size}
+
+    def _train_images(self, categories) -> list:
+        import numpy as np
+
+        from sleap_nn.training import gallery
+
+        if self._train is None:
+            return []
+        if self._train["event"] is not None:
+            self._train["event"].synchronize()
+        t = self._train["tensors"]
+        key = "image" if self.kind == "bbox" else "instance_image"
+        images = []
+        for i in range(t[key].shape[0]):
+            img = gallery.to_rgb_uint8(t[key][i])
+            f = int(t["labels_idx"][i]) if "labels_idx" in t else 0
+            name = self.train_names[f] if f < len(self.train_names) else f"train{f}"
+            lab = self.train_labs[f] if f < len(self.train_labs) else None
+            v = int(t["video_idx"][i]) if "video_idx" in t else -1
+            fr = int(t["frame_idx"][i]) if "frame_idx" in t else -1
+            if self.kind == "bbox":
+                n = int(t["num_instances"][i]) if "num_instances" in t else None
+                boxes = t["bboxes"][i].float().numpy()[:n]
+                classes = (
+                    t["bbox_classes"][i].numpy()[:n] if "bbox_classes" in t else None
+                )
+                h, w = img.shape[:2]
+                extra = f"input {h}x{w}"
+                size = self._train["size"]
+                if size is not None and tuple(size) != (h, w):
+                    sy, sx = size[0] / h, size[1] / w
+                    img = gallery.cv2.resize(
+                        img, (size[1], size[0]), interpolation=gallery.cv2.INTER_LINEAR
+                    )
+                    boxes = boxes * np.array([sx, sy, sx, sy], dtype=np.float32)
+                    extra = f"input {size[0]}x{size[1]} (multi-scale)"
+                cap = gallery.caption(name, lab, v, fr, f"{extra}, {n} boxes")
+                images.append(
+                    gallery.bbox_wandb_image(
+                        img,
+                        boxes,
+                        cap,
+                        categories,
+                        gt_classes=classes,
+                        long_side=self.frame_long_side,
+                    )
+                )
+            else:
+                kpts = t["instance"][i].reshape(-1, 2).float().numpy()
+                nodes = self._nodes(self.train_file_nodes, f, kpts.shape[0])
+                if "node_weights" in t:
+                    w = t["node_weights"][i].reshape(-1).float().numpy()
+                    nodes = [n for n in nodes if w[n] > 0]
+                edges = self.train_edges[f] if self.train_edges else []
+                drawn = gallery.draw_keypoints(img, nodes, edges, gt=kpts)
+                cap = gallery.caption(name, lab, v, fr, f"{len(nodes)} target nodes")
+                images.append(gallery.keypoint_wandb_image(drawn, cap))
+        self._train = None
+        return images
+
+    def _categories(self, pl_module) -> list:
+        return self.categories or list(
+            getattr(pl_module, "categories", None) or ["object"]
+        )
+
+    @staticmethod
+    def _nodes(file_nodes, f: int, k: int) -> list:
+        if file_nodes is not None and f < len(file_nodes):
+            return list(file_nodes[f])
+        return list(range(k))
+
+    # ── validation panel ───────────────────────────────────────────────────
+    def _panel_metadata(self, dataset):
+        """``(groups, hardness)`` of the val dataset's samples, from metadata only."""
+        import numpy as np
+
+        from sleap_nn.training import gallery
+
+        table = getattr(dataset, "table", None)
+        if self.kind == "keypoints" and table is not None and hasattr(table, "box"):
+            return (
+                np.asarray(table.labels_idx),
+                gallery.instance_hardness(table.box, table.labels_idx),
+            )
+        samples = getattr(dataset, "lf_idx_list", None)
+        if samples is None:
+            n = len(dataset)
+            return np.zeros(n, dtype=int), None
+        groups, boxes = [], []
+        for i in range(len(samples)):
+            s = samples[i]
+            groups.append(int(s.get("labels_idx", 0)))
+            boxes.append(s.get("bboxes", np.zeros((0, 4))))
+        groups = np.asarray(groups)
+        hardness = gallery.box_hardness(boxes, groups) if self.kind == "bbox" else None
+        return np.asarray(groups), hardness
+
+    def _build_panel(self, trainer):
+        from sleap_nn.training import gallery
+
+        dataset, batch_size = self._val_dataset(trainer)
+        if dataset is None or len(dataset) == 0:
+            raise RuntimeError("no validation dataset to draw a gallery from")
+        self._batch_size = max(1, int(batch_size or 16))
+        groups, hardness = self._panel_metadata(dataset)
+        names = self.val_names or ["val"]
+        picks = gallery.select_panel(groups, names, self.size, hardness)
+        key = "image" if self.kind == "bbox" else "instance_image"
+        if self.kind == "bbox":
+            import tempfile
+
+            self._cache_dir = tempfile.mkdtemp(prefix="sleap_nn_gallery_")
+        panel, images = [], []
+        for idx, role in picks:
+            s = dataset[idx]
+            img = s[key]
+            images.append(img if img.dim() == 4 else img.unsqueeze(0))
+            item = {
+                "file": int(s.get("labels_idx", 0)),
+                "video": int(s.get("video_idx", -1)),
+                "frame": int(s.get("frame_idx", -1)),
+                "role": role,
+            }
+            if self.kind == "bbox":
+                n = int(s["num_instances"])
+                item["gt"] = s["bboxes"][:n].float().numpy()
+                item["gt_classes"] = s["bbox_classes"][:n].numpy()
+                # The frame never changes: downscale and encode it once.
+                path = f"{self._cache_dir}/val_{len(panel):03d}.jpg"
+                scale, _ = gallery.encode_display_jpeg(
+                    gallery.to_rgb_uint8(img), path, self.frame_long_side
+                )
+                item["cached"] = (path, scale)
+            else:
+                item["gt"] = s["instance"].reshape(-1, 2).float().numpy()
+            panel.append(item)
+        self._panel = panel
+        self._panel_images = torch.stack(images, 0)
+        logger.info(
+            f"W&B gallery: {len(panel)} validation samples from "
+            f"{len(set(p['file'] for p in panel))} file(s); stride "
+            f"{self._stride} over {self._planned} planned validations."
+        )
+
+    def _val_images(self, trainer, pl_module) -> list:
+        import contextlib
+
+        import numpy as np
+
+        from sleap_nn.training import gallery
+
+        pl_module.eval()
+        preds = []
+        with contextlib.ExitStack() as stack:
+            # Eager even if the network is compiled: a new batch size would
+            # recompile it. `set_stance` takes effect when called, so it is entered
+            # into the stack at once (its exit restores the previous stance).
+            set_stance = getattr(torch.compiler, "set_stance", None)
+            if set_stance is not None:
+                stack.enter_context(set_stance("force_eager"))
+            plugin = getattr(trainer, "precision_plugin", None)
+            if plugin is not None and hasattr(plugin, "forward_context"):
+                stack.enter_context(plugin.forward_context())
+            stack.enter_context(torch.no_grad())
+            for start in range(0, len(self._panel), self._batch_size):
+                x = self._panel_images[start : start + self._batch_size].to(
+                    pl_module.device, non_blocking=True
+                )
+                if self.kind == "bbox":
+                    preds += gallery.predict_boxes(pl_module, x)
+                else:
+                    pts, vals = gallery.predict_keypoints(pl_module, x)
+                    preds += list(zip(pts, vals))
+
+        categories = self._categories(pl_module)
+        images = []
+        for item, img_t, pred in zip(self._panel, self._panel_images, preds):
+            f = item["file"]
+            name = self.val_names[f] if f < len(self.val_names) else f"val{f}"
+            lab = self.val_labs[f] if f < len(self.val_labs) else None
+            if self.kind == "bbox":
+                boxes, scores = pred
+                extra = f"GT {len(item['gt'])}, pred>=0.5 {int((scores >= 0.5).sum())}"
+                cap = gallery.caption(
+                    name, lab, item["video"], item["frame"], extra, item["role"]
+                )
+                images.append(
+                    gallery.bbox_wandb_image(
+                        None,
+                        item["gt"],
+                        cap,
+                        categories,
+                        pred_boxes=boxes,
+                        pred_scores=scores,
+                        gt_classes=item["gt_classes"],
+                        cached=item["cached"],
+                    )
+                )
+            else:
+                img = gallery.to_rgb_uint8(img_t)
+                pts, vals = pred
+                nodes = self._nodes(self.val_file_nodes, f, pts.shape[0])
+                edges = self.val_edges[f] if self.val_edges else []
+                err = gallery.keypoint_error(item["gt"], pts, nodes)
+                side = max(img.shape[:2])
+                extra = (
+                    f"err {err:.1f}px ({100 * err / side:.1f}% crop)"
+                    if np.isfinite(err)
+                    else "no GT"
+                )
+                drawn = gallery.draw_keypoints(
+                    img, nodes, edges, gt=item["gt"], pred=pts, pred_values=vals
+                )
+                cap = gallery.caption(
+                    name, lab, item["video"], item["frame"], extra, item["role"]
+                )
+                images.append(gallery.keypoint_wandb_image(drawn, cap))
+        return images
+
+    def _log_event(self, trainer, pl_module):
+        import os
+
+        wandb_logger = self._wandb_logger(trainer)
+        if wandb_logger is None:
+            self.enabled = False
+            return
+        t0 = time.perf_counter()
+        if self._panel is None:
+            self._build_panel(trainer)
+            self.panel_seconds = time.perf_counter() - t0
+        val_images = self._val_images(trainer, pl_module)
+        train_images = self._train_images(self._categories(pl_module))
+        for img in val_images + train_images:
+            path = getattr(img, "_path", None)
+            if path and os.path.exists(path):
+                self._bytes += os.path.getsize(path)
+        log = {"viz/gallery/val": val_images, "epoch": trainer.current_epoch}
+        if train_images:
+            log["viz/gallery/train"] = train_images
+        wandb_logger.experiment.log(log, commit=False)
+        # The event's time includes the log call (W&B copies the media files there).
+        seconds = time.perf_counter() - t0
+        self.event_seconds.append(seconds)
+        self._events += 1
+        wandb_logger.experiment.log(
+            {"viz/gallery/seconds": seconds, "viz/gallery/bytes": self._bytes},
+            commit=False,
+        )
+        logger.info(
+            f"W&B gallery: event {self._events} ({len(val_images)} val, "
+            f"{len(train_images)} train images) in {seconds:.2f} s; "
+            f"{self._bytes / 2**20:.1f} MiB logged so far."
+        )
+
+
 class MatplotlibSaver(Callback):
     """Callback for saving images rendered with matplotlib during training.
 
