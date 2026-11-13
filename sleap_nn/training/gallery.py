@@ -25,6 +25,13 @@ except ImportError:  # pragma: no cover
 #: Roles of the panel samples, in display order within a file.
 ROLES = ("typical", "hard")
 
+#: A box smaller than this fraction of its file's median box side (``sqrt`` of the
+#: area) is not eligible as a "hard" example. In 32 top-view mouse datasets
+#: (~250k boxes) such boxes are mostly not small animals but degenerate labels: a few
+#: points on a larger, visible animal, or point clusters on nothing; real small
+#: animals (mice in a wide arena, a mouse in a hole) start at about this size.
+MIN_HARD_REL_SIDE = 0.25
+
 # Node colors (RGB), cycled by node index within a file.
 _PALETTE = np.array(
     [
@@ -91,7 +98,8 @@ def select_panel(
     Each group (validation file) gets an equal share of ``size`` (a group with fewer
     samples shows all of them and leaves its slots to the others). Within a group, a
     quarter of its share (at least one, when it has two or more slots and
-    ``hardness`` is given) are its hardest samples, the rest a seeded draw. The
+    ``hardness`` is given) are its hardest samples (finite hardness only), the rest a
+    seeded draw. The
     draw's seed is :func:`name_seed` of the group's name, so a group's picks do not
     depend on the other groups, the training seed or the process. With more groups
     than ``size``, ``size`` groups spread evenly over the list get one sample each.
@@ -127,8 +135,9 @@ def select_panel(
         hard = []
         if n_hard:
             h = np.asarray(hardness, dtype=np.float64)[idx]
-            # Hardest first; ties keep the lower index (stable sort on -h).
-            order = np.argsort(-h, kind="stable")
+            # Hardest first; ties keep the lower index (stable sort on -h). Samples
+            # with no eligible box (hardness -inf) are never "hard".
+            order = [i for i in np.argsort(-h, kind="stable") if np.isfinite(h[i])]
             hard = [int(idx[i]) for i in order[:n_hard]]
         rest = np.setdiff1d(idx, hard)
         rng = np.random.default_rng(name_seed(names[g]))
@@ -138,32 +147,74 @@ def select_panel(
     return panel
 
 
-def box_hardness(boxes_per_sample: Sequence[np.ndarray]) -> np.ndarray:
-    """Detector hardness: most boxes first, then the smallest box (``sqrt`` area).
+def _sides(boxes) -> np.ndarray:
+    b = np.asarray(boxes, dtype=np.float64).reshape(-1, 4)
+    return np.sqrt(np.clip((b[:, 2] - b[:, 0]) * (b[:, 3] - b[:, 1]), 0, None))
 
-    Args:
-        boxes_per_sample: Per sample, its ``(n, 4)`` xyxy ground-truth boxes.
 
-    Returns:
-        ``(n_samples,)`` scores, higher = harder.
-    """
-    out = np.zeros(len(boxes_per_sample), dtype=np.float64)
-    for i, b in enumerate(boxes_per_sample):
-        b = np.asarray(b, dtype=np.float64).reshape(-1, 4)
-        b = b[np.isfinite(b).all(axis=1)]
-        if not len(b):
-            out[i] = -np.inf
-            continue
-        side = np.sqrt(np.clip((b[:, 2] - b[:, 0]) * (b[:, 3] - b[:, 1]), 0, None))
-        out[i] = len(b) * 1e6 - side.min()
+def _group_medians(sides, groups) -> np.ndarray:
+    """Per element, the median finite side of its group."""
+    sides, groups = np.asarray(sides, dtype=np.float64), np.asarray(groups)
+    out = np.full(len(sides), np.nan)
+    for g in np.unique(groups):
+        m = groups == g
+        ok = sides[m][np.isfinite(sides[m]) & (sides[m] > 0)]
+        out[m] = np.median(ok) if len(ok) else np.nan
     return out
 
 
-def instance_hardness(boxes: np.ndarray) -> np.ndarray:
-    """Pose hardness: the smallest animal (box ``sqrt`` area, source pixels) first."""
-    b = np.asarray(boxes, dtype=np.float64).reshape(-1, 4)
-    side = np.sqrt(np.clip((b[:, 2] - b[:, 0]) * (b[:, 3] - b[:, 1]), 0, None))
-    return np.where(np.isfinite(side), -side, -np.inf)
+def box_hardness(
+    boxes_per_sample: Sequence[np.ndarray],
+    groups: Optional[np.ndarray] = None,
+    min_rel_side: float = MIN_HARD_REL_SIDE,
+) -> np.ndarray:
+    """Detector hardness: most boxes first, then the smallest box (``sqrt`` area).
+
+    Only boxes at least ``min_rel_side`` times the median box side of their group
+    (file) count (:data:`MIN_HARD_REL_SIDE`); a frame with none is not eligible.
+
+    Args:
+        boxes_per_sample: Per sample, its ``(n, 4)`` xyxy ground-truth boxes.
+        groups: ``(n_samples,)`` group (file) of every sample; ``None``: one group.
+        min_rel_side: Eligibility floor, as a fraction of the group's median side.
+
+    Returns:
+        ``(n_samples,)`` scores, higher = harder; ``-inf`` = not eligible.
+    """
+    n = len(boxes_per_sample)
+    groups = np.zeros(n, dtype=int) if groups is None else np.asarray(groups)
+    sides = []
+    for b in boxes_per_sample:
+        b = np.asarray(b, dtype=np.float64).reshape(-1, 4)
+        sides.append(_sides(b[np.isfinite(b).all(axis=1)]))
+    flat = np.concatenate(sides) if n else np.zeros(0)
+    flat_groups = np.repeat(groups, [len(s) for s in sides]) if n else flat
+    medians = dict(
+        zip(flat_groups.tolist(), _group_medians(flat, flat_groups).tolist())
+    )
+    out = np.full(n, -np.inf)
+    for i, (s, g) in enumerate(zip(sides, groups.tolist())):
+        med = medians.get(g, np.nan)
+        s = s[s >= min_rel_side * med] if np.isfinite(med) else s[:0]
+        if len(s):
+            out[i] = len(s) * 1e6 - s.min()
+    return out
+
+
+def instance_hardness(
+    boxes: np.ndarray,
+    groups: Optional[np.ndarray] = None,
+    min_rel_side: float = MIN_HARD_REL_SIDE,
+) -> np.ndarray:
+    """Pose hardness: the smallest animal (box ``sqrt`` area, source pixels) first.
+
+    Instances smaller than ``min_rel_side`` times their group's median box side are
+    not eligible (``-inf``; see :data:`MIN_HARD_REL_SIDE`).
+    """
+    side = _sides(boxes)
+    groups = np.zeros(len(side), dtype=int) if groups is None else np.asarray(groups)
+    ok = np.isfinite(side) & (side >= min_rel_side * _group_medians(side, groups))
+    return np.where(ok, -side, -np.inf)
 
 
 # ---------------------------------------------------------------------------

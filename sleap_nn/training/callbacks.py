@@ -1710,7 +1710,7 @@ class WandBGalleryCallback(Callback):
         if self.kind == "keypoints" and table is not None and hasattr(table, "box"):
             return (
                 np.asarray(table.labels_idx),
-                gallery.instance_hardness(table.box),
+                gallery.instance_hardness(table.box, table.labels_idx),
             )
         samples = getattr(dataset, "lf_idx_list", None)
         if samples is None:
@@ -1721,7 +1721,8 @@ class WandBGalleryCallback(Callback):
             s = samples[i]
             groups.append(int(s.get("labels_idx", 0)))
             boxes.append(s.get("bboxes", np.zeros((0, 4))))
-        hardness = gallery.box_hardness(boxes) if self.kind == "bbox" else None
+        groups = np.asarray(groups)
+        hardness = gallery.box_hardness(boxes, groups) if self.kind == "bbox" else None
         return np.asarray(groups), hardness
 
     def _build_panel(self, trainer):

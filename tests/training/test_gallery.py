@@ -105,11 +105,42 @@ def test_hardness_scores():
         np.array([[0, 0, 50, 50], [0, 0, 40, 40]]),
         np.zeros((0, 4)),
     ]
+    # Median side 40: the 4-px box (< 0.25 x 40) does not count; the 10-px one does.
     h = gallery.box_hardness(boxes)
-    # Most boxes first, then the smallest box; empty frames last.
-    assert list(np.argsort(-h)) == [1, 2, 0, 3]
+    assert list(np.argsort(-h, kind="stable")) == [2, 0, 1, 3]
+    assert h[1] == 1e6 - 50 and h[3] == -np.inf
+    # Without the floor: most boxes, then the smallest box.
+    h0 = gallery.box_hardness(boxes, min_rel_side=0.0)
+    assert list(np.argsort(-h0, kind="stable")) == [1, 2, 0, 3]
     inst = gallery.instance_hardness(np.array([[0, 0, 10, 10], [0, 0, 5, 5]]))
     assert inst[1] > inst[0]
+
+
+def test_hard_pick_skips_degenerate_boxes_per_file():
+    # File 0: sides 100, one of 10 (a degenerate label, 0.1 x the median) and one of
+    # 30 (a small animal, 0.3 x). File 1: sides 20, where 10 is 0.5 x and eligible.
+    sides0 = [100.0] * 20 + [10.0, 30.0]
+    sides1 = [20.0] * 10 + [10.0]
+    boxes = np.array([[0, 0, s, s] for s in sides0 + sides1])
+    groups = np.array([0] * len(sides0) + [1] * len(sides1))
+    h = gallery.instance_hardness(boxes, groups)
+    assert h[20] == -np.inf and h[21] == -30.0  # file 0: 10 px out, 30 px in
+    assert h[-1] == -10.0  # file 1: 10 px is half its median
+    panel = gallery.select_panel(groups, ["a", "b"], 8, h)
+    hard = [i for i, r in panel if r == "hard"]
+    assert 21 in hard and 20 not in hard and len(sides0) + 10 in hard
+    assert panel == gallery.select_panel(groups, ["a", "b"], 8, h)  # deterministic
+    # Detector frames: a frame whose only box is degenerate is never "hard".
+    frames = [np.array([[0, 0, 100, 100]])] * 6 + [np.array([[0, 0, 8, 8]])]
+    hb = gallery.box_hardness(frames)
+    assert hb[-1] == -np.inf
+
+
+def test_select_panel_without_eligible_hard_samples():
+    groups = np.zeros(12, dtype=int)
+    hardness = np.full(12, -np.inf)
+    panel = gallery.select_panel(groups, ["a"], 8, hardness)
+    assert len(panel) == 8 and all(r == "typical" for _, r in panel)
 
 
 # --------------------------------------------------------------------------- #
