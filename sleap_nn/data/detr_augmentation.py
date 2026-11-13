@@ -26,6 +26,7 @@ bottom/right), per ``data_config.preprocessing.resize_mode``. Boxes are
 ``(x1, y1, x2, y2)`` edge coordinates in pixels.
 """
 
+import math
 import random
 from typing import List, Sequence, Tuple
 
@@ -231,6 +232,41 @@ def rot90(
     return image, boxes
 
 
+def zoom_out(
+    image: torch.Tensor,
+    boxes: torch.Tensor,
+    factor: float,
+    offset: Tuple[float, float],
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Shrink a fitted frame by ``factor`` onto a zero canvas of the same size.
+
+    Args:
+        image: ``(..., C, H, W)`` frame at the training size.
+        boxes: ``(n, 4)`` xyxy boxes in its pixels.
+        factor: Scale in ``(0, 1]``.
+        offset: ``(y, x)`` in ``[0, 1]``: where the shrunk frame sits in the free
+            space (0 = top / left).
+
+    Returns:
+        ``(image, boxes)``, same size as the input.
+    """
+    height, width = image.shape[-2:]
+    h = max(1, int(round(height * factor)))
+    w = max(1, int(round(width * factor)))
+    if (h, w) == (height, width):
+        return image, boxes
+    small = tvf.resize(image, size=[h, w], antialias=True)
+    canvas = torch.zeros_like(image)
+    oy = int(round(offset[0] * (height - h)))
+    ox = int(round(offset[1] * (width - w)))
+    canvas[..., oy : oy + h, ox : ox + w] = small
+    sx, sy = w / width, h / height
+    boxes = boxes * boxes.new_tensor([sx, sy, sx, sy]) + boxes.new_tensor(
+        [ox, oy, ox, oy]
+    )
+    return canvas, boxes
+
+
 def detr_train_transform(
     image: torch.Tensor,
     boxes: torch.Tensor,
@@ -242,6 +278,8 @@ def detr_train_transform(
     flip_p: float = 0.5,
     vflip_p: float = 0.0,
     rot90_p: float = 0.0,
+    zoom_out_p: float = 0.0,
+    zoom_out_range: Tuple[float, float] = (0.4, 1.0),
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """RF-DETR's training geometry: resize or resize + crop to ``out_hw``, and flip.
 
@@ -262,6 +300,9 @@ def detr_train_transform(
         rot90_p: Probability of a 90 degree rotation (either direction, 50/50),
             applied before the final resize, so a rotated frame is fitted to
             ``out_hw`` like any other.
+        zoom_out_p: Probability of :func:`zoom_out` after the fit, by a factor
+            drawn log-uniformly from ``zoom_out_range``, at a uniform offset.
+        zoom_out_range: ``(min, max)`` zoom-out factor.
 
     Returns:
         ``(image, boxes)`` at ``out_hw`` (boxes unclipped).
@@ -275,4 +316,9 @@ def detr_train_transform(
     if rot90_p > 0 and float(torch.rand(())) < rot90_p:
         image, boxes = rot90(image, boxes, clockwise=bool(float(torch.rand(())) < 0.5))
     image, boxes, _ = resize_frame(image, boxes, out_hw, mode)
+    if zoom_out_p > 0 and float(torch.rand(())) < zoom_out_p:
+        lo, hi = (math.log(float(v)) for v in zoom_out_range)
+        factor = math.exp(lo + (hi - lo) * float(torch.rand(())))
+        offset = (float(torch.rand(())), float(torch.rand(())))
+        image, boxes = zoom_out(image, boxes, factor, offset)
     return image, boxes

@@ -389,6 +389,17 @@ class IntensityConfig:
             gaussian_blur_sigma_max]` crop pixels. *Default*: `0.0`.
         gaussian_blur_sigma_min: (float) Smallest blur sigma. *Default*: `0.1`.
         gaussian_blur_sigma_max: (float) Largest blur sigma. *Default*: `2.0`.
+        gray_p, channel_shuffle_p, channel_gain_max, channel_gain_p, gamma_min,
+        gamma_max, gamma_p, invert_p, downup_min, downup_max, downup_p,
+        jpeg_quality_min, jpeg_quality_max, jpeg_p: appearance ops of
+            :mod:`sleap_nn.data.photometric_extra` (luminance, channel permutation,
+            per-channel gain, log-uniform gamma, inversion, down-then-up sampling by
+            a factor in ``[downup_min, downup_max]``, JPEG re-encoding). Off by
+            default.
+        frame_photometric: (bool) ``bbox_detr`` only: apply the warp pipeline's
+            photometric ops (contrast, brightness, HSV, blurs, noise and the ops
+            above) to the whole frame before RF-DETR's geometry, instead of the
+            stock contrast / brightness / noise. *Default*: `False`.
     """
 
     uniform_noise_min: float = field(default=0.0, validator=validators.ge(0))
@@ -416,6 +427,23 @@ class IntensityConfig:
     gaussian_blur_p: float = field(default=0.0, validator=validate_proportion)
     gaussian_blur_sigma_min: float = field(default=0.1, validator=validators.gt(0))
     gaussian_blur_sigma_max: float = field(default=2.0, validator=validators.gt(0))
+    # E19 appearance ops (sleap_nn.data.photometric_extra); crop_pipeline="warp" and,
+    # with frame_photometric, bbox_detr frames. All off by default.
+    gray_p: float = field(default=0.0, validator=validate_proportion)
+    channel_shuffle_p: float = field(default=0.0, validator=validate_proportion)
+    channel_gain_max: float = field(default=0.0, validator=validators.ge(0))
+    channel_gain_p: float = field(default=0.0, validator=validate_proportion)
+    gamma_min: float = field(default=1.0, validator=validators.gt(0))
+    gamma_max: float = field(default=1.0, validator=validators.gt(0))
+    gamma_p: float = field(default=0.0, validator=validate_proportion)
+    invert_p: float = field(default=0.0, validator=validate_proportion)
+    downup_min: float = field(default=1.0, validator=validators.ge(1))
+    downup_max: float = field(default=1.0, validator=validators.ge(1))
+    downup_p: float = field(default=0.0, validator=validate_proportion)
+    jpeg_quality_min: int = field(default=95, validator=validators.ge(1))
+    jpeg_quality_max: int = field(default=95, validator=validators.le(100))
+    jpeg_p: float = field(default=0.0, validator=validate_proportion)
+    frame_photometric: bool = False
 
 
 def _warn_mixup(instance, attribute, value):
@@ -588,6 +616,17 @@ class DetrAugmentationConfig:
             boxes. With `flip_p: 0.5, vflip_p: 0.5, rot90_p: 0.5` every
             orientation and mirror image is equally likely (overhead footage).
             *Default*: `0.0`.
+        zoom_out_p: (float) Probability of shrinking the fitted training frame by
+            ``f ~ U(zoom_out_min, zoom_out_max)`` onto a zero canvas at a random
+            offset (mice smaller than in the source; not in RF-DETR). *Default*:
+            `0.0`.
+        zoom_out_min: (float) Smallest zoom-out factor. *Default*: `0.4`.
+        zoom_out_max: (float) Largest zoom-out factor. *Default*: `1.0`.
+        zoom_out_canvas: (str) What the shrunk frame is pasted on: ``"zero"`` (a black
+            canvas) or ``"frame"`` (another random training frame, fitted to the training
+            size with its own boxes; its boxes covered >= 50% by the pasted frame are
+            dropped, the rest clipped to outside it), so the surroundings are real scenes.
+            *Default*: `"zero"`.
         multi_scale: (bool) Per-batch multi-scale: frames are made at the largest
             scale and every training batch is resized to one size drawn per
             optimizer step (the same on every rank) from `max_height x max_width`
@@ -604,6 +643,12 @@ class DetrAugmentationConfig:
     flip_p: float = field(default=0.5, validator=validate_proportion)
     vflip_p: float = field(default=0.0, validator=validate_proportion)
     rot90_p: float = field(default=0.0, validator=validate_proportion)
+    zoom_out_p: float = field(default=0.0, validator=validate_proportion)
+    zoom_out_min: float = field(default=0.4, validator=validators.gt(0))
+    zoom_out_max: float = field(default=1.0, validator=validators.le(1))
+    zoom_out_canvas: str = field(
+        default="zero", validator=validators.in_(("zero", "frame"))
+    )
     multi_scale: bool = True
     multi_scale_steps: int = field(default=5, validator=validators.ge(0))
 
