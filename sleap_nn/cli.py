@@ -1318,6 +1318,8 @@ def _run_inference_impl(**kwargs):
 
     if kwargs.get("boxes") is not None:
         _check_box_seeding_flags(kwargs, stream_to_file)
+    if kwargs.get("part_model") is not None:
+        _check_part_stage_flags(kwargs, stream_to_file)
 
     # ── Stream-to-file path: new Predictor + IncrementalLabelsWriter ───
     if stream_to_file is not None:
@@ -1329,6 +1331,36 @@ def _run_inference_impl(**kwargs):
         )
 
     return _run_in_memory_new_flow(kwargs, paf_workers=paf_workers)
+
+
+def _check_part_stage_flags(kwargs: dict, stream_to_file) -> None:
+    """Refuse ``--part_model`` combinations its route cannot honor, before loading."""
+    if stream_to_file is not None:
+        raise click.UsageError(
+            "--part_model is not supported with --stream-to-file; run without it."
+        )
+    if not kwargs.get("part_crop_rule"):
+        raise click.UsageError("--part_model needs --part_crop_rule.")
+    mps = kwargs.get("model_paths") or []
+    if not mps or any(_is_export_dir(m) for m in mps):
+        raise click.UsageError(
+            "--part_model needs checkpoint pose models (-m), not exported ones."
+        )
+
+
+def _part_stage_kwargs(kwargs: dict) -> dict:
+    """``predict`` part-stage kwargs from the CLI flags (empty without --part_model)."""
+    if kwargs.get("part_model") is None:
+        return {}
+    prefix = kwargs.get("part_node_prefix")
+    return {
+        "part_model_paths": [kwargs["part_model"]],
+        "part_crop_rule": kwargs.get("part_crop_rule"),
+        "part_node_filter": prefix,
+        "part_strip_prefix": None,
+        "part_peak_threshold": kwargs.get("part_peak_threshold"),
+        "part_prefix": kwargs.get("part_prefix"),
+    }
 
 
 def _check_box_seeding_flags(kwargs: dict, stream_to_file) -> None:
@@ -2870,6 +2902,7 @@ def _run_in_memory_new_flow(
         "boxes": kwargs.get("boxes"),
         "box_score_threshold": kwargs.get("box_score_threshold") or 0.0,
         **_node_filter_kwargs(kwargs),
+        **_part_stage_kwargs(kwargs),
         "min_mask_area": kwargs.get("min_mask_area", 0),
         "center_nms_kernel": kwargs.get("center_nms_kernel", 3),
         "mask_cleanup": kwargs.get("mask_cleanup", False),
@@ -4096,6 +4129,46 @@ def _common_inference_options(f):
             type=float,
             default=0.0,
             help="With --boxes <file>, drop boxes scoring below this. Default: 0.",
+        ),
+        click.option(
+            "--part_model",
+            "part_model",
+            type=str,
+            default=None,
+            help=(
+                "A part model (centered-instance crop model) run after the pose "
+                "model on square crops built from each predicted instance's "
+                "keypoints by --part_crop_rule; its points are appended to that "
+                "instance. Default: no part stage."
+            ),
+        ),
+        click.option(
+            "--part_crop_rule",
+            type=str,
+            default=None,
+            help=(
+                "A .json / .yaml KeypointCropRule (center, reference, "
+                "reference_fallback, scale, fallback, fallback_scale, "
+                "min_half_side) for --part_model."
+            ),
+        ),
+        click.option(
+            "--part_node_prefix",
+            type=str,
+            default=None,
+            help="Predict only the part model's nodes with this name prefix.",
+        ),
+        click.option(
+            "--part_peak_threshold",
+            type=float,
+            default=None,
+            help="Peak threshold of --part_model. Default: the model's own.",
+        ),
+        click.option(
+            "--part_prefix",
+            type=str,
+            default=None,
+            help="Prefix for the part nodes in the merged skeleton.",
         ),
         click.option(
             "--rescore/--no-rescore",
