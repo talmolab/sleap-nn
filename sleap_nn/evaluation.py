@@ -1090,6 +1090,118 @@ def match_frame_pairs(
     return positive_pairs, false_negatives
 
 
+NORM_SCALES = ("bbox", "points")
+
+
+def _weighted_inverted_cdf(x: np.ndarray, w: np.ndarray, q: float) -> float:
+    """Weighted quantile with the inverted-CDF definition.
+
+    The smallest value whose cumulative weight reaches ``q`` of the total; for unit
+    weights this is ``np.percentile(x, 100 * q, method="inverted_cdf")``.
+    """
+    if x.size == 0 or not np.isfinite(w).any() or w.sum() <= 0:
+        return float("nan")
+    order = np.argsort(x, kind="mergesort")
+    cw = np.cumsum(w[order])
+    i = int(np.argmax(cw >= q * cw[-1] - 1e-9 * cw[-1]))
+    return float(x[order][i])
+
+
+def instance_scales(
+    positive_pairs: List[Tuple[Any, Any, Any]],
+    ground_truth_instances: Optional[sio.Labels] = None,
+    scale: str = "bbox",
+    pad_frac: float = 0.0,
+) -> np.ndarray:
+    """Per matched ground-truth instance, the length that point errors are divided by.
+
+    Args:
+        positive_pairs: Matched pairs ``(gt, pred, oks)`` (``MatchInstance`` wrappers).
+        ground_truth_instances: The ground-truth labels, searched for user bounding boxes
+            linked to each GT instance (``scale="bbox"``).
+        scale: ``"bbox"``: ``sqrt(width * height)`` of the user box linked to the GT
+            instance, else of the tight box of its labeled points (padded as below);
+            ``"points"``: the tight box of the GT instance's labeled points.
+        pad_frac: Padding of a points box on every side, as a fraction of its longest side.
+
+    Returns:
+        ``(n_pairs,)`` scales in pixels; NaN where a scale is undefined (no box and fewer than
+        two distinct labeled points).
+    """
+    if scale not in NORM_SCALES:
+        raise ValueError(f"scale must be one of {NORM_SCALES}; got {scale!r}.")
+    boxes = {}
+    if scale == "bbox" and ground_truth_instances is not None:
+        for lf in ground_truth_instances.labeled_frames:
+            for b in getattr(lf, "bboxes", None) or []:
+                inst = getattr(b, "instance", None)
+                if inst is not None and not getattr(b, "is_predicted", False):
+                    boxes[id(inst)] = b
+    out = np.full(len(positive_pairs), np.nan)
+    for k, (gt, _, _) in enumerate(positive_pairs):
+        b = boxes.get(id(gt.instance))
+        if b is not None:
+            out[k] = math.sqrt(max(float(b.width) * float(b.height), 0.0))
+            continue
+        pts = gt_points(gt.instance)
+        pts = pts[np.isfinite(pts).all(axis=-1)]
+        if len(pts) < 2:
+            continue
+        wh = pts.max(axis=0) - pts.min(axis=0)
+        wh = wh + 2.0 * pad_frac * wh.max()
+        area = float(wh[0] * wh[1])
+        out[k] = math.sqrt(area) if area > 0 else np.nan
+    return out
+
+
+def normalized_point_errors(
+    positive_pairs: List[Tuple[Any, Any, Any]],
+    scales: np.ndarray,
+    missing_error: float = 1.0,
+) -> Dict[str, np.ndarray]:
+    """Point errors of matched instances as a share of each instance's scale.
+
+    Every labeled point of a matched GT instance gives one error: the distance to the
+    predicted point divided by the instance's scale, or ``missing_error`` when the model
+    left that point unpredicted (so abstaining is not rewarded). Instances without a scale
+    are skipped.
+
+    Returns:
+        ``err`` (N,), ``found`` (N,) bool, ``pair`` (N,) index into ``positive_pairs``,
+        ``node`` (N,) node index, ``frame_key`` list of ``(video_path, frame_idx)`` per pair.
+    """
+    err, found, pair, node = [], [], [], []
+    for k, (gt, pr, _) in enumerate(positive_pairs):
+        if not np.isfinite(scales[k]) or scales[k] <= 0:
+            continue
+        g = gt_points(gt.instance)
+        p = pr.instance.numpy()
+        lab = np.isfinite(g).all(axis=-1)
+        ok = lab & np.isfinite(p).all(axis=-1)
+        d = np.where(
+            ok,
+            np.linalg.norm(np.where(ok[:, None], p - g, 0.0), axis=-1) / scales[k],
+            missing_error,
+        )
+        idx = np.nonzero(lab)[0]
+        err.append(d[idx])
+        found.append(ok[idx])
+        pair.append(np.full(len(idx), k))
+        node.append(idx)
+    cat = lambda xs, dt: (
+        np.concatenate(xs).astype(dt) if xs else np.zeros(0, dt)
+    )  # noqa: E731
+    return {
+        "err": cat(err, float),
+        "found": cat(found, bool),
+        "pair": cat(pair, np.int64),
+        "node": cat(node, np.int64),
+        "frame_key": [
+            (gt.video_path, int(gt.frame_idx)) for gt, _, _ in positive_pairs
+        ],
+    }
+
+
 def compute_dists(
     positive_pairs: List[Tuple[sio.Instance, sio.PredictedInstance, Any]],
 ) -> Dict[str, Union[np.ndarray, List[int], List[str]]]:
@@ -1207,8 +1319,22 @@ class Evaluator:
         centroid_fallback: Optional[str] = None,
         exclude_predicted_instance_masks: bool = False,
         count_unmatched_as_fp: bool = False,
+        norm_scale: Optional[str] = None,
+        norm_missing_error: float = 1.0,
+        norm_pad_frac: float = 0.0,
+        norm_bootstrap: int = 0,
+        norm_bootstrap_by: str = "frame",
     ):
         """Initialize the Evaluator class with ground-truth and predicted labels.
+
+        ``norm_scale`` (``match_method="oks"`` only; default ``None`` = off) adds
+        ``normalized_distance_metrics`` to :meth:`evaluate`: point errors as a share of each
+        GT instance's size (``"bbox"``: its linked user box, else the tight box of its
+        labeled points; ``"points"``: that tight box, padded by ``norm_pad_frac`` of its
+        longest side), with every labeled point the model left unpredicted counted as
+        ``norm_missing_error``, and ``norm_bootstrap`` percentile-bootstrap resamples of
+        frames or videos (``norm_bootstrap_by``) for 95% intervals. See
+        :meth:`normalized_distance_metrics`. With the default every output is unchanged.
 
         ``count_unmatched_as_fp`` (``match_method="oks"`` only) makes
         :meth:`voc_metrics` count every predicted instance that was not matched to a
@@ -1238,6 +1364,19 @@ class Evaluator:
         self.centroid_fallback = centroid_fallback
         self.exclude_predicted_instance_masks = exclude_predicted_instance_masks
         self.count_unmatched_as_fp = count_unmatched_as_fp
+        self.norm_scale = norm_scale
+        self.norm_missing_error = norm_missing_error
+        self.norm_pad_frac = norm_pad_frac
+        self.norm_bootstrap = norm_bootstrap
+        self.norm_bootstrap_by = norm_bootstrap_by
+        if norm_scale is not None and norm_scale not in NORM_SCALES:
+            raise ValueError(
+                f"norm_scale must be None or one of {NORM_SCALES}; got {norm_scale!r}."
+            )
+        if norm_bootstrap_by not in ("frame", "video"):
+            raise ValueError(
+                f"norm_bootstrap_by must be 'frame' or 'video'; got {norm_bootstrap_by!r}."
+            )
         # Scores of predicted instances never matched to GT (oks mode, only with
         # count_unmatched_as_fp).
         self.unmatched_pred_scores = np.array([])
@@ -2144,6 +2283,84 @@ class Evaluator:
             "PCK@10": pck10,
         }
 
+    def normalized_distance_metrics(
+        self,
+        scale: Optional[str] = None,
+        missing_error: Optional[float] = None,
+        pad_frac: Optional[float] = None,
+        bootstrap: Optional[int] = None,
+        bootstrap_by: Optional[str] = None,
+        seed: int = 0,
+    ) -> Dict[str, Any]:
+        """Point error relative to instance size, with unpredicted points counted as failures.
+
+        For every labeled point of a matched GT instance: distance to the prediction divided
+        by the instance's scale (:func:`instance_scales`), or ``missing_error`` if the model
+        left the point unpredicted. Percentiles use the inverted-CDF definition (for an even
+        count the median is the lower middle value), so they are values that occur.
+        Arguments default to the constructor's ``norm_*`` settings (scale ``"bbox"`` if unset).
+
+        Returns:
+            ``p50``, ``p75``, ``p90``, ``p95``, ``p99`` over all labeled points (strict);
+            ``found_p50`` / ``found_p95`` over predicted points only; ``miss_rate`` (share of
+            labeled points left unpredicted); ``n_points``, ``n_instances``, ``scale``,
+            ``missing_error``; with ``bootstrap > 0``, ``ci`` = 95% percentile intervals of
+            ``p50``, ``p95`` and ``miss_rate`` over ``bootstrap`` resamples of frames
+            (``bootstrap_by="frame"``) or videos (``"video"``), and ``bootstrap_by``.
+        """
+        scale = scale or self.norm_scale or "bbox"
+        missing_error = (
+            self.norm_missing_error if missing_error is None else missing_error
+        )
+        pad_frac = self.norm_pad_frac if pad_frac is None else pad_frac
+        bootstrap = self.norm_bootstrap if bootstrap is None else bootstrap
+        bootstrap_by = bootstrap_by or self.norm_bootstrap_by
+        pairs = list(getattr(self, "positive_pairs", []) or [])
+        sc = instance_scales(pairs, self.ground_truth_instances, scale, pad_frac)
+        pe = normalized_point_errors(pairs, sc, missing_error)
+        err, found = pe["err"], pe["found"]
+        out: Dict[str, Any] = {
+            "scale": scale,
+            "missing_error": float(missing_error),
+            "n_points": int(err.size),
+            "n_instances": int(np.isfinite(sc).sum()),
+        }
+        ones = np.ones(err.size)
+        for q in (50, 75, 90, 95, 99):
+            out[f"p{q}"] = _weighted_inverted_cdf(err, ones, q / 100)
+        for q in (50, 95):
+            out[f"found_p{q}"] = _weighted_inverted_cdf(
+                err[found], ones[found], q / 100
+            )
+        out["miss_rate"] = float((~found).mean()) if err.size else float("nan")
+        if bootstrap and err.size:
+            keys = pe["frame_key"]
+            gkey = [k if bootstrap_by == "frame" else k[0] for k in keys]
+            uniq = {g: i for i, g in enumerate(dict.fromkeys(gkey))}
+            pair_group = np.array([uniq[g] for g in gkey], dtype=np.int64)
+            point_group = pair_group[pe["pair"]]
+            rng = np.random.default_rng(seed)
+            reps = {"p50": [], "p95": [], "miss_rate": []}
+            for _ in range(int(bootstrap)):
+                counts = np.bincount(
+                    rng.integers(0, len(uniq), len(uniq)), minlength=len(uniq)
+                )
+                w = counts[point_group].astype(float)
+                reps["p50"].append(_weighted_inverted_cdf(err, w, 0.5))
+                reps["p95"].append(_weighted_inverted_cdf(err, w, 0.95))
+                reps["miss_rate"].append(
+                    float((w * (~found)).sum() / w.sum())
+                    if w.sum() > 0
+                    else float("nan")
+                )
+            out["ci"] = {
+                k: [float(np.nanpercentile(v, 2.5)), float(np.nanpercentile(v, 97.5))]
+                for k, v in reps.items()
+            }
+            out["bootstrap"] = int(bootstrap)
+            out["bootstrap_by"] = bootstrap_by
+        return out
+
     def visibility_metrics(self):
         """Compute node visibility metrics for the matched pair of instances.
 
@@ -2220,6 +2437,8 @@ class Evaluator:
         metrics["distance_metrics"] = self.distance_metrics()
         metrics["pck_metrics"] = self.pck_metrics()
         metrics["visibility_metrics"] = self.visibility_metrics()
+        if self.norm_scale is not None:
+            metrics["normalized_distance_metrics"] = self.normalized_distance_metrics()
 
         return metrics
 
@@ -2964,6 +3183,11 @@ def run_evaluation(
     coco_protocol: Optional[str] = "auto",
     coco_area_source: Optional[str] = None,
     count_unmatched_as_fp: bool = False,
+    norm_scale: Optional[str] = None,
+    norm_missing_error: float = 1.0,
+    norm_pad_frac: float = 0.0,
+    norm_bootstrap: int = 0,
+    norm_bootstrap_by: str = "frame",
 ):
     """Evaluate SLEAP-NN model predictions against ground truth labels.
 
@@ -3031,6 +3255,15 @@ def run_evaluation(
             :func:`sleap_nn.evaluation_coco.labels_to_coco_images`.
         count_unmatched_as_fp: Count unmatched predictions as false positives in
             the native ``oks_voc`` metrics (see :class:`Evaluator`).
+        norm_scale: Opt-in point error relative to instance size, with unpredicted
+            points counted as failures, under ``metrics["normalized_distance_metrics"]``
+            (OKS mode only): ``"bbox"`` or ``"points"`` (see
+            :meth:`Evaluator.normalized_distance_metrics`). ``None`` (default) is off.
+        norm_missing_error: Error of an unpredicted labeled point, in scale units.
+        norm_pad_frac: Padding of a points box on every side, as a fraction of its
+            longest side.
+        norm_bootstrap: Percentile-bootstrap resamples for 95% intervals (0 = none).
+        norm_bootstrap_by: Resampling unit, ``"frame"`` or ``"video"``.
 
     Returns:
         The metrics dict, or ``None`` if the predicted labels have zero
@@ -3169,6 +3402,11 @@ def run_evaluation(
         centroid_method=centroid_method,
         centroid_fallback=centroid_fallback,
         exclude_predicted_instance_masks=exclude_predicted_instance_masks,
+        norm_scale=norm_scale if match_method == "oks" else None,
+        norm_missing_error=norm_missing_error,
+        norm_pad_frac=norm_pad_frac,
+        norm_bootstrap=norm_bootstrap,
+        norm_bootstrap_by=norm_bootstrap_by,
     )
     logger.info(
         f"  Frame pairs: {len(evaluator.frame_pairs)}, "

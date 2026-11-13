@@ -567,6 +567,23 @@ class EvalConfig:
             models (`centered_instance`, `multi_class_topdown`,
             `centered_instance_segmentation`), whose validation batches are crops.
             *Default*: `None`.
+        norm_scale: (str) Opt-in point error relative to instance size, logged next to
+            the pixel distances (``eval/<file>/norm_distance/p50``, ``p95``, ``miss_rate``)
+            and written to the post-training metrics (``normalized_distance_metrics``):
+            ``"bbox"`` divides by ``sqrt(w x h)`` of the GT instance's linked user box (else
+            of the tight box of its labeled points), ``"points"`` by that tight box; every
+            labeled point the model left unpredicted counts as ``norm_missing_error``.
+            ``None`` turns it off. *Default*: `None`.
+        norm_missing_error: (float) Error of an unpredicted labeled point, in scale units.
+            *Default*: `1.0`.
+        norm_pad_frac: (float) Padding of a points box on every side, as a fraction of its
+            longest side (0.1 matches a body box padded by 10% of its longest side).
+            *Default*: `0.0`.
+        norm_bootstrap: (int) Percentile-bootstrap resamples for 95% intervals of the
+            normalized p50 / p95 / miss rate in the post-training metrics (0 = none).
+            *Default*: `0`.
+        norm_bootstrap_by: (str) Resampling unit of ``norm_bootstrap``: ``"frame"`` or
+            ``"video"``. *Default*: `"frame"`.
         bbox_cover_metrics: (bool) For box detectors with ``enabled``: also log the share of
             GT boxes covered by a prediction (a box holding at least half of the GT box) at
             0.1 / 0.25 / 0.5 false boxes per frame, the cover-rule AP, and the covered share
@@ -596,6 +613,16 @@ class EvalConfig:
     post_train_splits: Optional[List[str]] = field(
         default=None,
         validator=lambda inst, attr, val: EvalConfig.validate_post_train_splits(val),
+    )
+    norm_scale: Optional[str] = field(
+        default=None,
+        validator=validators.optional(validators.in_(["bbox", "points"])),
+    )
+    norm_missing_error: float = field(default=1.0, validator=validators.ge(0))
+    norm_pad_frac: float = field(default=0.0, validator=validators.ge(0))
+    norm_bootstrap: int = field(default=0, validator=validators.ge(0))
+    norm_bootstrap_by: str = field(
+        default="frame", validator=validators.in_(["frame", "video"])
     )
     bbox_cover_metrics: bool = False
     post_train_max_train_frames: Optional[int] = field(

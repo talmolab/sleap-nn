@@ -2281,6 +2281,8 @@ class EpochEndEvaluationCallback(Callback):
         "distance_metrics": ("avg", "p50", "p95", "p99"),
         "pck_metrics": ("mPCK", "PCK@5", "PCK@10"),
         "visibility_metrics": ("precision", "recall"),
+        # Present only with ``norm_scale`` (Evaluator's opt-in metrics).
+        "normalized_distance_metrics": ("p50", "p95", "miss_rate"),
     }
 
     def __init__(
@@ -2292,6 +2294,9 @@ class EpochEndEvaluationCallback(Callback):
         oks_scale: Optional[float] = None,
         metrics_to_log: Optional[list] = None,
         val_files: Optional[List["ValFile"]] = None,
+        norm_scale: Optional[str] = None,
+        norm_missing_error: float = 1.0,
+        norm_pad_frac: float = 0.0,
     ):
         """Initialize the callback.
 
@@ -2310,6 +2315,12 @@ class EpochEndEvaluationCallback(Callback):
                 full skeleton, and each file is also scored alone on its own nodes
                 (``eval/<name>/*``) with the unweighted mean over files logged as
                 ``eval/macro/*``.
+            norm_scale: Opt-in error relative to instance size (``"bbox"`` /
+                ``"points"``, see :meth:`Evaluator.normalized_distance_metrics`), logged
+                as ``<prefix>/norm_distance/p50``, ``p95`` and ``miss_rate``. ``None``
+                (default) logs nothing new.
+            norm_missing_error: Error of an unpredicted labeled point (scale units).
+            norm_pad_frac: Padding of a points box, fraction of its longest side.
         """
         import numpy as np
         import sleap_io as sio
@@ -2336,6 +2347,9 @@ class EpochEndEvaluationCallback(Callback):
         self.eval_frequency = eval_frequency
         self.oks_stddev = oks_stddev
         self.oks_scale = oks_scale
+        self.norm_scale = norm_scale
+        self.norm_missing_error = norm_missing_error
+        self.norm_pad_frac = norm_pad_frac
         self.metrics_to_log = metrics_to_log or [
             "mOKS",
             "oks_voc.mAP",
@@ -2350,6 +2364,8 @@ class EpochEndEvaluationCallback(Callback):
             "visibility_precision",
             "visibility_recall",
         ]
+        if norm_scale is not None and metrics_to_log is None:
+            self.metrics_to_log += ["norm/p50", "norm/p95", "norm/miss_rate"]
 
     def on_validation_epoch_start(self, trainer, pl_module):
         """Enable prediction collection on scored epochs (not the sanity check)."""
@@ -2431,6 +2447,9 @@ class EpochEndEvaluationCallback(Callback):
                 oks_stddev=self.oks_stddev,
                 oks_scale=self.oks_scale,
                 user_labels_only=False,  # All validation frames are "user" frames
+                norm_scale=self.norm_scale,
+                norm_missing_error=self.norm_missing_error,
+                norm_pad_frac=self.norm_pad_frac,
             )
             metrics = evaluator.evaluate()
             logger.info(
@@ -2447,6 +2466,7 @@ class EpochEndEvaluationCallback(Callback):
         return {
             group: {key: metrics[group][key] for key in keys}
             for group, keys in self._LOGGED_METRICS.items()
+            if group in metrics
         }
 
     def _evaluate_files(self, gts: list, preds: list, epoch: int) -> Optional[dict]:
@@ -2703,6 +2723,26 @@ class EpochEndEvaluationCallback(Callback):
                 f"{prefix}/visibility_recall",
                 _get(metrics, "visibility_metrics", "recall"),
                 True,
+            ),
+            # Opt-in (``norm_scale``): error / instance scale, missing points counted.
+            # "distance" in the key keeps the W&B best-summary direction lower-is-better.
+            (
+                "norm/p50",
+                f"{prefix}/norm_distance/p50",
+                _get(metrics, "normalized_distance_metrics", "p50"),
+                False,
+            ),
+            (
+                "norm/p95",
+                f"{prefix}/norm_distance/p95",
+                _get(metrics, "normalized_distance_metrics", "p95"),
+                False,
+            ),
+            (
+                "norm/miss_rate",
+                f"{prefix}/norm_distance/miss_rate",
+                _get(metrics, "normalized_distance_metrics", "miss_rate"),
+                False,
             ),
         ]
         tracked = [c for c in candidates if c[0] in self.metrics_to_log]
