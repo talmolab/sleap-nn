@@ -488,6 +488,13 @@ def predict(
     # Node filter (construction-time; single_instance / centered_instance only)
     node_filter: Optional[Union[str, List[str]]] = None,
     strip_prefix: Optional[Union[bool, str]] = None,
+    # Part stage: crops from the predicted keypoints (off unless part_model_paths)
+    part_model_paths: Optional[List[str]] = None,
+    part_crop_rule: Optional[Any] = None,
+    part_node_filter: Optional[Union[str, List[str]]] = None,
+    part_strip_prefix: Optional[Union[bool, str]] = None,
+    part_peak_threshold: Optional[float] = None,
+    part_prefix: Optional[str] = None,
     # SAM prompted-mask producer (explicit, no default; PLAN L2). When set, masks
     # are produced from the existing poses in ``source`` (no trained seg model).
     mask_backend: Optional[str] = None,
@@ -627,6 +634,17 @@ def predict(
             models (export them filtered instead).
         strip_prefix: Rename the kept nodes: ``True`` strips the ``node_filter``
             prefix, a string strips that prefix.
+        part_model_paths: A part model (a centered-instance crop model) to run
+            after the pose model, on square crops built from each predicted
+            instance's keypoints by ``part_crop_rule``
+            (:mod:`sleap_nn.inference.keypoint_crops`); its points are appended
+            to the instance they came from. ``None`` (default): no part stage.
+        part_crop_rule: A :class:`~sleap_nn.inference.keypoint_crops.KeypointCropRule`,
+            a dict of its fields, or a ``.json`` / ``.yaml`` file of them.
+        part_node_filter: Node filter of the part model's head.
+        part_strip_prefix: ``strip_prefix`` for ``part_node_filter``.
+        part_peak_threshold: Peak threshold of the part model (default: its own).
+        part_prefix: Prefix for the part nodes in the merged skeleton.
         mask_backend: **Explicit** SAM mask backend (PLAN L2): ``"sam"`` (SAM1) /
             ``"sam3"`` (PR-B). When set, ``source`` is treated as a pose ``.slp``
             and masks are predicted from its existing instances (no trained seg
@@ -758,6 +776,11 @@ def predict(
 
     if model_paths and export_dir:
         raise ValueError("Provide model_paths or export_dir, not both.")
+    if part_model_paths and (export_dir or part_crop_rule is None):
+        raise ValueError(
+            "part_model_paths needs checkpoint model_paths for the pose stage and a "
+            "part_crop_rule."
+        )
     if not model_paths and not export_dir:
         raise ValueError("Either model_paths or export_dir is required.")
 
@@ -917,6 +940,22 @@ def predict(
         return_class_maps=return_class_maps,
         return_class_vectors=return_class_vectors,
     )
+
+    if part_model_paths:
+        from sleap_nn.inference.keypoint_crops import run_part_stage
+
+        labels = run_part_stage(
+            labels,
+            part_model_paths,
+            part_crop_rule,
+            device=device,
+            batch_size=batch_size,
+            precision=precision,
+            node_filter=part_node_filter,
+            strip_prefix=part_strip_prefix,
+            peak_threshold=part_peak_threshold,
+            part_prefix=part_prefix,
+        )
 
     if output_path is not None:
         save_predictions(
