@@ -584,6 +584,12 @@ class EvalConfig:
             *Default*: `0`.
         norm_bootstrap_by: (str) Resampling unit of ``norm_bootstrap``: ``"frame"`` or
             ``"video"``. *Default*: `"frame"`.
+        bbox_cover_metrics: (bool) For box detectors with ``enabled``: also log the share of
+            GT boxes covered by a prediction (a box holding at least half of the GT box) at
+            0.1 / 0.25 / 0.5 false boxes per frame, the cover-rule AP, and the covered share
+            and false boxes per frame at score 0.1 (``eval/val/bbox_cover_*``; see
+            :func:`sleap_nn.evaluation.compute_bbox_cover_metrics`). These read finding
+            objects apart from box tightness. *Default*: `False`.
         post_train_precision: (str) Precision of the post-training predictions on
             CUDA: `"32"`, `"bf16"` or `"fp16"` (autocast). `None` follows
             `precision` (`bf16-mixed` -> `"bf16"`, `16-mixed` -> `"fp16"`), so the
@@ -618,6 +624,7 @@ class EvalConfig:
     norm_bootstrap_by: str = field(
         default="frame", validator=validators.in_(["frame", "video"])
     )
+    bbox_cover_metrics: bool = False
     post_train_max_train_frames: Optional[int] = field(
         default=None, validator=validators.optional(validators.ge(1))
     )
