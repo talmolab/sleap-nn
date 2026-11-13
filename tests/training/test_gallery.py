@@ -1,12 +1,15 @@
-"""W&B prediction gallery helpers: panel selection and drawing."""
+"""W&B prediction gallery: panel selection, drawing and callback safety."""
 
 import os
+import random
 
 import numpy as np
 import pytest
+import torch
 import wandb
 
 from sleap_nn.training import gallery
+from sleap_nn.training.callbacks import WandBGalleryCallback
 
 
 @pytest.fixture(autouse=True)
@@ -145,3 +148,76 @@ def test_bbox_wandb_image_cached_jpeg_and_top_predictions(tmp_path):
     kept = [b["scores"]["score"] for b in im._boxes["predictions"]._val]
     assert len(kept) == 50 and min(kept) == pytest.approx(scores[-50])
     assert (im._height, im._width) == (240, 640)
+
+
+# --------------------------------------------------------------------------- #
+# Callback safety
+# --------------------------------------------------------------------------- #
+class _Module(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.a = torch.nn.Linear(2, 2)
+        self.b = torch.nn.Dropout()
+        self.b.eval()  # a submodule deliberately in eval mode
+
+    @property
+    def device(self):
+        return torch.device("cpu")
+
+
+def test_guarded_restores_rng_and_modes_and_swallows_errors():
+    cb = WandBGalleryCallback("keypoints", ["v"], ["t"])
+    module = _Module()
+    module.train()
+    module.b.eval()
+    random.seed(1)
+    np.random.seed(1)
+    torch.manual_seed(1)
+    expect = (random.random(), np.random.rand(), torch.rand(1).item())
+    random.seed(1)
+    np.random.seed(1)
+    torch.manual_seed(1)
+
+    def noisy(trainer, pl_module):
+        random.random(), np.random.rand(), torch.rand(5)
+        pl_module.eval()
+
+    cb._guarded(noisy, None, module)
+    assert (random.random(), np.random.rand(), torch.rand(1).item()) == expect
+    assert module.training and module.a.training and not module.b.training
+    assert cb.enabled
+
+    def boom(trainer, pl_module):
+        raise RuntimeError("drawing failed")
+
+    cb._guarded(boom, None, module)  # does not raise
+    assert not cb.enabled
+
+
+def test_log_frequency_cap():
+    class T:
+        max_epochs = 200
+        check_val_every_n_epoch = 1
+        val_check_interval = 1.0
+
+    cb = WandBGalleryCallback("bbox", ["v"], ["t"], max_logs=50)
+    logged = [c for c in range(200) if cb._should_log(T, c)]
+    assert len(logged) <= 51 and logged[0] == 0 and logged[-1] == 199
+    cb = WandBGalleryCallback("bbox", ["v"], ["t"], max_logs=50)
+    T.max_epochs = 10
+    assert [c for c in range(10) if cb._should_log(T, c)] == list(range(10))
+
+
+def test_time_budget(monkeypatch):
+    import sleap_nn.training.callbacks as cbmod
+
+    now = [0.0]
+    monkeypatch.setattr(cbmod.time, "perf_counter", lambda: now[0])
+    cb = WandBGalleryCallback("bbox", ["v"], ["t"], max_fraction=0.01)
+    cb._planned, cb._stride, cb._t0 = 10, 1, 0.0
+    cb.event_seconds, cb.panel_seconds = [3.0], 2.0  # first event: 1 s + 2 s panel
+    now[0] = 50.0  # 1% of 50 s = 0.5 s < 1 s already spent + 1 s next
+    assert cb._over_budget(1)
+    now[0] = 250.0  # 2.5 s budget >= 1 + 1
+    assert not cb._over_budget(1)
+    assert not cb._over_budget(9)  # the last planned validation always logs
