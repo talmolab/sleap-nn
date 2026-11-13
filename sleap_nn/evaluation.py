@@ -1094,8 +1094,10 @@ NORM_SCALES = ("bbox", "points")
 
 
 def _weighted_inverted_cdf(x: np.ndarray, w: np.ndarray, q: float) -> float:
-    """Weighted quantile, inverted-CDF definition (``np.percentile(method="inverted_cdf")``
-    for unit weights): the smallest value whose cumulative weight reaches ``q`` of the total.
+    """Weighted quantile with the inverted-CDF definition.
+
+    The smallest value whose cumulative weight reaches ``q`` of the total; for unit
+    weights this is ``np.percentile(x, 100 * q, method="inverted_cdf")``.
     """
     if x.size == 0 or not np.isfinite(w).any() or w.sum() <= 0:
         return float("nan")
@@ -3105,10 +3107,15 @@ def run_evaluation(
             :func:`sleap_nn.evaluation_coco.labels_to_coco_images`.
         count_unmatched_as_fp: Count unmatched predictions as false positives in
             the native ``oks_voc`` metrics (see :class:`Evaluator`).
-        norm_scale, norm_missing_error, norm_pad_frac, norm_bootstrap, norm_bootstrap_by:
-            Opt-in point error relative to instance size with unpredicted points counted
-            as failures, under ``metrics["normalized_distance_metrics"]`` (OKS mode only;
-            see :meth:`Evaluator.normalized_distance_metrics`). Off by default.
+        norm_scale: Opt-in point error relative to instance size, with unpredicted
+            points counted as failures, under ``metrics["normalized_distance_metrics"]``
+            (OKS mode only): ``"bbox"`` or ``"points"`` (see
+            :meth:`Evaluator.normalized_distance_metrics`). ``None`` (default) is off.
+        norm_missing_error: Error of an unpredicted labeled point, in scale units.
+        norm_pad_frac: Padding of a points box on every side, as a fraction of its
+            longest side.
+        norm_bootstrap: Percentile-bootstrap resamples for 95% intervals (0 = none).
+        norm_bootstrap_by: Resampling unit, ``"frame"`` or ``"video"``.
 
     Returns:
         The metrics dict, or ``None`` if the predicted labels have zero
