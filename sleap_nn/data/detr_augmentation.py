@@ -322,3 +322,40 @@ def detr_train_transform(
         offset = (float(torch.rand(())), float(torch.rand(())))
         image, boxes = zoom_out(image, boxes, factor, offset)
     return image, boxes
+
+
+def hull_mask(
+    hull: "np.ndarray",
+    size_hw: Tuple[int, int],
+    dilate_px: float,
+    feather_px: float,
+) -> torch.Tensor:
+    """Soft mask of a polygon (an animal's point hull) on a patch, for copy-paste.
+
+    The polygon is filled, dilated by ``dilate_px`` (a square max filter) and its
+    edge blurred by a Gaussian of radius ``feather_px``.
+
+    Args:
+        hull: ``(k, 2)`` polygon vertices in patch pixels (NaN rows are ignored).
+        size_hw: Patch ``(height, width)``.
+        dilate_px: Dilation in pixels.
+        feather_px: Gaussian blur radius in pixels.
+
+    Returns:
+        ``(height, width)`` float32 mask in ``[0, 1]``.
+    """
+    import numpy as np
+    from PIL import Image, ImageDraw, ImageFilter
+
+    h, w = int(size_hw[0]), int(size_hw[1])
+    pts = np.asarray(hull, dtype=np.float64).reshape(-1, 2)
+    pts = pts[np.isfinite(pts).all(1)]
+    canvas = Image.new("L", (w, h), 0)
+    if len(pts) >= 3:
+        ImageDraw.Draw(canvas).polygon([tuple(p) for p in pts.tolist()], fill=255)
+    size = 2 * int(round(dilate_px)) + 1
+    if size > 1:
+        canvas = canvas.filter(ImageFilter.MaxFilter(size))
+    if feather_px > 0:
+        canvas = canvas.filter(ImageFilter.GaussianBlur(float(feather_px)))
+    return torch.from_numpy(np.asarray(canvas, dtype=np.float32) / 255.0)

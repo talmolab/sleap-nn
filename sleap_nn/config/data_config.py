@@ -627,6 +627,25 @@ class DetrAugmentationConfig:
             size with its own boxes; its boxes covered >= 50% by the pasted frame are
             dropped, the rest clipped to outside it), so the surroundings are real scenes.
             *Default*: `"zero"`.
+        paste_p: (float) Probability of pasting animals cut from other training frames
+            onto the fitted training frame (copy-paste; not in RF-DETR): crowds, small
+            animals and new backgrounds. Each pasted animal is its box region cut with a
+            soft mask, the convex hull of the linked instance's points inside the box,
+            dilated and feathered; boxes with no linked instance or fewer than 4 points
+            inside are never pasted. *Default*: `0.0` (off).
+        paste_max: (int) Most animals pasted onto one frame (a uniform draw from 1..max).
+            *Default*: `6`.
+        paste_frames: (int) Most source frames read per paste (each a uniformly drawn
+            training file, then frame). *Default*: `2`.
+        paste_scale_min: (float) Smallest scale of a pasted animal relative to its size in
+            its own fitted frame (log-uniform draw). *Default*: `0.3`.
+        paste_scale_max: (float) Largest such scale. *Default*: `1.2`.
+        paste_overlap: (float) Largest share of a pasted box that may overlap boxes already
+            in the frame (a pasted box never covers half of another box). *Default*: `0.3`.
+        paste_dilate: (float) Mask dilation, as a share of the box's longest side.
+            *Default*: `0.08`.
+        paste_feather: (float) Mask edge blur (Gaussian radius), as a share of the box's
+            longest side. *Default*: `0.04`.
         multi_scale: (bool) Per-batch multi-scale: frames are made at the largest
             scale and every training batch is resized to one size drawn per
             optimizer step (the same on every rank) from `max_height x max_width`
@@ -649,6 +668,14 @@ class DetrAugmentationConfig:
     zoom_out_canvas: str = field(
         default="zero", validator=validators.in_(("zero", "frame"))
     )
+    paste_p: float = field(default=0.0, validator=validate_proportion)
+    paste_max: int = field(default=6, validator=validators.ge(1))
+    paste_frames: int = field(default=2, validator=validators.ge(1))
+    paste_scale_min: float = field(default=0.3, validator=validators.gt(0))
+    paste_scale_max: float = field(default=1.2, validator=validators.gt(0))
+    paste_overlap: float = field(default=0.3, validator=validate_proportion)
+    paste_dilate: float = field(default=0.08, validator=validators.ge(0))
+    paste_feather: float = field(default=0.04, validator=validators.ge(0))
     multi_scale: bool = True
     multi_scale_steps: int = field(default=5, validator=validators.ge(0))
 

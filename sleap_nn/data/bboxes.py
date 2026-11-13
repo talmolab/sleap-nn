@@ -280,6 +280,78 @@ def frame_bbox_arrays(
     )
 
 
+#: Vertices stored per box by :func:`frame_bbox_hulls` (NaN-padded).
+HULL_VERTICES = 32
+
+
+def instance_hull(
+    points: np.ndarray,
+    box: Sequence[float],
+    min_points: int = 4,
+    max_vertices: int = HULL_VERTICES,
+) -> np.ndarray:
+    """Convex hull of an instance's labeled points inside its box, NaN-padded.
+
+    Args:
+        points: ``(n_nodes, 2)`` point coordinates (NaN for unlabeled points).
+        box: The instance's ``(x1, y1, x2, y2)`` box; points more than 1 px outside
+            it (e.g. a tail beyond a body box) are left out.
+        min_points: Fewest points inside the box for a hull; fewer gives all NaN.
+        max_vertices: Rows of the output.
+
+    Returns:
+        ``(max_vertices, 2)`` float32 hull vertices in order, NaN rows after them; all
+        NaN when there are too few points or they are collinear.
+    """
+    out = np.full((max_vertices, 2), np.nan, dtype=np.float32)
+    pts = np.asarray(points, dtype=np.float64).reshape(-1, 2)
+    pts = pts[np.isfinite(pts).all(1)]
+    x1, y1, x2, y2 = (float(v) for v in box)
+    inside = (
+        (pts[:, 0] >= x1 - 1)
+        & (pts[:, 0] <= x2 + 1)
+        & (pts[:, 1] >= y1 - 1)
+        & (pts[:, 1] <= y2 + 1)
+    )
+    pts = np.unique(pts[inside], axis=0)
+    if len(pts) < max(3, min_points):
+        return out
+    from scipy.spatial import ConvexHull, QhullError
+
+    try:
+        verts = pts[ConvexHull(pts).vertices]
+    except (QhullError, ValueError):
+        return out
+    verts = verts[:max_vertices]
+    out[: len(verts)] = verts
+    return out
+
+
+def frame_bbox_hulls(
+    lf: sio.LabeledFrame, categories: Sequence[str], min_points: int = 4
+) -> np.ndarray:
+    """Per box of :func:`frame_bbox_arrays` (same boxes, same order), the convex hull
+    of its linked instance's points inside it: ``(n, HULL_VERTICES, 2)`` float32, all
+    NaN for a box with no linked instance or too few points (see :func:`instance_hull`).
+    """
+    index = {name: i for i, name in enumerate(categories)}
+    class_agnostic = list(categories) == [DEFAULT_BBOX_CATEGORY]
+    single_class = len(categories) == 1
+    hulls = []
+    for box in frame_user_bboxes(lf):
+        name = bbox_category_name(box)
+        if not (class_agnostic or (single_class and name == DEFAULT_BBOX_CATEGORY)):
+            if index.get(name) is None:
+                continue
+        xyxy = box.bounds if box.is_rotated else box.xyxy
+        inst = getattr(box, "instance", None)
+        if inst is None:
+            hulls.append(np.full((HULL_VERTICES, 2), np.nan, dtype=np.float32))
+        else:
+            hulls.append(instance_hull(inst.numpy(), xyxy, min_points=min_points))
+    return np.asarray(hulls, dtype=np.float32).reshape(-1, HULL_VERTICES, 2)
+
+
 def bbox_size_stats(
     labels_list: Sequence[sio.Labels],
     max_hw: Optional[Tuple[Optional[int], Optional[int]]] = None,
