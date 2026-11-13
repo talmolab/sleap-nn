@@ -646,7 +646,9 @@ class DetrAugmentationConfig:
     zoom_out_p: float = field(default=0.0, validator=validate_proportion)
     zoom_out_min: float = field(default=0.4, validator=validators.gt(0))
     zoom_out_max: float = field(default=1.0, validator=validators.le(1))
-    zoom_out_canvas: str = field(default="zero", validator=validators.in_(("zero", "frame")))
+    zoom_out_canvas: str = field(
+        default="zero", validator=validators.in_(("zero", "frame"))
+    )
     multi_scale: bool = True
     multi_scale_steps: int = field(default=5, validator=validators.ge(0))
 

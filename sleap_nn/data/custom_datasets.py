@@ -6100,14 +6100,16 @@ class DetrBBoxDataset(BBoxDataset):
             if str(aug.get("zoom_out_canvas", "zero") or "zero") == "frame":
                 p_zo = float(aug.get("zoom_out_p", 0.0) or 0.0)
                 if p_zo > 0 and float(torch.rand(())) < p_zo:
-                    sample["image"], boxes, sample["_classes"] = self._zoom_out_on_frame(
-                        sample["image"],
-                        boxes,
-                        sample["_classes"],
-                        (
-                            float(aug.get("zoom_out_min", 0.4) or 0.4),
-                            float(aug.get("zoom_out_max", 1.0) or 1.0),
-                        ),
+                    sample["image"], boxes, sample["_classes"] = (
+                        self._zoom_out_on_frame(
+                            sample["image"],
+                            boxes,
+                            sample["_classes"],
+                            (
+                                float(aug.get("zoom_out_min", 0.4) or 0.4),
+                                float(aug.get("zoom_out_max", 1.0) or 1.0),
+                            ),
+                        )
                     )
             scale_xy = (self.train_hw[1] / in_hw[1], self.train_hw[0] / in_hw[0])
         else:

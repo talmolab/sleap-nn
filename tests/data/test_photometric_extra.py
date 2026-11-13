@@ -131,8 +131,14 @@ def test_detr_transform_zoom_out_p():
     sizes = []
     for _ in range(20):
         out, b = detr_train_transform(
-            img, boxes, (96, 128), "letterbox", crop_p=0.0, flip_p=0.0,
-            zoom_out_p=1.0, zoom_out_range=(0.3, 1.0),
+            img,
+            boxes,
+            (96, 128),
+            "letterbox",
+            crop_p=0.0,
+            flip_p=0.0,
+            zoom_out_p=1.0,
+            zoom_out_range=(0.3, 1.0),
         )
         assert out.shape[-2:] == (96, 128)
         sizes.append(float((b[0, 2] - b[0, 0]) / (140 * 128 / 160)))

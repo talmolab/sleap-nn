@@ -70,7 +70,10 @@ class ExtraPhotometric:
         e.invert_p = float(f("invert_p", 0.0))
         e.downup = (float(f("downup_min", 1.0)), float(f("downup_max", 1.0)))
         e.downup_p = float(f("downup_p", 0.0))
-        e.jpeg_quality = (int(f("jpeg_quality_min", 95)), int(f("jpeg_quality_max", 95)))
+        e.jpeg_quality = (
+            int(f("jpeg_quality_min", 95)),
+            int(f("jpeg_quality_max", 95)),
+        )
         e.jpeg_p = float(f("jpeg_p", 0.0))
         if min(e.gamma) <= 0:
             raise ValueError(f"gamma_min/gamma_max must be > 0, got {e.gamma}.")
