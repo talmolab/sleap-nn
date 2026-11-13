@@ -330,9 +330,14 @@ def instance_hull(
 def frame_bbox_hulls(
     lf: sio.LabeledFrame, categories: Sequence[str], min_points: int = 4
 ) -> np.ndarray:
-    """Per box of :func:`frame_bbox_arrays` (same boxes, same order), the convex hull
-    of its linked instance's points inside it: ``(n, HULL_VERTICES, 2)`` float32, all
-    NaN for a box with no linked instance or too few points (see :func:`instance_hull`).
+    """Point hulls of a frame's user boxes, for copy-paste augmentation.
+
+    Same boxes in the same order as :func:`frame_bbox_arrays`; each row is the convex
+    hull of the box's linked instance's points inside it (:func:`instance_hull`), all
+    NaN for a box with no linked instance or too few points.
+
+    Returns:
+        ``(n, HULL_VERTICES, 2)`` float32.
     """
     index = {name: i for i, name in enumerate(categories)}
     class_agnostic = list(categories) == [DEFAULT_BBOX_CATEGORY]

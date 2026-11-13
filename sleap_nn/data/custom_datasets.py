@@ -6131,11 +6131,7 @@ class DetrBBoxDataset(BBoxDataset):
                         )
                     )
             p_paste = float(aug.get("paste_p", 0.0) or 0.0)
-            if (
-                self._capture_hulls
-                and p_paste > 0
-                and float(torch.rand(())) < p_paste
-            ):
+            if self._capture_hulls and p_paste > 0 and float(torch.rand(())) < p_paste:
                 sample["image"], boxes, sample["_classes"] = self._paste_animals(
                     sample["image"], boxes, sample["_classes"]
                 )
@@ -6297,7 +6293,10 @@ class DetrBBoxDataset(BBoxDataset):
                 xyxy2 = xyxy2 * np.asarray([sx, sy, sx, sy], dtype=np.float32)
                 hulls = hulls * np.asarray([sx, sy], dtype=np.float32)
             src, b2, (fx, fy) = resize_frame(
-                src, torch.from_numpy(xyxy2).reshape(-1, 4), self.train_hw, self.resize_mode
+                src,
+                torch.from_numpy(xyxy2).reshape(-1, 4),
+                self.train_hw,
+                self.resize_mode,
             )
             hulls = hulls * np.asarray([fx, fy], dtype=np.float32)
             src = src.to(torch.float32)
@@ -6307,8 +6306,12 @@ class DetrBBoxDataset(BBoxDataset):
                     break
                 if not np.isfinite(hulls[k]).any():
                     continue
-                x1, y1 = int(math.floor(float(b2[k, 0]))), int(math.floor(float(b2[k, 1])))
-                x2, y2 = int(math.ceil(float(b2[k, 2]))), int(math.ceil(float(b2[k, 3])))
+                x1, y1 = int(math.floor(float(b2[k, 0]))), int(
+                    math.floor(float(b2[k, 1]))
+                )
+                x2, y2 = int(math.ceil(float(b2[k, 2]))), int(
+                    math.ceil(float(b2[k, 3]))
+                )
                 x1, y1 = max(x1, 0), max(y1, 0)
                 x2, y2 = min(x2, src.shape[-1]), min(y2, src.shape[-2])
                 if x2 - x1 < 4 or y2 - y1 < 4:
@@ -6326,7 +6329,10 @@ class DetrBBoxDataset(BBoxDataset):
                     continue
                 pm = torch.cat([patch, mask[None]], 0)
                 pm = torch.nn.functional.interpolate(
-                    pm[None], size=(ph, pw), mode="bilinear", antialias=f < 1,
+                    pm[None],
+                    size=(ph, pw),
+                    mode="bilinear",
+                    antialias=f < 1,
                     align_corners=False,
                 )[0]
                 if float(torch.rand(())) < 0.5:
@@ -6340,7 +6346,9 @@ class DetrBBoxDataset(BBoxDataset):
                 for _try in range(10):
                     oy = int(torch.randint(Hc - ph + 1, ()))
                     ox = int(torch.randint(Wc - pw + 1, ()))
-                    cand = torch.tensor([[ox, oy, ox + pw, oy + ph]], dtype=torch.float32)
+                    cand = torch.tensor(
+                        [[ox, oy, ox + pw, oy + ph]], dtype=torch.float32
+                    )
                     if len(placed):
                         lt = torch.maximum(cand[:, :2], placed[:, :2])
                         rb = torch.minimum(cand[:, 2:], placed[:, 2:])
@@ -6361,10 +6369,10 @@ class DetrBBoxDataset(BBoxDataset):
                     new_c.append(int(c2[k]))
                     break
         if new_b:
-            boxes = torch.cat([boxes.reshape(-1, 4), torch.stack(new_b).to(boxes.dtype)], 0)
-            classes = torch.cat(
-                [classes, torch.tensor(new_c, dtype=classes.dtype)], 0
+            boxes = torch.cat(
+                [boxes.reshape(-1, 4), torch.stack(new_b).to(boxes.dtype)], 0
             )
+            classes = torch.cat([classes, torch.tensor(new_c, dtype=classes.dtype)], 0)
         return out, boxes, classes
 
     def _frame_photometric(self, image: torch.Tensor) -> torch.Tensor:

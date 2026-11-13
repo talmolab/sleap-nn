@@ -481,7 +481,9 @@ def test_hull_mask_is_soft_and_inside_patch():
 
 def test_paste_adds_animals_from_other_frames(tmp_path):
     rects = [(20, 20, 80, 60), (150, 150, 220, 200)]
-    files = [_animal_labels(tmp_path, f"p{i}", (256, 256), rects, seed=i) for i in range(2)]
+    files = [
+        _animal_labels(tmp_path, f"p{i}", (256, 256), rects, seed=i) for i in range(2)
+    ]
     ds = _detr_dataset(files, hw=(256, 256), apply_aug=True, detr_aug=_PASTE_AUG)
     assert ds.max_instances == 2 + 4 and ds.target_encoder.max_targets == 6
     torch.manual_seed(0)
@@ -515,7 +517,9 @@ def test_paste_skips_boxes_without_instances(tmp_path):
 
 def test_paste_off_by_default_and_in_validation(tmp_path):
     rects = [(20, 20, 80, 60), (150, 150, 220, 200)]
-    files = [_animal_labels(tmp_path, f"d{i}", (256, 256), rects, seed=i) for i in range(2)]
+    files = [
+        _animal_labels(tmp_path, f"d{i}", (256, 256), rects, seed=i) for i in range(2)
+    ]
     base = {k: v for k, v in _PASTE_AUG.items() if not k.startswith("paste")}
     off = _detr_dataset(files, hw=(256, 256), apply_aug=True, detr_aug=base)
     zero = _detr_dataset(
