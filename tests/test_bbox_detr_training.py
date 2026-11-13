@@ -33,7 +33,9 @@ from sleap_nn.data.detr_augmentation import (
     random_resize_crop,
     resize_batch,
     resize_frame,
+    rot90,
     shortest_side_size,
+    vflip,
 )
 
 TINY_DIR = Path(__file__).resolve().parent / "assets" / "detr" / "rfdetr_tiny"
@@ -166,6 +168,65 @@ def test_hflip_boxes():
     out, boxes = hflip(img, torch.tensor([box]))
     assert boxes[0].tolist() == [20.0, 5.0, 40.0, 15.0]
     assert _box_of_mask(out) == boxes[0].tolist()
+
+
+def test_vflip_boxes():
+    box = [10.0, 5.0, 30.0, 15.0]
+    img = _box_image((20, 50), [box])
+    out, boxes = vflip(img, torch.tensor([box]))
+    assert boxes[0].tolist() == [10.0, 5.0, 30.0, 15.0]  # symmetric about y = 10
+    box = [10.0, 2.0, 30.0, 8.0]
+    out, boxes = vflip(_box_image((20, 50), [box]), torch.tensor([box]))
+    assert boxes[0].tolist() == [10.0, 12.0, 30.0, 18.0]
+    assert _box_of_mask(out) == boxes[0].tolist()
+
+
+@pytest.mark.parametrize("clockwise", [False, True])
+def test_rot90_boxes_follow_pixels(clockwise):
+    box = [10.0, 2.0, 30.0, 8.0]
+    img = _box_image((20, 50), [box])
+    out, boxes = rot90(img, torch.tensor([box]), clockwise=clockwise)
+    assert tuple(out.shape[-2:]) == (50, 20)
+    assert _box_of_mask(out) == boxes[0].tolist()
+    # Four turns in one direction give the input back.
+    b, im = torch.tensor([box]), img
+    for _ in range(4):
+        im, b = rot90(im, b, clockwise=clockwise)
+    assert b[0].tolist() == box and torch.equal(im, img)
+
+
+def test_detr_train_transform_dihedral_keeps_boxes_exact():
+    torch.manual_seed(0)
+    box = [100.0, 150.0, 300.0, 250.0]
+    img = _box_image((480, 640), [box])
+    shapes = set()
+    for _ in range(16):
+        out, boxes = detr_train_transform(
+            img,
+            torch.tensor([box]),
+            (480, 640),
+            "letterbox",
+            crop_p=0.0,
+            flip_p=0.5,
+            vflip_p=0.5,
+            rot90_p=0.5,
+        )
+        np.testing.assert_allclose(_box_of_mask(out), boxes[0].tolist(), atol=1.0)
+        w, h = (boxes[0, 2:] - boxes[0, :2]).tolist()
+        shapes.add("wide" if w > h else "tall")
+    assert shapes == {"wide", "tall"}  # some draws were rotated
+
+
+def test_letterbox_drops_boxes_outside_the_crop():
+    # A square crop letterboxed into a wide frame leaves padding on the right; a
+    # box right of the crop must not land on it.
+    image = torch.zeros(3, 100, 100)
+    boxes = torch.tensor([[110.0, 10.0, 130.0, 30.0], [90.0, 10.0, 120.0, 30.0]])
+    out, b, _ = resize_frame(image, boxes, (100, 200), "letterbox")
+    assert tuple(out.shape[-2:]) == (100, 200)
+    clipped, keep = clip_bboxes(b, (100, 200), 0.0, 0.0, edge_coords=True)
+    assert keep.tolist() == [False, True]
+    assert clipped[1].tolist() == [90.0, 10.0, 100.0, 30.0]  # clipped to the content
 
 
 def test_shortest_side_size_matches_rfdetr():

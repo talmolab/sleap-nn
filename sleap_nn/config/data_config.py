@@ -579,6 +579,15 @@ class DetrAugmentationConfig:
         crop_range: (List[int]) Inclusive `[min, max]` crop side. *Default*:
             `[384, 600]`.
         flip_p: (float) Horizontal flip probability. *Default*: `0.5`.
+        vflip_p: (float) Vertical flip probability (not in RF-DETR). *Default*:
+            `0.0`.
+        rot90_p: (float) Probability of a 90 degree rotation, clockwise or
+            counterclockwise at random, before the frame is fitted to the
+            training size (not in RF-DETR). Boxes stay exact, unlike the
+            `geometric` rotation, which turns box corners and so enlarges the
+            boxes. With `flip_p: 0.5, vflip_p: 0.5, rot90_p: 0.5` every
+            orientation and mirror image is equally likely (overhead footage).
+            *Default*: `0.0`.
         multi_scale: (bool) Per-batch multi-scale: frames are made at the largest
             scale and every training batch is resized to one size drawn per
             optimizer step (the same on every rank) from `max_height x max_width`
@@ -593,6 +602,8 @@ class DetrAugmentationConfig:
     shortest_sides: List[int] = (400, 500, 600)
     crop_range: List[int] = (384, 600)
     flip_p: float = field(default=0.5, validator=validate_proportion)
+    vflip_p: float = field(default=0.0, validator=validate_proportion)
+    rot90_p: float = field(default=0.0, validator=validate_proportion)
     multi_scale: bool = True
     multi_scale_steps: int = field(default=5, validator=validators.ge(0))
 
