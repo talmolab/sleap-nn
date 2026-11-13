@@ -272,6 +272,76 @@ def test_time_budget(monkeypatch):
     assert not cb._over_budget(9)  # the last planned validation always logs
 
 
+def test_scheduling_edge_cases(monkeypatch):
+    with pytest.raises(ValueError):
+        WandBGalleryCallback("segmentation", ["v"], ["t"])
+
+    class Unknown:  # unknown run length: the rate halves each time the cap is hit
+        max_epochs = -1
+
+    cb = WandBGalleryCallback("bbox", ["v"], ["t"], max_logs=4)
+    logged = []
+    for c in range(40):
+        if cb._should_log(Unknown, c):
+            logged.append(c)
+            cb._events += 1
+    assert cb._planned is None and logged[:4] == [0, 1, 2, 3]
+    assert len(logged) < 20 and cb._stride > 1
+
+    class Frac:  # validation every 2 epochs, 4 times per epoch
+        max_epochs = 10
+        check_val_every_n_epoch = 2
+        val_check_interval = 0.25
+
+    assert WandBGalleryCallback("bbox", ["v"], ["t"])._planned_validations(Frac) == 20
+
+    class T:
+        sanity_checking = False
+        is_global_zero = True
+        max_epochs = 10
+        check_val_every_n_epoch = 1
+        val_check_interval = 1.0
+
+    cb = WandBGalleryCallback("bbox", ["v"], ["t"], max_logs=5)  # stride 2
+    events = []
+    monkeypatch.setattr(cb, "_log_event", lambda trainer, m: events.append(1))
+    monkeypatch.setattr(cb, "_over_budget", lambda count: count == 2)
+    for _ in range(10):
+        cb.on_validation_epoch_end(T, _Module())
+    assert len(events) == 5 and cb.skipped_for_budget == 1  # 0, 4, 6, 8 and last 9
+
+
+def test_callback_fallbacks():
+    cb = WandBGalleryCallback("bbox", ["v"], ["t"])
+    cb._log_event(type("NoWandB", (), {"loggers": []})(), None)
+    assert not cb.enabled  # no W&B logger: off, nothing logged
+
+    class Loader:
+        dataset, batch_size = [], 4
+
+    with pytest.raises(RuntimeError):
+        cb._build_panel(type("T", (), {"val_dataloaders": [Loader()]})())
+    groups, hardness = cb._panel_metadata(list(range(5)))  # no sample metadata
+    assert groups.tolist() == [0] * 5 and hardness is None
+    assert WandBGalleryCallback._nodes(None, 0, 3) == [0, 1, 2]
+
+
+def test_helper_fallbacks():
+    img = gallery.to_rgb_uint8(np.full((1, 4, 6), 0.5, dtype=np.float32))
+    assert img.shape == (4, 6, 3) and img.dtype == np.uint8 and img[0, 0, 0] == 127
+    assert np.isnan(gallery.keypoint_error(np.zeros((2, 2)), np.ones((2, 2)), []))
+    assert gallery.caption("set", "lab", 1, 7, "x", "hard").startswith(
+        "set | lab | v1 f7"
+    )
+
+    class L:
+        def __init__(self, name):
+            self.provenance = {"dataset": name}
+
+    assert gallery.file_display_names([L("a"), L("b")], ["x", "y"]) == ["a", "b"]
+    assert gallery.file_display_names([L("a"), L("a")], ["x", "y"]) == ["x", "y"]
+
+
 # --------------------------------------------------------------------------- #
 # Training runs (CPU, W&B offline)
 # --------------------------------------------------------------------------- #
@@ -323,6 +393,11 @@ def test_gallery_off_switch_and_without_wandb(config, tmp_path):
     assert model_trainer._gallery_callback() is None
     OmegaConf.update(model_trainer.config, "trainer_config.wandb.gallery", True)
     OmegaConf.update(model_trainer.config, "trainer_config.use_wandb", False)
+    assert model_trainer._gallery_callback() is None
+    OmegaConf.update(model_trainer.config, "trainer_config.use_wandb", True)
+    OmegaConf.update(model_trainer.config, "data_config.val_names", ["held_out"])
+    assert model_trainer._gallery_callback().val_names == ["held_out"]
+    model_trainer.model_type = "single_instance"  # not supported: skipped
     assert model_trainer._gallery_callback() is None
 
 
