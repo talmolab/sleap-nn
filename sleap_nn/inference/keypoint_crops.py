@@ -19,7 +19,12 @@ A :class:`KeypointCropRule` turns each predicted instance into one square box:
   floored at ``min_half_side`` pixels;
 * otherwise (no center, or no reference): ``fallback="extent"`` centers the box on
   the extent of the instance's located points with half side
-  ``fallback_scale`` x half the extent's longer side; ``"skip"`` makes no box.
+  ``fallback_scale`` x half the extent's longer side; ``"skip"`` makes no box;
+* optionally (``session_floor``, off by default), a floor on the half side of
+  ``session_floor`` x the median half side of the rule's boxes in the same video
+  (see :func:`session_floors`), about the same center. A short reference (a mouse
+  rearing or seen nose-on, whose ears nearly cover the tail base) otherwise makes
+  a crop too small to hold the part.
 
 The part model then runs on those boxes through the box-seeded top-down route
 (``boxes="given"``), and :func:`merge_part_predictions` appends its points to the
@@ -75,6 +80,11 @@ class KeypointCropRule:
         fallback_scale: Half side of an extent box = ``fallback_scale`` x half the
             extent's longer side.
         min_half_side: Floor of the half side in pixels.
+        session_floor: If set, the half side is also floored at ``session_floor``
+            x the median half side of the rule's boxes in the same video (a
+            session). ``None`` (default): no such floor.
+        session_min_boxes: A video with fewer boxes than this uses the median over
+            all videos of the labels instead of its own.
     """
 
     center: List[str]
@@ -84,6 +94,8 @@ class KeypointCropRule:
     fallback: str = "extent"
     fallback_scale: float = 1.0
     min_half_side: float = 1.0
+    session_floor: Optional[float] = None
+    session_min_boxes: int = 10
 
     def __post_init__(self):
         """Normalize node lists and check the fallback mode."""
@@ -98,6 +110,10 @@ class KeypointCropRule:
             )
         if self.scale <= 0 or self.fallback_scale <= 0:
             raise ValueError("scale and fallback_scale must be positive.")
+        if self.session_floor is not None and not self.session_floor > 0:
+            raise ValueError("session_floor must be positive (or None for no floor).")
+        if self.session_min_boxes < 1:
+            raise ValueError("session_min_boxes must be at least 1.")
 
     @classmethod
     def from_dict(cls, d: Dict[str, Any]) -> "KeypointCropRule":
@@ -141,9 +157,13 @@ class KeypointCropRule:
         )
 
     def box(
-        self, points: np.ndarray, resolved: Dict[str, List[int]]
+        self, points: np.ndarray, resolved: Dict[str, List[int]], floor: float = 0.0
     ) -> Tuple[Optional[np.ndarray], bool]:
-        """``((4,) xyxy or None, used_fallback)`` for one instance's ``(N, 2)`` points."""
+        """``((4,) xyxy or None, used_fallback)`` for one instance's ``(N, 2)`` points.
+
+        ``floor`` is an extra floor on the half side in pixels (the video's session
+        floor from :func:`session_floors`; 0 for none).
+        """
         pts = np.asarray(points, dtype=np.float64)
         ok = np.isfinite(pts).all(-1)
         center = next((pts[i] for i in resolved["center"] if ok[i]), None)
@@ -163,7 +183,7 @@ class KeypointCropRule:
             center = (lo + hi) / 2
             half = self.fallback_scale * float((hi - lo).max()) / 2
             used_fallback = True
-        half = max(half, self.min_half_side)
+        half = max(half, self.min_half_side, floor)
         return (
             np.array(
                 [center[0] - half, center[1] - half, center[0] + half, center[1] + half]
@@ -173,11 +193,15 @@ class KeypointCropRule:
 
 
 def instance_boxes(
-    lf: sio.LabeledFrame, rule: KeypointCropRule, cache: Optional[dict] = None
+    lf: sio.LabeledFrame,
+    rule: KeypointCropRule,
+    cache: Optional[dict] = None,
+    floor: float = 0.0,
 ) -> Tuple[np.ndarray, np.ndarray, List[Any]]:
     """Part boxes of a frame's predicted instances: ``(K, 4)``, ``(K,)``, instances.
 
     Box ``k`` belongs to ``instances[k]`` and is scored by its instance score.
+    ``floor`` is passed to :meth:`KeypointCropRule.box`.
     """
     cache = {} if cache is None else cache
     boxes, scores, insts = [], [], []
@@ -185,7 +209,7 @@ def instance_boxes(
         key = id(inst.skeleton)
         if key not in cache:
             cache[key] = rule.resolve(inst.skeleton.node_names)
-        box, _ = rule.box(inst.numpy(), cache[key])
+        box, _ = rule.box(inst.numpy(), cache[key], floor)
         if box is None:
             continue
         boxes.append(box)
@@ -199,12 +223,53 @@ def instance_boxes(
     )
 
 
-def keypoint_frame_box_fn(rule: KeypointCropRule):
-    """A ``LabelsProvider.frame_box_fn`` giving each frame's part boxes."""
+def session_floors(
+    labels: sio.Labels, rule: KeypointCropRule
+) -> Dict[sio.Video, float]:
+    """Half-side floor per video: ``rule.session_floor`` x the video's median half side.
+
+    The median is over the boxes the rule builds (without this floor) from the
+    predicted instances of each video in ``labels``; a video with fewer than
+    ``rule.session_min_boxes`` boxes uses the median over all videos. Empty when
+    ``rule.session_floor`` is ``None`` or there are no boxes.
+
+    The floor needs the first-stage predictions of the whole video before any
+    crop is made; streaming or real-time use would need a running median instead.
+    """
+    if rule.session_floor is None:
+        return {}
     cache: dict = {}
+    halves: Dict[sio.Video, List[float]] = {}
+    for lf in labels.labeled_frames:
+        boxes, _, _ = instance_boxes(lf, rule, cache)
+        if len(boxes):
+            halves.setdefault(lf.video, []).extend(
+                ((boxes[:, 2] - boxes[:, 0]) / 2).tolist()
+            )
+    every = [h for v in halves.values() for h in v]
+    if not every:
+        return {}
+    pooled = float(np.median(every))
+    return {
+        video: rule.session_floor
+        * (float(np.median(v)) if len(v) >= rule.session_min_boxes else pooled)
+        for video, v in halves.items()
+    }
+
+
+def keypoint_frame_box_fn(
+    rule: KeypointCropRule, floors: Optional[Dict[sio.Video, float]] = None
+):
+    """A ``LabelsProvider.frame_box_fn`` giving each frame's part boxes.
+
+    ``floors``: per-video half-side floors from :func:`session_floors` (none if
+    ``None`` or empty).
+    """
+    cache: dict = {}
+    floors = floors or {}
 
     def frame_box_fn(lf):
-        boxes, scores, _ = instance_boxes(lf, rule, cache)
+        boxes, scores, _ = instance_boxes(lf, rule, cache, floors.get(lf.video, 0.0))
         return boxes, scores
 
     return frame_box_fn
@@ -240,18 +305,23 @@ def merge_part_predictions(
     rule: KeypointCropRule,
     part_prefix: Optional[str] = None,
     tol: float = 0.5,
+    floors: Optional[Dict[sio.Video, float]] = None,
 ) -> Tuple[sio.Labels, Dict[str, int]]:
     """Append each part instance's points to the body instance its box came from.
 
     A part instance is matched to a body instance through its linked crop box:
     the box the rule builds from that body instance (within ``tol`` pixels per
-    coordinate). Body instances with no part prediction get NaN part points. The
-    merged instances keep the body instance's score, track and boxes.
+    coordinate), with the per-video ``floors`` (default: :func:`session_floors`
+    of ``base``, empty unless the rule sets ``session_floor``). Body instances with
+    no part prediction get NaN part points. The merged instances keep the body
+    instance's score, track and boxes.
 
     Returns:
         ``(labels, counts)`` with ``n_instances``, ``n_merged`` and ``n_unmatched``
         (part instances whose box matches no body instance).
     """
+    if floors is None:
+        floors = session_floors(base, rule)
     video_map = dict(zip(part.videos, base.videos))
     part_frames = {}
     for lf in part.labeled_frames:
@@ -260,7 +330,7 @@ def merge_part_predictions(
     cache: dict = {}
     frames, n_inst, n_merged, n_unmatched = [], 0, 0, 0
     for lf in base.labeled_frames:
-        boxes, _, insts = instance_boxes(lf, rule, cache)
+        boxes, _, insts = instance_boxes(lf, rule, cache, floors.get(lf.video, 0.0))
         plf = part_frames.get((lf.video, lf.frame_idx))
         found: Dict[int, Any] = {}
         if plf is not None:
@@ -333,6 +403,12 @@ def merge_part_predictions(
         part_prefix=part_prefix,
         part_provenance=dict(part.provenance),
     )
+    if floors:
+        out.provenance["part_stage"]["session_floors"] = {
+            base.videos.index(v): round(float(f), 3)
+            for v, f in floors.items()
+            if v in base.videos
+        }
     return out, dict(n_instances=n_inst, n_merged=n_merged, n_unmatched=n_unmatched)
 
 
@@ -381,17 +457,25 @@ def run_part_stage(
     if peak_threshold is not None:
         kwargs["peak_threshold"] = peak_threshold
     predictor = Predictor.from_model_paths(list(part_model_paths), **kwargs)
+    floors = session_floors(base, rule)
+    if floors:
+        logger.info(
+            f"Part stage: half sides floored at {rule.session_floor} x the median "
+            f"of each of {len(floors)} videos."
+        )
     provider = LabelsProvider(
         labels=base,
         batch_size=batch_size,
         only_predicted_frames=True,
-        frame_box_fn=keypoint_frame_box_fn(rule),
+        frame_box_fn=keypoint_frame_box_fn(rule, floors),
     )
     predict_kwargs = {"make_labels": True}
     if peak_threshold is not None:
         predict_kwargs["peak_threshold"] = peak_threshold
     part = predictor.predict(provider, **predict_kwargs)
-    merged, counts = merge_part_predictions(base, part, rule, part_prefix=part_prefix)
+    merged, counts = merge_part_predictions(
+        base, part, rule, part_prefix=part_prefix, floors=floors
+    )
     logger.info(
         f"Part stage: {counts['n_merged']} of {counts['n_instances']} instances got "
         f"part points ({counts['n_unmatched']} part predictions unmatched)."
