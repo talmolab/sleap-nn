@@ -253,6 +253,29 @@ def test_swap_halfway_matches_trackeval_toy_b():
     np.testing.assert_allclose(m.hota_alpha, np.sqrt(1 / 3))
 
 
+def test_swap_after_one_animal_detection_gap() -> None:
+    """Count the swapped IDs when both animals are detected again."""
+    # Model the C2 contact failure with a two-frame gap for only the second animal.
+    gt, resumed = _pose_pair()
+    _, swapped = _pose_pair(swap_at=[6])
+    for pred in (resumed, swapped):
+        for frame_idx in (4, 5):
+            pred.labeled_frames[frame_idx].instances.pop(1)
+
+    resumed_metrics = compute_mot_metrics(gt, resumed, "pose")
+    swapped_metrics = compute_mot_metrics(gt, swapped, "pose")
+
+    for metrics in (resumed_metrics, swapped_metrics):
+        assert (metrics.clr_tp, metrics.clr_fn, metrics.clr_fp) == (18, 2, 0)
+        assert metrics.frag == 1
+
+    assert resumed_metrics.idsw == 0
+    assert swapped_metrics.idsw == 2
+    # The best identity assignment matches 18 detections with no swap, 10 with it.
+    assert resumed_metrics.idf1 == pytest.approx(18 / 19)
+    assert swapped_metrics.idf1 == pytest.approx(10 / 19)
+
+
 def test_untracked_ground_truth_is_dont_care():
     """A correct prediction on an animal the GT left untracked is no false positive."""
     gt, pred = _pose_pair()
