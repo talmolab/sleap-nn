@@ -1544,7 +1544,9 @@ class BalancedBatchSampler(Sampler):
     group with probability ``weights[g]`` and then a uniformly random sample of that
     group (with replacement), from a generator keyed on ``(seed, rank, b)``. Any
     number of groups mixes in the right proportions at any batch size, which fixed
-    integer counts cannot do with a few images per GPU.
+    integer counts cannot do with a few images per GPU. ``sample_weights`` (with
+    ``weights`` only) makes the sample within a group a weighted draw instead of a
+    uniform one; the groups' shares are unchanged.
     """
 
     def __init__(
@@ -1556,6 +1558,7 @@ class BalancedBatchSampler(Sampler):
         rank: int = 0,
         weights: Optional[Sequence[float]] = None,
         batch_size: Optional[int] = None,
+        sample_weights: Optional[Sequence[float]] = None,
     ):
         """Initialize.
 
@@ -1569,11 +1572,16 @@ class BalancedBatchSampler(Sampler):
             weights: Per-sample group probabilities (normalized here), replacing
                 ``counts``.
             batch_size: Samples per batch; required with ``weights``.
+            sample_weights: Relative weight of every sample within its group
+                (``None``: uniform). Only with ``weights``.
 
         Raises:
             ValueError: On inconsistent counts / weights.
         """
         group_ids = np.asarray(group_ids)
+        self.sample_cdf = None
+        if sample_weights is not None and weights is None:
+            raise ValueError("sample_weights need per-sample group weights.")
         if weights is not None:
             w = np.asarray(weights, dtype=np.float64)
             if (w < 0).any() or w.sum() <= 0:
@@ -1585,6 +1593,18 @@ class BalancedBatchSampler(Sampler):
             for g, idx in enumerate(self.groups):
                 if self.weights[g] > 0 and len(idx) == 0:
                     raise ValueError(f"Group {g} has weight {w[g]} but no samples.")
+            if sample_weights is not None:
+                sw = np.asarray(sample_weights, dtype=np.float64)
+                if sw.shape != group_ids.shape or (sw < 0).any():
+                    raise ValueError(
+                        f"sample_weights must be {len(group_ids)} values >= 0."
+                    )
+                self.sample_cdf = []
+                for g, idx in enumerate(self.groups):
+                    c = np.cumsum(sw[idx])
+                    if self.weights[g] > 0 and (len(c) == 0 or c[-1] <= 0):
+                        raise ValueError(f"Group {g} has no sample with weight > 0.")
+                    self.sample_cdf.append(c / c[-1] if len(c) and c[-1] > 0 else c)
             self.counts = None
             self.batch_size = int(batch_size)
             self.batches_per_epoch = int(batches_per_epoch)
@@ -1627,6 +1647,18 @@ class BalancedBatchSampler(Sampler):
             rng = np.random.default_rng((self.seed, self.rank, 2**32 - 1, b))
             groups = rng.choice(len(self.weights), self.batch_size, p=self.weights)
             groups.sort()
+            if self.sample_cdf is not None:
+                return np.asarray(
+                    [
+                        self.groups[g][
+                            min(
+                                int(np.searchsorted(self.sample_cdf[g], rng.random())),
+                                len(self.groups[g]) - 1,
+                            )
+                        ]
+                        for g in groups
+                    ]
+                )
             return np.asarray(
                 [self.groups[g][rng.integers(len(self.groups[g]))] for g in groups]
             )
