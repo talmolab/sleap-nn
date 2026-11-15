@@ -152,6 +152,115 @@ def test_bbox_balanced_loader_mixes_files(tmp_path):
 
 
 # --------------------------------------------------------------------------- #
+# Oversampling frames whose labelled boxes overlap
+# --------------------------------------------------------------------------- #
+def test_sample_weights_reweight_within_groups_only():
+    groups = np.array([0] * 10 + [1] * 10)
+    sw = np.ones(20)
+    sw[0] = 9.0  # sample 0 is half of group 0's draws
+    s = BalancedBatchSampler(
+        groups, None, 500, seed=3, weights=[1, 1], batch_size=4, sample_weights=sw
+    )
+    idx = np.concatenate(list(s))
+    share = np.bincount(groups[idx], minlength=2) / len(idx)
+    np.testing.assert_allclose(share, [0.5, 0.5], atol=0.04)
+    in0 = idx[groups[idx] == 0]
+    assert abs(np.mean(in0 == 0) - 0.5) < 0.05
+    in1 = idx[groups[idx] == 1]
+    assert np.bincount(in1 - 10, minlength=10).min() > 0  # group 1 still uniform
+    # Deterministic and resumable like the uniform draw.
+    again = BalancedBatchSampler(
+        groups, None, 500, seed=3, weights=[1, 1], batch_size=4, sample_weights=sw
+    )
+    again.load_state_dict({"position": 200})
+    assert [list(b) for b in again] == [list(b) for b in list(s)[200:]]
+
+
+def test_sample_weights_errors():
+    groups = np.array([0, 0, 1, 1])
+    with pytest.raises(ValueError, match="per-sample group weights"):
+        BalancedBatchSampler(groups, [1, 1], 2, sample_weights=[1, 1, 1, 1])
+    with pytest.raises(ValueError, match="4 values"):
+        BalancedBatchSampler(
+            groups, None, 2, weights=[1, 1], batch_size=2, sample_weights=[1, 1]
+        )
+    with pytest.raises(ValueError, match="no sample with weight"):
+        BalancedBatchSampler(
+            groups, None, 2, weights=[1, 1], batch_size=2, sample_weights=[1, 1, 0, 0]
+        )
+
+
+def _frames_labels(tmp_path, name, frames):
+    """One Labels with a frame (its own image) per box list in ``frames``."""
+    parts = [
+        _image_labels(tmp_path, f"{name}{i}", (128, 160), boxes, seed=i)
+        for i, boxes in enumerate(frames)
+    ]
+    return sio.Labels(
+        videos=[v for p in parts for v in p.videos],
+        labeled_frames=[lf for p in parts for lf in p.labeled_frames],
+    )
+
+
+def test_box_overlap_is_largest_pair_share_of_smaller_box(tmp_path):
+    labels = _frames_labels(
+        tmp_path,
+        "ov",
+        [
+            [(10, 10, 60, 90), (35, 10, 85, 90)],  # half of either box shared
+            [(10, 10, 40, 40), (80, 60, 120, 100)],  # apart
+            [(10, 10, 60, 90)],  # one box
+            [(10, 10, 110, 110), (20, 20, 40, 40), (90, 90, 150, 120)],  # nested
+        ],
+    )
+    ds = _detr_dataset([labels], hw=(128, 160))
+    np.testing.assert_allclose(ds.box_overlap(), [0.5, 0.0, 0.0, 1.0], atol=1e-6)
+
+
+def test_bbox_loader_overlap_weight(tmp_path):
+    f0 = _frames_labels(
+        tmp_path, "a", [[(10, 10, 60, 90), (35, 10, 85, 90)], [(10, 10, 60, 90)]]
+    )
+    f1 = _frames_labels(tmp_path, "b", [[(10, 10, 60, 90)]])
+    ds = _detr_dataset([f0, f1], hw=(128, 160))
+
+    def loader(**bs):
+        config = OmegaConf.create(
+            {
+                "trainer_config": {
+                    "seed": 0,
+                    "train_steps_per_epoch": 400,
+                    "train_data_loader": {"batch_size": 4, "num_workers": 0},
+                    "val_data_loader": {"batch_size": 2, "num_workers": 0},
+                    "balanced_sampler": bs,
+                }
+            }
+        )
+        return get_train_val_dataloaders(ds, ds, config, train_steps_per_epoch=400)[0]
+
+    train = loader(per_sample=True, weights=[1, 1], overlap_weight=3.0)
+    idx = np.concatenate(list(train.batch_sampler))
+    file0 = idx[ds.labels_idx[idx] == 0]
+    assert abs(np.mean(file0 == 0) - 0.75) < 0.05  # 3:1 within file 0
+    assert abs(np.mean(ds.labels_idx[idx] == 0) - 0.5) < 0.05  # file shares kept
+    # Off by default: the uniform draw.
+    assert loader(per_sample=True, weights=[1, 1]).batch_sampler.sample_cdf is None
+    with pytest.raises(ValueError, match="needs per_sample"):
+        loader(weights=[1, 1], overlap_weight=3.0)
+
+
+def test_balanced_sampler_config_overlap_fields():
+    from sleap_nn.config.trainer_config import BalancedSamplerConfig
+
+    c = BalancedSamplerConfig()
+    assert c.overlap_weight == 1.0 and c.overlap_min == 0.25
+    with pytest.raises(ValueError):
+        BalancedSamplerConfig(overlap_weight=0)
+    with pytest.raises(ValueError):
+        BalancedSamplerConfig(overlap_min=1.5)
+
+
+# --------------------------------------------------------------------------- #
 # Array-backed sample list
 # --------------------------------------------------------------------------- #
 def test_sample_table_round_trip():

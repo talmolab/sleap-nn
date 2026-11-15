@@ -743,11 +743,23 @@ class BalancedSamplerConfig:
         per_sample: (bool) Draw every sample's file at random with probability
             `weights` (normalized; equal when `None`) instead of fixed per-batch
             counts. *Default*: `False`.
+        overlap_weight: (float) `bbox_*` models with `per_sample` only: within each
+            file, a frame whose labelled boxes overlap (two boxes sharing at least
+            `overlap_min` of the smaller box's area) is drawn `overlap_weight` times
+            as often as the file's other frames. Each file's share of the samples
+            is unchanged. `1.0` leaves sampling as it is. *Default*: `1.0`.
+        overlap_min: (float) Overlap of two labelled boxes, as a share of the
+            smaller box, that makes a frame count for `overlap_weight`.
+            *Default*: `0.25`.
     """
 
     counts: Optional[List[int]] = None
     weights: Optional[List[float]] = None
     per_sample: bool = False
+    overlap_weight: float = field(default=1.0, validator=validators.gt(0))
+    overlap_min: float = field(
+        default=0.25, validator=[validators.gt(0), validators.le(1)]
+    )
 
 
 @define

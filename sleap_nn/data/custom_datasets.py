@@ -5873,6 +5873,42 @@ class BBoxDataset(BaseDataset):
         """The training file of every sample."""
         return self.lf_idx_list.column("labels_idx").copy()
 
+    def box_overlap(self) -> np.ndarray:
+        """Per sample, the largest overlap of two of its labelled boxes.
+
+        The overlap of two boxes is their intersection as a share of the smaller
+        box's area; ``0`` for a frame with fewer than two boxes (and for negative
+        frames). Used by ``trainer_config.balanced_sampler.overlap_weight``.
+        """
+        out = np.zeros(len(self.lf_idx_list), np.float64)
+        kind, data = self.lf_idx_list.columns["bboxes"]
+        for i in range(len(out)):
+            if kind == "ragged":
+                array, offsets = data
+                b = array[offsets[i] : offsets[i + 1]]
+            else:
+                b = np.asarray(self.lf_idx_list[i]["bboxes"])
+            if len(b) < 2:
+                continue
+            b = np.asarray(b, np.float64).reshape(-1, 4)
+            ix = np.clip(
+                np.minimum(b[:, None, 2], b[None, :, 2])
+                - np.maximum(b[:, None, 0], b[None, :, 0]),
+                0,
+                None,
+            )
+            iy = np.clip(
+                np.minimum(b[:, None, 3], b[None, :, 3])
+                - np.maximum(b[:, None, 1], b[None, :, 1]),
+                0,
+                None,
+            )
+            area = np.clip((b[:, 2] - b[:, 0]) * (b[:, 3] - b[:, 1]), 1e-9, None)
+            share = ix * iy / np.minimum(area[:, None], area[None, :])
+            np.fill_diagonal(share, 0)
+            out[i] = share.max()
+        return out
+
     def min_decode_scale(self, height: int, width: int) -> float:
         """Smallest scale of a ``height x width`` frame that no later step enlarges.
 
@@ -9010,6 +9046,44 @@ def _train_worker_init_fn(config: DictConfig, rank: Optional[int], devices: int)
     return functools.partial(rank_worker_init_fn, rank=rank if rank is not None else 0)
 
 
+def _overlap_sample_weights(bs, train_dataset, weights, rank) -> Optional[np.ndarray]:
+    """Per-sample weights for ``balanced_sampler.overlap_weight`` (``None`` if off).
+
+    Frames whose labelled boxes overlap by at least ``overlap_min`` of the smaller
+    box get weight ``overlap_weight``, the rest ``1``; the sampler draws within
+    each file in proportion, so files keep their shares.
+    """
+    k = float(bs.get("overlap_weight", 1.0) or 1.0)
+    if k == 1.0:
+        return None
+    if k <= 0:
+        raise ValueError(f"balanced_sampler.overlap_weight must be > 0, got {k}.")
+    if not hasattr(train_dataset, "box_overlap"):
+        raise ValueError(
+            "balanced_sampler.overlap_weight is for the bbox_* models (box labels)."
+        )
+    t = float(bs.get("overlap_min", 0.25) or 0.25)
+    hit = train_dataset.box_overlap() >= t
+    sw = np.where(hit, k, 1.0)
+    if rank == 0:
+        gid = train_dataset.labels_idx
+        w = np.asarray(weights, np.float64)
+        w = w / w.sum()
+        before = after = 0.0
+        for g in range(len(w)):
+            m = gid == g
+            if m.any():
+                before += w[g] * hit[m].mean()
+                after += w[g] * sw[m][hit[m]].sum() / sw[m].sum()
+        logger.info(
+            f"Overlap oversampling: {int(hit.sum())} of {len(hit)} training frames "
+            f"have two labelled boxes sharing >= {t:g} of the smaller box; drawn "
+            f"{k:g}x as often within their file: {100 * before:.1f}% -> "
+            f"{100 * after:.1f}% of samples."
+        )
+    return sw
+
+
 def _get_balanced_dataloaders(
     train_dataset,
     val_dataset,
@@ -9068,6 +9142,7 @@ def _get_balanced_dataloaders(
                     f"Mixed batches: each sample from training file g with "
                     f"probability {list(weights)} (normalized)."
                 )
+            sample_weights = _overlap_sample_weights(bs, train_dataset, weights, rank)
             sampler = BalancedBatchSampler(
                 train_dataset.labels_idx,
                 None,
@@ -9076,8 +9151,13 @@ def _get_balanced_dataloaders(
                 rank=rank,
                 weights=list(weights),
                 batch_size=tl.batch_size,
+                sample_weights=sample_weights,
             )
         else:
+            if float(bs.get("overlap_weight", 1.0) or 1.0) != 1.0:
+                raise ValueError(
+                    "balanced_sampler.overlap_weight needs per_sample: true."
+                )
             counts = resolve_batch_counts(
                 bs.get("counts"), bs.get("weights"), tl.batch_size, n_groups
             )

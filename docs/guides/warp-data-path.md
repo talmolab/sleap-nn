@@ -95,6 +95,22 @@ so any number of files mixes at any batch size (e.g. 5 files at 8 per GPU). The
 `bbox_*` detectors use the same sampler; see the [DETR box detector
 guide](bbox-detr.md#our-human-detector-two-stages).
 
+For the `bbox_*` detectors with `per_sample: true`, `overlap_weight` draws frames
+where labelled animals overlap more often within their file (each file keeps its
+share):
+
+```yaml
+trainer_config:
+  balanced_sampler:
+    per_sample: true
+    weights: [0.6, 0.4]
+    overlap_weight: 4.0   # default 1.0 (off)
+    overlap_min: 0.25     # two boxes share >= 25% of the smaller box
+```
+
+The training log reports how many frames qualify and their share of the samples
+before and after.
+
 ### Per-file validation
 
 With several validation files (`val_labels_path`, or one split from each training
