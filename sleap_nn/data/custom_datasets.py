@@ -7410,6 +7410,11 @@ def _get_warp_centered_instance_datasets(
         crop_bbox_min_score=float(pre.get("crop_bbox_min_score", 0.0) or 0.0),
         crop_bbox_fallback=pre.get("crop_bbox_fallback", "gt") or "gt",
         crop_bbox_jitter=float(pre.get("crop_bbox_jitter", 0.0) or 0.0),
+        crop_bbox_jitter_tail=float(pre.get("crop_bbox_jitter_tail", 0.0) or 0.0),
+        crop_bbox_jitter_tail_p=float(pre.get("crop_bbox_jitter_tail_p", 0.0) or 0.0),
+        crop_bbox_jitter_min_cover=float(
+            pre.get("crop_bbox_jitter_min_cover", 0.0) or 0.0
+        ),
         ensure_rgb=pre.ensure_rgb,
         ensure_grayscale=pre.ensure_grayscale,
         user_instances_only=config.data_config.user_instances_only,

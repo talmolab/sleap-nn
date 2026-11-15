@@ -1069,6 +1069,13 @@ class WarpCenteredInstanceDataset(Dataset):
         crop_bbox_jitter: Training only (``apply_aug``): standard deviation of the
             independent Gaussian shift of each box edge, as a fraction of the box's
             width / height, applied before the window rule.
+        crop_bbox_jitter_tail / crop_bbox_jitter_tail_p: Training only: each edge
+            draws its shift from ``N(0, crop_bbox_jitter_tail)`` with probability
+            ``crop_bbox_jitter_tail_p``, else from ``N(0, crop_bbox_jitter)`` (a
+            heavy-tailed mixture; ``tail_p=0`` draws exactly as without it).
+        crop_bbox_jitter_min_cover: Training only: redraw a jittered box that keeps
+            less than this share of the original box's area (up to 10 draws, then the
+            core component alone); ``0`` never redraws.
         teacher_crop_size: Distillation (``trainer_config.distillation
             .teacher_crop_size``): also cut the SAME window at this size (an int or
             ``(height, width)``, same aspect ratio as ``crop_size``) and return it
@@ -1107,6 +1114,9 @@ class WarpCenteredInstanceDataset(Dataset):
         crop_bbox_min_score: float = 0.0,
         crop_bbox_fallback: str = "gt",
         crop_bbox_jitter: float = 0.0,
+        crop_bbox_jitter_tail: float = 0.0,
+        crop_bbox_jitter_tail_p: float = 0.0,
+        crop_bbox_jitter_min_cover: float = 0.0,
         teacher_crop_size=None,
     ):
         """Initialize."""
@@ -1197,6 +1207,21 @@ class WarpCenteredInstanceDataset(Dataset):
         if crop_bbox_jitter < 0:
             raise ValueError(f"crop_bbox_jitter must be >= 0, got {crop_bbox_jitter}.")
         self.crop_bbox_jitter = float(crop_bbox_jitter) if apply_aug else 0.0
+        if crop_bbox_jitter_tail < 0:
+            raise ValueError(
+                f"crop_bbox_jitter_tail must be >= 0, got {crop_bbox_jitter_tail}."
+            )
+        for nm, v in (
+            ("crop_bbox_jitter_tail_p", crop_bbox_jitter_tail_p),
+            ("crop_bbox_jitter_min_cover", crop_bbox_jitter_min_cover),
+        ):
+            if not 0.0 <= v <= 1.0:
+                raise ValueError(f"{nm} must be in [0, 1], got {v}.")
+        self.crop_bbox_jitter_tail = float(crop_bbox_jitter_tail)
+        self.crop_bbox_jitter_tail_p = (
+            float(crop_bbox_jitter_tail_p) if apply_aug else 0.0
+        )
+        self.crop_bbox_jitter_min_cover = float(crop_bbox_jitter_min_cover)
         # Per-node weights ride along only when they can differ from 1, so a run on
         # fully labeled files with `unlabeled_points: absent` uses the plain loss.
         self.emit_node_weights = node_loss_mask and (
@@ -1300,18 +1325,47 @@ class WarpCenteredInstanceDataset(Dataset):
             ]
         return np.ascontiguousarray(img)
 
+    def _jitter_box(self, box0: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+        """``box0`` (x1, y1, x2, y2) with each edge shifted by the box jitter draw.
+
+        Default (no tail, no cover floor): one ``N(0, crop_bbox_jitter)`` draw per
+        edge, scaled by the box's width (x edges) or height (y edges). With
+        ``crop_bbox_jitter_tail_p`` each edge takes ``N(0, crop_bbox_jitter_tail)``
+        instead with that probability; with ``crop_bbox_jitter_min_cover`` a box
+        keeping less than that share of ``box0``'s area is redrawn (10 draws, then
+        one draw of the core component alone, kept whatever its cover).
+        """
+        w = max(box0[2] - box0[0], 1.0)
+        h = max(box0[3] - box0[1], 1.0)
+        wh = np.array([w, h, w, h])
+        if self.crop_bbox_jitter_tail_p <= 0 and self.crop_bbox_jitter_min_cover <= 0:
+            return box0 + rng.normal(0.0, self.crop_bbox_jitter, 4) * wh
+        for attempt in range(11):
+            e = rng.normal(0.0, self.crop_bbox_jitter, 4)
+            if self.crop_bbox_jitter_tail_p > 0 and attempt < 10:
+                tail = rng.random(4) < self.crop_bbox_jitter_tail_p
+                e = np.where(tail, rng.normal(0.0, self.crop_bbox_jitter_tail, 4), e)
+            box = box0 + e * wh
+            if self.crop_bbox_jitter_min_cover <= 0 or attempt == 10:
+                return box
+            ix = min(max(box[0], box[2]), box0[2]) - max(min(box[0], box[2]), box0[0])
+            iy = min(max(box[1], box[3]), box0[3]) - max(min(box[1], box[3]), box0[1])
+            if max(ix, 0.0) * max(iy, 0.0) >= self.crop_bbox_jitter_min_cover * w * h:
+                return box
+        return box  # pragma: no cover (the loop always returns)
+
     def _jittered_window(self, i: int, rng: np.random.Generator):
         """Window, scale and padded-box size of sample ``i``'s box, edges jittered.
 
         Each edge moves by ``N(0, crop_bbox_jitter)`` times the box's width (x1, x2)
-        or height (y1, y2); the jittered box then goes through the same window rule
+        or height (y1, y2), or, with probability ``crop_bbox_jitter_tail_p``, by
+        ``N(0, crop_bbox_jitter_tail)``; with ``crop_bbox_jitter_min_cover`` a box that
+        keeps too little of the original is redrawn. The jittered box then goes
+        through the same window rule
         (:func:`~sleap_nn.data.instance_cropping.bbox_crop_windows`) as the
         un-jittered one.
         """
-        box = self.table.box[i].astype(np.float64)
-        w = max(box[2] - box[0], 1.0)
-        h = max(box[3] - box[1], 1.0)
-        box = box + rng.normal(0.0, self.crop_bbox_jitter, 4) * np.array([w, h, w, h])
+        box = self._jitter_box(self.table.box[i].astype(np.float64), rng)
         # Keep the corners ordered (a jittered box never collapses below 1 px).
         x1, x2 = min(box[0], box[2]), max(box[0], box[2], min(box[0], box[2]) + 1.0)
         y1, y2 = min(box[1], box[3]), max(box[1], box[3], min(box[1], box[3]) + 1.0)
@@ -1359,7 +1413,7 @@ class WarpCenteredInstanceDataset(Dataset):
         aug = self.augs[min(stage, len(self.augs) - 1)]
         if self.apply_aug:
             rng = self._rng_for_process()
-            if self.crop_bbox_jitter > 0:
+            if self.crop_bbox_jitter > 0 or self.crop_bbox_jitter_tail_p > 0:
                 window, scale, box_wh = self._jittered_window(i, rng)
             if aug.half_body_p > 0:
                 vis = np.isfinite(t.kpts[i]).all(-1) & (t.weight[i] > 0)

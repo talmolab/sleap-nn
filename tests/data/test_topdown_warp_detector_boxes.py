@@ -120,7 +120,7 @@ def test_detector_box_crop_is_the_window_of_that_box(tmp_path):
     torch.testing.assert_close(s["crop_window"], win)
 
 
-def _jitter_ds(labels, jitter, apply_aug):
+def _jitter_ds(labels, jitter, apply_aug, **kw):
     head = OmegaConf.create(
         {"part_names": NODES, "sigma": 1.5, "output_stride": 2, "anchor_part": None}
     )
@@ -132,6 +132,7 @@ def _jitter_ds(labels, jitter, apply_aug):
         bbox_categories=["person"],
         apply_aug=apply_aug,
         crop_bbox_jitter=jitter,
+        **kw,
     )
 
 
@@ -169,6 +170,83 @@ def test_jittered_window_follows_the_window_rule(tmp_path):
         assert (win[2:] > win[:2]).all() and np.isfinite(sc).all()
 
 
+def test_jitter_tail_off_draws_exactly_as_before(tmp_path):
+    """Tail options at their defaults: one N(0, jitter) draw per edge, same stream."""
+    labels, _, _ = _labels(tmp_path)
+    ds = _jitter_ds(labels, 0.05, apply_aug=True)
+    box0 = ds.table.box[0].astype(np.float64)
+    w, h = box0[2] - box0[0], box0[3] - box0[1]
+    for seed in range(5):
+        got = ds._jitter_box(box0, np.random.default_rng(seed))
+        ref = box0 + np.random.default_rng(seed).normal(0.0, 0.05, 4) * np.array(
+            [w, h, w, h]
+        )
+        np.testing.assert_array_equal(got, ref)
+        a = ds._jittered_window(0, np.random.default_rng(seed))
+        b = _jitter_ds(
+            labels,
+            0.05,
+            apply_aug=True,
+            crop_bbox_jitter_tail=0.0,
+            crop_bbox_jitter_tail_p=0.0,
+            crop_bbox_jitter_min_cover=0.0,
+        )._jittered_window(0, np.random.default_rng(seed))
+        for x, y in zip(a, b):
+            np.testing.assert_array_equal(x, y)
+
+
+def test_jitter_tail_mixture_and_cover_floor(tmp_path):
+    labels, _, _ = _labels(tmp_path)
+    ds = _jitter_ds(
+        labels,
+        0.05,
+        apply_aug=True,
+        crop_bbox_jitter_tail=0.4,
+        crop_bbox_jitter_tail_p=0.2,
+    )
+    box0 = ds.table.box[0].astype(np.float64)
+    wh = np.array([box0[2] - box0[0], box0[3] - box0[1]] * 2)
+    rng = np.random.default_rng(0)
+    e = np.stack([(ds._jitter_box(box0, rng) - box0) / wh for _ in range(5000)])
+    # P(|e| > 0.2) = 0.2 * P(|N(0, 0.4)| > 0.2) ~= 0.123; the core alone gives ~6e-5.
+    assert 0.105 < np.mean(np.abs(e) > 0.2) < 0.14
+    assert 0.03 < np.median(np.abs(e)) < 0.05  # the core still dominates
+    # Cover floor: every kept box holds at least half of the original box.
+    ds = _jitter_ds(
+        labels,
+        0.05,
+        apply_aug=True,
+        crop_bbox_jitter_tail=2.0,
+        crop_bbox_jitter_tail_p=1.0,
+        crop_bbox_jitter_min_cover=0.5,
+    )
+    rng = np.random.default_rng(1)
+    area0 = wh[0] * wh[1]
+    for _ in range(300):
+        b = ds._jitter_box(box0, rng)
+        x1, x2 = sorted((b[0], b[2]))
+        y1, y2 = sorted((b[1], b[3]))
+        ix = max(0.0, min(x2, box0[2]) - max(x1, box0[0]))
+        iy = max(0.0, min(y2, box0[3]) - max(y1, box0[1]))
+        assert ix * iy >= 0.5 * area0 - 1e-6
+    # The training sample path uses the tail draw; validation never jitters.
+    assert (
+        _jitter_ds(
+            labels, 0.0, False, crop_bbox_jitter_tail_p=0.5
+        ).crop_bbox_jitter_tail_p
+        == 0.0
+    )
+    s = ds[0]
+    assert np.isfinite(s["instance"].numpy()).any()
+    for bad in (
+        {"crop_bbox_jitter_tail": -1.0},
+        {"crop_bbox_jitter_tail_p": 1.5},
+        {"crop_bbox_jitter_min_cover": -0.1},
+    ):
+        with pytest.raises(ValueError):
+            _jitter_ds(labels, 0.05, apply_aug=True, **bad)
+
+
 def test_crop_bbox_source_config_validation():
     from sleap_nn.config.data_config import PreprocessingConfig
 
@@ -185,6 +263,15 @@ def test_crop_bbox_source_config_validation():
         PreprocessingConfig(crop_mode="bbox", crop_bbox_source="detector")
     with pytest.raises(ValueError):
         PreprocessingConfig(crop_mode="bbox", crop_bbox_jitter=0.1)
+    with pytest.raises(ValueError):
+        PreprocessingConfig(crop_mode="bbox", crop_bbox_jitter_tail_p=0.1)
+    with pytest.raises(ValueError):
+        PreprocessingConfig(
+            crop_mode="bbox", crop_pipeline="warp", crop_bbox_jitter_tail_p=1.5
+        )
+    cfg = PreprocessingConfig()
+    assert (cfg.crop_bbox_jitter_tail, cfg.crop_bbox_jitter_tail_p) == (0.0, 0.0)
+    assert cfg.crop_bbox_jitter_min_cover == 0.0
     with pytest.raises(ValueError):
         PreprocessingConfig(
             crop_mode="bbox", crop_pipeline="warp", crop_bbox_source="pred"
@@ -213,6 +300,9 @@ def test_config_keys_reach_the_warp_datasets(tmp_path, pytestconfig):
     pre.crop_bbox_source = "detector"
     pre.crop_bbox_fallback = "drop"
     pre.crop_bbox_jitter = 0.05
+    pre.crop_bbox_jitter_tail = 0.4
+    pre.crop_bbox_jitter_tail_p = 0.17
+    pre.crop_bbox_jitter_min_cover = 0.5
     cfg.data_config.bbox_source = "bboxes"
     head = cfg.model_config.head_configs.centered_instance.confmaps
     head.part_names = NODES
@@ -225,3 +315,7 @@ def test_config_keys_reach_the_warp_datasets(tmp_path, pytestconfig):
         assert ds.table.box_sources == {"gt": 0, "detector": 1}
         np.testing.assert_array_equal(ds.table.box[0], [20, 15, 110, 105])
     assert train.crop_bbox_jitter == 0.05 and val.crop_bbox_jitter == 0.0
+    assert (train.crop_bbox_jitter_tail, train.crop_bbox_jitter_tail_p) == (0.4, 0.17)
+    assert (
+        train.crop_bbox_jitter_min_cover == 0.5 and val.crop_bbox_jitter_tail_p == 0.0
+    )
