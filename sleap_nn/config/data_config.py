@@ -221,6 +221,21 @@ class PreprocessingConfig:
             standard deviation, as a fraction of the box's width (x edges) or height
             (y edges), before padding. Mimics detector box noise; validation crops are
             never jittered. *Default*: `0.0` (off).
+        crop_bbox_jitter_tail: (float) With `crop_bbox_jitter_tail_p > 0`, training
+            only: standard deviation of a second, heavy-tail Gaussian component of
+            the edge shift (same units as `crop_bbox_jitter`). Each edge draws from it
+            with probability `crop_bbox_jitter_tail_p` and from `crop_bbox_jitter`
+            otherwise, so the shifts can follow a detector whose box errors are mostly
+            small with a few large ones (a box over two animals, a cut-off box).
+            *Default*: `0.0`.
+        crop_bbox_jitter_tail_p: (float) Per-edge probability of the
+            `crop_bbox_jitter_tail` component, in [0, 1]. *Default*: `0.0` (off: the
+            edge shift is plain `crop_bbox_jitter`, drawn exactly as before).
+        crop_bbox_jitter_min_cover: (float) Training only, with any box jitter: a
+            jittered box that keeps less than this share of the original box's area is
+            redrawn (up to 10 times; then the edges get the `crop_bbox_jitter`
+            component only), so the animal stays in the crop. In [0, 1]. *Default*:
+            `0.0` (never redraw).
         tiling:Configuration of tiled training/inference. Inert unless `tiling.enabled` is `True`.
         burn_in: (bool) For the `embedding` model type: burn the instance mask into the
             crop (background pixels set to `background_fill`) so the embedder sees only
@@ -281,6 +296,13 @@ class PreprocessingConfig:
         default="gt", validator=validators.in_(("gt", "drop"))
     )
     crop_bbox_jitter: float = field(default=0.0, validator=validators.ge(0))
+    crop_bbox_jitter_tail: float = field(default=0.0, validator=validators.ge(0))
+    crop_bbox_jitter_tail_p: float = field(
+        default=0.0, validator=[validators.ge(0), validators.le(1)]
+    )
+    crop_bbox_jitter_min_cover: float = field(
+        default=0.0, validator=[validators.ge(0), validators.le(1)]
+    )
     tiling: TilingConfig = field(factory=TilingConfig)
     burn_in: bool = False
     background_fill: str = "black"
@@ -326,9 +348,10 @@ class PreprocessingConfig:
                 "crop_bbox_source must be 'gt' or 'detector', got "
                 f"{self.crop_bbox_source!r}."
             )
-        if (
-            self.crop_bbox_source != "gt" or (self.crop_bbox_jitter or 0) > 0
-        ) and self.crop_pipeline != "warp":
+        jitter = (self.crop_bbox_jitter or 0) > 0 or (
+            getattr(self, "crop_bbox_jitter_tail_p", 0) or 0
+        ) > 0
+        if (self.crop_bbox_source != "gt" or jitter) and self.crop_pipeline != "warp":
             raise ValueError(
                 "crop_bbox_source='detector' and crop_bbox_jitter need "
                 "crop_pipeline='warp'."
