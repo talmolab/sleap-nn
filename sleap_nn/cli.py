@@ -4149,7 +4149,8 @@ def _common_inference_options(f):
             help=(
                 "A .json / .yaml KeypointCropRule (center, reference, "
                 "reference_fallback, scale, fallback, fallback_scale, "
-                "min_half_side) for --part_model."
+                "min_half_side, session_floor, session_min_boxes) for "
+                "--part_model."
             ),
         ),
         click.option(

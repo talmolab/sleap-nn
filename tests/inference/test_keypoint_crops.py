@@ -12,6 +12,7 @@ from sleap_nn.inference.keypoint_crops import (
     keypoint_frame_box_fn,
     merge_part_predictions,
     run_part_stage,
+    session_floors,
 )
 
 
@@ -178,6 +179,115 @@ def test_merge_refuses_clashing_names():
 
 
 # --------------------------------------------------------------------------- #
+# Session floor (off by default)
+# --------------------------------------------------------------------------- #
+def _session_labels(halves_per_video, sk):
+    """Labels with one frame per instance; instance half side h: a at (0, 0), b at (h, 0)."""
+    videos, frames = [], []
+    for v, halves in enumerate(halves_per_video):
+        video = sio.Video(filename=f"fake{v}.mp4")
+        videos.append(video)
+        for i, h in enumerate(halves):
+            inst = sio.PredictedInstance.from_numpy(
+                np.array([[0.0, 0.0], [h, 0.0]]),
+                skeleton=sk,
+                point_scores=np.ones(2),
+                score=0.9,
+            )
+            frames.append(sio.LabeledFrame(video=video, frame_idx=i, instances=[inst]))
+    return sio.Labels(frames, videos=videos, skeletons=[sk])
+
+
+def test_session_floor_off_by_default():
+    """No session_floor: no floors, and the boxes are those without the option."""
+    sk = sio.Skeleton(["a", "b"])
+    labels = _session_labels([[1, 2, 3, 10]], sk)
+    rule = KeypointCropRule(center=["a"], reference=["b"], scale=1.0)
+    assert rule.session_floor is None
+    assert session_floors(labels, rule) == {}
+    for lf in labels:
+        b0, _, _ = instance_boxes(lf, rule)
+        b1, _ = keypoint_frame_box_fn(rule, {})(lf)
+        np.testing.assert_array_equal(b0, b1)
+    assert rule.to_dict()["session_floor"] is None
+
+
+def test_session_floors_per_video_and_pooled():
+    """Floor = session_floor x the video's median half side; small videos use all boxes."""
+    sk = sio.Skeleton(["a", "b"])
+    big = [10.0] * 7 + [20.0] * 4  # 11 boxes, median 10
+    small = [40.0, 40.0]  # 2 boxes: the median over all 13 boxes (10) is used
+    labels = _session_labels([big, small], sk)
+    rule = KeypointCropRule(center=["a"], reference=["b"], scale=1.0, session_floor=0.8)
+    floors = session_floors(labels, rule)
+    v0, v1 = labels.videos
+    assert floors[v0] == pytest.approx(8.0)
+    assert floors[v1] == pytest.approx(8.0)
+    rule.session_min_boxes = 2
+    floors = session_floors(labels, rule)
+    assert floors[v1] == pytest.approx(32.0)  # own median 40 once 2 boxes suffice
+    # Empty labels: no floors.
+    assert session_floors(sio.Labels([], videos=[], skeletons=[sk]), rule) == {}
+
+
+def test_session_floor_enlarges_short_boxes_about_their_center():
+    """Only boxes below the floor grow, about the same center."""
+    sk = sio.Skeleton(["a", "b"])
+    labels = _session_labels([[2.0] + [10.0] * 10], sk)
+    rule = KeypointCropRule(center=["a"], reference=["b"], scale=1.0, session_floor=1.0)
+    floors = session_floors(labels, rule)
+    fn = keypoint_frame_box_fn(rule, floors)
+    short, _ = fn(labels[0])
+    np.testing.assert_allclose(short, [[-10, -10, 10, 10]])  # half side 2 -> 10
+    long_, _ = fn(labels[1])
+    np.testing.assert_allclose(long_, [[-10, -10, 10, 10]])  # already 10: unchanged
+    plain, _ = keypoint_frame_box_fn(rule)(labels[0])
+    np.testing.assert_allclose(plain, [[-2, -2, 2, 2]])
+
+
+def test_merge_part_predictions_with_session_floor():
+    """Merging finds the part instance through the floored box, without passing floors."""
+    sk = sio.Skeleton(["a", "b"])
+    labels = _session_labels([[2.0] + [10.0] * 10], sk)
+    rule = KeypointCropRule(center=["a"], reference=["b"], scale=1.0, session_floor=1.0)
+    video = labels.videos[0]
+    floors = session_floors(labels, rule)
+    boxes, _ = keypoint_frame_box_fn(rule, floors)(labels[0])
+    part_sk = sio.Skeleton(["tip"])
+    p = sio.PredictedInstance.from_numpy(
+        np.array([[7.0, 7.0]]), skeleton=part_sk, point_scores=np.ones(1), score=0.7
+    )
+    plf = sio.LabeledFrame(
+        video=video,
+        frame_idx=0,
+        instances=[p],
+        bboxes=[sio.PredictedBoundingBox.from_xyxy(*boxes[0], score=0.7, instance=p)],
+    )
+    part = sio.Labels([plf], videos=[video], skeletons=[part_sk])
+    merged, counts = merge_part_predictions(labels, part, rule, part_prefix="t/")
+    assert counts["n_merged"] == 1 and counts["n_unmatched"] == 0
+    np.testing.assert_allclose(merged[0].instances[0].numpy()[2], [7, 7])
+    assert merged.provenance["part_stage"]["session_floors"] == {0: 10.0}
+    assert merged.provenance["part_stage"]["rule"]["session_floor"] == 1.0
+    # The same part box against the unfloored rule matches nothing.
+    plain = KeypointCropRule(center=["a"], reference=["b"], scale=1.0)
+    _, counts = merge_part_predictions(labels, part, plain, part_prefix="t/")
+    assert counts["n_merged"] == 0 and counts["n_unmatched"] == 1
+
+
+def test_session_floor_validation(tmp_path):
+    """session_floor must be positive; it loads from files like the other fields."""
+    with pytest.raises(ValueError, match="session_floor"):
+        KeypointCropRule(center=["a"], session_floor=0.0)
+    with pytest.raises(ValueError, match="session_min_boxes"):
+        KeypointCropRule(center=["a"], session_min_boxes=0)
+    (tmp_path / "r.yaml").write_text(
+        "center: [a]\nreference: [b]\nsession_floor: 1.0\n"
+    )
+    assert KeypointCropRule.load(tmp_path / "r.yaml").session_floor == 1.0
+
+
+# --------------------------------------------------------------------------- #
 # End to end on the fixture models
 # --------------------------------------------------------------------------- #
 RULE = dict(center=["A"], reference=["B"], scale=2.0, min_half_side=8.0)
@@ -219,6 +329,33 @@ def test_run_part_stage_end_to_end(
     assert len(insts) == n
     assert insts[0].skeleton.node_names == ["A", "B", "part/A", "part/B"]
     assert all(np.isfinite(i.numpy()[2:]).all() for i in insts)
+
+
+def test_run_part_stage_with_session_floor(
+    minimal_instance,
+    minimal_instance_centroid_ckpt,
+    minimal_instance_centered_instance_ckpt,
+):
+    """With a session floor every instance still gets its part points."""
+    base = _base(
+        minimal_instance,
+        minimal_instance_centroid_ckpt,
+        minimal_instance_centered_instance_ckpt,
+    )
+    n = sum(len(lf.predicted_instances) for lf in base)
+    rule = dict(RULE, session_floor=2.0)
+    merged = run_part_stage(
+        base,
+        [str(minimal_instance_centered_instance_ckpt)],
+        rule,
+        device="cpu",
+        peak_threshold=0.0,
+        part_prefix="part/",
+    )
+    insts = [i for lf in merged for i in lf.predicted_instances]
+    assert len(insts) == n
+    assert all(np.isfinite(i.numpy()[2:]).all() for i in insts)
+    assert merged.provenance["part_stage"]["session_floors"]
 
 
 def test_predict_with_part_model_matches_stagewise(
