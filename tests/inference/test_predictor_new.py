@@ -620,3 +620,57 @@ def test_from_model_paths_memory_format_reaches_every_backend():
     loaded = [m for m in messages if "Loaded inference model" in m]
     assert "memory_format=channels_last" in loaded[0]
     assert "memory_format" not in loaded[1]
+
+
+def _top_down_ckpts():
+    from pathlib import Path
+
+    ckpts = Path(__file__).resolve().parents[1] / "assets" / "model_ckpts"
+    paths = [
+        ckpts / "minimal_instance_centroid",
+        ckpts / "minimal_instance_centered_instance",
+    ]
+    if not all(p.exists() for p in paths):
+        pytest.skip("top-down checkpoints not present")
+    return [str(p) for p in paths]
+
+
+def test_from_model_paths_fp16_off_cuda_warns_and_does_nothing():
+    """Off CUDA, ``fp16=True`` leaves every backend fp32 and says why."""
+    from loguru import logger
+
+    from sleap_nn.inference.predictor import _torch_backends
+
+    paths = _top_down_ckpts()
+    messages = []
+    sink = logger.add(messages.append, format="{message}", level="INFO")
+    try:
+        predictor = Predictor.from_model_paths(paths, device="cpu", fp16=True)
+    finally:
+        logger.remove(sink)
+    assert [b.use_fp16 for b in _torch_backends(predictor.layer)] == [False] * 2
+    assert any("fp16=True has no effect on device=cpu" in m for m in messages)
+    loaded = [m for m in messages if "Loaded inference model" in m]
+    assert "fp16" not in loaded[0]
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="needs CUDA")
+def test_from_model_paths_fp16_reaches_every_backend_on_cuda():
+    """On CUDA, ``fp16=True`` turns on autocast in both top-down models (logged)."""
+    from loguru import logger
+
+    from sleap_nn.inference.predictor import _torch_backends
+
+    paths = _top_down_ckpts()
+    messages = []
+    sink = logger.add(messages.append, format="{message}", level="INFO")
+    try:
+        predictor = Predictor.from_model_paths(paths, device="cuda", fp16=True)
+        default = Predictor.from_model_paths(paths, device="cuda")
+    finally:
+        logger.remove(sink)
+    assert [b.use_fp16 for b in _torch_backends(predictor.layer)] == [True] * 2
+    assert [b.use_fp16 for b in _torch_backends(default.layer)] == [False] * 2
+    loaded = [m for m in messages if "Loaded inference model" in m]
+    assert "fp16=True" in loaded[0]
+    assert "fp16" not in loaded[1]

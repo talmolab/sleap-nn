@@ -319,6 +319,7 @@ still apply. See [Running exported models](../guides/inference-guide.md#running-
 | `--runtime` | Exported-model runtime; `auto` prefers TensorRT and falls back to ONNX (ignored for checkpoints) | `auto`, `onnx`, `tensorrt` | `auto` |
 | `--upload_batches` | CUDA: copy each batch to the GPU before resizing/cropping (checkpoints only). See [Performance](../guides/inference-performance.md#batches-on-the-gpu-upload_batches) | Flag | `false` |
 | `--memory_format` | Model weight layout; `channels_last` is faster on NVIDIA GPUs (checkpoints only) | `contiguous`, `channels_last` | `contiguous` |
+| `--fp16` | CUDA: run the models' convolutions in half precision (`torch.autocast`; checkpoints only). Results differ slightly from fp32. See [Performance](../guides/inference-performance.md#fp16) | Flag | `false` |
 | `--paf-workers` | CPU worker processes for bottom-up PAF grouping (`0` = in-process). `--cpu-workers` is a deprecated alias | `INT` | `0` |
 
 ### Examples
@@ -368,7 +369,7 @@ grouping, filtering and classic-tracker options above, plus `--gui` and
 `--queue_maxsize` (size of the frame-buffer queue, default `32`). It does
 **not** support:
 
-- exported ONNX/TensorRT models (`--runtime`), `--upload_batches`, `--memory_format`, `--paf-workers`, `--stream-to-file`
+- exported ONNX/TensorRT models (`--runtime`), `--upload_batches`, `--memory_format`, `--fp16`, `--paf-workers`, `--stream-to-file`
 - `--centroid_peak_threshold`, the `--peak-conf-threshold` alias (use `--peak_threshold`) and `--filter_min_centroid_distance`
 - centroid-only output, segmentation, box detectors and SAM masks
 - the modern MOT trackers (`--tracker` and its options), `--link_tracklets`, `--appearance_weight` / `--euclidean_scale`

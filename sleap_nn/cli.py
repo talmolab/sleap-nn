@@ -3055,6 +3055,7 @@ def _run_in_memory_new_flow(
         "paf_workers": paf_workers,
         "upload_batches": bool(kwargs.get("upload_batches")),
         "memory_format": kwargs.get("memory_format") or "contiguous",
+        "fp16": bool(kwargs.get("fp16")),
         "peak_threshold": peak_thresh,
         "centroid_threshold": centroid_thresh,
         "keypoint_threshold": peak_thresh,
@@ -3587,6 +3588,7 @@ def _run_stream_to_file(
         "paf_workers": paf_workers,
         "upload_batches": bool(kwargs.get("upload_batches")),
         "memory_format": kwargs.get("memory_format") or "contiguous",
+        "fp16": bool(kwargs.get("fp16")),
         # Bottom-up PAF grouping knobs (inert for non-bottom-up models). #583.
         "max_edge_length_ratio": kwargs.get("max_edge_length_ratio", 0.25),
         "dist_penalty_weight": kwargs.get("dist_penalty_weight", 1.0),
@@ -3831,6 +3833,17 @@ def _common_inference_options(f):
             "fast convolution kernels on NVIDIA GPUs (2.2x faster for a top-down "
             "pair on an A100, fp32; no change on AMD ROCm). `predict` with trained "
             "checkpoints only.",
+        ),
+        click.option(
+            "--fp16",
+            is_flag=True,
+            default=False,
+            help="With a CUDA device, run the models' convolutions in half "
+            "precision (torch.autocast; weights and outputs stay fp32). With "
+            "--upload_batches and --memory_format channels_last it made two "
+            "top-down pairs 1.5-1.9x faster on an A100 at batch size 16; it can "
+            "be slower at batch size 1. Results differ slightly from fp32. "
+            "`predict` with trained checkpoints only.",
         ),
         click.option(
             "--runtime",

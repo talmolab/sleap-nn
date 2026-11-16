@@ -23,8 +23,9 @@ repository. Time your own setup (see [When to re-benchmark](#when-to-re-benchmar
     - **`--device cuda`** — the only flag that matters for large videos.
     - **`--batch_size 4`** is a good starting point; raise to 8 / 16 if
       VRAM allows.
-    - **FP16** delivers the biggest single-flag win (~1.5× on UNets).
-      It has no CLI flag yet; turn it on from Python (see [FP16](#fp16)).
+    - **FP16** (`--fp16`) delivers the biggest single-flag win: 1.5-1.9×
+      on two top-down pairs on an A100, on top of the two options below
+      (see [FP16](#fp16)).
     - **`torch.compile`** adds another ~1.2-1.3×, but pays a 0.5-3 s
       compile cost — only worth it on long videos. Also Python-only (see
       [`torch.compile`](#torchcompile)).
@@ -96,6 +97,31 @@ inference.
 
 Enable **CUDA-only**; on MPS the kernels exist but tensor cores don't,
 so there's no speedup (and we warn).
+
+```bash
+sleap-nn predict --data_path video.mp4 \
+    --model_paths models/centroid/ --model_paths models/centered_instance/ \
+    --device cuda --batch_size 16 --upload_batches \
+    --memory_format channels_last --fp16
+```
+
+or `fp16=True` on `Predictor.from_model_paths` / `sleap_nn.load_models`. It
+sets `use_fp16` on every model's `TorchBackend`: the convolutions run in half
+precision under `torch.autocast`, the weights and outputs stay fp32.
+
+Two top-down pairs on an NVIDIA A100 (PCIe 40 GB), batch size 16, both with
+`--upload_batches --memory_format channels_last`, timed without model loading:
+
+| Pair | Frames | fp32 | `--fp16` | Speed-up |
+|---|---|---|---|---|
+| Large UNets (650M + 780M parameters), 5 mice, 1024×1280 | 3,600 | 140 s | 74 s | 1.9× |
+| Small centroid model + large centered-instance model, 2 mice, 1024×1280 | 9,000 | 50.5 s | 32.7 s | 1.5× |
+
+Against hand labels (100 + 642 held-out animals, 400 + 602 training animals)
+fp16 read the same animals correctly as fp32 within one animal per set, and the
+median node error moved by at most 0.015 px. On the videos, the median node moved
+0.002 px; of the readings that moved more than 5 px (about 0.4% of instances),
+fp16's fitted their neighbouring frames better at least as often as fp32's.
 
 FP16 and `torch.compile` are fields of each model's `TorchBackend`. A
 top-down predictor has two models (`predictor.layer.centroid_layer` and
@@ -314,6 +340,7 @@ predictor = Predictor.from_model_paths(
     batch_size=8,
     upload_batches=True,
     memory_format="channels_last",  # NVIDIA
+    fp16=True,  # CUDA
 )
 use_fast_backends(predictor, fp16=True, compile=True)  # helper from FP16 above
 
