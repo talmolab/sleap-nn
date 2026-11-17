@@ -24,6 +24,15 @@ over the tight box's longest side, for the same animals' predictions). A square
 box-scaled crop (``crop_mode="bbox"``, ``crop_bbox_aspect: square``) reads only a
 box's centre and longest side.
 
+With ``async_detect`` (live video) a due detector run goes to a background
+thread on its own CUDA stream and the frame is cropped from the carried boxes;
+when the detector's boxes are ready (one or more frames later) they are matched
+to the boxes the animals had when it was asked for, and unmatched ones start new
+animals. Only a stream with nothing to carry (its first frame, or every animal
+lost) waits for the detector. Outputs then depend on timing, so runs are not
+repeatable; this is for frames arriving live, where a detector frame would
+otherwise stall the stream.
+
 On a detector frame the outputs are exactly the plain pipeline's; with
 ``keep_unmatched``, carried animals that no detection matches (IoU below
 ``match_iou``) are also cropped from their own boxes and kept unless lost or
@@ -44,6 +53,7 @@ from __future__ import annotations
 
 import copy
 from collections import Counter
+from contextlib import nullcontext as _nullcontext
 from typing import Any, Dict, List, Optional
 
 import attrs
@@ -93,6 +103,7 @@ class SeedConfig:
     max_gap: int = 1
     match_iou: float = 0.3
     keep_unmatched: bool = False
+    async_detect: bool = False
     emit_tracks: bool = False
     fix_flips: bool = False
     flip_nodes: tuple = ("nose", "tail_base")
@@ -191,6 +202,10 @@ class _Stream:
     detect_count: int = 0
     detect_next: bool = True
     reason: str = "start"
+    pending: Any = None  # async_detect: the detector's future
+    pending_frame: int = -1
+    pending_carried: Optional[np.ndarray] = None  # carried boxes when it was asked for
+    pending_tracks: List[int] = attrs.field(factory=list)  # and their animals' ids
 
 
 def _take(out: Outputs, i: int) -> Outputs:
@@ -311,6 +326,10 @@ class PoseSeededTopDownLayer(TopDownLayer):
         # (video index, frame index) -> track id of each output slot (-1: none)
         self.track_log: Dict[tuple, List[int]] = {}
         self._next_track = 0
+        if getattr(self, "_executor", None) is not None:
+            self._executor.shutdown(wait=False)
+        self._executor = None
+        self._det_stream = None
 
     # ──────────────────────────────────────────────────────────────────
 
@@ -370,6 +389,9 @@ class PoseSeededTopDownLayer(TopDownLayer):
         per_frame: List[Optional[Outputs]] = [None] * n
         for r in range(max(rounds) + 1 if rounds else 0):
             idx = [i for i in range(n) if rounds[i] == r]
+            if self.seed_config.async_detect:
+                for i in idx:
+                    self._async_step(stream_of[i], image, i, int(fidx[i]))
             det = [i for i in idx if stream_of[i].detect_next]
             seed = [i for i in idx if not stream_of[i].detect_next]
             if det:
@@ -421,6 +443,107 @@ class PoseSeededTopDownLayer(TopDownLayer):
         return _stack(per_frame)
 
     # ──────────────────────────────────────────────────────────────────
+
+    def _detect_boxes(self, frame) -> tuple:
+        """The detector on one frame (background thread): ``(boxes (K, 4), scores (K,))``."""
+        stream = self._det_stream
+        ctx = torch.cuda.stream(stream) if stream is not None else _nullcontext()
+        with ctx:
+            out = self.centroid_layer.predict(frame)
+            if out.pred_bboxes is None or out.pred_centroids is None:
+                return np.zeros((0, 4)), np.zeros((0,))
+            valid = ~torch.isnan(out.pred_centroids).any(dim=-1)
+            if self.centroid_nms:  # as TopDownLayer.predict keeps them
+                valid = valid & self._centroid_nms_mask(
+                    out.pred_centroids, out.pred_centroid_values, valid
+                )
+            valid = valid[0].cpu().numpy()
+            boxes = out.pred_bboxes[0].detach().float().cpu().numpy()
+            scores = out.pred_bbox_scores[0].detach().float().cpu().numpy()
+        ok = valid & np.isfinite(boxes).all(-1) & np.isfinite(scores)
+        return boxes[ok], scores[ok]
+
+    def _async_step(self, s: _Stream, image, i: int, frame: int) -> None:
+        """async_detect: merge a finished detector run, or start one that is due."""
+        if s.pending is not None and s.pending.done():
+            boxes, scores = s.pending.result()
+            self._merge_detections(s, boxes, scores)
+            s.pending = None
+            s.detect_next, s.reason = False, ""
+        if not s.detect_next or not s.animals:
+            return  # nothing due, or nothing to carry: the detector runs in line
+        if s.pending is None:
+            if self._executor is None:
+                from concurrent.futures import ThreadPoolExecutor
+
+                self._executor = ThreadPoolExecutor(max_workers=1)
+                if torch.cuda.is_available():
+                    self._det_stream = torch.cuda.Stream()
+            frame_img = self._subset(image, [i])
+            frame_img = (
+                frame_img.copy()
+                if isinstance(frame_img, np.ndarray)
+                else frame_img.clone()
+            )
+            s.pending = self._executor.submit(self._detect_boxes, frame_img)
+            s.pending_frame = frame
+            s.pending_carried = np.stack([a.box for a in s.animals])
+            s.pending_tracks = [a.track_id for a in s.animals]
+            self.seed_stats["detector_frames"] += 1
+            self.seed_stats[f"detector_{s.reason}"] += 1
+            self.seed_stats["detector_async"] += 1
+            s.since_detect = -1  # this frame's update counts it as the detector frame
+        s.detect_next = False  # this frame is cropped from the carried boxes
+
+    def _merge_detections(
+        self, s: _Stream, boxes: np.ndarray, scores: np.ndarray
+    ) -> None:
+        """Merge a background detector run into the carried animals.
+
+        A detection matched to a carried box (as it was when the detector was
+        asked) re-anchors that animal: its next crop takes the detector's box,
+        moved by how far the animal has moved since. Detections no carried animal
+        accounts for start new animals; carried animals the detector missed stay
+        (as with ``keep_unmatched``).
+        """
+        carried = (
+            s.pending_carried if s.pending_carried is not None else np.zeros((0, 4))
+        )
+        matched = set()
+        if len(boxes) and len(carried):
+            from scipy.optimize import linear_sum_assignment
+
+            iou = _iou_matrix(boxes, carried)
+            rows, cols = linear_sum_assignment(-iou)
+            by_track = {a.track_id: a for a in s.animals if a.track_id >= 0}
+            for r, c in zip(rows, cols):
+                if iou[r, c] < self.seed_config.match_iou:
+                    continue
+                matched.add(r)
+                a = by_track.get(s.pending_tracks[c]) if c < len(s.pending_tracks) else None
+                if a is None:
+                    continue  # lost since
+                shift = (a.box[:2] + a.box[2:]) / 2 - (carried[c, :2] + carried[c, 2:]) / 2
+                a.box = boxes[r].astype(np.float64) + np.tile(shift, 2)
+                a.score = float(scores[r])
+                self.seed_stats["async_reanchored"] += 1
+        now = np.stack([a.box for a in s.animals]) if s.animals else np.zeros((0, 4))
+        added = 0
+        for k in range(len(boxes)):
+            if k in matched:
+                continue
+            if len(now) and _iou_matrix(boxes[k : k + 1], now).max() > self.seed_config.dup_iou:
+                continue  # already carried under another box
+            s.animals.append(  # its reference score is set by its first pose
+                _Animal(
+                    box=boxes[k].astype(np.float64),
+                    score=float(scores[k]),
+                    ref_score=float("nan"),
+                )
+            )
+            added += 1
+        self.seed_stats["async_added"] += added
+        s.detect_count = len(s.animals)
 
     def _seeded(self, image, idx: List[int], animals: List[List[_Animal]]) -> Outputs:
         """The pose stage on frames ``idx``, cropped from these animals' boxes."""
@@ -619,7 +742,11 @@ class PoseSeededTopDownLayer(TopDownLayer):
                 if i >= n_v:
                     self._drop_slot(out, i)
                 continue
-            ref = m if (prev is None or not seeded) else prev.ref_score
+            ref = (
+                m
+                if (prev is None or not seeded or not np.isfinite(prev.ref_score))
+                else prev.ref_score
+            )
             if seeded and (
                 (m < cfg.lost_score and m < cfg.lost_ratio * ref)
                 or _outside_fraction(box, height, width) > cfg.max_outside

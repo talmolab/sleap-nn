@@ -321,3 +321,121 @@ def test_track_ids_follow_animals(monkeypatch):
     for f in range(9):
         # the animal on the left keeps its id; slot order may change at detector frames
         assert sorted(log[(0, f)]) == [0, 1]
+
+
+class _DetStage(_Stage):
+    """Stage 1 with a ``predict`` (the background detector calls it directly)."""
+
+    def __init__(self, world):
+        super().__init__("detector")
+        self.world = world
+
+    def predict(self, image):
+        f = int(np.asarray(image)[0, 0, 0, 0])
+        self.world.calls.append(("background", [f]))
+        rows = []
+        for a_i, p in enumerate(self.world.positions[f]):
+            if p is not None and (f, a_i) not in self.world.det_miss:
+                h = 1.19 * self.world.half
+                rows.append(([p[0] - h, p[1] - h, p[0] + h, p[1] + h], 0.95))
+        n = max(1, len(rows))
+        B = torch.full((1, n, 4), float("nan"))
+        BS = torch.full((1, n), float("nan"))
+        C = torch.full((1, n, 2), float("nan"))
+        for i, (box, s) in enumerate(rows):
+            B[0, i] = torch.as_tensor(box)
+            BS[0, i] = s
+            C[0, i] = torch.as_tensor([(box[0] + box[2]) / 2, (box[1] + box[3]) / 2])
+        return Outputs(
+            pred_centroids=C,
+            pred_centroid_values=BS.clone(),
+            pred_bboxes=B,
+            pred_bbox_scores=BS,
+        )
+
+
+class _InlineExecutor:
+    """Runs a submitted call at once: its result is merged on the next frame."""
+
+    def submit(self, fn, *a):
+        from concurrent.futures import Future
+
+        fut = Future()
+        fut.set_result(fn(*a))
+        return fut
+
+    def shutdown(self, wait=True):
+        pass
+
+
+def _async_layer(monkeypatch, world, inline=True, **cfg):
+    layer = _layer(monkeypatch, world, async_detect=True, **cfg)
+    layer.centroid_layer = _DetStage(world)
+    if inline:
+        layer._executor = _InlineExecutor()
+    return layer
+
+
+def _background_frames(world):
+    return [f for name, fs in world.calls if name == "background" for f in fs]
+
+
+def test_async_detect_off_the_critical_path(monkeypatch):
+    """Due detector runs go to the background; every frame after the first is seeded."""
+    world = _World({f: [(50.0 + f, 60.0), (140.0, 120.0 - f)] for f in range(10)})
+    layer = _async_layer(monkeypatch, world, detect_every=4)
+    outs = _run(layer, list(range(10)), 1)
+    assert _detector_frames(world) == [0]  # only the first frame waits for it
+    assert _background_frames(world) == [4, 8]
+    assert layer.seed_stats["detector_async"] == 2
+    assert layer.seed_stats["async_reanchored"] == 4  # both animals, twice
+    assert layer.seed_stats["async_added"] == 0
+    kp = torch.cat([o.pred_keypoints for o in outs])
+    assert not torch.isnan(kp[:, :2]).any()
+    assert kp[9, :, N_NODES // 2, 0].sort().values[0] == pytest.approx(59.0)
+
+
+def test_async_detect_adds_a_new_animal(monkeypatch):
+    """An animal that appears is picked up from the background run one frame later."""
+    pos = {f: [(50.0, 60.0)] + ([(140.0, 120.0)] if f >= 3 else []) for f in range(9)}
+    world = _World(pos)
+    layer = _async_layer(monkeypatch, world, detect_every=4)
+    outs = _run(layer, list(range(9)), 1)
+    n = [int((~torch.isnan(o.pred_keypoints[0, :, 0, 0])).sum()) for o in outs]
+    # asked on frame 4 (scheduled), merged before frame 5
+    assert _background_frames(world) == [4, 8]
+    assert n == [1, 1, 1, 1, 1, 2, 2, 2, 2]
+    assert layer.seed_stats["async_added"] == 1
+
+
+def test_async_detect_keeps_missed_animals(monkeypatch):
+    """A carried animal the background detector misses is kept."""
+    pos = {f: [(50.0, 60.0), (140.0, 120.0)] for f in range(8)}
+    world = _World(pos, det_miss={(4, 1)})
+    layer = _async_layer(monkeypatch, world, detect_every=4)
+    outs = _run(layer, list(range(8)), 1)
+    n = [int((~torch.isnan(o.pred_keypoints[0, :, 0, 0])).sum()) for o in outs]
+    assert n == [2] * 8
+
+
+def test_async_detect_all_lost_runs_in_line(monkeypatch):
+    """With nothing left to carry the stream waits for the detector."""
+    pos = {f: [(50.0, 60.0)] if f < 3 or f >= 5 else [None] for f in range(7)}
+    world = _World(pos)
+    layer = _async_layer(monkeypatch, world, detect_every=30)
+    _run(layer, list(range(7)), 1)
+    # frame 3: the animal is gone, so it is lost and frame 4 has nothing to carry
+    assert _detector_frames(world)[:2] == [0, 4]
+    assert _background_frames(world) == []
+
+
+def test_async_detect_with_a_thread(monkeypatch):
+    """The real background thread: same animals found, whatever the timing."""
+    world = _World({f: [(50.0 + f, 60.0), (140.0, 120.0 - f)] for f in range(12)})
+    layer = _async_layer(monkeypatch, world, inline=False, detect_every=3)
+    outs = _run(layer, list(range(12)), 2)
+    kp = torch.cat([o.pred_keypoints for o in outs])
+    assert kp.shape[0] == 12 and not torch.isnan(kp[:, :2]).any()
+    assert layer.seed_stats["detector_async"] >= 1
+    layer.reset_streams()  # shuts the thread down
+    assert layer._executor is None
