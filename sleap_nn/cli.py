@@ -1322,6 +1322,8 @@ def _run_inference_impl(**kwargs):
         _check_part_stage_flags(kwargs, stream_to_file)
     if kwargs.get("part_streaming") and kwargs.get("part_model") is None:
         raise click.UsageError("--part_streaming needs --part_model.")
+    if kwargs.get("detect_every") is not None or kwargs.get("seed_param"):
+        _check_seed_flags(kwargs, stream_to_file)
 
     # ── Stream-to-file path: new Predictor + IncrementalLabelsWriter ───
     if stream_to_file is not None:
@@ -1333,6 +1335,64 @@ def _run_inference_impl(**kwargs):
         )
 
     return _run_in_memory_new_flow(kwargs, paf_workers=paf_workers)
+
+
+def _check_seed_flags(kwargs: dict, stream_to_file) -> None:
+    """Refuse ``--detect_every`` combinations its route cannot honor, before loading."""
+    if kwargs.get("detect_every") is None:
+        raise click.UsageError("--seed_param needs --detect_every.")
+    if stream_to_file is not None:
+        raise click.UsageError(
+            "--detect_every is not supported with --stream-to-file; run without it."
+        )
+    if kwargs.get("boxes") is not None:
+        raise click.UsageError("--detect_every cannot be combined with --boxes.")
+    mps = kwargs.get("model_paths") or []
+    if not mps or any(_is_export_dir(m) for m in mps):
+        raise click.UsageError(
+            "--detect_every needs checkpoint models (-m): a box detector and a "
+            "box-scaled crop model."
+        )
+    _seed_kwargs(kwargs)  # parse --seed_param now
+
+
+def _seed_kwargs(kwargs: dict) -> dict:
+    """``predict`` seed_from_pose kwarg from the CLI flags (empty without --detect_every)."""
+    if kwargs.get("detect_every") is None:
+        return {}
+    import attrs
+
+    from sleap_nn.inference.layers.seeded import SeedConfig
+
+    fields = {f.name: f for f in attrs.fields(SeedConfig)}
+    cfg: dict = {"detect_every": int(kwargs["detect_every"])}
+    for text in kwargs.get("seed_param") or ():
+        key, sep, value = text.partition("=")
+        key, value = key.strip(), value.strip()
+        if not sep or key not in fields or key == "detect_every":
+            raise click.UsageError(
+                f"--seed_param {text!r}: expected key=value with key one of "
+                f"{sorted(k for k in fields if k != 'detect_every')}."
+            )
+        default = fields[key].default
+        try:
+            if isinstance(default, bool):
+                if value.lower() not in ("true", "false", "1", "0"):
+                    raise ValueError(value)
+                cfg[key] = value.lower() in ("true", "1")
+            elif isinstance(default, int):
+                cfg[key] = int(value)
+            elif isinstance(default, float):
+                cfg[key] = float(value)
+            else:
+                cfg[key] = value
+        except ValueError as e:
+            raise click.UsageError(f"--seed_param {text!r}: bad value.") from e
+    try:
+        SeedConfig(**cfg)
+    except (TypeError, ValueError) as e:
+        raise click.UsageError(f"--detect_every / --seed_param: {e}") from e
+    return {"seed_from_pose": cfg}
 
 
 def _check_part_stage_flags(kwargs: dict, stream_to_file) -> None:
@@ -2913,6 +2973,7 @@ def _run_in_memory_new_flow(
         "box_score_threshold": kwargs.get("box_score_threshold") or 0.0,
         **_node_filter_kwargs(kwargs),
         **_part_stage_kwargs(kwargs),
+        **_seed_kwargs(kwargs),
         "min_mask_area": kwargs.get("min_mask_area", 0),
         "center_nms_kernel": kwargs.get("center_nms_kernel", 3),
         "mask_cleanup": kwargs.get("mask_cleanup", False),
@@ -4191,6 +4252,28 @@ def _common_inference_options(f):
                 "Run --part_model on each batch right after the pose stage (no second "
                 "read of the frames), with a running crop floor (median over the "
                 "frames so far) instead of the whole-video floor."
+            ),
+        ),
+        click.option(
+            "--detect_every",
+            type=int,
+            default=None,
+            help=(
+                "Experimental. Video, box detector + box-scaled crop model only: run the detector "
+                "every N frames and when an animal is lost, and otherwise crop each "
+                "animal from its keypoints on the previous frame "
+                "(sleap_nn.inference.layers.seeded). Default: off (the detector runs "
+                "on every frame)."
+            ),
+        ),
+        click.option(
+            "--seed_param",
+            type=str,
+            multiple=True,
+            help=(
+                "A key=value setting of --detect_every (repeatable): lost_score, "
+                "lost_ratio, max_outside, dup_iou, box_scale, box_points (all|conf), "
+                "conf_threshold, min_points, motion (true|false), max_gap."
             ),
         ),
         click.option(

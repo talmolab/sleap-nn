@@ -990,3 +990,128 @@ def test_network_only_refusals(trained_pair, tmp_path):
             export_runtime="onnx",
             node_filter=["A"],
         )
+
+
+# --------------------------------------------------------------------------- #
+# Detector only when needed on video (seed_from_pose / --detect_every)
+# --------------------------------------------------------------------------- #
+def _pair_video():
+    from pathlib import Path
+
+    return str(
+        Path(__file__).resolve().parent / "assets/datasets/centered_pair_small.mp4"
+    )
+
+
+def test_seed_from_pose_every_frame_is_plain(trained_pair):
+    """detect_every=1 runs the detector on every frame: the plain pipeline's output."""
+    from sleap_nn.inference.layers.seeded import PoseSeededTopDownLayer
+    from sleap_nn.inference.predictor import Predictor
+
+    paths = [trained_pair["det"].as_posix(), trained_pair["ci_bbox"].as_posix()]
+    plain = Predictor.from_model_paths(
+        paths, device="cpu", batch_size=1, peak_threshold=0.0
+    )
+    seeded = Predictor.from_model_paths(
+        paths, device="cpu", batch_size=1, peak_threshold=0.0, seed_from_pose=1
+    )
+    assert isinstance(seeded.layer, PoseSeededTopDownLayer)
+    frames = list(range(6))
+    a = plain.predict(_pair_video(), frames=frames)
+    b = seeded.predict(_pair_video(), frames=frames)
+    assert b.provenance["seed_from_pose"]["stats"]["detector_frames"] == 6
+    assert len(a) == len(b) == 6
+    for la, lb in zip(a, b):
+        assert len(la.instances) == len(lb.instances)
+        for ia, ib in zip(la.instances, lb.instances):
+            np.testing.assert_array_equal(ia.numpy(), ib.numpy())
+        assert [x.xyxy for x in la.bboxes] == [x.xyxy for x in lb.bboxes]
+
+
+def test_seed_from_pose_skips_detector(trained_pair):
+    """detect_every=3: the detector runs on a schedule; every frame gets outputs."""
+    from sleap_nn.inference.predictor import Predictor
+
+    pred = Predictor.from_model_paths(
+        [trained_pair["det"].as_posix(), trained_pair["ci_bbox"].as_posix()],
+        device="cpu",
+        batch_size=4,
+        peak_threshold=0.0,
+        seed_from_pose={"detect_every": 3, "lost_score": 0.0, "max_outside": 1.0},
+    )
+    labels = pred.predict(_pair_video(), frames=list(range(9)))
+    stats = labels.provenance["seed_from_pose"]["stats"]
+    assert stats["frames"] == 9
+    assert 1 <= stats["detector_frames"] < 9
+    assert labels.provenance["seed_from_pose"]["config"]["detect_every"] == 3
+    assert len(labels) == 9
+    # A second run starts again from the detector.
+    again = pred.predict(_pair_video(), frames=list(range(9)))
+    assert again.provenance["seed_from_pose"]["stats"] == stats
+
+
+def test_seed_from_pose_refusals(trained_pair):
+    from sleap_nn.inference.predictor import Predictor
+
+    with pytest.raises(ValueError, match="seed_from_pose needs a box detector"):
+        Predictor.from_model_paths(
+            [trained_pair["det"].as_posix(), trained_pair["ci_fixed"].as_posix()],
+            device="cpu",
+            seed_from_pose=5,
+        )
+    with pytest.raises(ValueError, match="seed_from_pose needs a box detector"):
+        Predictor.from_model_paths(
+            [trained_pair["ci_bbox"].as_posix()], device="cpu", seed_from_pose=5
+        )
+
+
+def test_predict_cli_detect_every(trained_pair, tmp_path):
+    """sleap-nn predict --detect_every N [--seed_param key=value ...]."""
+    from click.testing import CliRunner
+
+    from sleap_nn.cli import cli
+
+    out = tmp_path / "pred.slp"
+    args = [
+        "predict",
+        "-i",
+        _pair_video(),
+        "-m",
+        trained_pair["det"].as_posix(),
+        "-m",
+        trained_pair["ci_bbox"].as_posix(),
+        "--frames",
+        "0-5",
+        "--peak_threshold",
+        "0",
+        "--device",
+        "cpu",
+        "-o",
+        str(out),
+    ]
+    result = CliRunner().invoke(
+        cli,
+        args
+        + [
+            "--detect_every",
+            "3",
+            "--seed_param",
+            "box_scale=1.25",
+            "--seed_param",
+            "motion=true",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    prov = sio.load_slp(out).provenance["seed_from_pose"]
+    assert prov["config"]["detect_every"] == 3
+    assert prov["config"]["box_scale"] == pytest.approx(1.25)
+    assert prov["config"]["motion"] is True
+    for bad in (
+        ["--seed_param", "box_scale=1.2"],
+        ["--detect_every", "3", "--seed_param", "nope=1"],
+        ["--detect_every", "3", "--seed_param", "motion=maybe"],
+        ["--detect_every", "0"],
+    ):
+        result = CliRunner().invoke(cli, args + bad)
+        assert result.exit_code != 0
+        assert "detect_every" in result.output or "seed_param" in result.output

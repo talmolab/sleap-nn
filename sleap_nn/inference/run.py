@@ -490,6 +490,7 @@ def predict(
     strip_prefix: Optional[Union[bool, str]] = None,
     # Part stage: crops from the predicted keypoints (off unless part_model_paths)
     part_streaming: bool = False,
+    seed_from_pose: Optional[Any] = None,
     part_model_paths: Optional[List[str]] = None,
     part_crop_rule: Optional[Any] = None,
     part_node_filter: Optional[Union[str, List[str]]] = None,
@@ -640,6 +641,12 @@ def predict(
             median over the frames so far) instead of the whole-video floor
             (:class:`~sleap_nn.inference.keypoint_crops.StreamingPartStage`).
             ``False`` (default): the part stage runs after the whole video.
+        seed_from_pose: Experimental. Run the detector of a box-seeded top-down pipeline only
+            when needed on video, and otherwise crop each animal from its keypoints
+            on the previous frame (:mod:`sleap_nn.inference.layers.seeded`). An
+            int (``detect_every``), a dict of
+            :class:`~sleap_nn.inference.layers.seeded.SeedConfig` fields, or a
+            ``SeedConfig``. ``None`` (default): the detector runs on every frame.
         part_model_paths: A part model (a centered-instance crop model) to run
             after the pose model, on square crops built from each predicted
             instance's keypoints by ``part_crop_rule``
@@ -782,6 +789,11 @@ def predict(
 
     if model_paths and export_dir:
         raise ValueError("Provide model_paths or export_dir, not both.")
+    if seed_from_pose is not None and (export_dir or boxes is not None):
+        raise ValueError(
+            "seed_from_pose needs checkpoint model_paths (a box detector and a "
+            "box-scaled crop model) and no boxes source."
+        )
     if part_model_paths and (export_dir or part_crop_rule is None):
         raise ValueError(
             "part_model_paths needs checkpoint (or network-only exported) "
@@ -901,6 +913,8 @@ def predict(
         if node_filter is not None:
             build_kwargs["node_filter"] = node_filter
             build_kwargs["strip_prefix"] = strip_prefix
+        if seed_from_pose is not None:
+            build_kwargs["seed_from_pose"] = seed_from_pose
         predictor = Predictor.from_model_paths(model_paths, **build_kwargs)
     else:
         if node_filter is not None:

@@ -642,6 +642,98 @@ def _seed_from_boxes(
     )
 
 
+def _assign_seeded_tracks(labels: Any, videos: Any, track_log: dict) -> None:
+    """Give instances the identities a seeded layer carried (``emit_tracks``).
+
+    ``track_log`` maps ``(video index, frame index)`` to the track id of each output
+    slot; the frame's instances are its non-empty slots, in order. Instances of an
+    animal the layer could not follow (slot id ``-1``) get no track.
+    """
+    import sleap_io as sio
+
+    vindex = {id(v): i for i, v in enumerate(videos or [])}
+    tracks: dict = {}
+    for lf in labels.labeled_frames:
+        ids = track_log.get((vindex.get(id(lf.video), 0), int(lf.frame_idx)))
+        if ids is None:
+            continue
+        insts = list(lf.predicted_instances)
+        if len(insts) != len(ids):  # instances were filtered after the layer
+            continue
+        for inst, tid in zip(insts, ids):
+            if tid < 0:
+                continue
+            if tid not in tracks:
+                tracks[tid] = sio.Track(name=f"track_{tid}")
+            inst.track = tracks[tid]
+    if tracks:
+        labels.tracks = [tracks[k] for k in sorted(tracks)]
+
+
+def _fresh_frame_state(layer: Any) -> Any:
+    """A private copy of a layer that carries state between frames, state cleared.
+
+    Other layers are returned as they are.
+    """
+    if not hasattr(layer, "reset_streams"):
+        return layer
+    layer = copy.copy(layer)
+    layer.reset_streams()
+    return layer
+
+
+def _seed_from_pose(layer: Any, assets: Any, device: str, config: Any):
+    """Wrap a detector-seeded top-down layer so its detector runs only when needed.
+
+    The ``seed_from_pose`` route (:mod:`sleap_nn.inference.layers.seeded`): on video,
+    each animal's crop box comes from its keypoints on the previous frame, and the
+    detector runs on a schedule and when an animal is lost.
+    """
+    from sleap_nn.inference.layers.bbox import BBoxStageLayer
+    from sleap_nn.inference.layers.seeded import PoseSeededTopDownLayer, SeedConfig
+
+    stage_1 = getattr(layer, "centroid_layer", None)
+    if (
+        type(layer) is not TopDownLayer
+        or not isinstance(stage_1, BBoxStageLayer)
+        or stage_1.use_gt_boxes
+        or stage_1.use_given_boxes
+        or stage_1.decoder is None
+        or layer.bbox_crop is None
+    ):
+        raise ValueError(
+            "seed_from_pose needs a box detector (bbox_*) followed by a box-scaled "
+            "centered-instance model (crop_mode='bbox'), without boxes='gt'/'given'."
+        )
+    seed_stage = BBoxStageLayer(
+        backend=layer.centered_instance_layer.backend,
+        decoder=None,
+        use_given_boxes=True,
+        box_score_threshold=0.0,
+        preprocess_config=PreprocessConfig(
+            scale=1.0,
+            max_height=_pp_field(assets, "max_height"),
+            max_width=_pp_field(assets, "max_width"),
+            ensure_rgb=_pp_field(assets, "ensure_rgb"),
+            ensure_grayscale=_pp_field(assets, "ensure_grayscale"),
+        ),
+        postprocess_config=PostprocessConfig(),
+    )
+    config = SeedConfig.from_any(config)
+    seeded = PoseSeededTopDownLayer(layer, seed_stage, config)
+    if config.fix_flips:
+        names = list(assets.skeletons[0].node_names) if assets.skeletons else []
+        bare = [n.split("/")[-1] for n in names]
+        try:
+            seeded.flip_index = tuple(bare.index(n) for n in config.flip_nodes)
+        except ValueError:
+            raise ValueError(
+                f"fix_flips needs the nodes {list(config.flip_nodes)} in the pose "
+                f"model's output; it has {names}."
+            ) from None
+    return seeded
+
+
 def _maybe_gt_bbox_stage(layer: TopDownLayer, assets: Any, device: str):
     """Use GT boxes for a box-scaled crop model run alone (no stage-1 model)."""
     spec, _ = _crop_stage_knobs(assets)
@@ -1438,6 +1530,7 @@ class Predictor:
         node_filter: Optional[Union[str, List[str]]] = None,
         strip_prefix: Optional[Union[bool, str]] = None,
         precision: str = "32",
+        seed_from_pose: Optional[Any] = None,
         export_runtime: str = "auto",
     ) -> "Predictor":
         """Build a :class:`Predictor` from one or more checkpoint paths.
@@ -1531,6 +1624,13 @@ class Predictor:
                 ``"fp16"``: run every model's forward under ``torch.autocast``
                 with that dtype (CUDA only; ignored on CPU / MPS). Outputs are
                 cast back to fp32 before postprocessing.
+            seed_from_pose: Experimental. On video, run a box detector + box-scaled crop model's
+                detector only when needed and otherwise crop each animal from its
+                keypoints on the previous frame
+                (:class:`~sleap_nn.inference.layers.seeded.PoseSeededTopDownLayer`):
+                an int (``detect_every``), a dict of
+                :class:`~sleap_nn.inference.layers.seeded.SeedConfig` fields or a
+                ``SeedConfig``. ``None`` (default): the detector runs on every frame.
             boxes: Seed a top-down crop model's stage 1 from boxes instead of a
                 centroid model or detector: ``"gt"`` (the GT boxes of a ``.slp``
                 source, scored 1) or ``"given"`` (each frame's
@@ -1619,6 +1719,8 @@ class Predictor:
             layer = _seed_from_boxes(
                 layer, loaded, model_types, device, boxes, box_score_threshold
             )
+        if seed_from_pose is not None:
+            layer = _seed_from_pose(layer, loaded, device, seed_from_pose)
         _set_autocast_precision(layer, precision)
 
         skeleton = loaded.skeletons[0] if loaded.skeletons else None
@@ -2354,6 +2456,7 @@ class Predictor:
         )
         if self.part_stage is not None:
             self.part_stage.reset()
+        layer = _fresh_frame_state(layer)
         outputs_list = list(self._batch_iter(provider, progress_callback, layer=layer))
         _prov_end = datetime.now()
 
@@ -2399,6 +2502,8 @@ class Predictor:
         _restore_source_order(
             labels, videos, getattr(provider, "source_positions", None)
         )
+        if getattr(layer, "track_log", None):
+            _assign_seeded_tracks(labels, videos, layer.track_log)
         if self.tracker_config is not None:
             labels = apply_tracking(
                 labels, self.tracker_config, tracking_progress_callback
@@ -2427,6 +2532,17 @@ class Predictor:
         labels.provenance = carry_tracking_record(
             provenance, labels, self.tracker_config
         )
+        seed_config = getattr(layer, "seed_config", None)
+        if seed_config is not None:
+            labels.provenance["seed_from_pose"] = {
+                "config": seed_config.to_dict(),
+                "stats": dict(layer.seed_stats),
+            }
+            logger.info(
+                f"seed_from_pose: the detector ran on "
+                f"{layer.seed_stats.get('detector_frames', 0)} of "
+                f"{layer.seed_stats.get('frames', 0)} frames."
+            )
 
         # Post-run summary (#610). Segmentation emits masks (LabeledFrame.masks);
         # everything else emits instances (LabeledFrame.instances).
@@ -2525,6 +2641,7 @@ class Predictor:
         )
         if self.part_stage is not None:
             self.part_stage.reset()
+        layer = _fresh_frame_state(layer)
         if self.paf_workers > 0 and self._can_pipeline():
             yield from self._predict_streaming_pipelined(
                 provider, progress_callback, layer=layer
@@ -2684,11 +2801,13 @@ class Predictor:
             layer_accepts_boxes = "instance_boxes" in sig.parameters
             layer_accepts_frame_boxes = "frame_boxes" in sig.parameters
             layer_accepts_frame_scales = "frame_scales" in sig.parameters
+            layer_accepts_frame_indices = "frame_indices" in sig.parameters
         except (TypeError, ValueError):  # pragma: no cover — non-introspectable
             layer_accepts_instances = False
             layer_accepts_boxes = False
             layer_accepts_frame_boxes = False
             layer_accepts_frame_scales = False
+            layer_accepts_frame_indices = False
 
         pipeline = self.filter_pipeline
         total = _safe_num_frames(provider)
@@ -2723,6 +2842,10 @@ class Predictor:
                     )
                 kwargs["frame_scales"] = frame_scales
                 kwargs["frame_sizes"] = batch.frame_sizes
+            if layer_accepts_frame_indices and batch.frame_indices is not None:
+                # A layer that carries state from frame to frame (seed_from_pose).
+                kwargs["frame_indices"] = batch.frame_indices
+                kwargs["video_indices"] = batch.video_indices
             outputs = layer.predict(batch.images, **kwargs)
             outputs = pipeline(outputs)
             if self.part_stage is not None:
