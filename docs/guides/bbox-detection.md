@@ -203,7 +203,8 @@ sleap-nn predict -m models/my_detector/exported -i video.mp4 -o boxes.slp
 
 A detector exports its **network only**: the graph returns the decoder-ready head
 outputs (CenterNet's center probabilities + size/offset maps; SSD's per-anchor
-logits + deltas), and the exported-model adapter decodes them with the same
+logits + deltas; `bbox_detr`'s final-layer logits and boxes, see
+[DETR detection](bbox-detr.md#export-onnx-tensorrt)), and the exported-model adapter decodes them with the same
 `BBoxDecoder` as checkpoint inference, rebuilt from the `training_config.yaml`
 copied into the export directory. Anchors, NMS and thresholds therefore live in one
 place, exported and native boxes match, and the graph's spatial axes stay dynamic.

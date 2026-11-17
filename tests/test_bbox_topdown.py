@@ -891,3 +891,102 @@ def test_predict_cli_with_boxes_slp(trained_pair, minimal_instance, tmp_path):
     video_args[2] = "video.mp4"
     result = CliRunner().invoke(cli, video_args)
     assert result.exit_code != 0 and "needs a .slp input" in result.output
+
+
+def _export(src, dst, *args):
+    from click.testing import CliRunner
+
+    from sleap_nn.export.cli import export
+
+    result = CliRunner().invoke(export, [str(src), "-o", str(dst), *args])
+    assert result.exit_code == 0, result.output
+    return dst
+
+
+@pytest.mark.parametrize("input_dtype", ["float32", "uint8"])
+def test_network_only_exports_in_checkpoint_pipeline(
+    trained_pair, minimal_instance, tmp_path, input_dtype
+):
+    """A detector export + a --network-only box-scaled export predict as the pair."""
+    pytest.importorskip("onnxruntime")
+    import json
+
+    from sleap_nn.inference.exported_network import ExportedNetwork, is_network_export
+    from sleap_nn.inference.predictor import Predictor
+
+    det = _export(trained_pair["det"], tmp_path / "det", "--input-dtype", input_dtype)
+    ci = _export(
+        trained_pair["ci_bbox"],
+        tmp_path / "ci",
+        "--network-only",
+        "--input-dtype",
+        input_dtype,
+    )
+    assert is_network_export(det) and is_network_export(ci)
+    assert not is_network_export(trained_pair["ci_bbox"])
+    meta = json.loads((ci / "export_metadata.json").read_text())
+    assert meta["network_only"] is True
+    assert meta["output_names"] == ["CenteredInstanceConfmapsHead"]
+    assert meta["input_dtype"] == input_dtype
+
+    # The top detections only: below them, the barely trained detector's
+    # near-zero plateaus make the set of local maxima hinge on 1e-7 differences.
+    kwargs = dict(device="cpu", peak_threshold=0.0, max_instances=2)
+    ref = Predictor.from_model_paths(
+        [trained_pair["det"].as_posix(), trained_pair["ci_bbox"].as_posix()], **kwargs
+    )
+    exp = Predictor.from_model_paths(
+        [det.as_posix(), ci.as_posix()], export_runtime="onnx", **kwargs
+    )
+    # The exported networks sit where the checkpoints' modules sit; every other
+    # step (decoder, box-scaled crops, peaks) is the checkpoint path's.
+    assert isinstance(exp.layer.centroid_layer.backend.model, ExportedNetwork)
+    assert isinstance(exp.layer.centered_instance_layer.backend.model, ExportedNetwork)
+    a = ref.predict(sio.load_slp(minimal_instance), make_labels=True)[0]
+    b = exp.predict(sio.load_slp(minimal_instance), make_labels=True)[0]
+    assert len(a.instances) == len(b.instances) >= 1
+    ba = np.array([x.xyxy for x in a.bboxes])
+    bb = np.array([x.xyxy for x in b.bboxes])
+    pa = np.stack([i.numpy() for i in a.instances])
+    pb = np.stack([i.numpy() for i in b.instances])
+    # float32 graphs get the checkpoint path's own inputs; uint8 graphs a rounded
+    # crop (up to half a grey level).
+    tol = 1e-3 if input_dtype == "float32" else 1.0
+    np.testing.assert_allclose(bb, ba, atol=tol)
+    np.testing.assert_allclose(pb, pa, atol=tol)
+
+
+def test_network_only_refusals(trained_pair, tmp_path):
+    """--network-only is for crop models; exported networks take no node filter."""
+    pytest.importorskip("onnxruntime")
+    from click.testing import CliRunner
+
+    from sleap_nn.export.cli import export
+    from sleap_nn.inference.predictor import Predictor
+
+    result = CliRunner().invoke(
+        export,
+        [trained_pair["det"].as_posix(), "-o", str(tmp_path / "x"), "--network-only"],
+    )
+    assert result.exit_code != 0 and "centered_instance" in result.output
+    result = CliRunner().invoke(
+        export,
+        [
+            trained_pair["ci_fixed"].as_posix(),
+            "-o",
+            str(tmp_path / "y"),
+            "--input-dtype",
+            "float32",
+        ],
+    )
+    assert result.exit_code != 0 and "--input-dtype float32" in result.output
+
+    det = _export(trained_pair["det"], tmp_path / "det")
+    ci = _export(trained_pair["ci_bbox"], tmp_path / "ci", "--network-only")
+    with pytest.raises(ValueError, match="cannot slice an exported network"):
+        Predictor.from_model_paths(
+            [det.as_posix(), ci.as_posix()],
+            device="cpu",
+            export_runtime="onnx",
+            node_filter=["A"],
+        )

@@ -1341,10 +1341,17 @@ def _check_part_stage_flags(kwargs: dict, stream_to_file) -> None:
         )
     if not kwargs.get("part_crop_rule"):
         raise click.UsageError("--part_model needs --part_crop_rule.")
+    from sleap_nn.inference.exported_network import is_network_export
+
     mps = kwargs.get("model_paths") or []
-    if not mps or any(_is_export_dir(m) for m in mps):
+    if not mps or any(
+        _is_export_dir(m) and not is_network_export(m)
+        for m in mps + [kwargs["part_model"]]
+    ):
         raise click.UsageError(
-            "--part_model needs checkpoint pose models (-m), not exported ones."
+            "--part_model needs checkpoint pose models (-m) or network-only "
+            "exports (`sleap-nn export --network-only`), not fused exported "
+            "models."
         )
 
 
@@ -3645,9 +3652,11 @@ def _common_inference_options(f):
             "--runtime",
             type=click.Choice(["auto", "onnx", "tensorrt"], case_sensitive=False),
             default="auto",
-            help="Runtime for an exported ONNX/TensorRT model directory passed to "
-            "--model_paths. 'auto' prefers TensorRT, falls back to ONNX. Ignored "
-            "for trained checkpoints.",
+            help="Runtime for exported ONNX/TensorRT model directories passed to "
+            "--model_paths (and --part_model): a single exported model, or "
+            "network-only exports (`sleap-nn export --network-only`, box detector "
+            "exports) standing in for checkpoints in a multi-model pipeline. 'auto' "
+            "prefers TensorRT, falls back to ONNX. Ignored for trained checkpoints.",
         ),
         click.option(
             "--tracking",

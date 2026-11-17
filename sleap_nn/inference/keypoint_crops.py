@@ -424,6 +424,7 @@ def run_part_stage(
     strip_prefix: Optional[Union[bool, str]] = None,
     peak_threshold: Optional[float] = None,
     part_prefix: Optional[str] = None,
+    export_runtime: str = "auto",
 ) -> sio.Labels:
     """Run a part model on crops built from ``base``'s predicted keypoints.
 
@@ -438,6 +439,8 @@ def run_part_stage(
         strip_prefix: ``strip_prefix`` of that node filter.
         peak_threshold: Part model peak threshold (default: the model's).
         part_prefix: Prefix for the part nodes in the merged skeleton.
+        export_runtime: Runtime when the part model is a network-only export
+            directory (see ``Predictor.from_model_paths``).
 
     Returns:
         Merged labels: one instance per body instance, body nodes then part nodes.
@@ -456,6 +459,8 @@ def run_part_stage(
         kwargs["strip_prefix"] = strip_prefix
     if peak_threshold is not None:
         kwargs["peak_threshold"] = peak_threshold
+    if export_runtime != "auto":
+        kwargs["export_runtime"] = export_runtime
     predictor = Predictor.from_model_paths(list(part_model_paths), **kwargs)
     floors = session_floors(base, rule)
     if floors:

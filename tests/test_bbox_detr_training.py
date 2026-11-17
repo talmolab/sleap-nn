@@ -436,6 +436,50 @@ def test_bbox_detr_train_predict_eval(config, minimal_instance, tmp_path):
     m = run_evaluation(minimal_instance.as_posix(), out.as_posix(), match_method="bbox")
     assert m is not None and 0.0 <= m["bbox_mAP"] <= 1.0
 
+    # `sleap-nn export` writes the network; the exported predictor rebuilds the
+    # set decoder and the squash resize from the copied config and gives the
+    # PyTorch boxes.
+    from tests.test_bbox_detection import _check_onnx_export_parity
+
+    _check_onnx_export_parity(run_dir, minimal_instance, labels, tmp_path)
+    exported = Predictor.from_export_dir(
+        tmp_path / "exported", runtime="onnx", device="cpu"
+    )
+    # The frames here are square, where letterbox and squash agree: check the
+    # mode itself reached the exported layer.
+    assert exported.layer.preprocess_config.resize_mode == "squash"
+
+    # A float32-input graph receives the checkpoint path's own canvas: its boxes
+    # are the PyTorch boxes up to the runtime's numerics.
+    from click.testing import CliRunner
+
+    from sleap_nn.export.cli import export
+
+    f32 = tmp_path / "exported_f32"
+    result = CliRunner().invoke(
+        export,
+        [
+            str(run_dir),
+            "-o",
+            str(f32),
+            "--peak-threshold",
+            "0.0",
+            "--input-dtype",
+            "float32",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    f32_pred = Predictor.from_export_dir(f32, runtime="onnx", device="cpu")
+    assert f32_pred.layer.input_dtype == "float32"
+    f32_boxes = f32_pred.predict(minimal_instance.as_posix())[0].bboxes
+    a = np.array([b.xyxy for b in boxes])
+    b = np.array([b.xyxy for b in f32_boxes])
+    assert a.shape == b.shape
+    np.testing.assert_allclose(b, a, atol=1e-3)
+    np.testing.assert_allclose(
+        [x.score for x in f32_boxes], [x.score for x in boxes], atol=1e-4
+    )
+
 
 def _other_skeleton_labels(minimal_instance, tmp_path):
     """A copy of ``minimal_instance`` whose skeleton has different node names."""

@@ -372,11 +372,34 @@ All `bbox_detr` keys are in the configuration reference:
 [`trainer_config.balanced_sampler.per_sample`](../configuration/trainer.md#trainerconfig)
 and the optimizer's [`encoder_lr_scale` / `layer_decay`](../configuration/trainer.md#optimizerconfig).
 
+## Export (ONNX / TensorRT)
+
+```bash
+sleap-nn export models/my_detr -o models/my_detr/exported --format both --input-dtype float32
+sleap-nn predict -m models/my_detr/exported -i video.mp4 -o boxes.slp
+```
+
+As for the other detectors ([Box detection](bbox-detection.md#export-onnx-tensorrt)),
+the graph holds the network only (`pred_logits`, `pred_boxes` of the final decoder
+layer) and the exported-model adapter rebuilds the set decoder (`num_select` top-k)
+and the resize (`resize_mode`, `max_height` / `max_width`) from the copied
+`training_config.yaml`, so the host-side steps are the checkpoint path's own.
+
+`--input-dtype float32` is recommended for `bbox_detr`. With the default `uint8`
+input the host resizes the frame in float and rounds it, while checkpoint inference
+resizes it in the frame's own dtype; the two canvases differ by up to one grey level,
+and the two-stage query selection (a top-k over many near-tied proposals) can turn
+that into slightly different boxes and scores (on a DINOv3 ViT-B mouse detector, 1.5%
+of boxes at IoU 0.94-0.95 with the checkpoint's box and scores up to 0.017 apart --
+the same as PyTorch itself on that canvas). A `float32` graph receives the checkpoint
+path's own canvas, so exported boxes match checkpoint inference up to the runtime's
+numerics.
+
 ## Limits
 
 - Detection only: no per-query keypoint or mask heads.
 - No tiled inference in `sleap-nn predict` (see above).
-- `sleap-nn export` traces `bbox_detr` to ONNX, but `sleap-nn predict` runs
-  exported CenterNet / SSD detectors only; run an exported `bbox_detr` graph in
-  your own runtime for now.
+- An exported `bbox_detr` with a rotary-position encoder (DINOv3) runs at its
+  traced input size only (`max_height` x `max_width`; the host letterboxes or
+  squashes every frame to it, so this is no restriction in `sleap-nn predict`).
 - `precision: bf16-mixed` needs an Ampere or newer GPU; use `"32"` otherwise.

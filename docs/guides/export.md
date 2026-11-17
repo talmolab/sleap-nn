@@ -84,6 +84,7 @@ sleap-nn export MODEL_PATH [options]
 | `--precision` | TensorRT precision | `fp32`, `fp16`, `tf32` | `fp16` |
 | `--max-instances` | Max instances per frame | `INT` | `20` |
 | `--max-batch-size` | Max batch size | `INT` | `8` |
+| `--input-dtype` | Box detectors only: dtype of the graph's frame input (`float32` passes the host-resized frame unrounded) | `uint8`, `float32` | `uint8` |
 | `--nodes` | Export only these confmap nodes (`single_instance` / `centered_instance`, alone or in a top-down bundle); repeat or comma-separate | `TEXT` | all nodes |
 | `--node-prefix` | Export only the nodes whose name starts with the prefix | `TEXT` | `None` |
 | `--strip-prefix` | Name the `--node-prefix` nodes without the prefix in the exported metadata and `training_config` | Flag | `false` |
@@ -111,6 +112,38 @@ Export both models together:
 sleap-nn export models/centroid models/centered_instance \
     -o exports/topdown --format both
 ```
+
+### Detector + box-scaled top-down (+ part stage): network-only exports
+
+A box detector with a centered-instance model -- fixed or box-scaled crops
+(`crop_mode: bbox`) -- and an optional part model (`--part_model`) runs exported
+**stage by stage**: export each directory on its own, the crop models with
+`--network-only`, and give `sleap-nn predict` the export directories where it takes
+the checkpoint directories:
+
+```bash
+sleap-nn export models/detector -o exports/detector --format both --input-dtype float32
+sleap-nn export models/pose -o exports/pose --format both --network-only --input-dtype float32 \
+    --max-batch-size 64 --node-prefix my_set/ --strip-prefix
+sleap-nn export models/tail -o exports/tail --format both --network-only --input-dtype float32 \
+    --max-batch-size 64
+
+sleap-nn predict -i video.mp4 -o out.slp -m exports/detector -m exports/pose \
+    --part_model exports/tail --part_crop_rule rule.json --runtime tensorrt
+```
+
+A network-only graph is the network alone (preprocessed crop in, raw confidence maps
+out; a detector's graph is network-only by construction). Each export directory stands
+in for its checkpoint: the pipeline is the checkpoint pipeline -- size matching and
+letterboxing, box decoding, fixed or box-scaled crops, peak finding and refinement,
+the part stage's crops from the body keypoints -- with only the forward passes on ONNX
+Runtime or TensorRT, so exported and checkpoint predictions differ only by the runtime's
+numerics (with `--input-dtype float32` the graphs receive exactly the checkpoint path's
+inputs). `--runtime` picks the runtime for every export directory (`auto` prefers
+`model.trt`). Node filters are baked in at export (`--nodes` / `--node-prefix` /
+`--strip-prefix`); `--node_prefix` at prediction time is refused for an exported
+network. `--max-batch-size` is a TensorRT engine's batch limit: larger crop batches
+run in chunks of it.
 
 ### Multi-Class
 
@@ -248,7 +281,7 @@ exports/my_model/
 - **TensorRT engines are GPU-specific** - Regenerate for different hardware
 - **Fixed image size** - Height/width set at export time
 - **Bottom-up grouping on CPU** - PAF matching can't be GPU-accelerated
-- **No standalone centered-instance** - Export a combined top-down bundle (a standalone *centroid* model exports fine — see [Standalone Centroid](#standalone-centroid))
+- **No standalone centered-instance** - Export a combined top-down bundle (a standalone *centroid* model exports fine — see [Standalone Centroid](#standalone-centroid)), or export it `--network-only` and run it inside `sleap-nn predict` (see [Detector + box-scaled top-down](#detector-box-scaled-top-down-part-stage-network-only-exports))
 
 ---
 

@@ -138,7 +138,9 @@ hundredths of a pixel (COCO AP unchanged).
 - A centroid model cannot feed a box-scaled model (it has no boxes); that pairing is
   refused.
 - One first stage per pipeline: a centroid model and a detector together are refused.
-- `sleap-nn export` exports each model on its own; a combined detector + top-down
-  bundle is not supported yet.
+- `sleap-nn export` exports each model on its own (no single-graph detector +
+  top-down bundle); export the centered-instance model `--network-only` and run the
+  export directories with `sleap-nn predict -m <detector export> -m <pose export>`
+  (see [Export](export.md#detector-box-scaled-top-down-part-stage-network-only-exports)).
 - The legacy `sleap-nn track` pipeline does not run detectors; use
   `sleap-nn predict --tracking`.
