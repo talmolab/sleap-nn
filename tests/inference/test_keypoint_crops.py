@@ -519,3 +519,69 @@ def test_cli_part_model(
         cli, common + ["--part_model", str(minimal_instance_centered_instance_ckpt)]
     )
     assert res.exit_code != 0 and "--part_crop_rule" in res.output
+
+
+def test_part_streaming_matches_two_pass_without_floor(
+    minimal_instance,
+    minimal_instance_centroid_ckpt,
+    minimal_instance_centered_instance_ckpt,
+):
+    """part_streaming: the part points of the two-pass run when no floor applies."""
+    from sleap_nn.inference.run import predict
+
+    ckpts = [
+        str(minimal_instance_centroid_ckpt),
+        str(minimal_instance_centered_instance_ckpt),
+    ]
+    kw = dict(
+        model_paths=ckpts,
+        device="cpu",
+        peak_threshold=0.0,
+        part_model_paths=[ckpts[1]],
+        part_crop_rule=RULE,
+        part_peak_threshold=0.0,
+        part_prefix="part/",
+    )
+    two_pass = predict(str(minimal_instance), **kw)
+    streamed = predict(str(minimal_instance), part_streaming=True, **kw)
+    a = np.stack([i.numpy() for lf in two_pass for i in lf.predicted_instances])
+    b = np.stack([i.numpy() for lf in streamed for i in lf.predicted_instances])
+    np.testing.assert_allclose(a, b, rtol=1e-5, atol=1e-4)
+    assert streamed.skeletons[0].node_names == ["A", "B", "part/A", "part/B"]
+    prov = streamed.provenance["part_stage"]
+    assert prov["streaming"] is True and prov["rule"]["center"] == ["A"]
+    # With a session floor the running floor is used; every instance gets points.
+    streamed = predict(
+        str(minimal_instance),
+        part_streaming=True,
+        **dict(kw, part_crop_rule=dict(RULE, session_floor=2.0, session_min_boxes=1)),
+    )
+    assert all(
+        np.isfinite(i.numpy()[2:]).all()
+        for lf in streamed
+        for i in lf.predicted_instances
+    )
+    assert streamed.provenance["part_stage"]["running_floors_at_end"]
+
+
+def test_cli_part_streaming_needs_part_model(minimal_instance, tmp_path):
+    import click
+
+    from sleap_nn.cli import cli
+
+    # standalone_mode=False raises the UsageError itself (the formatted CLI output
+    # wraps and colours the message differently per terminal).
+    with pytest.raises(click.UsageError, match="--part_streaming needs --part_model"):
+        cli.main(
+            args=[
+                "predict",
+                "-i",
+                str(minimal_instance),
+                "-m",
+                "x",
+                "--part_streaming",
+                "-o",
+                str(tmp_path / "p.slp"),
+            ],
+            standalone_mode=False,
+        )
