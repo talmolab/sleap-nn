@@ -659,7 +659,10 @@ class StreamingPartStage:
                 if box is not None:
                     raw[(b, i)] = box
                     half = float(box[2] - box[0]) / 2
-                    self.halves.setdefault(int(vids[b]), RunningMedian()).add(half)
+                    med = self.halves.get(int(vids[b]))
+                    if med is None:
+                        med = self.halves[int(vids[b])] = RunningMedian()
+                    med.add(half)
                     self.every.add(half)
         boxes = np.full((B, max(n_inst, 1), 4), np.nan, dtype=np.float32)
         scores = np.full((B, max(n_inst, 1)), np.nan, dtype=np.float32)

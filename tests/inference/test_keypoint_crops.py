@@ -772,3 +772,64 @@ def test_predict_passes_the_runtime_to_the_streaming_part_stage(
             part_streaming=True,
             runtime="onnx",
         )
+
+
+def test_streaming_stage_cost_does_not_grow_with_history():
+    """The stage's own per-frame time with 300k half sides in the history stays near its time with none.
+
+    Catches a history rebuilt or scanned inside the stage (not only in RunningMedian).
+    """
+    import time
+    from array import array
+
+    import torch
+
+    from sleap_nn.inference.keypoint_crops import RunningMedian, StreamingPartStage
+    from sleap_nn.inference.outputs import Outputs
+
+    class _Part:
+        def predict(self, images, frame_boxes, frame_box_scores):
+            B, k = frame_boxes.shape[:2]
+            return Outputs(
+                pred_keypoints=torch.zeros(B, k, 1, 2),
+                pred_peak_values=torch.ones(B, k, 1),
+            )
+
+    rule = KeypointCropRule(
+        center=["a"],
+        reference=["b"],
+        scale=1.0,
+        session_floor=1.0,
+        session_min_boxes=10,
+    )
+    rng = np.random.default_rng(0)
+    frames = [
+        Outputs(
+            pred_keypoints=torch.from_numpy(
+                rng.normal(100, 30, (1, 3, 2, 2)).astype(np.float32)
+            )
+        )
+        for _ in range(300)
+    ]
+
+    def per_frame_ms(stage):
+        t0 = time.perf_counter()
+        for o in frames:
+            stage(torch.zeros(1, 1, 8, 8), o, torch.tensor([0]))
+        return 1e3 * (time.perf_counter() - t0) / len(frames)
+
+    def filled(n):
+        vals = np.sort(rng.normal(40, 10, n))
+        h = len(vals) // 2
+        m = RunningMedian()
+        m._lo = array("d", (-vals[:h][::-1]).tolist())
+        m._hi = array("d", vals[h:].tolist())
+        return m
+
+    small = StreamingPartStage(_Part(), rule, ["a", "b"])
+    per_frame_ms(small)  # warm
+    t_small = min(per_frame_ms(small) for _ in range(2))
+    big = StreamingPartStage(_Part(), rule, ["a", "b"])
+    big.halves[0], big.every = filled(300_000), filled(300_000)
+    t_big = min(per_frame_ms(big) for _ in range(2))
+    assert t_big < 2 * t_small + 1.0, (t_small, t_big)
