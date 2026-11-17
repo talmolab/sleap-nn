@@ -33,7 +33,18 @@ def run_in_batch_chunks(
     """
     if max_batch is None or x.shape[0] <= max_batch:
         return run(x)
-    parts = [run(x[i : i + max_batch]) for i in range(0, x.shape[0], max_batch)]
+    starts = range(0, x.shape[0], max_batch)
+    parts = [run(x[i : i + max_batch]) for i in starts]
+    for i, part in zip(starts, parts):
+        n = min(max_batch, x.shape[0] - i)
+        for k, v in part.items():
+            if v.ndim == 0 or v.shape[0] != n:
+                raise RuntimeError(
+                    f"Output '{k}' (shape {tuple(v.shape)}) is not batch-first for a "
+                    f"chunk of {n}, so chunks of this engine cannot be joined. Run "
+                    f"batches of at most {max_batch}, or re-export with "
+                    f"--max-batch-size >= {x.shape[0]}."
+                )
     return {k: torch.cat([p[k] for p in parts], dim=0) for k in parts[0]}
 
 
@@ -92,6 +103,14 @@ class TensorRTBackend:
             raise RuntimeError(f"Failed to load TensorRT engine: {engine_path}")
 
         self._context = self._engine.create_execution_context()
+        if self._context is None:
+            raise RuntimeError(
+                f"Could not create a TensorRT execution context for {engine_path}. "
+                "The likely cause is not enough free GPU memory: an engine reserves "
+                "memory for its optimization profile's maximum shape (sleap-nn export "
+                "--max-batch-size). Free GPU memory, or re-export with a smaller "
+                "--max-batch-size."
+            )
         for i in range(self._engine.num_io_tensors):
             name = self._engine.get_tensor_name(i)
             if self._engine.get_tensor_mode(name) == trt.TensorIOMode.INPUT:
@@ -147,7 +166,18 @@ class TensorRTBackend:
             x = x.to(torch.float32)
         x = x.contiguous()
 
-        self._context.set_input_shape(input_name, tuple(x.shape))
+        if not self._context.set_input_shape(input_name, tuple(x.shape)):
+            try:
+                lo, _, hi = self._engine.get_tensor_profile_shape(input_name, 0)
+                bounds = f" (profile min {tuple(lo)}, max {tuple(hi)})"
+            except Exception:  # noqa: BLE001 -- static engines / older TensorRT
+                bounds = ""
+            raise ValueError(
+                f"Input shape {tuple(x.shape)} is outside the TensorRT engine's "
+                f"optimization profile{bounds} for '{input_name}' "
+                f"({self.engine_path}). Re-export at the size the frames or crops "
+                "have here, with a --max-batch-size that covers the batch."
+            )
 
         bindings: Dict[str, int] = {input_name: x.data_ptr()}
         outputs: Dict[str, torch.Tensor] = {}

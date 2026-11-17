@@ -375,9 +375,15 @@ and the optimizer's [`encoder_lr_scale` / `layer_decay`](../configuration/traine
 ## Export (ONNX / TensorRT)
 
 ```bash
-sleap-nn export models/my_detr -o models/my_detr/exported --format both
+sleap-nn export models/my_detr -o models/my_detr/exported --format both --precision bf16
 sleap-nn predict -m models/my_detr/exported -i video.mp4 -o boxes.slp
 ```
+
+Pass `--precision bf16` (TensorRT 10.x, a GPU with compute capability >= 8.0) or `fp32`:
+the default `fp16` can lose boxes with a DINOv3 encoder (its activations overflow
+fp16's range), and `sleap-nn predict` prefers the TensorRT engine when the directory
+holds one. In `bf16` the layers after the backbone (proposals, decoder, box head) are
+kept in fp32; see [TensorRT precision](export.md#tensorrt-precision).
 
 As for the other detectors ([Box detection](bbox-detection.md#export-onnx-tensorrt)),
 the graph holds the network only (`pred_logits`, `pred_boxes` of the final decoder
