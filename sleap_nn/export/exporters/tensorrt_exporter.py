@@ -252,8 +252,20 @@ def _export_tensorrt_onnx(
                 "This TensorRT has no BF16 builder flag (TensorRT >= 10 needed)."
             )
         config.set_flag(trt.BuilderFlag.BF16)
+        # TensorRT 10 has no bf16 transposed convolution (the confmap decoders'
+        # upsampling): keep those layers in fp32 so such models still build.
+        pinned = 0
+        for i in range(network.num_layers):
+            layer = network.get_layer(i)
+            if layer.type == trt.LayerType.DECONVOLUTION:
+                layer.precision = trt.float32
+                for j in range(layer.num_outputs):
+                    layer.set_output_type(j, trt.float32)
+                pinned += 1
+        if pinned:
+            config.set_flag(trt.BuilderFlag.PREFER_PRECISION_CONSTRAINTS)
         if verbose:
-            print("  Enabled BF16 mode")
+            print(f"  Enabled BF16 mode ({pinned} deconvolution layers kept in fp32)")
     elif precision == "tf32":
         # TF32 mode: leave TF32 enabled (TRT default on Ampere+).
         # Uses 10-bit mantissa vs 23-bit for IEEE FP32.
