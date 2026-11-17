@@ -163,6 +163,18 @@ def test_predict_export_dir_ignores_memory_format_with_warning(caplog):
     assert "memory_format='channels_last' is ignored" in caplog.text
 
 
+def test_predict_export_dir_ignores_fp16_with_warning(caplog):
+    """fp16 applies to trained checkpoints: an export dir warns, drops it."""
+    pred = _mock_predictor()
+    with patch(
+        "sleap_nn.inference.predictor.Predictor.from_export_dir",
+        return_value=pred,
+    ) as mock_export:
+        predict("video.mp4", export_dir="/exp", device="cpu", fp16=True)
+    assert "fp16" not in mock_export.call_args.kwargs
+    assert "fp16 is ignored for an exported model directory" in caplog.text
+
+
 def test_predict_export_dir_forwards_runtime_and_knobs():
     """runtime + exported-model build knobs reach from_export_dir."""
     pred = _mock_predictor()

@@ -1355,6 +1355,7 @@ class Predictor:
         bbox_nms_iou: Optional[float] = None,
         upload_batches: bool = False,
         memory_format: str = "contiguous",
+        fp16: bool = False,
     ) -> "Predictor":
         """Build a :class:`Predictor` from one or more checkpoint paths.
 
@@ -1440,6 +1441,11 @@ class Predictor:
             memory_format: Weight layout of every model in the composition:
                 ``"contiguous"`` (default) or ``"channels_last"`` (faster cuDNN
                 convolutions on NVIDIA GPUs). See :class:`TorchBackend`.
+            fp16: Run every model's convolutions in half precision with
+                ``torch.autocast`` (CUDA only; fp32 weights and outputs kept),
+                faster on tensor-core GPUs at batch sizes of about 8 and up.
+                Results differ slightly from fp32. Off a CUDA device it has no
+                effect (with a logged warning). See :class:`TorchBackend`.
         """
         from sleap_nn.inference.loaders import load_model_assets
         from sleap_nn.system_info import get_startup_info_string
@@ -1496,6 +1502,17 @@ class Predictor:
             layer = _select_layer(loaded, model_types, device)
         for backend in _torch_backends(layer):
             backend.memory_format = memory_format
+        fp16_on = fp16 and torch.device(device).type == "cuda"
+        if fp16 and not fp16_on:
+            logger.warning(
+                f"fp16=True has no effect on device={device}: half-precision "
+                "inference runs on CUDA devices only."
+            )
+        if fp16_on:
+            # Set after construction, as ``memory_format`` is: the backend's
+            # own construction-time fp16 warning is for hand-built backends.
+            for backend in _torch_backends(layer):
+                backend.use_fp16 = True
 
         skeleton = loaded.skeletons[0] if loaded.skeletons else None
         kwargs: dict = {
@@ -1531,6 +1548,8 @@ class Predictor:
             spec.append("upload_batches=True")
         if memory_format != "contiguous":
             spec.append(f"memory_format={memory_format}")
+        if fp16_on:
+            spec.append("fp16=True")
         if "bottomup_segmentation" in model_types:
             spec.append(f"fg_threshold={fg_threshold}")
             spec.append(f"min_mask_area={min_mask_area}")

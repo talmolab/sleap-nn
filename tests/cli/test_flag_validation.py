@@ -428,3 +428,48 @@ def test_track_rejects_memory_format():
     assert result.exit_code != 0
     assert "memory_format" in result.output
     assert not mock_run.called
+
+
+def test_fp16_flag_reaches_predict():
+    """``--fp16`` is passed on to ``run.predict`` (off by default)."""
+    runner = CliRunner()
+    for args, expected in (([], False), (["--fp16"], True)):
+        with patch(
+            "sleap_nn.inference.run.predict",
+            return_value=MagicMock(),
+        ) as mock_predict:
+            result = runner.invoke(
+                cli,
+                [
+                    "predict",
+                    "--data_path",
+                    "/fake/path.mp4",
+                    "--model_paths",
+                    "/fake/model",
+                ]
+                + args,
+            )
+        assert result.exit_code == 0, result.output
+        assert mock_predict.call_args.kwargs["fp16"] is expected
+
+
+def test_track_rejects_fp16():
+    """`--fp16` is a `predict` (new flow) flag; legacy `track` refuses it."""
+    runner = CliRunner()
+    with patch(
+        "sleap_nn.legacy_predict.run_inference", return_value=MagicMock()
+    ) as mock_run:
+        result = runner.invoke(
+            cli,
+            [
+                "track",
+                "--data_path",
+                "/fake/path.mp4",
+                "--model_paths",
+                "/fake/model",
+                "--fp16",
+            ],
+        )
+    assert result.exit_code != 0
+    assert "fp16" in result.output
+    assert not mock_run.called

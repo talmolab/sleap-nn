@@ -112,6 +112,7 @@ Selected keyword arguments (all keyword-only):
 | `paf_workers` | CPU worker processes for bottom-up PAF grouping | `0` |
 | `upload_batches` | Copy each `uint8` batch to the model's GPU before preprocessing (CUDA) | `False` |
 | `memory_format` | Weight layout of every model: `"contiguous"` or `"channels_last"` (NVIDIA) | `"contiguous"` |
+| `fp16` | Half-precision convolutions in every model via `torch.autocast` (CUDA) | `False` |
 | `centroid_only` | Force centroid-only output | `False` |
 
 The skeleton is resolved automatically from the training config, so

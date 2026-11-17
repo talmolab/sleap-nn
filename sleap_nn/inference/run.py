@@ -416,6 +416,8 @@ def predict(
     upload_batches: bool = False,
     # Weight layout of every model ("channels_last": faster convs on NVIDIA GPUs)
     memory_format: str = "contiguous",
+    # Half-precision (torch.autocast) convolutions on CUDA
+    fp16: bool = False,
     # SAM prompted-mask producer (explicit, no default; PLAN L2). When set, masks
     # are produced from the existing poses in ``source`` (no trained seg model).
     mask_backend: Optional[str] = None,
@@ -538,6 +540,11 @@ def predict(
             or ``"channels_last"`` (faster cuDNN convolutions on NVIDIA GPUs;
             no change on AMD ROCm). Trained checkpoints only; ignored, with a
             warning, for an exported model directory.
+        fp16: Run the models' convolutions in half precision with
+            ``torch.autocast`` on a CUDA device (fp32 weights and outputs;
+            results differ slightly from fp32; faster at batch sizes of about 8
+            and up). No effect off CUDA, with a warning. Trained checkpoints
+            only; ignored, with a warning, for an exported model directory.
         mask_backend: **Explicit** SAM mask backend (PLAN L2): ``"sam"`` (SAM1) /
             ``"sam3"`` (PR-B). When set, ``source`` is treated as a pose ``.slp``
             and masks are predicted from its existing instances (no trained seg
@@ -761,6 +768,7 @@ def predict(
         build_kwargs["polygon_epsilon"] = polygon_epsilon
         build_kwargs["upload_batches"] = upload_batches
         build_kwargs["memory_format"] = memory_format
+        build_kwargs["fp16"] = fp16
         predictor = Predictor.from_model_paths(model_paths, **build_kwargs)
     else:
         # Exported ONNX/TRT models bake most post-processing into the graph at
@@ -780,6 +788,12 @@ def predict(
             logger.warning(
                 f"memory_format={memory_format!r} is ignored for an exported "
                 "model directory; it applies to trained checkpoints only."
+            )
+        if fp16:
+            logger.warning(
+                "fp16 is ignored for an exported model directory; it applies to "
+                "trained checkpoints only (an exported model's precision is set "
+                "at export time)."
             )
         predictor = Predictor.from_export_dir(export_dir, **build_kwargs)
 
