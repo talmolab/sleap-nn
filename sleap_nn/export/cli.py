@@ -60,6 +60,14 @@ CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"]}
 )
 @click.option("--max-instances", type=int, default=20, show_default=True)
 @click.option("--max-batch-size", type=int, default=8, show_default=True)
+@click.option(
+    "--opt-batch-size",
+    type=int,
+    default=None,
+    help="TensorRT: the batch size the engine's kernels are tuned for (its "
+    "optimization profile's 'opt' shape; at most --max-batch-size). Default: 1, as "
+    "before. A throughput engine (large batches) runs faster tuned for its batch.",
+)
 @click.option("--input-scale", type=float, default=None)
 @click.option("--input-height", type=int, default=None)
 @click.option("--input-width", type=int, default=None)
@@ -126,6 +134,7 @@ def export(
     network_only: bool,
     max_instances: int,
     max_batch_size: int,
+    opt_batch_size: Optional[int],
     input_scale: Optional[float],
     input_height: Optional[int],
     input_width: Optional[int],
@@ -194,6 +203,11 @@ def export(
     )
 
     fmt = fmt.lower()
+    if opt_batch_size is not None and not 1 <= opt_batch_size <= max_batch_size:
+        raise click.ClickException(
+            f"--opt-batch-size {opt_batch_size} must be between 1 and "
+            f"--max-batch-size ({max_batch_size})."
+        )
 
     trt_workspace_kwargs = (
         {"workspace_size": int(workspace_size_gb * (1 << 30))}
@@ -639,7 +653,7 @@ def export(
                     trt_input_shape = (1, C, crop_h, crop_w)
                     # Use crop size for min/opt, allow flexibility for max
                     trt_min_shape = (1, C, crop_h, crop_w)
-                    trt_opt_shape = (1, C, crop_h, crop_w)
+                    trt_opt_shape = (opt_batch_size or 1, C, crop_h, crop_w)
                     trt_max_shape = (max_batch_size, C, crop_h * 2, crop_w * 2)
                 else:
                     trt_input_shape = input_shape
@@ -652,6 +666,8 @@ def export(
                 trt_opt_shape = None
                 trt_max_shape = (max_batch_size, C, H * 2, W * 2)
 
+            if opt_batch_size is not None and trt_opt_shape is None:
+                trt_opt_shape = (opt_batch_size,) + tuple(trt_input_shape[1:])
             export_to_tensorrt(
                 wrapper,
                 trt_out_path,
@@ -886,6 +902,9 @@ def export(
                 input_dtype=torch.uint8,
                 precision=precision,
                 max_shape=(max_batch_size, C, H * 2, W * 2),
+                opt_shape=(
+                    (opt_batch_size, C, H, W) if opt_batch_size is not None else None
+                ),
                 **trt_workspace_kwargs,
                 verbose=True,
                 # As for the ONNX graph: only the centroid model sees the frame.
@@ -1098,6 +1117,9 @@ def export(
                 input_dtype=torch.uint8,
                 precision=precision,
                 max_shape=(max_batch_size, C, H * 2, W * 2),
+                opt_shape=(
+                    (opt_batch_size, C, H, W) if opt_batch_size is not None else None
+                ),
                 **trt_workspace_kwargs,
                 verbose=True,
                 # As for the ONNX graph: only the centroid model sees the frame.
