@@ -4087,9 +4087,10 @@ def _common_inference_options(f):
             help=(
                 "Top-down pipelines only: move each batch of frames to the GPU "
                 "before stage 1, so the detector's resize / letterbox and the "
-                "crops' frame-size match run there instead of on the CPU. Outputs "
-                "change at the level of floating-point noise (a uint8 resize on "
-                "the GPU rounds some pixels differently)."
+                "crops' frame-size match run there instead of on the CPU. Results "
+                "are not bit-identical to the CPU resize: a uint8 resize on the GPU "
+                "rounds some pixels one grey level differently, which can move a box "
+                "near the score threshold."
             ),
         ),
         click.option(
