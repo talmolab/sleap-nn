@@ -1178,10 +1178,11 @@ def _select_export_layer(
             peak_conf_threshold=peak_conf_threshold,
         )
 
-    if model_type in ("bbox_centernet", "bbox_ssd"):
+    if model_type in ("bbox_centernet", "bbox_ssd", "bbox_detr"):
         # Decoding and preprocessing are not baked into a detector's graph: rebuild
-        # its BBoxDecoder (categories, anchors, NMS) and preprocessing from the
-        # training config copied next to it.
+        # its BBoxDecoder (categories, anchors, NMS; DETR's top-k set decode) and
+        # preprocessing (size matcher incl. the resize mode) from the training
+        # config copied next to it.
         from omegaconf import OmegaConf
 
         from sleap_nn.inference.bbox import BBoxDecoder
@@ -1209,6 +1210,7 @@ def _select_export_layer(
         return ExportedBBoxLayer(
             backend=backend,
             decoder=decoder,
+            input_dtype=getattr(metadata, "input_dtype", None) or "uint8",
             output_stride=int(metadata.output_stride),
             max_stride=int(backbone_cfg.max_stride),
             preprocess_config=PreprocessConfig(
@@ -1218,6 +1220,9 @@ def _select_export_layer(
                 max_width=pre.get("max_width"),
                 ensure_rgb=pre.get("ensure_rgb") or None,
                 ensure_grayscale=pre.get("ensure_grayscale") or None,
+                # As the checkpoint path (`_resolve_preprocess_config`): a model
+                # trained on squashed frames must see squashed frames.
+                resize_mode=pre.get("resize_mode") or "letterbox",
             ),
             postprocess_config=PostprocessConfig(
                 peak_threshold=score, max_instances=max_instances
@@ -1430,6 +1435,7 @@ class Predictor:
         node_filter: Optional[Union[str, List[str]]] = None,
         strip_prefix: Optional[Union[bool, str]] = None,
         precision: str = "32",
+        export_runtime: str = "auto",
     ) -> "Predictor":
         """Build a :class:`Predictor` from one or more checkpoint paths.
 
@@ -1538,49 +1544,60 @@ class Predictor:
                 skeleton keeps their edges and symmetries.
             strip_prefix: Rename the kept nodes in the output: ``True`` strips the
                 ``node_filter`` prefix, a string strips that prefix.
+            export_runtime: Runtime for any entry that is a network-only export
+                directory (``sleap-nn export --network-only``, or any box
+                detector export), which then stands in for that checkpoint:
+                ``"auto"`` (``model.trt`` if present, else ``model.onnx``),
+                ``"onnx"`` or ``"tensorrt"``. Checkpoint entries ignore it.
         """
         from sleap_nn.inference.loaders import load_model_assets
         from sleap_nn.system_info import get_startup_info_string
 
         logger.info(get_startup_info_string())
 
-        loaded, model_types = load_model_assets(
-            model_paths,
-            device=device,
-            backbone_ckpt_path=backbone_ckpt_path,
-            head_ckpt_path=head_ckpt_path,
-            peak_threshold=peak_threshold,
-            integral_refinement=integral_refinement,
-            integral_patch_size=integral_patch_size,
-            max_instances=max_instances,
-            return_confmaps=return_confmaps,
-            preprocess_config=preprocess_config,
-            anchor_part=anchor_part,
-            max_edge_length_ratio=max_edge_length_ratio,
-            dist_penalty_weight=dist_penalty_weight,
-            n_points=n_points,
-            min_instance_peaks=min_instance_peaks,
-            min_line_scores=min_line_scores,
-            fg_threshold=fg_threshold,
-            min_mask_area=min_mask_area,
-            center_nms_kernel=center_nms_kernel,
-            mask_cleanup=mask_cleanup,
-            mask_cleanup_radius=mask_cleanup_radius,
-            distance_gate_alpha=distance_gate_alpha,
-            merge_fragments=merge_fragments,
-            merge_method=merge_method,
-            merge_thresholds=merge_thresholds,
-            merge_w_valley=merge_w_valley,
-            merge_w_offset=merge_w_offset,
-            merge_dilate=merge_dilate,
-            full_res_masks=full_res_masks,
-            mask_output=mask_output,
-            polygon_epsilon=polygon_epsilon,
-            bbox_nms_iou=bbox_nms_iou,
-            flip_test=flip_test,
-            node_filter=node_filter,
-            strip_prefix=strip_prefix,
-        )
+        from sleap_nn.inference.exported_network import EXPORT_RUNTIME
+
+        _runtime_token = EXPORT_RUNTIME.set(export_runtime)
+        try:
+            loaded, model_types = load_model_assets(
+                model_paths,
+                device=device,
+                backbone_ckpt_path=backbone_ckpt_path,
+                head_ckpt_path=head_ckpt_path,
+                peak_threshold=peak_threshold,
+                integral_refinement=integral_refinement,
+                integral_patch_size=integral_patch_size,
+                max_instances=max_instances,
+                return_confmaps=return_confmaps,
+                preprocess_config=preprocess_config,
+                anchor_part=anchor_part,
+                max_edge_length_ratio=max_edge_length_ratio,
+                dist_penalty_weight=dist_penalty_weight,
+                n_points=n_points,
+                min_instance_peaks=min_instance_peaks,
+                min_line_scores=min_line_scores,
+                fg_threshold=fg_threshold,
+                min_mask_area=min_mask_area,
+                center_nms_kernel=center_nms_kernel,
+                mask_cleanup=mask_cleanup,
+                mask_cleanup_radius=mask_cleanup_radius,
+                distance_gate_alpha=distance_gate_alpha,
+                merge_fragments=merge_fragments,
+                merge_method=merge_method,
+                merge_thresholds=merge_thresholds,
+                merge_w_valley=merge_w_valley,
+                merge_w_offset=merge_w_offset,
+                merge_dilate=merge_dilate,
+                full_res_masks=full_res_masks,
+                mask_output=mask_output,
+                polygon_epsilon=polygon_epsilon,
+                bbox_nms_iou=bbox_nms_iou,
+                flip_test=flip_test,
+                node_filter=node_filter,
+                strip_prefix=strip_prefix,
+            )
+        finally:
+            EXPORT_RUNTIME.reset(_runtime_token)
 
         if centroid_only:
             if "centroid" not in model_types:

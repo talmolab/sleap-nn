@@ -201,8 +201,24 @@ def _load_lightning_module(
     Returns:
         ``(module, config, backbone_type)``
     """
+    from sleap_nn.inference.exported_network import (
+        EXPORT_RUNTIME,
+        ExportedNetwork,
+        is_network_export,
+    )
+
     config, is_legacy = _load_training_config(ckpt_dir)
     backbone_type = _detect_backbone_type(config)
+    if is_network_export(ckpt_dir):
+        # A network-only export directory stands in for the checkpoint: same
+        # config (copied next to the graph), same forward contract.
+        if backbone_ckpt_path is not None or head_ckpt_path is not None:
+            raise ValueError(
+                f"{ckpt_dir} is an exported network; backbone / head checkpoint "
+                "overrides apply to checkpoint directories only."
+            )
+        module = ExportedNetwork(ckpt_dir, runtime=EXPORT_RUNTIME.get(), device=device)
+        return module, config, backbone_type
     kwargs = _common_lightning_kwargs(config, backbone_type, model_type)
 
     if not is_legacy:

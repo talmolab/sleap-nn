@@ -778,8 +778,8 @@ def predict(
         raise ValueError("Provide model_paths or export_dir, not both.")
     if part_model_paths and (export_dir or part_crop_rule is None):
         raise ValueError(
-            "part_model_paths needs checkpoint model_paths for the pose stage and a "
-            "part_crop_rule."
+            "part_model_paths needs checkpoint (or network-only exported) "
+            "model_paths for the pose stage and a part_crop_rule."
         )
     if not model_paths and not export_dir:
         raise ValueError("Either model_paths or export_dir is required.")
@@ -885,6 +885,10 @@ def predict(
         build_kwargs["mask_output"] = mask_output
         build_kwargs["polygon_epsilon"] = polygon_epsilon
         build_kwargs["flip_test"] = flip_test
+        if runtime != "auto":
+            # Network-only export directories among model_paths (`--network-only`
+            # or box detector exports) run on this runtime.
+            build_kwargs["export_runtime"] = runtime
         if box_mode is not None:
             build_kwargs["boxes"] = box_mode
             build_kwargs["box_score_threshold"] = box_score_threshold
@@ -955,6 +959,7 @@ def predict(
             strip_prefix=part_strip_prefix,
             peak_threshold=part_peak_threshold,
             part_prefix=part_prefix,
+            export_runtime=runtime,
         )
 
     if output_path is not None:

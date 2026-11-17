@@ -154,13 +154,35 @@ class ExportedBBoxLayer(BBoxLayer):
     ``input_scale`` resize, stride padding; a resize traced into the graph would be
     frozen to the trace input's size) and the same ``postprocess`` (decoder, coord
     ladder, clipping) -- so exported and native boxes match by construction. Only
-    the frames handed to the backend differ: rounded to uint8 and without the
-    ``n_samples`` axis, as the graph expects.
+    the frames handed to the backend differ: without the ``n_samples`` axis and,
+    for a graph with a ``uint8`` input (the default), resized in float and rounded
+    to uint8, where the checkpoint path resizes the frame in its own dtype. That
+    one-grey-level difference can move a set-prediction detector's boxes slightly
+    (its query selection is a top-k over near-tied proposals). A graph exported
+    with ``sleap-nn export --input-dtype float32`` receives the checkpoint path's
+    own canvas (as float), so its boxes match checkpoint inference up to the
+    runtime's numerics.
+
+    Args:
+        input_dtype: The graph's input dtype, ``"uint8"`` (default) or
+            ``"float32"`` (``export_metadata.json``'s ``input_dtype``).
+        Other args: As for :class:`BBoxLayer`.
     """
 
+    def __init__(self, *args, input_dtype: str = "uint8", **kwargs) -> None:
+        """Store the graph's input dtype; everything else as :class:`BBoxLayer`."""
+        if input_dtype not in ("uint8", "float32"):
+            raise ValueError(
+                f"input_dtype must be 'uint8' or 'float32', got {input_dtype!r}."
+            )
+        super().__init__(*args, **kwargs)
+        self.input_dtype = input_dtype
+
     def preprocess(self, image):
-        """Native preprocessing, emitted as the graph's ``(B, C, H, W)`` uint8 input."""
-        x = self._to_4d_tensor(image).float()
+        """Native preprocessing, emitted as the graph's ``(B, C, H, W)`` input."""
+        x = self._to_4d_tensor(image)
+        if self.input_dtype == "uint8":
+            x = x.float()
         x, eff_scale, orig_hw = self._apply_full_preprocess(
             x, max_stride=self.max_stride, unsqueeze_n_samples=False
         )
@@ -171,6 +193,9 @@ class ExportedBBoxLayer(BBoxLayer):
             input_scale=self.preprocess_config.scale,
             output_stride=self.output_stride,
         )
+        if self.input_dtype == "float32":
+            # The checkpoint path's own canvas (resized in the frame's dtype).
+            return x.float(), info
         return x.round().clamp(0, 255).to(torch.uint8), info
 
 

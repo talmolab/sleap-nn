@@ -241,6 +241,13 @@ def apply_node_filter(
     from sleap_nn.inference.loaders import _flip_test_idx
 
     model_type, module, head_cfg = _head_target(assets, model_types)
+    if not hasattr(module, "model"):
+        # An exported network (`ExportedNetwork`) has no head conv to slice.
+        raise ValueError(
+            "A node filter cannot slice an exported network. Export the model with "
+            "the filter instead (`sleap-nn export --nodes ... / --node-prefix ... "
+            "[--strip-prefix] --network-only`) and predict without it."
+        )
     skeleton = assets.skeletons[0]
     channels = list(head_cfg.part_names or skeleton.node_names)
     idx = resolve_node_filter(channels, node_filter)

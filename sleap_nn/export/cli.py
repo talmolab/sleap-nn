@@ -36,6 +36,28 @@ CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"]}
     show_default=True,
 )
 @click.option("--opset-version", type=int, default=17, show_default=True)
+@click.option(
+    "--input-dtype",
+    type=click.Choice(["auto", "uint8", "float32"]),
+    default="auto",
+    show_default=True,
+    help="Dtype of the graph's image input, for box detectors and --network-only "
+    "exports (the host prepares their inputs). 'float32' receives the checkpoint "
+    "path's own frame / crop, so exported and checkpoint predictions match up to "
+    "the runtime's numerics; 'uint8' receives it rounded (a resized frame then "
+    "differs by up to one grey level, which can move a bbox_detr's boxes slightly). "
+    "'auto': float32 for bbox_detr, uint8 for every other model type.",
+)
+@click.option(
+    "--network-only",
+    is_flag=True,
+    default=False,
+    help="centered_instance only: export the network alone (crop in, raw "
+    "confidence maps out; no peak finding baked in). `sleap-nn predict` then "
+    "loads the directory in place of the checkpoint (e.g. `-m <detector export> "
+    "-m <this>`, or `--part_model <this>`), with the checkpoint path's own crops "
+    "(fixed or box-scaled) and peak finding. Box detectors always export this way.",
+)
 @click.option("--max-instances", type=int, default=20, show_default=True)
 @click.option("--max-batch-size", type=int, default=8, show_default=True)
 @click.option("--input-scale", type=float, default=None)
@@ -100,6 +122,8 @@ def export(
     output: Optional[Path],
     fmt: str,
     opset_version: int,
+    input_dtype: str,
+    network_only: bool,
     max_instances: int,
     max_batch_size: int,
     input_scale: Optional[float],
@@ -205,7 +229,9 @@ def export(
             "Pass one centroid directory for a standalone centroid export."
         )
 
-    if len(model_paths) >= 2 and {"bbox_centernet", "bbox_ssd"} & set(model_types):
+    if len(model_paths) >= 2 and {"bbox_centernet", "bbox_ssd", "bbox_detr"} & set(
+        model_types
+    ):
         raise click.ClickException(
             "A bounding-box detector + top-down model pair cannot be exported as one "
             "bundle yet. Export each directory on its own (the detector exports its "
@@ -233,6 +259,12 @@ def export(
             "training_config (data_config.preprocessing.crop_*)."
         )
 
+    if (input_dtype not in ("auto", "uint8") or network_only) and len(model_paths) > 1:
+        raise click.ClickException(
+            "--input-dtype float32 and --network-only export one model directory "
+            "at a time (run `sleap-nn predict` with one -m per exported stage)."
+        )
+
     if len(model_paths) == 1:
         model_path = model_paths[0]
         cfg = cfgs[0]
@@ -249,6 +281,7 @@ def export(
             "embedding",
             "bbox_centernet",
             "bbox_ssd",
+            "bbox_detr",
         ):
             raise click.ClickException(
                 f"Model type '{model_type}' is not supported for export yet."
@@ -304,6 +337,15 @@ def export(
             )
             output_names = ["centroids", "centroid_vals", "instance_valid"]
             metadata_max_instances = max_instances
+            node_names = resolve_node_names(cfg, model_type)
+            edge_inds = resolve_edge_inds(cfg, node_names)
+        elif model_type == "centered_instance" and network_only:
+            from sleap_nn.export.wrappers.network import NetworkONNXWrapper
+
+            wrapper = NetworkONNXWrapper(
+                torch_model, head_names=["CenteredInstanceConfmapsHead"]
+            )
+            output_names = ["CenteredInstanceConfmapsHead"]
             node_names = resolve_node_names(cfg, model_type)
             edge_inds = resolve_edge_inds(cfg, node_names)
         elif model_type == "centered_instance":
@@ -433,7 +475,7 @@ def export(
                     "parity, or train/export a burn_in=False model for a faithful "
                     "single-input ONNX embedder."
                 )
-        elif model_type in ("bbox_centernet", "bbox_ssd"):
+        elif model_type in ("bbox_centernet", "bbox_ssd", "bbox_detr"):
             # Detectors export the network only (decoder-ready head outputs);
             # `ExportedBBoxLayer` decodes with the same BBoxDecoder as the
             # checkpoint path, rebuilt from the copied training config.
@@ -486,8 +528,11 @@ def export(
             # These wrappers take crops: trace at the crop size, the only size the
             # model sees -- and the size a RoPE backbone's static-H/W export fixes.
             input_shape = (input_shape[0], input_shape[1], *resolved_crop_size)
-        if model_type in ("bbox_centernet", "bbox_ssd"):
-            # Trace on a model-input-sized frame (scaled, stride-padded).
+        if model_type in ("bbox_centernet", "bbox_ssd", "bbox_detr"):
+            # Trace on a model-input-sized frame (scaled, stride-padded). A
+            # `bbox_detr` model's frames are letterboxed / squashed to
+            # max_height x max_width on the host first, so that is the size here;
+            # a RoPE encoder (DINOv3) exports at exactly that size (static H/W).
             max_stride = int(
                 cfg.model_config.backbone_config[backbone_type]["max_stride"]
             )
@@ -496,12 +541,29 @@ def export(
             w = math.ceil(w * resolved_scale / max_stride) * max_stride
             input_shape = (1, c, h, w)
         model_out_path = export_dir / "model.onnx"
+        is_detector = model_type in ("bbox_centernet", "bbox_ssd", "bbox_detr")
+        if input_dtype == "auto":
+            # A new export type, so its default may match checkpoint inference;
+            # every other type keeps the uint8 input it always had.
+            input_dtype = "float32" if model_type == "bbox_detr" else "uint8"
+        if network_only and model_type != "centered_instance":
+            raise click.ClickException(
+                "--network-only applies to centered_instance models (box detectors "
+                "always export their network only)."
+            )
+        if input_dtype != "uint8" and not (is_detector or network_only):
+            raise click.ClickException(
+                "--input-dtype float32 applies to box detectors and --network-only "
+                "exports only (their inputs are prepared on the host); other models "
+                "take uint8."
+            )
+        graph_dtype = torch.float32 if input_dtype == "float32" else torch.uint8
 
         export_to_onnx(
             wrapper,
             model_out_path,
             input_shape=input_shape,
-            input_dtype=torch.uint8,
+            input_dtype=graph_dtype,
             opset_version=opset_version,
             output_names=output_names,
             verify=verify,
@@ -537,7 +599,7 @@ def export(
             precision="fp32",
             training_config_hash=training_config_hash,
             training_config_embedded=training_config_text is not None,
-            input_dtype="uint8",
+            input_dtype=input_dtype,
             normalization=metadata_normalization,
             n_classes=metadata_n_classes,
             class_names=metadata_class_names,
@@ -555,6 +617,8 @@ def export(
         )
 
         metadata.save(export_dir / "export_metadata.json")
+        if network_only:
+            _mark_network_only(export_dir / "export_metadata.json", output_names)
 
         if training_config_text is not None:
             try:
@@ -592,7 +656,7 @@ def export(
                 wrapper,
                 trt_out_path,
                 input_shape=trt_input_shape,
-                input_dtype=torch.uint8,
+                input_dtype=graph_dtype,
                 precision=precision,
                 min_shape=trt_min_shape,
                 opt_shape=trt_opt_shape,
@@ -621,7 +685,7 @@ def export(
                 precision=precision,
                 training_config_hash=training_config_hash,
                 training_config_embedded=training_config_text is not None,
-                input_dtype="uint8",
+                input_dtype=input_dtype,
                 normalization=metadata_normalization,
                 n_classes=metadata_n_classes,
                 class_names=metadata_class_names,
@@ -638,6 +702,8 @@ def export(
                 max_width=metadata_max_hw[1],
             )
             trt_metadata.save(export_dir / "model.trt.metadata.json")
+            if network_only:
+                _mark_network_only(export_dir / "model.trt.metadata.json", output_names)
         return
 
     if len(model_paths) == 2 and set(model_types) == {
@@ -1078,6 +1144,20 @@ def export(
     )
 
 
+def _mark_network_only(path: Path, output_names) -> None:
+    """Record a ``--network-only`` export in its metadata file.
+
+    The keys are added to the JSON only for such exports (not as
+    ``ExportMetadata`` fields), so every other export's metadata is unchanged.
+    """
+    import json
+
+    data = json.loads(path.read_text())
+    data["network_only"] = True
+    data["output_names"] = list(output_names)
+    path.write_text(json.dumps(data, indent=2, sort_keys=True))
+
+
 def _copy_training_config(
     model_path: Path, export_dir: Path, label: Optional[str], cfg=None
 ) -> Optional[Path]:
@@ -1180,6 +1260,7 @@ def _load_lightning_model(
 ):
     from sleap_nn.training.lightning_modules import (
         BBoxCenterNetLightningModule,
+        BBoxDetrLightningModule,
         BBoxSSDLightningModule,
         BottomUpLightningModule,
         BottomUpMultiClassLightningModule,
@@ -1200,6 +1281,7 @@ def _load_lightning_model(
         "embedding": EmbeddingLightningModule,
         "bbox_centernet": BBoxCenterNetLightningModule,
         "bbox_ssd": BBoxSSDLightningModule,
+        "bbox_detr": BBoxDetrLightningModule,
     }.get(model_type)
 
     if lightning_cls is None:

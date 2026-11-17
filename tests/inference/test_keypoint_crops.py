@@ -331,6 +331,46 @@ def test_run_part_stage_end_to_end(
     assert all(np.isfinite(i.numpy()[2:]).all() for i in insts)
 
 
+def test_run_part_stage_with_exported_part_model(
+    minimal_instance,
+    minimal_instance_centroid_ckpt,
+    minimal_instance_centered_instance_ckpt,
+    tmp_path,
+):
+    """A --network-only export runs as the part model with the checkpoint's crops."""
+    pytest.importorskip("onnxruntime")
+    from click.testing import CliRunner
+
+    from sleap_nn.export.cli import export
+
+    exported = tmp_path / "part"
+    result = CliRunner().invoke(
+        export,
+        [
+            str(minimal_instance_centered_instance_ckpt),
+            "-o",
+            str(exported),
+            "--network-only",
+            "--input-dtype",
+            "float32",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    base = _base(
+        minimal_instance,
+        minimal_instance_centroid_ckpt,
+        minimal_instance_centered_instance_ckpt,
+    )
+    kwargs = dict(device="cpu", peak_threshold=0.0, part_prefix="part/")
+    ref = run_part_stage(
+        base, [str(minimal_instance_centered_instance_ckpt)], RULE, **kwargs
+    )
+    exp = run_part_stage(base, [str(exported)], RULE, export_runtime="onnx", **kwargs)
+    a = np.stack([i.numpy() for lf in ref for i in lf.predicted_instances])
+    b = np.stack([i.numpy() for lf in exp for i in lf.predicted_instances])
+    np.testing.assert_allclose(b, a, atol=1e-3)
+
+
 def test_run_part_stage_with_session_floor(
     minimal_instance,
     minimal_instance_centroid_ckpt,
