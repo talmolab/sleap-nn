@@ -79,7 +79,8 @@ def export_to_tensorrt(
         save_path: Path to save the TensorRT engine (.trt file).
         input_shape: (B, C, H, W) optimal input tensor shape.
         input_dtype: Input tensor dtype (torch.uint8 or torch.float32).
-        precision: Model precision - "fp32" or "fp16".
+        precision: Model precision - "fp32", "tf32", "fp16" or "bf16" (ONNX
+            method; the JIT method takes fp32 / tf32 / fp16).
         min_shape: Minimum input shape for dynamic shapes (default: batch=1, H/W halved).
         opt_shape: Optimal input shape (default: same as input_shape).
         max_shape: Maximum input shape (default: batch=16, H/W doubled).
@@ -243,6 +244,16 @@ def _export_tensorrt_onnx(
         else:
             if verbose:
                 print("  WARNING: Platform does not have fast FP16, using FP32")
+    elif precision == "bf16":
+        # bf16 kernels where faster, with fp32's exponent range (fp16 can overflow
+        # in large-activation transformers). TensorRT >= 10.
+        if not hasattr(trt.BuilderFlag, "BF16"):
+            raise RuntimeError(
+                "This TensorRT has no BF16 builder flag (TensorRT >= 10 needed)."
+            )
+        config.set_flag(trt.BuilderFlag.BF16)
+        if verbose:
+            print("  Enabled BF16 mode")
     elif precision == "tf32":
         # TF32 mode: leave TF32 enabled (TRT default on Ampere+).
         # Uses 10-bit mantissa vs 23-bit for IEEE FP32.
