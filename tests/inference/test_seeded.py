@@ -439,3 +439,38 @@ def test_async_detect_with_a_thread(monkeypatch):
     assert layer.seed_stats["detector_async"] >= 1
     layer.reset_streams()  # shuts the thread down
     assert layer._executor is None
+
+
+def test_async_detect_waits_before_an_inline_detector_call(monkeypatch):
+    """An in-line detector call never overlaps a background one."""
+    import threading
+
+    pos = {f: [(50.0, 60.0)] if f < 3 or f >= 5 else [None] for f in range(8)}
+    world = _World(pos)
+    layer = _async_layer(monkeypatch, world, inline=False, detect_every=2)
+    busy = threading.Event()
+    real = layer.centroid_layer.predict
+
+    def slow(image):
+        busy.set()
+        import time
+
+        time.sleep(0.05)
+        out = real(image)
+        busy.clear()
+        return out
+
+    layer.centroid_layer.predict = slow
+    inline = world.predict
+
+    calls = []
+
+    def checked(lay, *a, **k):
+        if lay.centroid_layer.name == "detector":  # seeded pose calls may overlap it
+            calls.append(busy.is_set())
+        return inline(lay, *a, **k)
+
+    monkeypatch.setattr(TopDownLayer, "predict", checked)
+    _run(layer, list(range(8)), 1)
+    layer.reset_streams()
+    assert len(calls) >= 2 and not any(calls)  # frame 0 and the frame after the loss

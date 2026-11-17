@@ -394,6 +394,8 @@ class PoseSeededTopDownLayer(TopDownLayer):
                     self._async_step(stream_of[i], image, i, int(fidx[i]))
             det = [i for i in idx if stream_of[i].detect_next]
             seed = [i for i in idx if not stream_of[i].detect_next]
+            if det and self.seed_config.async_detect:
+                self._wait_background()  # one detector call at a time
             if det:
                 out = TopDownLayer.predict(self, self._subset(image, det))
                 outs = [_take(out, k) for k in range(len(det))]
@@ -462,6 +464,12 @@ class PoseSeededTopDownLayer(TopDownLayer):
             scores = out.pred_bbox_scores[0].detach().float().cpu().numpy()
         ok = valid & np.isfinite(boxes).all(-1) & np.isfinite(scores)
         return boxes[ok], scores[ok]
+
+    def _wait_background(self) -> None:
+        """Wait for background detector runs still in flight (results merge later)."""
+        for s in self._streams:
+            if s.pending is not None and not s.pending.done():
+                s.pending.exception()  # blocks until done; errors surface at the merge
 
     def _async_step(self, s: _Stream, image, i: int, frame: int) -> None:
         """async_detect: merge a finished detector run, or start one that is due."""
