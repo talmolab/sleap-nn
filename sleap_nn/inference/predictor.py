@@ -1296,6 +1296,16 @@ def _restore_source_order(
     labels.labeled_frames.sort(key=key)
 
 
+def _enable_frames_on_gpu(layer: Any) -> None:
+    """``frames_on_gpu``: frames go to the GPU before stage 1 (top-down only)."""
+    if not isinstance(layer, TopDownLayer):
+        raise ValueError(
+            "frames_on_gpu needs a top-down pipeline (a centroid model or box "
+            "detector with a crop model)."
+        )
+    layer.frames_on_gpu = True
+
+
 @attrs.define
 class Predictor:
     """High-level orchestrator: layer + source dispatch + filter pipeline.
@@ -1439,6 +1449,7 @@ class Predictor:
         strip_prefix: Optional[Union[bool, str]] = None,
         precision: str = "32",
         export_runtime: str = "auto",
+        frames_on_gpu: bool = False,
     ) -> "Predictor":
         """Build a :class:`Predictor` from one or more checkpoint paths.
 
@@ -1552,6 +1563,12 @@ class Predictor:
                 detector export), which then stands in for that checkpoint:
                 ``"auto"`` (``model.trt`` if present, else ``model.onnx``),
                 ``"onnx"`` or ``"tensorrt"``. Checkpoint entries ignore it.
+            frames_on_gpu: Top-down pipelines only: move each batch of frames to
+                the GPU before stage 1, so the stage-1 resize / letterbox and the
+                crops' frame-size match run there instead of on the CPU (off by
+                default). A ``uint8`` resize on the GPU rounds some pixels one grey
+                level differently, so outputs change at the level of
+                floating-point noise.
         """
         from sleap_nn.inference.loaders import load_model_assets
         from sleap_nn.system_info import get_startup_info_string
@@ -1681,6 +1698,9 @@ class Predictor:
             spec.append(f"min_mask_area={min_mask_area}")
             spec.append(f"full_res_masks={full_res_masks}")
             spec.append(f"mask_output={mask_output}")
+        if frames_on_gpu:
+            _enable_frames_on_gpu(layer)
+            spec.append("frames_on_gpu=True")
         logger.info("Loaded inference model | " + " | ".join(spec))
 
         return cls(**kwargs)

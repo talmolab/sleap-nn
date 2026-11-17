@@ -482,6 +482,7 @@ def predict(
     bbox_nms_iou: Optional[float] = None,
     # Flip-test (construction-time; centered_instance top-down models only)
     flip_test: bool = False,
+    frames_on_gpu: bool = False,
     # Top-down stage 1 from given boxes (construction-time; crop models only)
     boxes: Optional[str] = None,
     box_score_threshold: float = 0.0,
@@ -617,6 +618,10 @@ def predict(
             centered-instance model on the mirrored crops and average the
             confmaps (symmetric nodes swapped) before peak finding. Not
             available for exported models (``export_dir``).
+        frames_on_gpu: Top-down pipelines only: move each batch of frames to the
+            GPU before stage 1, so the stage-1 resize / letterbox and the crops'
+            frame-size match run there (off by default; outputs change at the
+            level of floating-point noise). Not available for ``export_dir``.
         boxes: Seed a top-down crop model's stage 1 from boxes instead of a
             centroid model or detector (pass only the crop model). ``"gt"``: the
             GT boxes of the ``.slp`` / ``sio.Labels`` source (score 1). A path to
@@ -891,6 +896,8 @@ def predict(
         build_kwargs["mask_output"] = mask_output
         build_kwargs["polygon_epsilon"] = polygon_epsilon
         build_kwargs["flip_test"] = flip_test
+        if frames_on_gpu:
+            build_kwargs["frames_on_gpu"] = True
         if runtime != "auto":
             # Network-only export directories among model_paths (`--network-only`
             # or box detector exports) run on this runtime.
@@ -918,6 +925,11 @@ def predict(
         if box_mode is not None:
             raise ValueError(
                 "boxes is not supported for exported models; use the checkpoint."
+            )
+        if frames_on_gpu:
+            raise ValueError(
+                "frames_on_gpu is not available for exported model directories "
+                "(export_dir); pass network-only exports as model paths instead."
             )
         # Exported ONNX/TRT models bake most post-processing into the graph at
         # export time; only these construction-time knobs still apply.

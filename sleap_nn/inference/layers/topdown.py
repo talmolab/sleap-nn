@@ -28,6 +28,7 @@ from __future__ import annotations
 from typing import Optional, Tuple
 
 import attrs
+import numpy as np
 import torch
 
 from sleap_nn.data.instance_cropping import (
@@ -104,6 +105,24 @@ class TopDownLayer:
     # predictor sets them on the instance when stage 1 is a box detector).
     bbox_crop: Optional[BBoxCropSpec] = None
     crop_max_hw: Optional[Tuple[Optional[int], Optional[int]]] = None
+    # ``frames_on_gpu`` (off by default; set by the predictor): move each batch of
+    # frames to the GPU before stage 1, so stage 1's resize / letterbox and the
+    # crops' frame-size match run there instead of on the CPU. A uint8 resize on
+    # the GPU rounds some pixels one grey level differently, so outputs change at
+    # the level of floating-point noise.
+    frames_on_gpu: bool = False
+
+    def _frames_device(self) -> Optional[torch.device]:
+        """The CUDA device ``frames_on_gpu`` moves frames to (``None``: leave them)."""
+        device = self._crop_device()
+        if device is not None:
+            return device
+        for layer in (self.centroid_layer, self.centered_instance_layer):
+            backend = getattr(layer, "backend", None)
+            dev = getattr(backend, "device", None)
+            if dev is not None and torch.device(dev).type == "cuda":
+                return torch.device(dev)
+        return None
 
     def predict(
         self,
@@ -132,6 +151,12 @@ class TopDownLayer:
             ``pred_peak_values``, ``pred_centroids``,
             ``pred_centroid_values``, and ``instance_bboxes``.
         """
+        if self.frames_on_gpu and isinstance(image, (np.ndarray, torch.Tensor)):
+            device = self._frames_device()
+            if device is not None:
+                image = self.centroid_layer._to_4d_tensor(image).to(
+                    device, non_blocking=True
+                )
         # Stage 1: centroids.
         if getattr(self.centroid_layer, "use_given_boxes", False):
             centroid_out = self.centroid_layer.predict(
