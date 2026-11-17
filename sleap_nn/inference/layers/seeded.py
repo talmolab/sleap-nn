@@ -528,10 +528,16 @@ class PoseSeededTopDownLayer(TopDownLayer):
                 if iou[r, c] < self.seed_config.match_iou:
                     continue
                 matched.add(r)
-                a = by_track.get(s.pending_tracks[c]) if c < len(s.pending_tracks) else None
+                a = (
+                    by_track.get(s.pending_tracks[c])
+                    if c < len(s.pending_tracks)
+                    else None
+                )
                 if a is None:
                     continue  # lost since
-                shift = (a.box[:2] + a.box[2:]) / 2 - (carried[c, :2] + carried[c, 2:]) / 2
+                shift = (a.box[:2] + a.box[2:]) / 2 - (
+                    carried[c, :2] + carried[c, 2:]
+                ) / 2
                 a.box = boxes[r].astype(np.float64) + np.tile(shift, 2)
                 a.score = float(scores[r])
                 self.seed_stats["async_reanchored"] += 1
@@ -540,7 +546,10 @@ class PoseSeededTopDownLayer(TopDownLayer):
         for k in range(len(boxes)):
             if k in matched:
                 continue
-            if len(now) and _iou_matrix(boxes[k : k + 1], now).max() > self.seed_config.dup_iou:
+            if (
+                len(now)
+                and _iou_matrix(boxes[k : k + 1], now).max() > self.seed_config.dup_iou
+            ):
                 continue  # already carried under another box
             s.animals.append(  # its reference score is set by its first pose
                 _Animal(
