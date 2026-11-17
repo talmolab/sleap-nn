@@ -585,3 +585,251 @@ def test_cli_part_streaming_needs_part_model(minimal_instance, tmp_path):
             ],
             standalone_mode=False,
         )
+
+
+# --------------------------------------------------------------------------- #
+# The streaming stage's running floor
+# --------------------------------------------------------------------------- #
+@pytest.mark.parametrize("seed", [0, 1, 2])
+def test_running_median_equals_np_median(seed):
+    """After every value the running median is np.median of the history, exactly (odd and even counts)."""
+    from sleap_nn.inference.keypoint_crops import RunningMedian
+
+    rng = np.random.default_rng(seed)
+    kinds = [
+        rng.normal(30, 8, 600),
+        rng.integers(0, 6, 600).astype(float),  # many ties
+        np.round(rng.uniform(1, 100, 600), 1),
+        np.sort(rng.uniform(0, 1, 300)),
+        -np.sort(rng.uniform(0, 1, 300)),
+    ]
+    for vals in kinds:
+        rm, hist = RunningMedian(), []
+        assert np.isnan(rm.median()) and len(rm) == 0
+        for v in vals:
+            rm.add(v)
+            hist.append(float(v))
+            assert rm.median() == float(np.median(hist)), len(hist)
+        assert len(rm) == len(hist)
+        np.testing.assert_array_equal(np.sort(rm.values()), np.sort(hist))
+
+
+def test_running_median_nan_as_np_median():
+    """A NaN value makes the median NaN, as np.median does; it still counts."""
+    from sleap_nn.inference.keypoint_crops import RunningMedian
+
+    rm = RunningMedian()
+    for v in (3.0, 1.0, 2.0):
+        rm.add(v)
+    assert rm.median() == 2.0
+    rm.add(float("nan"))
+    assert np.isnan(rm.median()) and np.isnan(np.median([3.0, 1.0, 2.0, np.nan]))
+    assert len(rm) == 4 and rm.values().shape == (3,)
+
+
+def test_running_median_cost_stays_flat_at_500k():
+    """With 500k values in the history, a frame (3 values added, 3 medians read) stays cheap."""
+    import time
+    from array import array
+
+    from sleap_nn.inference.keypoint_crops import RunningMedian
+
+    rng = np.random.default_rng(0)
+    vals = np.sort(rng.normal(30, 8, 500_000))
+    rm = RunningMedian()
+    h = len(vals) // 2  # a sorted array is a valid heap: fill the two halves directly
+    rm._lo = array("d", (-vals[:h][::-1]).tolist())
+    rm._hi = array("d", vals[h:].tolist())
+    assert rm.median() == float(np.median(vals))
+    assert rm._lo.itemsize == 8  # 8 bytes per value
+    new = rng.normal(30, 8, 3000)
+    t0 = time.perf_counter()
+    for f in range(1000):
+        for v in new[3 * f : 3 * f + 3]:
+            rm.add(v)
+            rm.median()
+    per_frame_ms = 1e3 * (time.perf_counter() - t0) / 1000
+    assert per_frame_ms < 2.0, per_frame_ms
+    assert rm.median() == float(np.median(np.concatenate([vals, new])))
+
+
+def test_streaming_floor_is_median_of_history_over_frames_and_videos():
+    """Each frame's floor is session_floor x np.median of the half sides so far (two videos).
+
+    Per video once it has session_min_boxes boxes; of every video before that.
+    """
+    import torch
+
+    from sleap_nn.inference.keypoint_crops import StreamingPartStage
+    from sleap_nn.inference.outputs import Outputs
+
+    class _Part:  # stands in for the part model's layer
+        def predict(self, images, frame_boxes, frame_box_scores):
+            B, k = frame_boxes.shape[:2]
+            return Outputs(
+                pred_keypoints=torch.zeros(B, k, 1, 2),
+                pred_peak_values=torch.ones(B, k, 1),
+            )
+
+    rule = KeypointCropRule(
+        center=["a"],
+        reference=["b"],
+        scale=1.0,
+        session_floor=1.5,
+        session_min_boxes=10,
+    )
+    stage = StreamingPartStage(_Part(), rule, ["a", "b"])
+    resolved = rule.resolve(["a", "b"])
+    rng = np.random.default_rng(0)
+    hist = {0: [], 1: []}
+    checked = 0
+    for f in range(400):
+        v = (
+            0 if (f // 25) % 3 != 1 else 1
+        )  # video 1 starts at frame 25 (all-video fallback first)
+        k = rng.normal(100, 30, (1, 3, 2, 2)).astype(np.float32)
+        k[0, rng.integers(0, 3)] = np.nan  # one instance missing
+        out = stage(
+            torch.zeros(1, 1, 8, 8),
+            Outputs(pred_keypoints=torch.from_numpy(k)),
+            torch.tensor([v]),
+        )
+        assert out.pred_keypoints.shape == (1, 3, 3, 2)
+        for i in range(3):
+            if np.isnan(k[0, i]).all():
+                continue
+            box, _ = rule.box(k[0, i], resolved, 0.0)
+            if box is not None:
+                hist[v].append(float(box[2] - box[0]) / 2)
+        every = hist[0] + hist[1]
+        if len(hist[v]) >= 10:
+            want = 1.5 * float(np.median(hist[v]))
+        elif len(every) >= 10:
+            want = 1.5 * float(np.median(every))
+        else:
+            want = 0.0
+        if v in stage.last_floors:
+            assert stage.last_floors[v] == want, f
+            checked += 1
+    assert checked > 300
+    stage.reset()
+    assert stage.halves == {} and len(stage.every) == 0
+
+
+def test_streaming_part_stage_passes_the_runtime(monkeypatch):
+    """The part model of the streaming stage gets predict's runtime (it was dropped before)."""
+    from sleap_nn.inference import keypoint_crops as KC
+    from sleap_nn.inference.predictor import Predictor
+
+    seen = []
+
+    class _P:
+        skeleton = sio.Skeleton(["p"])
+
+        def _scoped_postprocess_layer(self, **kw):
+            return None
+
+    def fake(paths, **kw):
+        seen.append(kw)
+        return _P()
+
+    monkeypatch.setattr(Predictor, "from_model_paths", staticmethod(fake))
+    base = sio.Skeleton(["a", "b"])
+    rule = dict(center=["a"], reference=["b"])
+    KC.build_streaming_part_stage(base, ["x"], rule, export_runtime="onnx")
+    KC.build_streaming_part_stage(base, ["x"], rule)
+    assert seen[0]["export_runtime"] == "onnx" and "export_runtime" not in seen[1]
+
+
+def test_predict_passes_the_runtime_to_the_streaming_part_stage(
+    minimal_instance,
+    minimal_instance_centroid_ckpt,
+    minimal_instance_centered_instance_ckpt,
+    monkeypatch,
+):
+    """predict(..., part_streaming=True, runtime=...) hands the runtime to the part stage."""
+    from sleap_nn.inference import keypoint_crops as KC
+    from sleap_nn.inference.run import predict
+
+    class _Stop(Exception):
+        pass
+
+    def fake(*a, **kw):
+        raise _Stop(kw.get("export_runtime"))
+
+    monkeypatch.setattr(KC, "build_streaming_part_stage", fake)
+    ckpts = [
+        str(minimal_instance_centroid_ckpt),
+        str(minimal_instance_centered_instance_ckpt),
+    ]
+    with pytest.raises(_Stop, match="onnx"):
+        predict(
+            str(minimal_instance),
+            model_paths=ckpts,
+            device="cpu",
+            part_model_paths=[ckpts[1]],
+            part_crop_rule=RULE,
+            part_streaming=True,
+            runtime="onnx",
+        )
+
+
+def test_streaming_stage_cost_does_not_grow_with_history():
+    """The stage's own per-frame time with 300k half sides in the history stays near its time with none.
+
+    Catches a history rebuilt or scanned inside the stage (not only in RunningMedian).
+    """
+    import time
+    from array import array
+
+    import torch
+
+    from sleap_nn.inference.keypoint_crops import RunningMedian, StreamingPartStage
+    from sleap_nn.inference.outputs import Outputs
+
+    class _Part:
+        def predict(self, images, frame_boxes, frame_box_scores):
+            B, k = frame_boxes.shape[:2]
+            return Outputs(
+                pred_keypoints=torch.zeros(B, k, 1, 2),
+                pred_peak_values=torch.ones(B, k, 1),
+            )
+
+    rule = KeypointCropRule(
+        center=["a"],
+        reference=["b"],
+        scale=1.0,
+        session_floor=1.0,
+        session_min_boxes=10,
+    )
+    rng = np.random.default_rng(0)
+    frames = [
+        Outputs(
+            pred_keypoints=torch.from_numpy(
+                rng.normal(100, 30, (1, 3, 2, 2)).astype(np.float32)
+            )
+        )
+        for _ in range(300)
+    ]
+
+    def per_frame_ms(stage):
+        t0 = time.perf_counter()
+        for o in frames:
+            stage(torch.zeros(1, 1, 8, 8), o, torch.tensor([0]))
+        return 1e3 * (time.perf_counter() - t0) / len(frames)
+
+    def filled(n):
+        vals = np.sort(rng.normal(40, 10, n))
+        h = len(vals) // 2
+        m = RunningMedian()
+        m._lo = array("d", (-vals[:h][::-1]).tolist())
+        m._hi = array("d", vals[h:].tolist())
+        return m
+
+    small = StreamingPartStage(_Part(), rule, ["a", "b"])
+    per_frame_ms(small)  # warm
+    t_small = min(per_frame_ms(small) for _ in range(2))
+    big = StreamingPartStage(_Part(), rule, ["a", "b"])
+    big.halves[0], big.every = filled(300_000), filled(300_000)
+    t_big = min(per_frame_ms(big) for _ in range(2))
+    assert t_big < 2 * t_small + 1.0, (t_small, t_big)
