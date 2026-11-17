@@ -523,6 +523,65 @@ hand it. Note this bypasses the predictor's `FilterPipeline` and tracking;
 apply [`FilterPipeline`](#applying-filters-manually) / `apply_tracking`
 yourself if needed.
 
+### Frame in, pose out: `open_stream`
+
+`open_stream` builds the same pipeline as `predict` (same model arguments, filters
+and part stage) and returns a `PoseStream`: push one frame, get that frame's
+poses back. A camera loop is about ten lines:
+
+```python
+import cv2
+from sleap_nn.inference.run import open_stream
+
+cap = cv2.VideoCapture(0)
+ok, frame = cap.read()
+with open_stream(["models/detector", "models/pose"], channel_order="bgr",
+                 frame_shape=frame.shape) as stream:      # warm-up runs here
+    while ok:
+        poses = stream.push(frame)           # FramePoses for this frame
+        print(poses.frame_idx, len(poses), poses.points.shape, stream.last_latency_ms)
+        ok, frame = cap.read()
+```
+
+`FramePoses` holds numpy arrays for one frame: `points` `(instances, nodes, 2)`,
+`point_scores`, `instance_scores`, and for box detectors `boxes` `(instances, 4)` and
+`box_scores`; `node_names` names the nodes. A frame with no animal gives arrays with
+zero rows.
+
+- **Same result as `predict`.** Pushing a video's frames one by one gives the
+  points of `sleap-nn predict --batch_size 1 --part_streaming` (bit-identical
+  in the tests). Per-frame options (`peak_threshold`, `centroid_threshold`,
+  `max_instances`, `filter_config`, ...) mean what they mean for `predict`.
+- **Input.** `uint8` numpy arrays or tensors, `(H, W)` or `(H, W, C)` with `C` 1 or
+  3. Colour frames are taken as RGB (what sleap-io gives); pass
+  `channel_order="bgr"` for OpenCV frames. Anything else raises. All frames of a
+  stream have one size: a different size raises until you call `stream.reset()`,
+  which also starts a new video (frame counter, the part stage's running crop size).
+- **No tracker.** Instances come in detection order; identities are not kept across
+  frames. Run a tracker on the results yourself.
+- **Keeping results.** `keep=True` keeps every frame's outputs for
+  `stream.labels()` / `stream.save("out.slp")`; memory grows with every frame, so
+  leave it off for long live runs.
+- **One caller.** A stream is meant for one thread pushing frames in order.
+
+Real-time settings: TensorRT bf16 export folders, frames moved to the GPU
+before the first stage, and a box detector exported at 576 x 768. A smaller
+detector input finds fewer small animals: check it on your views first (in our
+top-view mouse tests it held for views where mice are about 64 px or larger in the
+full frame).
+
+```python
+# sleap-nn export models/detector -o rt/detector --format tensorrt --precision bf16 \
+#     --input-height 576 --input-width 768      (pose and part models: --precision bf16)
+stream = open_stream(["rt/detector", "rt/pose"], runtime="tensorrt",
+                     frames_on_gpu=True, part_model_paths=["rt/tail"],
+                     part_crop_rule="tail_crop_rule.json", frame_shape=(1024, 1280, 3))
+```
+
+Whether a set-up keeps up with a camera depends on the card, the CPU and the
+number of animals: time it on your machine with `stream.last_latency_ms` (from the
+`push` call to the results back as numpy arrays) before relying on it.
+
 ---
 
 ## See also
