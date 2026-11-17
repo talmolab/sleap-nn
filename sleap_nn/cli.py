@@ -4206,8 +4206,12 @@ def _common_inference_options(f):
             default=False,
             help=(
                 "Run --part_model on each batch right after the pose stage (no second "
-                "read of the frames), with a running crop floor (median over the "
-                "frames so far) instead of the whole-video floor."
+                "read of the frames), with a running crop floor instead of the "
+                "whole-video floor. The running floor is the median over the boxes "
+                "so far including the rest of the current batch (results depend on "
+                "--batch_size); the first session_min_boxes boxes of a run get no "
+                "floor; each --frames chunk starts a new floor. Tracking uses the "
+                "pose nodes only, as without this flag."
             ),
         ),
         click.option(

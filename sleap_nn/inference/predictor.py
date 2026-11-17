@@ -1566,9 +1566,11 @@ class Predictor:
             frames_on_gpu: Top-down pipelines only: move each batch of frames to
                 the GPU before stage 1, so the stage-1 resize / letterbox and the
                 crops' frame-size match run there instead of on the CPU (off by
-                default). A ``uint8`` resize on the GPU rounds some pixels one grey
-                level differently, so outputs change at the level of
-                floating-point noise.
+                default). Results are not bit-identical to the CPU resize: a
+                ``uint8`` resize on the GPU rounds some pixels one grey level
+                differently, which can move a box near the score threshold (and
+                with it an instance). Without a CUDA model the frames stay on the
+                CPU, with a warning.
         """
         from sleap_nn.inference.loaders import load_model_assets
         from sleap_nn.system_info import get_startup_info_string
@@ -1700,7 +1702,14 @@ class Predictor:
             spec.append(f"mask_output={mask_output}")
         if frames_on_gpu:
             _enable_frames_on_gpu(layer)
-            spec.append("frames_on_gpu=True")
+            if getattr(layer, "_frames_device", lambda: None)() is None:
+                logger.warning(
+                    "frames_on_gpu=True, but no stage of this model runs on CUDA: "
+                    "the frames stay on the CPU (the option has no effect)."
+                )
+                spec.append("frames_on_gpu=True (no CUDA model: frames stay on CPU)")
+            else:
+                spec.append("frames_on_gpu=True")
         logger.info("Loaded inference model | " + " | ".join(spec))
 
         return cls(**kwargs)
@@ -2420,9 +2429,21 @@ class Predictor:
             labels, videos, getattr(provider, "source_positions", None)
         )
         if self.tracker_config is not None:
-            labels = apply_tracking(
-                labels, self.tracker_config, tracking_progress_callback
-            )
+            if getattr(self.part_stage, "body_skeleton", None) is not None:
+                # Streamed part points are in `labels`: track on the pose nodes
+                # only, as two passes do (they track before the part stage).
+                from sleap_nn.inference.keypoint_crops import track_on_body_nodes
+
+                labels = track_on_body_nodes(
+                    labels,
+                    self.part_stage.body_skeleton,
+                    self.tracker_config,
+                    tracking_progress_callback,
+                )
+            else:
+                labels = apply_tracking(
+                    labels, self.tracker_config, tracking_progress_callback
+                )
         if clean_empty_frames:
             labels.clean(frames=True, skeletons=False)
         provenance = self._build_inference_provenance(
@@ -2545,7 +2566,11 @@ class Predictor:
         )
         if self.part_stage is not None:
             self.part_stage.reset()
-        if self.paf_workers > 0 and self._can_pipeline():
+        if (
+            self.paf_workers > 0
+            and self._can_pipeline()
+            and self.part_stage is None  # the pipelined path has no part stage
+        ):
             yield from self._predict_streaming_pipelined(
                 provider, progress_callback, layer=layer
             )
@@ -2743,11 +2768,21 @@ class Predictor:
                     )
                 kwargs["frame_scales"] = frame_scales
                 kwargs["frame_sizes"] = batch.frame_sizes
-            outputs = layer.predict(batch.images, **kwargs)
+            images = batch.images
+            if self.part_stage is not None and getattr(layer, "frames_on_gpu", False):
+                # Upload once: the part stage cuts its crops from the same copy.
+                device = layer._frames_device()
+                if device is not None and isinstance(
+                    images, (np.ndarray, torch.Tensor)
+                ):
+                    images = layer.centroid_layer._to_4d_tensor(images).to(
+                        device, non_blocking=True
+                    )
+            outputs = layer.predict(images, **kwargs)
             outputs = pipeline(outputs)
             if self.part_stage is not None:
                 outputs = self.part_stage(
-                    batch.images, outputs, getattr(batch, "video_indices", None)
+                    images, outputs, getattr(batch, "video_indices", None)
                 )
             outputs = self._stamp_metadata(outputs, batch)
             yield outputs

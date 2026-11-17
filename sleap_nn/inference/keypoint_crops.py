@@ -592,9 +592,21 @@ class StreamingPartStage:
     of the rule's boxes seen so far in that video (including the current batch),
     once at least ``session_min_boxes`` boxes were seen; before that, the median
     over every video so far, or no floor. Nothing waits for the end of the video.
+
+    How the running floor differs from the two-pass one: each frame's floor includes
+    the later frames of its own batch (so results depend on the batch size); the
+    first ``session_min_boxes`` boxes of the first video get no floor at all (a clip
+    that starts with short reference distances, e.g. rearing, gets small crops
+    there); and every run (each ``--frames`` chunk) starts a new floor.
+
     The medians are exact running medians (:class:`RunningMedian`): the cost per
-    frame does not grow with the history, and the history takes 8 bytes per box
-    for its video plus 8 for the all-video median.
+    frame does not grow with the history. With a session floor the history takes 8
+    bytes per box for its video plus 8 for the all-video median (about 0.12 GB per
+    day for 3 animals at 30 frames/s); without one nothing is stored.
+
+    The floor state belongs to the stage, so two prediction runs interleaved on one
+    predictor (e.g. two ``predict_streaming`` generators) share it; run them one
+    after the other, or on separate predictors.
 
     Each pose instance gets the part points of the crop built from its own
     keypoints (part slot ``k`` is pose slot ``k``); points below the part model's
@@ -604,15 +616,24 @@ class StreamingPartStage:
         layer: The part predictor's layer (a top-down layer seeded by given boxes).
         rule: The crop rule.
         body_node_names: Node names of the pose model's output.
+        n_part_nodes: Number of part-model nodes (its skeleton's). Batches where
+            no instance gets a crop are padded to it, whatever node count the part
+            layer's empty path reports. ``None``: the part layer's count.
     """
 
     def __init__(
-        self, layer: Any, rule: KeypointCropRule, body_node_names: Sequence[str]
+        self,
+        layer: Any,
+        rule: KeypointCropRule,
+        body_node_names: Sequence[str],
+        n_part_nodes: Optional[int] = None,
     ):
         """Resolve the rule on the pose nodes."""
         self.layer = layer
         self.rule = rule
         self.resolved = rule.resolve(list(body_node_names))
+        self.n_body_nodes = len(body_node_names)
+        self.n_part_nodes = n_part_nodes
         self.halves: Dict[int, RunningMedian] = {}
         self.every = RunningMedian()
         self.last_floors: Dict[int, float] = {}
@@ -658,6 +679,8 @@ class StreamingPartStage:
                 box, _ = self.rule.box(kpts[b, i], self.resolved, 0.0)
                 if box is not None:
                     raw[(b, i)] = box
+                    if self.rule.session_floor is None:
+                        continue  # no floor: nothing to remember
                     half = float(box[2] - box[0]) / 2
                     med = self.halves.get(int(vids[b]))
                     if med is None:
@@ -673,7 +696,8 @@ class StreamingPartStage:
         )
         for (b, i), _ in raw.items():
             floor = self._floor(int(vids[b]))
-            self.last_floors[int(vids[b])] = floor
+            if self.rule.session_floor is not None:
+                self.last_floors[int(vids[b])] = floor
             box, _ = self.rule.box(kpts[b, i], self.resolved, floor)
             boxes[b, i] = box
             s = inst_scores[b, i]
@@ -686,7 +710,17 @@ class StreamingPartStage:
         device = outputs.pred_keypoints.device
         pk = part.pred_keypoints
         pv = part.pred_peak_values
-        n_part = pk.shape[-2]
+        n_part = self.n_part_nodes if self.n_part_nodes is not None else pk.shape[-2]
+        if pk.shape[-2] != n_part:
+            if pk.shape[1] and not torch.isnan(pk).all():
+                raise ValueError(
+                    f"The part model returned {pk.shape[-2]} nodes; its skeleton has "
+                    f"{n_part}."
+                )
+            # No crop in this batch: the part layer's empty path may report another
+            # node count (1 for an exported network); every part point is NaN.
+            pk = torch.full((B, 0, n_part, 2), float("nan"))
+            pv = torch.full((B, 0, n_part), float("nan"))
         # Part slot k comes from box k = pose slot k; pad or cut to the pose slots.
         full_k = torch.full((B, n_inst, n_part, 2), float("nan"), device=device)
         full_v = torch.full((B, n_inst, n_part), float("nan"), device=device)
@@ -704,6 +738,70 @@ class StreamingPartStage:
             pred_peak_values=torch.cat([vals.to(device), full_v], dim=2),
             pred_crop_keypoints=None,
         )
+
+
+def track_on_body_nodes(
+    labels: sio.Labels,
+    body_skeleton: sio.Skeleton,
+    tracker_config: Any,
+    progress_callback: Optional[Any] = None,
+) -> sio.Labels:
+    """Track a streamed part stage's labels on the pose nodes only, as two passes do.
+
+    ``labels`` hold the pose nodes first and the part nodes after them. Tracking
+    runs on copies of the instances cut to ``body_skeleton``'s nodes; the tracks,
+    the tracking scores and the instances the tracker keeps per frame are then
+    carried back to the full instances (in place, as
+    :func:`~sleap_nn.inference.tracking.apply_tracking` works).
+    """
+    from sleap_nn.inference.tracking import apply_tracking
+
+    n_body = len(body_skeleton.nodes)
+    back: Dict[int, Any] = {}
+    frames = []
+    for lf in labels.labeled_frames:
+        insts = []
+        for inst in lf.instances:
+            arr = inst.numpy(scores=True)
+            b = sio.PredictedInstance.from_numpy(
+                arr[:n_body, :2],
+                skeleton=body_skeleton,
+                point_scores=arr[:n_body, 2],
+                score=inst.score,
+                track=inst.track,
+                tracking_score=inst.tracking_score,
+            )
+            back[id(b)] = inst
+            insts.append(b)
+        frames.append(
+            sio.LabeledFrame(video=lf.video, frame_idx=lf.frame_idx, instances=insts)
+        )
+    body = sio.Labels(
+        labeled_frames=frames,
+        videos=labels.videos,
+        skeletons=[body_skeleton],
+        provenance=dict(labels.provenance),
+    )
+    body = apply_tracking(body, tracker_config, progress_callback)
+    full_frames = {(id(lf.video), lf.frame_idx): lf for lf in labels.labeled_frames}
+    ordered = []
+    for blf in body.labeled_frames:
+        lf = full_frames.pop((id(blf.video), blf.frame_idx))
+        kept = []
+        for b in blf.instances:
+            inst = back[id(b)]
+            inst.track = b.track
+            inst.tracking_score = b.tracking_score
+            kept.append(inst)
+        lf.instances = kept
+        ordered.append(lf)
+    labels.labeled_frames = ordered + list(full_frames.values())
+    labels.tracks = list(body.tracks)
+    if "tracking" in body.provenance:
+        labels.provenance["tracking"] = body.provenance["tracking"]
+    else:
+        labels.provenance.pop("tracking", None)
+    return labels
 
 
 def build_streaming_part_stage(
@@ -745,10 +843,9 @@ def build_streaming_part_stage(
     part = Predictor.from_model_paths(list(part_model_paths), **kwargs)
     merged, _ = _merged_skeleton(base_skeleton, part.skeleton, part_prefix)
     layer = part._scoped_postprocess_layer(peak_threshold=peak_threshold)
-    stage = StreamingPartStage(layer, rule, base_skeleton.node_names)
-    stage.part_provenance = dict(
-        model_paths=[str(p) for p in part_model_paths],
-        node_filter=node_filter,
-        peak_threshold=peak_threshold,
+    stage = StreamingPartStage(
+        layer, rule, base_skeleton.node_names, n_part_nodes=len(part.skeleton.nodes)
     )
+    stage.part_predictor = part  # for the run's provenance (as run_part_stage's)
+    stage.body_skeleton = base_skeleton  # tracking runs on these nodes only
     return stage, merged

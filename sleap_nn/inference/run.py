@@ -620,8 +620,11 @@ def predict(
             available for exported models (``export_dir``).
         frames_on_gpu: Top-down pipelines only: move each batch of frames to the
             GPU before stage 1, so the stage-1 resize / letterbox and the crops'
-            frame-size match run there (off by default; outputs change at the
-            level of floating-point noise). Not available for ``export_dir``.
+            frame-size match run there (off by default). Results are not
+            bit-identical to the CPU resize: a uint8 resize on the GPU rounds some
+            pixels one grey level differently, which can move a box near the score
+            threshold. Without a CUDA model the frames stay on the CPU, with a
+            warning. Not available for ``export_dir``.
         boxes: Seed a top-down crop model's stage 1 from boxes instead of a
             centroid model or detector (pass only the crop model). ``"gt"``: the
             GT boxes of the ``.slp`` / ``sio.Labels`` source (score 1). A path to
@@ -641,10 +644,16 @@ def predict(
         strip_prefix: Rename the kept nodes: ``True`` strips the ``node_filter``
             prefix, a string strips that prefix.
         part_streaming: Run the part stage on each batch right after the pose
-            stage, on the frames already in memory, with a running crop floor (the
-            median over the frames so far) instead of the whole-video floor
-            (:class:`~sleap_nn.inference.keypoint_crops.StreamingPartStage`).
-            ``False`` (default): the part stage runs after the whole video.
+            stage, on the frames already in memory, with a running crop floor
+            instead of the whole-video floor
+            (:class:`~sleap_nn.inference.keypoint_crops.StreamingPartStage`). The
+            running floor is the median over the boxes so far *including the rest
+            of the current batch* (so results depend on ``batch_size``); the first
+            ``session_min_boxes`` boxes of the first video get no floor; and each
+            call (each ``frames`` chunk) starts a new floor. Tracking (with
+            ``tracker_config``) uses the pose nodes only, as without streaming.
+            Needs ``part_model_paths``. ``False`` (default): the part stage runs
+            after the whole video.
         part_model_paths: A part model (a centered-instance crop model) to run
             after the pose model, on square crops built from each predicted
             instance's keypoints by ``part_crop_rule``
@@ -792,6 +801,8 @@ def predict(
             "part_model_paths needs checkpoint (or network-only exported) "
             "model_paths for the pose stage and a part_crop_rule."
         )
+    if part_streaming and not part_model_paths:
+        raise ValueError("part_streaming needs part_model_paths.")
     if not model_paths and not export_dir:
         raise ValueError("Either model_paths or export_dir is required.")
 
@@ -984,14 +995,28 @@ def predict(
     )
 
     if part_stream is not None:
+        # The keys two passes write (run_part_stage), plus streaming=True; the floors
+        # are the running floors at the end of each video, null without a floor.
         labels.provenance["part_stage"] = dict(
             rule=part_stream.rule.to_dict(),
             part_prefix=part_prefix,
+            part_provenance=part_stream.part_predictor._build_inference_provenance(
+                source=source,
+                start_time=None,
+                end_time=None,
+                n_frames=len(labels.labeled_frames),
+                inference_params={
+                    "peak_threshold": part_peak_threshold,
+                    "batch_size": batch_size,
+                    **part_stream.part_predictor._preprocess_provenance_params(),
+                },
+            ),
+            session_floors=(
+                {int(k): round(float(v), 3) for k, v in part_stream.last_floors.items()}
+                if part_stream.rule.session_floor is not None
+                else None
+            ),
             streaming=True,
-            running_floors_at_end={
-                int(k): round(float(v), 3) for k, v in part_stream.last_floors.items()
-            },
-            part_provenance=part_stream.part_provenance,
         )
     elif part_model_paths:
         from sleap_nn.inference.keypoint_crops import run_part_stage
