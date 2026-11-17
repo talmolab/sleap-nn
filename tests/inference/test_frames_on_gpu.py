@@ -28,7 +28,9 @@ class _Stage1:
 
 
 def _layer(on):
-    layer = TopDownLayer(centroid_layer=_Stage1(), centered_instance_layer=None, crop_size=(8, 8))
+    layer = TopDownLayer(
+        centroid_layer=_Stage1(), centered_instance_layer=None, crop_size=(8, 8)
+    )
     layer.frames_on_gpu = on
     return layer
 
@@ -37,7 +39,9 @@ def _layer(on):
 def test_frames_move_only_when_on(monkeypatch, on):
     layer = _layer(on)
     # "meta" stands in for the CUDA device so the test runs anywhere.
-    monkeypatch.setattr(TopDownLayer, "_frames_device", lambda self: torch.device("meta"))
+    monkeypatch.setattr(
+        TopDownLayer, "_frames_device", lambda self: torch.device("meta")
+    )
     layer.predict(np.zeros((2, 16, 16, 1), dtype=np.uint8))
     assert layer.centroid_layer.devices == (["meta"] if on else ["cpu"])
 
