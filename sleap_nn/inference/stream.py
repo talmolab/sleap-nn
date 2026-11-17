@@ -320,7 +320,15 @@ class PoseStream:
         from sleap_nn.inference.providers import Batch
 
         p = self._predictor
-        outputs = self._layer.predict(images)
+        layer = self._layer
+        if p.part_stage is not None and getattr(layer, "frames_on_gpu", False):
+            # As predict does: upload once; the part stage cuts from the card copy.
+            device = layer._frames_device()
+            if device is not None:
+                images = layer.centroid_layer._to_4d_tensor(images).to(
+                    device, non_blocking=True
+                )
+        outputs = layer.predict(images)
         outputs = p.filter_pipeline(outputs)
         video_indices = np.full((1,), video, dtype=np.int64)
         if p.part_stage is not None:
