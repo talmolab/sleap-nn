@@ -14,10 +14,27 @@ collection on CPU-only hosts).
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Dict, Optional, Tuple, Union
+from typing import Callable, Dict, Optional, Tuple, Union
 
 import attrs
 import torch
+
+
+def run_in_batch_chunks(
+    run: Callable[[torch.Tensor], Dict[str, torch.Tensor]],
+    x: torch.Tensor,
+    max_batch: Optional[int],
+) -> Dict[str, torch.Tensor]:
+    """``run(x)``, or ``run`` on chunks of at most ``max_batch`` along axis 0.
+
+    Outputs of the chunks are concatenated along axis 0 (every exported
+    wrapper's outputs are batch-first). ``max_batch`` ``None`` or a batch within
+    it runs ``x`` whole.
+    """
+    if max_batch is None or x.shape[0] <= max_batch:
+        return run(x)
+    parts = [run(x[i : i + max_batch]) for i in range(0, x.shape[0], max_batch)]
+    return {k: torch.cat([p[k] for p in parts], dim=0) for k in parts[0]}
 
 
 @attrs.define(eq=False, slots=False)
@@ -42,6 +59,8 @@ class TensorRTBackend:
     _input_names: list[str] = attrs.field(factory=list, init=False, repr=False)
     _output_names: list[str] = attrs.field(factory=list, init=False, repr=False)
     _trt: object = attrs.field(default=None, init=False, repr=False)
+    # Largest batch the engine's optimization profile admits (``None``: unknown).
+    _max_batch: Optional[int] = attrs.field(default=None, init=False, repr=False)
 
     def __attrs_post_init__(self) -> None:
         """Load the TRT engine + create an execution context."""
@@ -79,6 +98,13 @@ class TensorRTBackend:
                 self._input_names.append(name)
             else:
                 self._output_names.append(name)
+        try:
+            max_shape = self._engine.get_tensor_profile_shape(self._input_names[0], 0)[
+                2
+            ]
+            self._max_batch = int(max_shape[0]) if int(max_shape[0]) > 0 else None
+        except Exception:  # noqa: BLE001 -- static engines / older TensorRT: unknown
+            self._max_batch = None
 
     # ──────────────────────────────────────────────────────────────────
     # ModelBackend protocol surface
@@ -92,6 +118,11 @@ class TensorRTBackend:
     def __call__(self, x: torch.Tensor) -> Dict[str, torch.Tensor]:
         """Execute the TRT engine on ``x`` (must be on CUDA already).
 
+        A batch larger than the engine's optimization profile admits
+        (``sleap-nn export --max-batch-size``) runs in chunks of that size and
+        the outputs are concatenated along the batch axis (larger batches used to
+        fail in ``set_input_shape``).
+
         Args:
             x: ``(B, C, H, W)`` input tensor on CUDA. Auto-cast to the
                 engine's expected dtype (``uint8`` for most exported
@@ -100,6 +131,10 @@ class TensorRTBackend:
         Returns:
             Dict mapping engine output names to torch tensors on CUDA.
         """
+        return run_in_batch_chunks(self._run, x, self._max_batch)
+
+    def _run(self, x: torch.Tensor) -> Dict[str, torch.Tensor]:
+        """One engine execution on a batch the profile admits."""
         trt = self._trt
         input_name = self._input_names[0]
         expected = self._engine.get_tensor_dtype(input_name)

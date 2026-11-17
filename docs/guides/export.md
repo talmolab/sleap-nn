@@ -83,7 +83,8 @@ sleap-nn export MODEL_PATH [options]
 | `-f`, `--format` | Export format | `onnx`, `tensorrt`, `both` | `onnx` |
 | `--precision` | TensorRT precision | `fp32`, `fp16`, `tf32` | `fp16` |
 | `--max-instances` | Max instances per frame | `INT` | `20` |
-| `--max-batch-size` | Max batch size | `INT` | `8` |
+| `--max-batch-size` | Max batch size (TensorRT profile; larger batches run in chunks of it) | `INT` | `8` |
+| `--opt-batch-size` | TensorRT: batch the engine's kernels are tuned for (profile `opt`; for throughput, the batch you run) | `INT` | `1` |
 | `--input-dtype` | Box detectors and `--network-only` exports: dtype of the graph's image input (`float32` receives the checkpoint path's own input; `auto` = `float32` for `bbox_detr`, `uint8` otherwise) | `auto`, `uint8`, `float32` | `auto` |
 | `--nodes` | Export only these confmap nodes (`single_instance` / `centered_instance`, alone or in a top-down bundle); repeat or comma-separate | `TEXT` | all nodes |
 | `--node-prefix` | Export only the nodes whose name starts with the prefix | `TEXT` | `None` |
