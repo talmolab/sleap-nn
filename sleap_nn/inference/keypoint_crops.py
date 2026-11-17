@@ -486,3 +486,164 @@ def run_part_stage(
         f"part points ({counts['n_unmatched']} part predictions unmatched)."
     )
     return merged
+
+
+class StreamingPartStage:
+    """The part stage run on each batch right after the pose stage (``part_streaming``).
+
+    :func:`run_part_stage` runs after the whole video: it reads every frame a
+    second time and floors each crop at the median crop of the whole video
+    (``session_floor``). This runs the part model on the frames already in memory,
+    batch by batch, with a running floor: ``session_floor`` x the median half side
+    of the rule's boxes seen so far in that video (including the current batch),
+    once at least ``session_min_boxes`` boxes were seen; before that, the median
+    over every video so far, or no floor. Nothing waits for the end of the video.
+
+    Each pose instance gets the part points of the crop built from its own
+    keypoints (part slot ``k`` is pose slot ``k``); points below the part model's
+    threshold, and instances without a crop, get NaN.
+
+    Args:
+        layer: The part predictor's layer (a top-down layer seeded by given boxes).
+        rule: The crop rule.
+        body_node_names: Node names of the pose model's output.
+    """
+
+    def __init__(
+        self, layer: Any, rule: KeypointCropRule, body_node_names: Sequence[str]
+    ):
+        """Resolve the rule on the pose nodes."""
+        self.layer = layer
+        self.rule = rule
+        self.resolved = rule.resolve(list(body_node_names))
+        self.halves: Dict[int, List[float]] = {}
+        self.last_floors: Dict[int, float] = {}
+
+    def reset(self) -> None:
+        """Forget the running floors (call at the start of each prediction run)."""
+        self.halves = {}
+        self.last_floors = {}
+
+    def _floor(self, video: int) -> float:
+        rule = self.rule
+        if rule.session_floor is None:
+            return 0.0
+        own = self.halves.get(video, [])
+        if len(own) >= rule.session_min_boxes:
+            return rule.session_floor * float(np.median(own))
+        every = [h for v in self.halves.values() for h in v]
+        if len(every) >= rule.session_min_boxes:
+            return rule.session_floor * float(np.median(every))
+        return 0.0
+
+    def __call__(self, images: Any, outputs: Any, video_indices: Any = None) -> Any:
+        """``outputs`` with the part points appended to every instance's nodes."""
+        import attrs
+        import torch
+
+        if outputs.pred_keypoints is None:
+            return outputs
+        kpts = outputs.pred_keypoints.detach().float().cpu().numpy()
+        B, n_inst = kpts.shape[:2]
+        vids = (
+            np.zeros(B, dtype=np.int64)
+            if video_indices is None
+            else np.asarray(
+                video_indices.cpu() if torch.is_tensor(video_indices) else video_indices
+            ).astype(np.int64)
+        )
+        raw: Dict[Tuple[int, int], np.ndarray] = {}
+        for b in range(B):
+            for i in range(n_inst):
+                if np.isnan(kpts[b, i]).all():
+                    continue
+                box, _ = self.rule.box(kpts[b, i], self.resolved, 0.0)
+                if box is not None:
+                    raw[(b, i)] = box
+                    self.halves.setdefault(int(vids[b]), []).append(
+                        float(box[2] - box[0]) / 2
+                    )
+        boxes = np.full((B, max(n_inst, 1), 4), np.nan, dtype=np.float32)
+        scores = np.full((B, max(n_inst, 1)), np.nan, dtype=np.float32)
+        inst_scores = (
+            outputs.instance_scores.detach().float().cpu().numpy()
+            if outputs.instance_scores is not None
+            else np.ones((B, n_inst), dtype=np.float32)
+        )
+        for (b, i), _ in raw.items():
+            floor = self._floor(int(vids[b]))
+            self.last_floors[int(vids[b])] = floor
+            box, _ = self.rule.box(kpts[b, i], self.resolved, floor)
+            boxes[b, i] = box
+            s = inst_scores[b, i]
+            scores[b, i] = s if np.isfinite(s) else 1.0
+        part = self.layer.predict(
+            images,
+            frame_boxes=torch.from_numpy(boxes),
+            frame_box_scores=torch.from_numpy(scores),
+        )
+        device = outputs.pred_keypoints.device
+        pk = part.pred_keypoints
+        pv = part.pred_peak_values
+        n_part = pk.shape[-2]
+        # Part slot k comes from box k = pose slot k; pad or cut to the pose slots.
+        full_k = torch.full((B, n_inst, n_part, 2), float("nan"), device=device)
+        full_v = torch.full((B, n_inst, n_part), float("nan"), device=device)
+        m = min(n_inst, pk.shape[1])
+        full_k[:, :m] = pk[:, :m].to(device)
+        full_v[:, :m] = pv[:, :m].to(device)
+        vals = outputs.pred_peak_values
+        if vals is None:
+            vals = torch.full(
+                outputs.pred_keypoints.shape[:3], float("nan"), device=device
+            )
+        return attrs.evolve(
+            outputs,
+            pred_keypoints=torch.cat([outputs.pred_keypoints, full_k], dim=2),
+            pred_peak_values=torch.cat([vals.to(device), full_v], dim=2),
+            pred_crop_keypoints=None,
+        )
+
+
+def build_streaming_part_stage(
+    base_skeleton: sio.Skeleton,
+    part_model_paths: Sequence[str],
+    rule: Union[str, Path, Dict[str, Any], KeypointCropRule],
+    *,
+    device: str = "auto",
+    batch_size: int = 4,
+    precision: str = "32",
+    node_filter: Optional[Union[str, List[str]]] = None,
+    strip_prefix: Optional[Union[bool, str]] = None,
+    peak_threshold: Optional[float] = None,
+    part_prefix: Optional[str] = None,
+) -> Tuple[StreamingPartStage, sio.Skeleton]:
+    """``(StreamingPartStage, merged skeleton)`` for a pose predictor's skeleton.
+
+    The part model is loaded as :func:`run_part_stage` loads it; the merged
+    skeleton (pose nodes, then the part nodes with ``part_prefix``) is the one
+    :func:`merge_part_predictions` would build.
+    """
+    from sleap_nn.inference.predictor import Predictor
+
+    rule = KeypointCropRule.load(rule)
+    kwargs: Dict[str, Any] = dict(
+        device=device, batch_size=batch_size, boxes="given", box_score_threshold=0.0
+    )
+    if precision != "32":
+        kwargs["precision"] = precision
+    if node_filter is not None:
+        kwargs["node_filter"] = node_filter
+        kwargs["strip_prefix"] = strip_prefix
+    if peak_threshold is not None:
+        kwargs["peak_threshold"] = peak_threshold
+    part = Predictor.from_model_paths(list(part_model_paths), **kwargs)
+    merged, _ = _merged_skeleton(base_skeleton, part.skeleton, part_prefix)
+    layer = part._scoped_postprocess_layer(peak_threshold=peak_threshold)
+    stage = StreamingPartStage(layer, rule, base_skeleton.node_names)
+    stage.part_provenance = dict(
+        model_paths=[str(p) for p in part_model_paths],
+        node_filter=node_filter,
+        peak_threshold=peak_threshold,
+    )
+    return stage, merged

@@ -1345,6 +1345,9 @@ class Predictor:
     # Centroid-only output representation: "instance" (default; single-node
     # PredictedInstance), "centroid" (sio.PredictedCentroid), or "both".
     emit_centroid: str = "instance"
+    # A part stage run on each batch right after the pose stage
+    # (keypoint_crops.StreamingPartStage; ``predict(part_streaming=True)``).
+    part_stage: Optional[Any] = None
 
     def __attrs_post_init__(self) -> None:
         """Resolve OKS-NMS sigmas; warn if ``paf_workers`` can't be used.
@@ -2349,6 +2352,8 @@ class Predictor:
             return_class_maps=return_class_maps,
             return_class_vectors=return_class_vectors,
         )
+        if self.part_stage is not None:
+            self.part_stage.reset()
         outputs_list = list(self._batch_iter(provider, progress_callback, layer=layer))
         _prov_end = datetime.now()
 
@@ -2518,6 +2523,8 @@ class Predictor:
             return_class_maps=return_class_maps,
             return_class_vectors=return_class_vectors,
         )
+        if self.part_stage is not None:
+            self.part_stage.reset()
         if self.paf_workers > 0 and self._can_pipeline():
             yield from self._predict_streaming_pipelined(
                 provider, progress_callback, layer=layer
@@ -2718,6 +2725,10 @@ class Predictor:
                 kwargs["frame_sizes"] = batch.frame_sizes
             outputs = layer.predict(batch.images, **kwargs)
             outputs = pipeline(outputs)
+            if self.part_stage is not None:
+                outputs = self.part_stage(
+                    batch.images, outputs, getattr(batch, "video_indices", None)
+                )
             outputs = self._stamp_metadata(outputs, batch)
             yield outputs
             if progress_callback is not None:

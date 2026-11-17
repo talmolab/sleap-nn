@@ -1320,6 +1320,8 @@ def _run_inference_impl(**kwargs):
         _check_box_seeding_flags(kwargs, stream_to_file)
     if kwargs.get("part_model") is not None:
         _check_part_stage_flags(kwargs, stream_to_file)
+    if kwargs.get("part_streaming") and kwargs.get("part_model") is None:
+        raise click.UsageError("--part_streaming needs --part_model.")
 
     # ── Stream-to-file path: new Predictor + IncrementalLabelsWriter ───
     if stream_to_file is not None:
@@ -1367,6 +1369,7 @@ def _part_stage_kwargs(kwargs: dict) -> dict:
         "part_strip_prefix": None,
         "part_peak_threshold": kwargs.get("part_peak_threshold"),
         "part_prefix": kwargs.get("part_prefix"),
+        "part_streaming": bool(kwargs.get("part_streaming")),
     }
 
 
@@ -4179,6 +4182,16 @@ def _common_inference_options(f):
             type=str,
             default=None,
             help="Prefix for the part nodes in the merged skeleton.",
+        ),
+        click.option(
+            "--part_streaming",
+            is_flag=True,
+            default=False,
+            help=(
+                "Run --part_model on each batch right after the pose stage (no second "
+                "read of the frames), with a running crop floor (median over the "
+                "frames so far) instead of the whole-video floor."
+            ),
         ),
         click.option(
             "--rescore/--no-rescore",

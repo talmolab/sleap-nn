@@ -489,6 +489,7 @@ def predict(
     node_filter: Optional[Union[str, List[str]]] = None,
     strip_prefix: Optional[Union[bool, str]] = None,
     # Part stage: crops from the predicted keypoints (off unless part_model_paths)
+    part_streaming: bool = False,
     part_model_paths: Optional[List[str]] = None,
     part_crop_rule: Optional[Any] = None,
     part_node_filter: Optional[Union[str, List[str]]] = None,
@@ -634,6 +635,11 @@ def predict(
             models (export them filtered instead).
         strip_prefix: Rename the kept nodes: ``True`` strips the ``node_filter``
             prefix, a string strips that prefix.
+        part_streaming: Run the part stage on each batch right after the pose
+            stage, on the frames already in memory, with a running crop floor (the
+            median over the frames so far) instead of the whole-video floor
+            (:class:`~sleap_nn.inference.keypoint_crops.StreamingPartStage`).
+            ``False`` (default): the part stage runs after the whole video.
         part_model_paths: A part model (a centered-instance crop model) to run
             after the pose model, on square crops built from each predicted
             instance's keypoints by ``part_crop_rule``
@@ -923,6 +929,25 @@ def predict(
             build_kwargs["max_instances"] = max_instances
         predictor = Predictor.from_export_dir(export_dir, **build_kwargs)
 
+    part_stream = None
+    if part_model_paths and part_streaming:
+        from sleap_nn.inference.keypoint_crops import build_streaming_part_stage
+
+        part_stream, merged = build_streaming_part_stage(
+            predictor.skeleton,
+            part_model_paths,
+            part_crop_rule,
+            device=device,
+            batch_size=batch_size,
+            precision=precision,
+            node_filter=part_node_filter,
+            strip_prefix=part_strip_prefix,
+            peak_threshold=part_peak_threshold,
+            part_prefix=part_prefix,
+        )
+        predictor.part_stage = part_stream
+        predictor.skeleton = merged
+
     # Run inference with prediction-time overrides
     labels = predictor.predict(
         source,
@@ -945,7 +970,17 @@ def predict(
         return_class_vectors=return_class_vectors,
     )
 
-    if part_model_paths:
+    if part_stream is not None:
+        labels.provenance["part_stage"] = dict(
+            rule=part_stream.rule.to_dict(),
+            part_prefix=part_prefix,
+            streaming=True,
+            running_floors_at_end={
+                int(k): round(float(v), 3) for k, v in part_stream.last_floors.items()
+            },
+            part_provenance=part_stream.part_provenance,
+        )
+    elif part_model_paths:
         from sleap_nn.inference.keypoint_crops import run_part_stage
 
         labels = run_part_stage(
