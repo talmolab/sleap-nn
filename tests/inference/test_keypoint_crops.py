@@ -833,3 +833,71 @@ def test_streaming_stage_cost_does_not_grow_with_history():
     big.halves[0], big.every = filled(300_000), filled(300_000)
     t_big = min(per_frame_ms(big) for _ in range(2))
     assert t_big < 2 * t_small + 1.0, (t_small, t_big)
+
+
+def test_running_median_remove_matches_np_median():
+    """Removing values (ties included) keeps the median equal to np.median of what is left."""
+    from sleap_nn.inference.keypoint_crops import RunningMedian
+
+    rng = np.random.default_rng(3)
+    vals = list(rng.integers(0, 20, 400).astype(float)) + list(rng.normal(5, 3, 400))
+    rm = RunningMedian()
+    for v in vals:
+        rm.add(v)
+    left = list(vals)
+    for k in rng.permutation(len(vals))[:700]:
+        x = vals[k]
+        rm.remove(x)
+        left.remove(x)
+        assert rm.median() == float(np.median(left))
+    with pytest.raises(ValueError):
+        rm.remove(1e9)
+    rm.add(float("nan"))
+    rm.remove(float("nan"))
+    assert len(rm) == len(left)
+
+
+def test_streaming_stage_failure_leaves_the_floor_as_it_was():
+    """A part model that raises inside the stage adds nothing to the floor history."""
+    import torch
+
+    from sleap_nn.inference.keypoint_crops import StreamingPartStage
+    from sleap_nn.inference.outputs import Outputs
+
+    class _Part:
+        fail = False
+
+        def predict(self, images, frame_boxes, frame_box_scores):
+            if self.fail:
+                raise RuntimeError("boom")
+            B, k = frame_boxes.shape[:2]
+            return Outputs(
+                pred_keypoints=torch.zeros(B, k, 1, 2),
+                pred_peak_values=torch.ones(B, k, 1),
+            )
+
+    rule = KeypointCropRule(
+        center=["a"], reference=["b"], scale=1.0, session_floor=1.0, session_min_boxes=2
+    )
+    part = _Part()
+    stage = StreamingPartStage(part, rule, ["a", "b"])
+    rng = np.random.default_rng(0)
+
+    def frame():
+        return Outputs(
+            pred_keypoints=torch.from_numpy(
+                rng.normal(100, 30, (1, 3, 2, 2)).astype(np.float32)
+            )
+        )
+
+    for _ in range(5):
+        stage(torch.zeros(1, 1, 8, 8), frame(), torch.tensor([0]))
+    before = (len(stage.halves[0]), stage.halves[0].median(), len(stage.every))
+    floors = dict(stage.last_floors)
+    part.fail = True
+    with pytest.raises(RuntimeError, match="boom"):
+        stage(torch.zeros(1, 1, 8, 8), frame(), torch.tensor([0]))
+    with pytest.raises(RuntimeError, match="boom"):  # a new video: removed again
+        stage(torch.zeros(1, 1, 8, 8), frame(), torch.tensor([1]))
+    assert (len(stage.halves[0]), stage.halves[0].median(), len(stage.every)) == before
+    assert 1 not in stage.halves and stage.last_floors == floors

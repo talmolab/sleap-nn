@@ -551,36 +551,48 @@ zero rows.
 - **Same result as `predict`.** Pushing a video's frames one by one gives the
   points of `sleap-nn predict --batch_size 1 --part_streaming` (bit-identical
   in the tests). Per-frame options (`peak_threshold`, `centroid_threshold`,
-  `max_instances`, `filter_config`, ...) mean what they mean for `predict`.
+  `max_instances`, `filter_config`, ...) mean what they mean for `predict`;
+  arguments `open_stream` does not list take `predict`'s defaults.
+- **Models.** The models must end in keypoints: a single-instance or bottom-up
+  model, or a top-down pair (a centroid model or a box detector, with a
+  centered-instance model). Others (a lone detector or centroid model) raise at
+  open.
 - **Input.** `uint8` numpy arrays or tensors, `(H, W)` or `(H, W, C)` with `C` 1 or
-  3. Colour frames are taken as RGB (what sleap-io gives); pass
-  `channel_order="bgr"` for OpenCV frames. Anything else raises. All frames of a
-  stream have one size: a different size raises until you call `stream.reset()`,
-  which also starts a new video (frame counter, the part stage's running crop size).
+  3, in any memory layout. Colour frames are taken as RGB (what sleap-io gives);
+  pass `channel_order="bgr"` for OpenCV frames. Anything else raises. All frames
+  of a stream have one size: a different size raises until you call
+  `stream.reset()`, which also starts a new video (frame counter, the part stage's
+  running crop size). A `push` that raises leaves the stream as it was.
+- **Warm-up.** With `frame_shape=`, `open_stream` runs every network on dummy
+  data first (the first stage, the pose model on 1-4 crops, the part model);
+  without it there is no warm-up and the first frames are slower.
 - **No tracker.** Instances come in detection order; identities are not kept across
   frames. Run a tracker on the results yourself.
-- **Keeping results.** `keep=True` keeps every frame's outputs for
-  `stream.labels()` / `stream.save("out.slp")`; memory grows with every frame, so
-  leave it off for long live runs.
+- **Keeping results.** `keep=True` keeps every frame's outputs (on the CPU) for
+  `stream.labels()` / `stream.save("out.slp")`, one video per `reset()`; memory
+  grows with every frame, so leave it off for long live runs.
 - **One caller.** A stream is meant for one thread pushing frames in order.
 
-Real-time settings: TensorRT bf16 export folders, frames moved to the GPU
-before the first stage, and a box detector exported at 576 x 768. A smaller
-detector input finds fewer small animals: check it on your views first (in our
-top-view mouse tests it held for views where mice are about 64 px or larger in the
-full frame).
+#### Settings for low latency
+
+TensorRT bf16 export folders (`--network-only` for the centered-instance and
+part models) and frames moved to the GPU before the first stage:
+
+```bash
+sleap-nn export models/detector -o low_latency/detector --format tensorrt --precision bf16 --device cuda
+sleap-nn export models/pose -o low_latency/pose --network-only --input-dtype float32 --format tensorrt --precision bf16 --device cuda
+sleap-nn export models/tail -o low_latency/tail --network-only --input-dtype float32 --format tensorrt --precision bf16 --device cuda
+```
 
 ```python
-# sleap-nn export models/detector -o rt/detector --format tensorrt --precision bf16 \
-#     --input-height 576 --input-width 768      (pose and part models: --precision bf16)
-stream = open_stream(["rt/detector", "rt/pose"], runtime="tensorrt",
-                     frames_on_gpu=True, part_model_paths=["rt/tail"],
+stream = open_stream(["low_latency/detector", "low_latency/pose"], runtime="tensorrt",
+                     frames_on_gpu=True, part_model_paths=["low_latency/tail"],
                      part_crop_rule="tail_crop_rule.json", frame_shape=(1024, 1280, 3))
 ```
 
-Whether a set-up keeps up with a camera depends on the card, the CPU and the
-number of animals: time it on your machine with `stream.last_latency_ms` (from the
-`push` call to the results back as numpy arrays) before relying on it.
+How long a `push` takes depends on the card, the CPU and the number of animals:
+time it on your machine with `stream.last_latency_ms` (from the `push` call to the
+results back as numpy arrays) before relying on it.
 
 ---
 

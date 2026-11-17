@@ -27,12 +27,14 @@ Usage::
 
 from __future__ import annotations
 
+import inspect
 from datetime import datetime
 from pathlib import Path
 from typing import (
     TYPE_CHECKING,
     Any,
     Callable,
+    Dict,
     List,
     Optional,
     Sequence,
@@ -1163,6 +1165,15 @@ def predict(
     return labels
 
 
+def _predict_defaults() -> Dict[str, Any]:
+    """``predict``'s keyword defaults (the one place they are written)."""
+    return {
+        k: p.default
+        for k, p in inspect.signature(predict).parameters.items()
+        if p.default is not inspect.Parameter.empty
+    }
+
+
 def open_stream(
     model_paths: List[str],
     *,
@@ -1192,23 +1203,25 @@ def open_stream(
     frame_shape: Optional[Tuple[int, ...]] = None,
     channel_order: str = "rgb",
     keep: bool = False,
-    tracker: Any = None,
 ):
     """Open a frame-in, pose-out stream (:class:`~sleap_nn.inference.stream.PoseStream`).
 
     Builds the same pipeline as :func:`predict` with the same model arguments
     (checkpoints, or network-only export folders as ``model_paths`` with
     ``runtime``), at batch size 1, with the part stage streaming
-    (``part_streaming=True``). Per-frame options (``peak_threshold``,
-    ``centroid_threshold``, ``keypoint_threshold``, ``max_instances``, the
-    refinement, ``filter_config``) mean what they mean for :func:`predict`.
+    (``part_streaming=True``). Arguments not listed here take :func:`predict`'s
+    defaults. Per-frame options (``peak_threshold``, ``centroid_threshold``,
+    ``keypoint_threshold``, ``max_instances``, the refinement, ``filter_config``) mean
+    what they mean for :func:`predict`. The models must end in keypoints
+    (single-instance, bottom-up, or a top-down pair); others raise ``ValueError``.
 
     Args:
         model_paths: Model directories (checkpoints, or network-only export folders
             run with ``runtime``), as for :func:`predict`.
         device: As for :func:`predict` (``"auto"``: CUDA, then MPS, then CPU).
         precision: As for :func:`predict` (``"32"``, ``"bf16"``, ``"fp16"``).
-        runtime: Runtime of network-only export folders, as for :func:`predict`.
+        runtime: Runtime of network-only export folders, as for :func:`predict`
+            (the part model's too).
         preprocess_config: As for :func:`predict`.
         anchor_part: As for :func:`predict`.
         bbox_nms_iou: As for :func:`predict` (box detectors).
@@ -1231,12 +1244,13 @@ def open_stream(
         integral_refinement: As for :func:`predict`.
         integral_patch_size: As for :func:`predict`.
         frame_shape: ``(H, W)`` or ``(H, W, C)`` of the frames to come: when given,
-            :meth:`PoseStream.warmup` runs before the stream is returned.
+            :meth:`PoseStream.warmup` runs before the stream is returned. Without
+            it there is no warm-up, and the first frames pay the networks'
+            first-call costs.
         channel_order: ``"rgb"`` (default, as sleap-io readers give) or ``"bgr"``
             (as OpenCV gives): colour frames in BGR are swapped to RGB.
-        keep: Keep every frame's outputs for :meth:`PoseStream.labels` /
-            :meth:`PoseStream.save` (memory grows with every frame pushed).
-        tracker: Reserved; must be ``None`` (no tracker runs inside the stream).
+        keep: Keep every frame's outputs (on the CPU) for :meth:`PoseStream.labels`
+            / :meth:`PoseStream.save`; memory grows with every frame pushed.
 
     Returns:
         A :class:`~sleap_nn.inference.stream.PoseStream`.
@@ -1245,9 +1259,8 @@ def open_stream(
 
         from sleap_nn.inference.run import open_stream
 
-        with open_stream(["models/detector", "models/pose"], frames_on_gpu=True,
-                         part_model_paths=["models/tail"], part_crop_rule="rule.json",
-                         frame_shape=(1024, 1280, 3), channel_order="bgr") as stream:
+        with open_stream(["models/detector", "models/pose"], channel_order="bgr",
+                         frame_shape=(1024, 1280, 3)) as stream:
             for frame in camera:                      # uint8 H x W x C frames
                 poses = stream.push(frame)            # this frame's instances
                 print(len(poses), poses.points.shape, stream.last_latency_ms)
@@ -1264,7 +1277,13 @@ def open_stream(
             if torch.cuda.is_available()
             else "mps" if torch.backends.mps.is_available() else "cpu"
         )
-    predictor, _ = _build_predictor(
+    defaults = _predict_defaults()
+    build = {
+        name: defaults[name]
+        for name in inspect.signature(_build_predictor).parameters
+        if name in defaults
+    }
+    build.update(
         device=device,
         batch_size=1,
         paf_workers=0,
@@ -1273,40 +1292,15 @@ def open_stream(
         filter_config=filter_config,
         tracker_config=None,
         model_paths=list(model_paths),
-        backbone_ckpt_path=None,
-        head_ckpt_path=None,
         preprocess_config=preprocess_config,
         anchor_part=anchor_part,
         peak_threshold=peak_threshold,
         max_instances=max_instances,
-        centroid_only=False,
-        emit_centroid="instance",
-        max_edge_length_ratio=0.25,
-        dist_penalty_weight=1.0,
-        n_points=10,
-        min_instance_peaks=0,
-        min_line_scores=0.25,
-        fg_threshold=0.5,
-        min_mask_area=0,
-        center_nms_kernel=3,
-        mask_cleanup=False,
-        mask_cleanup_radius=0,
-        distance_gate_alpha=None,
         bbox_nms_iou=bbox_nms_iou,
-        merge_fragments=False,
-        merge_method="greedy",
-        merge_thresholds=(0.85, 0.6, 0.4),
-        merge_w_valley=1.0,
-        merge_w_offset=0.25,
-        merge_dilate=1,
-        full_res_masks=False,
-        mask_output="mask",
-        polygon_epsilon=0.01,
         flip_test=flip_test,
         frames_on_gpu=frames_on_gpu,
         runtime=runtime,
         box_mode=None,
-        box_score_threshold=0.0,
         node_filter=node_filter,
         strip_prefix=strip_prefix,
         part_model_paths=part_model_paths,
@@ -1317,6 +1311,7 @@ def open_stream(
         part_peak_threshold=part_peak_threshold,
         part_prefix=part_prefix,
     )
+    predictor, _ = _build_predictor(**build)
     layer = predictor._scoped_postprocess_layer(
         peak_threshold=peak_threshold,
         centroid_threshold=centroid_threshold,
@@ -1325,9 +1320,7 @@ def open_stream(
         integral_refinement=integral_refinement,
         integral_patch_size=integral_patch_size,
     )
-    stream = PoseStream(
-        predictor, layer, channel_order=channel_order, keep=keep, tracker=tracker
-    )
+    stream = PoseStream(predictor, layer, channel_order=channel_order, keep=keep)
     if frame_shape is not None:
         stream.warmup(frame_shape)
     return stream

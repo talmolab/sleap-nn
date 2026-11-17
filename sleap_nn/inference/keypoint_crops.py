@@ -502,6 +502,29 @@ def _heap_push(h: array, x: float) -> None:
     h[i] = x
 
 
+def _heap_sift(h: array, i: int) -> None:
+    """Restore the min-heap ``h`` after the value at ``i`` was replaced."""
+    x = h[i]
+    n = len(h)
+    while i:  # up
+        p = (i - 1) >> 1
+        if h[p] <= x:
+            break
+        h[i] = h[p]
+        i = p
+    while True:  # down
+        c = 2 * i + 1
+        if c >= n:
+            break
+        if c + 1 < n and h[c + 1] < h[c]:
+            c += 1
+        if h[c] >= x:
+            break
+        h[i] = h[c]
+        i = c
+    h[i] = x
+
+
 def _heap_pop(h: array) -> float:
     """Remove and return the smallest value of the min-heap ``h``."""
     last = h.pop()
@@ -562,6 +585,35 @@ class RunningMedian:
             _heap_push(hi, -_heap_pop(lo))
         elif len(hi) > len(lo):
             _heap_push(lo, -_heap_pop(hi))
+
+    def remove(self, x: float) -> None:
+        """Remove one value added before (O(n) search; for undoing a failed step).
+
+        Raises:
+            ValueError: ``x`` is not in the set.
+        """
+        x = float(x)
+        if x != x:
+            if not self._nan:
+                raise ValueError("No NaN value to remove.")
+            self._nan -= 1
+            return
+        lo, hi = self._lo, self._hi
+        for h, key in ((lo, -x), (hi, x)):
+            try:
+                i = h.index(key)
+            except ValueError:
+                continue
+            last = h.pop()
+            if i < len(h):
+                h[i] = last
+                _heap_sift(h, i)
+            if len(lo) > len(hi) + 1:
+                _heap_push(hi, -_heap_pop(lo))
+            elif len(hi) > len(lo):
+                _heap_push(lo, -_heap_pop(hi))
+            return
+        raise ValueError(f"{x} is not in the set.")
 
     def median(self) -> float:
         """The median of every value added (NaN when empty or when any value is NaN)."""
@@ -656,14 +708,16 @@ class StreamingPartStage:
         return 0.0
 
     def __call__(self, images: Any, outputs: Any, video_indices: Any = None) -> Any:
-        """``outputs`` with the part points appended to every instance's nodes."""
-        import attrs
+        """``outputs`` with the part points appended to every instance's nodes.
+
+        A call that raises leaves the running floors as they were.
+        """
         import torch
 
         if outputs.pred_keypoints is None:
             return outputs
         kpts = outputs.pred_keypoints.detach().float().cpu().numpy()
-        B, n_inst = kpts.shape[:2]
+        B = kpts.shape[0]
         vids = (
             np.zeros(B, dtype=np.int64)
             if video_indices is None
@@ -671,6 +725,33 @@ class StreamingPartStage:
                 video_indices.cpu() if torch.is_tensor(video_indices) else video_indices
             ).astype(np.int64)
         )
+        added: List[Tuple[int, float]] = []
+        floors_before = dict(self.last_floors)
+        try:
+            return self._call(images, outputs, kpts, vids, added)
+        except BaseException:
+            # Leave the floors as they were: a failed call adds nothing to the history.
+            for video, half in reversed(added):
+                med = self.halves[video]
+                med.remove(half)
+                if not len(med):
+                    del self.halves[video]
+                self.every.remove(half)
+            self.last_floors = floors_before
+            raise
+
+    def _call(
+        self,
+        images: Any,
+        outputs: Any,
+        kpts: np.ndarray,
+        vids: np.ndarray,
+        added: List[Tuple[int, float]],
+    ) -> Any:
+        import attrs
+        import torch
+
+        B, n_inst = kpts.shape[:2]
         raw: Dict[Tuple[int, int], np.ndarray] = {}
         for b in range(B):
             for i in range(n_inst):
@@ -687,6 +768,7 @@ class StreamingPartStage:
                         med = self.halves[int(vids[b])] = RunningMedian()
                     med.add(half)
                     self.every.add(half)
+                    added.append((int(vids[b]), half))
         boxes = np.full((B, max(n_inst, 1), 4), np.nan, dtype=np.float32)
         scores = np.full((B, max(n_inst, 1)), np.nan, dtype=np.float32)
         inst_scores = (
