@@ -68,3 +68,19 @@ def test_opt_batch_size(monkeypatch, minimal_instance_centered_instance_ckpt, tm
         monkeypatch, ckpt, tmp_path, "--max-batch-size", "8", "--opt-batch-size", "16"
     )
     assert result.exit_code != 0 and "--opt-batch-size" in result.output
+
+
+def test_bf16_precision_reaches_the_builder(
+    monkeypatch, minimal_instance_centered_instance_ckpt, tmp_path
+):
+    """`--precision bf16` is accepted and passed to the TensorRT builder."""
+    pytest.importorskip("onnx")
+    result, seen = _export_profiles(
+        monkeypatch,
+        minimal_instance_centered_instance_ckpt,
+        tmp_path,
+        "--precision",
+        "bf16",
+    )
+    assert result.exit_code == 0, result.output
+    assert seen["precision"] == "bf16"

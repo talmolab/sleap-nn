@@ -79,10 +79,12 @@ CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"]}
 @click.option("--device", type=str, default="cpu", show_default=True)
 @click.option(
     "--precision",
-    type=click.Choice(["fp32", "fp16", "tf32"], case_sensitive=False),
+    type=click.Choice(["fp32", "fp16", "tf32", "bf16"], case_sensitive=False),
     default="fp16",
     show_default=True,
-    help="TensorRT precision mode.",
+    help="TensorRT precision mode. 'bf16' (TensorRT >= 10) keeps fp32's range: use it "
+    "for models whose activations overflow fp16 (e.g. a DINOv3 bbox_detr detector "
+    "loses boxes in fp16).",
 )
 @click.option(
     "--peak-threshold",
