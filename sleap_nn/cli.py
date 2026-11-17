@@ -2909,6 +2909,7 @@ def _run_in_memory_new_flow(
         "fg_threshold": kwargs.get("fg_threshold", 0.5),
         "bbox_nms_iou": kwargs.get("bbox_nms_iou"),
         "flip_test": kwargs.get("flip_test", False),
+        "frames_on_gpu": kwargs.get("frames_on_gpu", False),
         "boxes": kwargs.get("boxes"),
         "box_score_threshold": kwargs.get("box_score_threshold") or 0.0,
         **_node_filter_kwargs(kwargs),
@@ -3435,6 +3436,7 @@ def _run_stream_to_file(
         "fg_threshold": kwargs.get("fg_threshold", 0.5),
         "bbox_nms_iou": kwargs.get("bbox_nms_iou"),
         "flip_test": kwargs.get("flip_test", False),
+        "frames_on_gpu": kwargs.get("frames_on_gpu", False),
         **_node_filter_kwargs(kwargs),
         "min_mask_area": kwargs.get("min_mask_area", 0),
         "center_nms_kernel": kwargs.get("center_nms_kernel", 3),
@@ -4074,6 +4076,21 @@ def _common_inference_options(f):
                 "bottom-up models reject them. 'integral' restores the pre-0.4 "
                 "top-down decoding; 'none' returns grid-aligned peaks. Exported "
                 "(ONNX/TensorRT) models do no sub-pixel refinement."
+            ),
+        ),
+        click.option(
+            "--frames_on_gpu",
+            "--frames-on-gpu",
+            "frames_on_gpu",
+            is_flag=True,
+            default=False,
+            help=(
+                "Top-down pipelines only: move each batch of frames to the GPU "
+                "before stage 1, so the detector's resize / letterbox and the "
+                "crops' frame-size match run there instead of on the CPU. Results "
+                "are not bit-identical to the CPU resize: a uint8 resize on the GPU "
+                "rounds some pixels one grey level differently, which can move a box "
+                "near the score threshold."
             ),
         ),
         click.option(
