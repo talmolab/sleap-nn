@@ -4469,7 +4469,7 @@ requires-dist = [
     { name = "segment-anything", marker = "extra == 'sam'", specifier = ">=1.0" },
     { name = "skia-python", specifier = ">=87.0,<=138.0" },
     { name = "sleap-io", extras = ["pyav"], git = "https://github.com/talmolab/sleap-io?branch=release%2F0.10" },
-    { name = "tensorrt", marker = "(sys_platform == 'linux' and extra == 'tensorrt') or (sys_platform == 'win32' and extra == 'tensorrt')", specifier = ">=10.13.0" },
+    { name = "tensorrt", marker = "(sys_platform == 'linux' and extra == 'tensorrt') or (sys_platform == 'win32' and extra == 'tensorrt')", specifier = ">=10.13.0,<11" },
     { name = "textual", specifier = ">=0.40.0" },
     { name = "timm", marker = "extra == 'backbones'", specifier = ">=1.0.20" },
     { name = "torch" },

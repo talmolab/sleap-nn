@@ -115,7 +115,9 @@ export-gpu = [
     "onnxscript>=0.1.0",
 ]
 tensorrt = [
-    "tensorrt>=10.13.0; sys_platform == 'linux' or sys_platform == 'win32'",
+    # TensorRT 11 removed weak typing (the FP16 / BF16 builder flags and per-layer
+    # precision) that fp16 / bf16 exports use.
+    "tensorrt>=10.13.0,<11; sys_platform == 'linux' or sys_platform == 'win32'",
     "torch-tensorrt>=2.5.0; sys_platform == 'linux' or sys_platform == 'win32'",
 ]
 # SAM1 prompted-mask inference (`mask_backend="sam"`). Lazy: imported only inside
