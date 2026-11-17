@@ -565,21 +565,23 @@ def test_part_streaming_matches_two_pass_without_floor(
 
 
 def test_cli_part_streaming_needs_part_model(minimal_instance, tmp_path):
-    from click.testing import CliRunner
+    import click
 
     from sleap_nn.cli import cli
 
-    res = CliRunner().invoke(
-        cli,
-        [
-            "predict",
-            "-i",
-            str(minimal_instance),
-            "-m",
-            "x",
-            "--part_streaming",
-            "-o",
-            str(tmp_path / "p.slp"),
-        ],
-    )
-    assert res.exit_code != 0 and "--part_streaming needs --part_model" in res.output
+    # standalone_mode=False raises the UsageError itself (the formatted CLI output
+    # wraps and colours the message differently per terminal).
+    with pytest.raises(click.UsageError, match="--part_streaming needs --part_model"):
+        cli.main(
+            args=[
+                "predict",
+                "-i",
+                str(minimal_instance),
+                "-m",
+                "x",
+                "--part_streaming",
+                "-o",
+                str(tmp_path / "p.slp"),
+            ],
+            standalone_mode=False,
+        )
