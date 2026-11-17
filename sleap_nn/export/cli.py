@@ -38,12 +38,15 @@ CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"]}
 @click.option("--opset-version", type=int, default=17, show_default=True)
 @click.option(
     "--input-dtype",
-    type=click.Choice(["uint8", "float32"]),
-    default="uint8",
+    type=click.Choice(["auto", "uint8", "float32"]),
+    default="auto",
     show_default=True,
-    help="Box detectors only: dtype of the graph's frame input. The host resizes "
-    "frames to the model's input size first; 'float32' passes the resized frame "
-    "unrounded (parity with checkpoint inference), 'uint8' rounds it.",
+    help="Dtype of the graph's image input, for box detectors and --network-only "
+    "exports (the host prepares their inputs). 'float32' receives the checkpoint "
+    "path's own frame / crop, so exported and checkpoint predictions match up to "
+    "the runtime's numerics; 'uint8' receives it rounded (a resized frame then "
+    "differs by up to one grey level, which can move a bbox_detr's boxes slightly). "
+    "'auto': float32 for bbox_detr, uint8 for every other model type.",
 )
 @click.option(
     "--network-only",
@@ -256,7 +259,7 @@ def export(
             "training_config (data_config.preprocessing.crop_*)."
         )
 
-    if (input_dtype != "uint8" or network_only) and len(model_paths) > 1:
+    if (input_dtype not in ("auto", "uint8") or network_only) and len(model_paths) > 1:
         raise click.ClickException(
             "--input-dtype float32 and --network-only export one model directory "
             "at a time (run `sleap-nn predict` with one -m per exported stage)."
@@ -539,6 +542,10 @@ def export(
             input_shape = (1, c, h, w)
         model_out_path = export_dir / "model.onnx"
         is_detector = model_type in ("bbox_centernet", "bbox_ssd", "bbox_detr")
+        if input_dtype == "auto":
+            # A new export type, so its default may match checkpoint inference;
+            # every other type keeps the uint8 input it always had.
+            input_dtype = "float32" if model_type == "bbox_detr" else "uint8"
         if network_only and model_type != "centered_instance":
             raise click.ClickException(
                 "--network-only applies to centered_instance models (box detectors "

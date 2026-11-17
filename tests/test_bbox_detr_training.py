@@ -443,8 +443,11 @@ def test_bbox_detr_train_predict_eval(config, minimal_instance, tmp_path):
 
     _check_onnx_export_parity(run_dir, minimal_instance, labels, tmp_path)
     exported = Predictor.from_export_dir(
-        tmp_path / "exported", runtime="onnx", device="cpu"
+        tmp_path / "exported", runtime="onnx", device="cpu", peak_conf_threshold=0.0
     )
+    # A bbox_detr export takes float32 input by default (the checkpoint path's own
+    # canvas); every other model type keeps uint8.
+    assert exported.layer.input_dtype == "float32"
     # The frames here are square, where letterbox and squash agree: check the
     # mode itself reached the exported layer.
     assert exported.layer.preprocess_config.resize_mode == "squash"
@@ -455,23 +458,7 @@ def test_bbox_detr_train_predict_eval(config, minimal_instance, tmp_path):
 
     from sleap_nn.export.cli import export
 
-    f32 = tmp_path / "exported_f32"
-    result = CliRunner().invoke(
-        export,
-        [
-            str(run_dir),
-            "-o",
-            str(f32),
-            "--peak-threshold",
-            "0.0",
-            "--input-dtype",
-            "float32",
-        ],
-    )
-    assert result.exit_code == 0, result.output
-    f32_pred = Predictor.from_export_dir(f32, runtime="onnx", device="cpu")
-    assert f32_pred.layer.input_dtype == "float32"
-    f32_boxes = f32_pred.predict(minimal_instance.as_posix())[0].bboxes
+    f32_boxes = exported.predict(minimal_instance.as_posix())[0].bboxes
     a = np.array([b.xyxy for b in boxes])
     b = np.array([b.xyxy for b in f32_boxes])
     assert a.shape == b.shape
@@ -479,6 +466,15 @@ def test_bbox_detr_train_predict_eval(config, minimal_instance, tmp_path):
     np.testing.assert_allclose(
         [x.score for x in f32_boxes], [x.score for x in boxes], atol=1e-4
     )
+
+    # uint8 stays available on request (the other detectors' convention).
+    u8 = tmp_path / "exported_u8"
+    result = CliRunner().invoke(
+        export, [str(run_dir), "-o", str(u8), "--input-dtype", "uint8"]
+    )
+    assert result.exit_code == 0, result.output
+    u8_pred = Predictor.from_export_dir(u8, runtime="onnx", device="cpu")
+    assert u8_pred.layer.input_dtype == "uint8"
 
 
 def _other_skeleton_labels(minimal_instance, tmp_path):

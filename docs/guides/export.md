@@ -84,7 +84,7 @@ sleap-nn export MODEL_PATH [options]
 | `--precision` | TensorRT precision | `fp32`, `fp16`, `tf32` | `fp16` |
 | `--max-instances` | Max instances per frame | `INT` | `20` |
 | `--max-batch-size` | Max batch size | `INT` | `8` |
-| `--input-dtype` | Box detectors only: dtype of the graph's frame input (`float32` passes the host-resized frame unrounded) | `uint8`, `float32` | `uint8` |
+| `--input-dtype` | Box detectors and `--network-only` exports: dtype of the graph's image input (`float32` receives the checkpoint path's own input; `auto` = `float32` for `bbox_detr`, `uint8` otherwise) | `auto`, `uint8`, `float32` | `auto` |
 | `--nodes` | Export only these confmap nodes (`single_instance` / `centered_instance`, alone or in a top-down bundle); repeat or comma-separate | `TEXT` | all nodes |
 | `--node-prefix` | Export only the nodes whose name starts with the prefix | `TEXT` | `None` |
 | `--strip-prefix` | Name the `--node-prefix` nodes without the prefix in the exported metadata and `training_config` | Flag | `false` |
@@ -122,7 +122,7 @@ A box detector with a centered-instance model -- fixed or box-scaled crops
 the checkpoint directories:
 
 ```bash
-sleap-nn export models/detector -o exports/detector --format both --input-dtype float32
+sleap-nn export models/detector -o exports/detector --format both
 sleap-nn export models/pose -o exports/pose --format both --network-only --input-dtype float32 \
     --max-batch-size 64 --node-prefix my_set/ --strip-prefix
 sleap-nn export models/tail -o exports/tail --format both --network-only --input-dtype float32 \
