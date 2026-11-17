@@ -956,6 +956,7 @@ def predict(
             strip_prefix=part_strip_prefix,
             peak_threshold=part_peak_threshold,
             part_prefix=part_prefix,
+            export_runtime=runtime,
         )
         predictor.part_stage = part_stream
         predictor.skeleton = merged

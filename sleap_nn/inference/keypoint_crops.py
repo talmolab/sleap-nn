@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import copy
 import json
+from array import array
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
@@ -488,6 +489,99 @@ def run_part_stage(
     return merged
 
 
+def _heap_push(h: array, x: float) -> None:
+    """Push ``x`` onto the min-heap ``h`` (a typed float64 array)."""
+    h.append(x)
+    i = len(h) - 1
+    while i:
+        p = (i - 1) >> 1
+        if h[p] <= x:
+            break
+        h[i] = h[p]
+        i = p
+    h[i] = x
+
+
+def _heap_pop(h: array) -> float:
+    """Remove and return the smallest value of the min-heap ``h``."""
+    last = h.pop()
+    if not h:
+        return last
+    top = h[0]
+    n = len(h)
+    i = 0
+    while True:
+        c = 2 * i + 1
+        if c >= n:
+            break
+        if c + 1 < n and h[c + 1] < h[c]:
+            c += 1
+        if h[c] >= last:
+            break
+        h[i] = h[c]
+        i = c
+    h[i] = last
+    return top
+
+
+class RunningMedian:
+    """Exact median of a growing set of floats, equal to ``np.median`` of the same values.
+
+    Two binary heaps in typed float64 arrays: the lower half as a max-heap (stored
+    negated) and the upper half as a min-heap. ``add`` costs O(log n) and ``median``
+    O(1), so the cost per value stays flat however long the history gets. Memory: 8
+    bytes per value (the arrays over-allocate by about an eighth as they grow), e.g.
+    about 60 MB for a day of 3 animals at 30 frames/s. NaN values are counted, not
+    stored: with any NaN the median is NaN, as ``np.median`` gives.
+    """
+
+    __slots__ = ("_lo", "_hi", "_nan")
+
+    def __init__(self) -> None:
+        """Start empty."""
+        self._lo = array("d")  # lower half, negated (max-heap)
+        self._hi = array("d")  # upper half (min-heap)
+        self._nan = 0
+
+    def __len__(self) -> int:
+        """Number of values added."""
+        return len(self._lo) + len(self._hi) + self._nan
+
+    def add(self, x: float) -> None:
+        """Add one value."""
+        x = float(x)
+        if x != x:
+            self._nan += 1
+            return
+        lo, hi = self._lo, self._hi
+        if lo and x > -lo[0]:
+            _heap_push(hi, x)
+        else:
+            _heap_push(lo, -x)
+        if len(lo) > len(hi) + 1:
+            _heap_push(hi, -_heap_pop(lo))
+        elif len(hi) > len(lo):
+            _heap_push(lo, -_heap_pop(hi))
+
+    def median(self) -> float:
+        """The median of every value added (NaN when empty or when any value is NaN)."""
+        lo, hi = self._lo, self._hi
+        if self._nan or not lo:
+            return float("nan")
+        if len(lo) > len(hi):
+            return -lo[0]
+        return (-lo[0] + hi[0]) / 2
+
+    def values(self) -> np.ndarray:
+        """The values added (not in order; NaN values left out), as float64."""
+        return np.concatenate(
+            [
+                -np.frombuffer(self._lo, dtype=np.float64),
+                np.frombuffer(self._hi, dtype=np.float64),
+            ]
+        )
+
+
 class StreamingPartStage:
     """The part stage run on each batch right after the pose stage (``part_streaming``).
 
@@ -498,6 +592,9 @@ class StreamingPartStage:
     of the rule's boxes seen so far in that video (including the current batch),
     once at least ``session_min_boxes`` boxes were seen; before that, the median
     over every video so far, or no floor. Nothing waits for the end of the video.
+    The medians are exact running medians (:class:`RunningMedian`): the cost per
+    frame does not grow with the history, and the history takes 8 bytes per box
+    for its video plus 8 for the all-video median.
 
     Each pose instance gets the part points of the crop built from its own
     keypoints (part slot ``k`` is pose slot ``k``); points below the part model's
@@ -516,24 +613,25 @@ class StreamingPartStage:
         self.layer = layer
         self.rule = rule
         self.resolved = rule.resolve(list(body_node_names))
-        self.halves: Dict[int, List[float]] = {}
+        self.halves: Dict[int, RunningMedian] = {}
+        self.every = RunningMedian()
         self.last_floors: Dict[int, float] = {}
 
     def reset(self) -> None:
         """Forget the running floors (call at the start of each prediction run)."""
         self.halves = {}
+        self.every = RunningMedian()
         self.last_floors = {}
 
     def _floor(self, video: int) -> float:
         rule = self.rule
         if rule.session_floor is None:
             return 0.0
-        own = self.halves.get(video, [])
-        if len(own) >= rule.session_min_boxes:
-            return rule.session_floor * float(np.median(own))
-        every = [h for v in self.halves.values() for h in v]
-        if len(every) >= rule.session_min_boxes:
-            return rule.session_floor * float(np.median(every))
+        own = self.halves.get(video)
+        if own is not None and len(own) >= rule.session_min_boxes:
+            return rule.session_floor * float(own.median())
+        if len(self.every) >= rule.session_min_boxes:
+            return rule.session_floor * float(self.every.median())
         return 0.0
 
     def __call__(self, images: Any, outputs: Any, video_indices: Any = None) -> Any:
@@ -560,9 +658,9 @@ class StreamingPartStage:
                 box, _ = self.rule.box(kpts[b, i], self.resolved, 0.0)
                 if box is not None:
                     raw[(b, i)] = box
-                    self.halves.setdefault(int(vids[b]), []).append(
-                        float(box[2] - box[0]) / 2
-                    )
+                    half = float(box[2] - box[0]) / 2
+                    self.halves.setdefault(int(vids[b]), RunningMedian()).add(half)
+                    self.every.add(half)
         boxes = np.full((B, max(n_inst, 1), 4), np.nan, dtype=np.float32)
         scores = np.full((B, max(n_inst, 1)), np.nan, dtype=np.float32)
         inst_scores = (
@@ -617,10 +715,12 @@ def build_streaming_part_stage(
     strip_prefix: Optional[Union[bool, str]] = None,
     peak_threshold: Optional[float] = None,
     part_prefix: Optional[str] = None,
+    export_runtime: str = "auto",
 ) -> Tuple[StreamingPartStage, sio.Skeleton]:
     """``(StreamingPartStage, merged skeleton)`` for a pose predictor's skeleton.
 
-    The part model is loaded as :func:`run_part_stage` loads it; the merged
+    The part model is loaded as :func:`run_part_stage` loads it (``export_runtime``:
+    the runtime when the part model is a network-only export directory); the merged
     skeleton (pose nodes, then the part nodes with ``part_prefix``) is the one
     :func:`merge_part_predictions` would build.
     """
@@ -637,6 +737,8 @@ def build_streaming_part_stage(
         kwargs["strip_prefix"] = strip_prefix
     if peak_threshold is not None:
         kwargs["peak_threshold"] = peak_threshold
+    if export_runtime != "auto":
+        kwargs["export_runtime"] = export_runtime
     part = Predictor.from_model_paths(list(part_model_paths), **kwargs)
     merged, _ = _merged_skeleton(base_skeleton, part.skeleton, part_prefix)
     layer = part._scoped_postprocess_layer(peak_threshold=peak_threshold)
