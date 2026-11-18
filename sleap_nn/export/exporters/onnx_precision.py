@@ -258,7 +258,7 @@ def _scope_path(node) -> str:
 
 
 #: Ops an attention block may put between its logits product and the softmax: scale,
-#: mask, bias, layout. :func:`find_attention_logits` walks through them.
+#: mask, bias, soft-capping, layout. :func:`_find_attention_logits` walks through them.
 _LOGITS_PATH_OPS = frozenset(
     {
         "Mul",
@@ -273,40 +273,67 @@ _LOGITS_PATH_OPS = frozenset(
         "Squeeze",
         "Expand",
         "Identity",
+        "Tanh",
+        "Neg",
+        "Clip",
+        "Abs",
     }
 )
 
 
-def find_attention_logits(model, max_depth: int = 8) -> Tuple[list, list]:
+def _constant_tensors(graph) -> Set[str]:
+    """Tensors that depend only on initializers and constants (weights, folded or not)."""
+    const = {i.name for i in graph.initializer}
+    for n in graph.node:  # ONNX graphs are topologically sorted
+        ins = [i for i in n.input if i]
+        if n.op_type == "Constant" or (ins and all(i in const for i in ins)):
+            const.update(t for t in n.output if t)
+    return const
+
+
+def _subgraph_softmaxes(graph) -> int:
+    """Softmax nodes inside control-flow bodies (If / Loop / Scan), recursively."""
+    count = 0
+    for n in graph.node:
+        for a in n.attribute:
+            for sub in list(a.graphs) + ([a.g] if a.HasField("g") else []):
+                count += sum(m.op_type == "Softmax" for m in sub.node)
+                count += _subgraph_softmaxes(sub)
+    return count
+
+
+def _find_attention_logits(model, max_depth: int = 8) -> dict:
     """The logits products (Q.K^T) of a graph's attention blocks, found by structure.
 
-    For each ``Softmax`` node, walk upstream from its input through scale, mask,
-    bias and layout ops (:data:`_LOGITS_PATH_OPS`) to the nearest ``MatMul`` or
-    ``Einsum`` whose two inputs are both computed (not initializers or constants):
-    that node is the block's logits product. A product with a constant input (a
-    linear layer) ends that branch. Names play no part, so any exporter's naming
-    works; a fused attention op (an ONNX ``Attention`` node, a contrib op) has no
-    such product and its softmax, if any, is reported as unmatched. Control-flow
-    bodies are not searched.
+    For each ``Softmax`` node, walk upstream from its input through scale, mask, bias,
+    soft-capping and layout ops (:data:`_LOGITS_PATH_OPS`), at most ``max_depth``
+    steps, and collect EVERY ``MatMul`` / ``Einsum`` met whose two inputs are both
+    computed (neither depends only on initializers and constants: a linear layer's
+    weight, transposed or not, is a constant). The walk does not pass through a
+    product. Every candidate is kept: when a softmax has more than one (relative-
+    position terms, scores carried over from the previous block, a computed prior),
+    all of them stay fp32 (the safe side) and the softmax is reported as ambiguous.
+    Names play no part. A fused attention op has no product: its softmax, if any, is
+    reported as unmatched. Softmax nodes inside control-flow bodies are counted, not
+    handled.
 
     Returns:
-        ``(products, unmatched)``: the products' first output tensor names (unique in
-        a graph; what :func:`cast_onnx_precision` takes as ``keep_fp32_outputs``),
-        in graph order, and the names of the ``Softmax`` nodes with no product.
+        A dict: ``softmaxes`` (their node names, in graph order); ``products`` (the
+        candidates' first output tensor names, unique in a graph, in graph order: what
+        :func:`cast_onnx_precision` takes as ``keep_fp32_outputs``); ``by_softmax``
+        (softmax -> its candidates); ``unmatched`` (softmaxes with none);
+        ``ambiguous`` (softmax -> candidates, when more than one); ``shared``
+        (product -> softmaxes, when more than one reach it); ``in_subgraphs`` (the
+        number of softmaxes inside control-flow bodies).
     """
     g = model.graph
     producer = {t: n for n in g.node for t in n.output if t}
-    constant = {i.name for i in g.initializer} | {
-        t
-        for n in g.node
-        if n.op_type in ("Constant", "ConstantOfShape")
-        for t in n.output
-    }
-    products, unmatched = [], []
+    const = _constant_tensors(g)
+    by_softmax: Dict[str, list] = {}
     for sm in g.node:
         if sm.op_type != "Softmax" or not sm.input:
             continue
-        found, frontier, seen = None, [sm.input[0]], set()
+        cands, frontier, seen = [], [sm.input[0]], set()
         for _ in range(max_depth):
             nxt = []
             for t in frontier:
@@ -316,21 +343,30 @@ def find_attention_logits(model, max_depth: int = 8) -> Tuple[list, list]:
                 seen.add(id(n))
                 if n.op_type in ("MatMul", "Einsum"):
                     ins = [i for i in n.input if i]
-                    if len(ins) == 2 and not any(i in constant for i in ins):
-                        found = n
-                        break
-                    continue  # a linear layer: not attention logits
+                    if len(ins) == 2 and not any(i in const for i in ins):
+                        cands.append(n.output[0])
+                    continue  # never walk past a product (or a linear layer)
                 if n.op_type in _LOGITS_PATH_OPS:
-                    nxt += [i for i in n.input if i and i not in constant]
-            if found is not None or not nxt:
+                    nxt += [i for i in n.input if i and i not in const]
+            if not nxt:
                 break
             frontier = nxt
-        if found is None:
-            unmatched.append(sm.name or sm.output[0])
-        elif found.output[0] not in products:
-            products.append(found.output[0])
+        by_softmax[sm.name or sm.output[0]] = cands
     order = {n.output[0]: k for k, n in enumerate(g.node) if n.output}
-    return sorted(products, key=order.get), unmatched
+    products = sorted({t for c in by_softmax.values() for t in c}, key=order.get)
+    readers: Dict[str, list] = defaultdict(list)
+    for s, c in by_softmax.items():
+        for t in c:
+            readers[t].append(s)
+    return {
+        "softmaxes": list(by_softmax),
+        "products": products,
+        "by_softmax": by_softmax,
+        "unmatched": [s for s, c in by_softmax.items() if not c],
+        "ambiguous": {s: c for s, c in by_softmax.items() if len(c) > 1},
+        "shared": {t: r for t, r in readers.items() if len(r) > 1},
+        "in_subgraphs": _subgraph_softmaxes(g),
+    }
 
 
 def cast_onnx_precision(
@@ -350,7 +386,7 @@ def cast_onnx_precision(
             :data:`_KEEP_FP32_OPS_BF16` for bf16).
         keep_fp32_outputs: Nodes kept in fp32 besides those, named by an output
             tensor (e.g. the attention logits products of
-            :func:`find_attention_logits`); counted as ``"fp32 island"``. ``None``
+            :func:`_find_attention_logits`); counted as ``"fp32 island"``. ``None``
             (default): none.
 
     Returns:

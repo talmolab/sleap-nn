@@ -158,10 +158,18 @@ kernels accumulate it in fp16. `--fp32-attention-logits` (with `--precision fp16
 the strongly typed path: TensorRT 11, or `--strongly-typed` on 10.x) keeps that one
 product per attention block in fp32; everything else is the usual fp16 rewrite above,
 and in graphs that compute coordinates fp16 runs only inside the backbone (as `bf16`
-does). The products are found by structure (the `MatMul` / `Einsum` feeding each
-`Softmax` through scale, mask and layout ops), not by name; their count is written to
-the metadata (`fp32_islands`), and a graph with none (UNets, CenterNet / SSD heads)
-gets a warning and a plain fp16 engine. On an RTX PRO 6000 Blackwell with TensorRT
+does). The products are found by structure, not by name: every `MatMul` / `Einsum`
+with two computed inputs (not weights) that reaches a `Softmax` through scale, mask,
+bias, soft-capping and layout ops. When a softmax has more than one such candidate
+(relative-position terms, scores carried over from an earlier block), all of them stay
+fp32 and the softmax is reported. Softmaxes inside control-flow bodies (`If` / `Loop`)
+are counted and reported, not handled. The counts are written to the metadata
+(`fp32_islands`: softmaxes in scope, products, unmatched, ambiguous, shared). A graph
+with no products (UNets, CenterNet / SSD heads) gets a warning and the engine it would
+get without products: plain fp16 for crop (`--network-only`) graphs, and fp16 inside the
+backbone with fp32 elsewhere for graphs that compute coordinates. The `bbox_detr` and
+ViT fp16 warnings are held back with the option and printed after the build unless it
+kept products and left no softmax unmatched. On an RTX PRO 6000 Blackwell with TensorRT
 10.16, DINOv3 ViT-B detector, pose and tail engines built so kept TensorRT's fused
 attention kernel, ran at plain fp16 speed (detector 3.1 ms per 576 x 768 frame) and
 matched fp32 (same boxes on 200 frames, corners within 0.13 px at p99; 99.6% / 98.6%

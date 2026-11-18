@@ -15,12 +15,13 @@ onnx = pytest.importorskip("onnx")
 from onnx import TensorProto, helper, numpy_helper  # noqa: E402
 
 from sleap_nn.export.exporters.onnx_precision import (  # noqa: E402
+    _find_attention_logits,
     cast_onnx_precision,
-    find_attention_logits,
 )
 from sleap_nn.export.exporters.tensorrt_exporter import (  # noqa: E402
     BACKBONE_SCOPE,
     _check_fp32_islands,
+    _islands_record,
     _export_tensorrt_onnx,
     _write_typed_graph,
 )
@@ -91,6 +92,11 @@ def _attention_graph(kind="basic", blocks=1, prefix="/model/backbone/blocks"):
         nodes, "attn", inputs, [helper.make_tensor_value_info("y", F, [1, T, 2])], inits
     )
     return helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
+
+
+def find_attention_logits(m):
+    f = _find_attention_logits(m)
+    return f["products"], f["unmatched"]
 
 
 def _logits_names(m):
@@ -271,10 +277,10 @@ def test_coordinate_graphs_keep_fp32_outside_the_backbone(monkeypatch, tmp_path)
     assert "/model/head/MatMul" in reduced
 
 
-def test_vit_warning_names_the_remedy_and_is_silent_with_it(capsys):
+def test_vit_warning_names_the_remedy_and_waits_for_the_build(capsys):
     from omegaconf import OmegaConf
 
-    from sleap_nn.export.cli import _warn_fp16_vit_pose
+    from sleap_nn.export.cli import _emit_deferred_warnings, _warn_fp16_vit_pose
 
     vit = OmegaConf.create(
         {
@@ -283,11 +289,24 @@ def test_vit_warning_names_the_remedy_and_is_silent_with_it(capsys):
             }
         }
     )
-    args = (vit, "centered_instance", "pretrained", "tensorrt", "fp16")
-    _warn_fp16_vit_pose(*args)
-    assert "--fp32-attention-logits" in capsys.readouterr().out
-    _warn_fp16_vit_pose(*args, True)
-    assert capsys.readouterr().out == ""
+    _warn_fp16_vit_pose(vit, "centered_instance", "pretrained", "tensorrt", "fp16")
+    out = capsys.readouterr().out
+    assert "--fp32-attention-logits" in out and "tested on DINOv3 only" in out
+    shown = []
+    held = [lambda: shown.append(1)]
+    applied = _islands_record(
+        "attention_logits", True, products=12, softmax_unmatched=0
+    )
+    _emit_deferred_warnings(held, {"fp32_islands": applied})
+    assert shown == []  # products kept, none unmatched: dropped
+    for rec in (
+        _islands_record("attention_logits", False, products=0, softmax_unmatched=0),
+        _islands_record("attention_logits", True, products=11, softmax_unmatched=1),
+        _islands_record("attention_logits", False, reason="family built fp32"),
+    ):
+        _emit_deferred_warnings(held, {"fp32_islands": rec})
+    _emit_deferred_warnings(held, {})
+    assert shown == [1, 1, 1, 1]
 
 
 @pytest.mark.parametrize(
@@ -354,7 +373,9 @@ def test_family_fallback_wins_over_the_recipe(monkeypatch):
         fp32_islands="attention_logits",
     )
     assert seen == {"precision": "fp32", "fp32_islands": None}
-    assert info["fp32_islands"] == {"recipe": "attention_logits", "applied": False}
+    assert info["fp32_islands"] == _islands_record(
+        "attention_logits", False, reason="family built fp32"
+    )
     assert info["precision_requested"] == "fp16"
 
 
@@ -382,3 +403,162 @@ def test_unmatched_softmax_outside_the_scope_is_not_reported(
     assert "found no logits product" not in capsys.readouterr().out
     _, info = _build(monkeypatch, tmp_path / "w", m, fp32_islands="attention_logits")
     assert info["fp32_islands"]["softmax_unmatched"] == 1  # whole graph: reported
+
+
+def _graph_of(nodes, inputs, outputs, inits=()):
+    g = helper.make_graph(nodes, "g", inputs, outputs, list(inits))
+    return helper.make_model(g, opset_imports=[helper.make_opsetid("", 17)])
+
+
+def _vi(name, shape, t=F):
+    return helper.make_tensor_value_info(name, t, shape)
+
+
+def test_relative_position_terms_do_not_hide_the_logits_product():
+    """VitDet-style scores: Q.K^T + a nearer relative-position einsum (computed)."""
+    nodes = [
+        helper.make_node(
+            "Transpose", ["k"], ["kt"], name="/a/Transpose", perm=[0, 2, 1]
+        ),
+        helper.make_node("MatMul", ["q", "kt"], ["qk"], name="/a/MatMul"),
+        helper.make_node("Mul", ["qk", "s"], ["qks"], name="/a/Mul"),
+        helper.make_node(
+            "Einsum", ["q", "rel"], ["rb"], name="/a/Einsum_1", equation="btd,bsd->bts"
+        ),
+        helper.make_node("Add", ["rb", "qks"], ["z"], name="/a/Add"),
+        helper.make_node("Softmax", ["z"], ["p"], name="/a/Softmax", axis=-1),
+    ]
+    m = _graph_of(
+        nodes,
+        [_vi("q", [1, T, D]), _vi("k", [1, T, D]), _vi("rel", [1, T, D])],
+        [_vi("p", [1, T, T])],
+        [numpy_helper.from_array(np.float32(0.3), "s")],
+    )
+    f = _find_attention_logits(m)
+    # The nearest product is the relative-position einsum; Q.K^T must be kept too.
+    assert set(f["products"]) == {"qk", "rb"}
+    assert set(f["ambiguous"]["/a/Softmax"]) == {"qk", "rb"}
+    assert f["unmatched"] == []
+
+
+def test_scores_carried_from_the_previous_block():
+    """softmax2(prev scores + this block's scores): both products kept, one shared."""
+    nodes = [
+        helper.make_node("MatMul", ["q1", "k1"], ["l1"], name="/b1/MatMul"),
+        helper.make_node("Mul", ["l1", "s"], ["z1"], name="/b1/Mul"),
+        helper.make_node("Softmax", ["z1"], ["p1"], name="/b1/Softmax", axis=-1),
+        helper.make_node("MatMul", ["q2", "k2"], ["l2"], name="/b2/MatMul"),
+        helper.make_node("Mul", ["l2", "s"], ["z2"], name="/b2/Mul"),
+        helper.make_node("Add", ["z1", "z2"], ["zz"], name="/b2/Add"),
+        helper.make_node("Softmax", ["zz"], ["p2"], name="/b2/Softmax", axis=-1),
+    ]
+    ins = [_vi(n, [1, T, T]) for n in ("q1", "k1", "q2", "k2")]
+    m = _graph_of(
+        nodes,
+        ins,
+        [_vi("p1", [1, T, T]), _vi("p2", [1, T, T])],
+        [numpy_helper.from_array(np.float32(0.3), "s")],
+    )
+    f = _find_attention_logits(m)
+    assert f["products"] == ["l1", "l2"]
+    assert set(f["by_softmax"]["/b2/Softmax"]) == {"l1", "l2"}
+    assert f["shared"] == {"l1": ["/b1/Softmax", "/b2/Softmax"]}
+
+
+def test_a_transposed_weight_is_a_linear_layer_not_a_product():
+    nodes = [
+        helper.make_node("Transpose", ["w"], ["wt"], name="/h/Transpose", perm=[1, 0]),
+        helper.make_node("MatMul", ["x", "wt"], ["y"], name="/h/MatMul"),
+        helper.make_node("Softmax", ["y"], ["p"], name="/h/Softmax", axis=-1),
+    ]
+    m = _graph_of(
+        nodes,
+        [_vi("x", [1, T, D])],
+        [_vi("p", [1, T, D])],
+        [numpy_helper.from_array(np.ones((D, D), np.float32), "w")],
+    )
+    f = _find_attention_logits(m)
+    assert f["products"] == [] and f["unmatched"] == ["/h/Softmax"]
+
+
+def test_softmax_in_a_control_flow_body_is_counted(monkeypatch, tmp_path, capsys):
+    import sleap_nn.export.exporters.tensorrt_exporter as te
+
+    body = helper.make_graph(
+        [helper.make_node("Softmax", ["y"], ["pb"], name="/if/Softmax", axis=-1)],
+        "then",
+        [],
+        [_vi("pb", [1, T, 2])],
+    )
+    m = _attention_graph()
+    g = m.graph
+    g.node.append(
+        helper.make_node(
+            "Constant",
+            [],
+            ["c"],
+            name="/c",
+            value=numpy_helper.from_array(np.array(True)),
+        )
+    )
+    g.node.append(
+        helper.make_node(
+            "If", ["c"], ["out_if"], name="/if", then_branch=body, else_branch=body
+        )
+    )
+    g.output.append(_vi("out_if", [1, T, 2]))
+    assert _find_attention_logits(m)["in_subgraphs"] == 2
+    monkeypatch.setattr(te, "_WARNED", set())
+    _, info = _build(monkeypatch, tmp_path / "cf", m, fp32_islands="attention_logits")
+    assert info["fp32_islands"]["softmax_in_subgraphs"] == 2
+    assert "inside control-flow bodies" in capsys.readouterr().out
+
+
+def test_no_products_on_a_coordinate_graph_says_backbone_fp16(
+    monkeypatch, tmp_path, capsys
+):
+    import sleap_nn.export.exporters.tensorrt_exporter as te
+
+    monkeypatch.setattr(te, "_WARNED", set())
+    # what the scoped rewrite gives with no islands (the recipe adds nothing here)
+    from sleap_nn.export.exporters.onnx_precision import cast_onnx_precision as cast
+
+    want, _ = cast(_graph(), "fp16", BACKBONE_SCOPE)
+    got, info = _build(
+        monkeypatch,
+        tmp_path / "b",
+        _graph(),
+        fp32_islands="attention_logits",
+        _bf16_fp32_outside=BACKBONE_SCOPE,
+    )
+    out = capsys.readouterr().out
+    assert "found no attention logits" in out and "fp16 only inside" in out
+    assert "plain fp16" not in out
+    assert info["fp32_islands"]["products"] == 0
+    assert got.SerializeToString() == want.SerializeToString()
+
+
+def test_one_record_shape_applied_or_not():
+    a = _islands_record("attention_logits", True, products=3, softmaxes_in_scope=3)
+    b = _islands_record("attention_logits", False, reason="family built fp32")
+    assert list(a) == list(b)
+
+
+def test_cli_without_tensorrt_says_so(
+    monkeypatch, minimal_instance_centered_instance_ckpt, tmp_path
+):
+    from sleap_nn.export.cli import export
+
+    monkeypatch.setitem(sys.modules, "tensorrt", None)  # import raises ImportError
+    result = CliRunner().invoke(
+        export,
+        [
+            str(minimal_instance_centered_instance_ckpt),
+            "-o",
+            str(tmp_path / "x"),
+            "--format",
+            "tensorrt",
+            "--fp32-attention-logits",
+        ],
+    )
+    assert result.exit_code != 0 and "TensorRT is not installed" in result.output

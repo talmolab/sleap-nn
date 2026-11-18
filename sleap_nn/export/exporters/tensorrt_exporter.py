@@ -156,6 +156,23 @@ def _pin_static_dims(
 _FP32_ISLAND_RECIPES = ("attention_logits",)
 
 
+def _islands_record(recipe: str, applied: bool, reason=None, **counts) -> dict:
+    """The ``fp32_islands`` metadata record: one shape whether applied or not."""
+    keys = (
+        "softmaxes_in_scope",
+        "products",
+        "softmax_unmatched",
+        "softmax_ambiguous",
+        "products_shared",
+        "softmax_in_subgraphs",
+    )
+    record = {"recipe": recipe, "applied": applied, "reason": reason}
+    record.update({k: counts.get(k) for k in keys})
+    for k in ("first", "unmatched_first", "ambiguous_first"):
+        record[k] = list(counts.get(k) or [])
+    return record
+
+
 def _check_fp32_islands(recipe, precision, method, strongly_typed, trt_module) -> None:
     """Refuse an ``fp32_islands`` recipe where it cannot apply."""
     if recipe not in _FP32_ISLAND_RECIPES:
@@ -244,7 +261,7 @@ def export_to_tensorrt(
         fp32_islands: Opt-in recipe for ``precision="fp16"`` on the strongly typed
             path (TensorRT 11, or ``strongly_typed`` on 10): ``"attention_logits"``
             keeps every attention block's logits product (Q.K^T, found by structure:
-            :func:`~sleap_nn.export.exporters.onnx_precision.find_attention_logits`)
+            :func:`~sleap_nn.export.exporters.onnx_precision._find_attention_logits`)
             in fp32, so TensorRT accumulates it in fp32; everything else is the
             usual fp16 rewrite. With ``_bf16_fp32_outside`` (graphs with coordinates)
             the fp16 runs only inside that scope, as bf16 does. Recorded as
@@ -284,7 +301,9 @@ def export_to_tensorrt(
             info["precision_fallback"] = what + "; built fp32"
             precision = "fp32"
             if fp32_islands is not None:  # nothing left to keep in fp32
-                info["fp32_islands"] = {"recipe": fp32_islands, "applied": False}
+                info["fp32_islands"] = _islands_record(
+                    fp32_islands, applied=False, reason="family built fp32"
+                )
                 fp32_islands = None
         else:
             msg = f"Warning: {what}; check the engine against fp32 on your data."
@@ -385,8 +404,8 @@ def _write_typed_graph(
         scope: Reduce only nodes inside this scope (:data:`BACKBONE_SCOPE`); ``None``
             for the whole graph.
         fp32_islands: ``"attention_logits"``: also keep the attention logits
-            products inside the reduced scope in fp32 (``info["fp32_islands"]``:
-            recipe, products, softmax_unmatched, first names). ``None``: none.
+            products inside the reduced scope in fp32 (``info["fp32_islands"]``, see
+            :func:`_islands_record`). ``None``: none.
 
     Returns:
         ``(path, info)``: ``tensorrt_graph/<stem>.<precision>.onnx`` next to
@@ -401,9 +420,9 @@ def _write_typed_graph(
     import onnx
 
     from sleap_nn.export.exporters.onnx_precision import (
+        _find_attention_logits,
         _scope_path,
         cast_onnx_precision,
-        find_attention_logits,
     )
 
     if fp32_islands not in (None, "attention_logits"):
@@ -411,32 +430,67 @@ def _write_typed_graph(
     original = onnx.load(str(onnx_path))
     islands = None
     if fp32_islands == "attention_logits":
-        products, unmatched = find_attention_logits(original)
-        by_output = {n.output[0]: n for n in original.graph.node if n.output}
-        if scope is not None:  # outside the scope everything is fp32 anyway
-            products = [t for t in products if scope in _scope_path(by_output[t])]
-            by_name = {n.name or n.output[0]: n for n in original.graph.node}
-            unmatched = [u for u in unmatched if scope in _scope_path(by_name[u])]
+        found = _find_attention_logits(original)
+        nodes = {n.name or n.output[0]: n for n in original.graph.node if n.output}
+        nodes.update({n.output[0]: n for n in original.graph.node if n.output})
+
+        def inside(name):  # outside the scope everything is fp32 anyway
+            return scope is None or scope in _scope_path(nodes[name])
+
+        softmaxes = [x for x in found["softmaxes"] if inside(x)]
+        products = [t for t in found["products"] if inside(t)]
+        unmatched = [x for x in found["unmatched"] if inside(x)]
+        ambiguous = {x: c for x, c in found["ambiguous"].items() if inside(x)}
+        shared = {t: r for t, r in found["shared"].items() if inside(t)}
         islands = set(products)
-        record = {
-            "recipe": fp32_islands,
-            "products": len(products),
-            "softmax_unmatched": len(unmatched),
-            "first": [by_output[t].name or t for t in products[:3]],
-        }
-        if unmatched:
-            record["unmatched_first"] = unmatched[:3]
+        name = lambda t: nodes[t].name or t  # noqa: E731
+        record = _islands_record(
+            fp32_islands,
+            applied=bool(products),
+            softmaxes_in_scope=len(softmaxes),
+            products=len(products),
+            softmax_unmatched=len(unmatched),
+            softmax_ambiguous=len(ambiguous),
+            products_shared=len(shared),
+            softmax_in_subgraphs=found["in_subgraphs"],
+            first=[name(t) for t in products[:3]],
+            unmatched_first=unmatched[:3],
+            ambiguous_first=list(ambiguous)[:3],
+        )
+        where = (
+            f"fp16 only inside '*{scope}*' and fp32 elsewhere"
+            if scope is not None
+            else f"plain {precision}"
+        )
         if not products:
             _warn_once(
                 f"Warning: --fp32-attention-logits found no attention logits in "
-                f"{onnx_path.name}; the engine is plain {precision}."
+                f"{onnx_path.name}; the engine is {where}."
             )
         if unmatched:
             _warn_once(
                 f"Warning: --fp32-attention-logits found no logits product for "
                 f"{len(unmatched)} softmax node(s) ({', '.join(unmatched[:3])}"
-                f"{' ...' if len(unmatched) > 3 else ''}); they run in plain "
-                f"{precision}."
+                f"{' ...' if len(unmatched) > 3 else ''}); they run in {precision}."
+            )
+        if ambiguous:
+            _warn_once(
+                f"Warning: --fp32-attention-logits found more than one candidate "
+                f"logits product for {len(ambiguous)} softmax node(s) "
+                f"({', '.join(list(ambiguous)[:3])}{' ...' if len(ambiguous) > 3 else ''}"
+                f"): all {sum(len(c) for c in ambiguous.values())} kept in fp32."
+            )
+        if shared:
+            _warn_once(
+                f"Note: --fp32-attention-logits: {len(shared)} product(s) feed more "
+                f"than one softmax ({', '.join(name(t) for t in list(shared)[:3])}); "
+                "kept in fp32."
+            )
+        if found["in_subgraphs"]:
+            _warn_once(
+                f"Warning: --fp32-attention-logits does not handle the "
+                f"{found['in_subgraphs']} softmax node(s) inside control-flow bodies "
+                f"(If / Loop); they run in {precision}."
             )
     typed, info = cast_onnx_precision(
         original, precision, scope, keep_fp32_outputs=islands
