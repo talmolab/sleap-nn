@@ -1930,8 +1930,9 @@ class Predictor:
     ) -> dict:
         """Provenance dict for the saved/returned Labels (#530 gap fix)."""
         from sleap_nn.inference.provenance import (
+            _add_part_exports,
+            _describe_exported_runtimes,
             build_inference_provenance,
-            describe_exported_runtimes,
         )
 
         tracking_params = (
@@ -1951,12 +1952,15 @@ class Predictor:
             tracking_params=tracking_params,
         )
         try:
-            exported = describe_exported_runtimes(self.layer)
+            exported = _describe_exported_runtimes(self.layer)
+            part = getattr(self.part_stage, "part_predictor", None)
+            part_exported = _describe_exported_runtimes(part.layer) if part else []
         except Exception:  # noqa: BLE001 -- provenance must never fail a run
-            exported = []
+            exported, part_exported = [], []
         if exported:
             # Which runtime and precision each exported graph actually ran.
             provenance["exported_models"] = exported
+        _add_part_exports(provenance, part_exported)  # a streaming --part_model
         return provenance
 
     @staticmethod

@@ -202,24 +202,28 @@ letterboxing, box decoding, fixed or box-scaled crops, peak finding and refineme
 the part stage's crops from the body keypoints -- with only the forward passes on ONNX
 Runtime or TensorRT, so exported and checkpoint predictions differ only by the runtime's
 numerics (with `--input-dtype float32` the graphs receive exactly the checkpoint path's
-inputs). A directory that holds both `best.ckpt` and an export (exported into the
-checkpoint's own directory) loads the checkpoint. `--runtime` picks the runtime for
+inputs). With several `--model_paths`, and for `--part_model`, a directory that holds
+both `best.ckpt` and an export (exported into the checkpoint's own directory) loads
+the checkpoint, as before exports could stand in for checkpoints. A single
+`--model_paths` directory that holds an export still takes the exported route (and
+`--stream-to-file` refuses it), whatever else it holds. `--runtime` picks the runtime for
 every export directory (`auto` prefers `model.trt`), on every route (several
 `--model_paths`, `--part_model`, `--stream-to-file`); the predictions' provenance
 (`exported_models`) records the runtime, and for an engine its precision, of each
-exported graph that ran. A `--network-only` crop export passed alone (or with `--boxes`)
+exported graph that ran (a part model's tagged `stage: part`). A `--network-only` crop export passed alone (or with `--boxes`)
 runs exactly as its checkpoint would there. An exported box detector passed alone
 decodes its boxes with `--peak_threshold` and `--bbox_nms_iou` when they are given, as
 it does next to a pose model. Node filters are baked in at export (`--nodes` /
 `--node-prefix` / `--strip-prefix`); `--node_prefix` at prediction time is refused for
 an exported network. `--max-batch-size` is a TensorRT engine's batch limit: larger
 crop batches run in chunks of it. A TensorRT engine runs on the current CUDA device:
-pick the card with `CUDA_VISIBLE_DEVICES` and pass `--device cuda`. A box detector's
-graph is exported at a fixed height and width (`--input-height` / `--input-width`,
-default the training size), and the size is written to the export's metadata and
-copied training config. A `--network-only` graph is traced and profiled at the size
-the pipeline feeds it (the trained crop size times the trained scale, padded to the
-backbone's stride), so `--input-scale`, `--crop-size`, `--input-height` and
+pick the card with `CUDA_VISIBLE_DEVICES` and pass `--device cuda`. A box detector
+exported at another size (`--input-height` / `--input-width`, default the training
+size) has that size written to the export's metadata and copied training config; a
+`bbox_detr` graph is exported at that fixed height and width (CenterNet and SSD graphs
+keep a dynamic size). A `--network-only` graph is traced and profiled at the size the
+pipeline feeds it (the trained crop size times the trained scale in whole pixels,
+padded to the backbone's stride), so `--input-scale`, `--crop-size`, `--input-height` and
 `--input-width` are refused with `--network-only`.
 
 ### Multi-Class

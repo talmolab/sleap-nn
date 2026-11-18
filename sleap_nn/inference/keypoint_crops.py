@@ -404,6 +404,9 @@ def merge_part_predictions(
         part_prefix=part_prefix,
         part_provenance=dict(part.provenance),
     )
+    from sleap_nn.inference.provenance import _add_part_exports
+
+    _add_part_exports(out.provenance, part.provenance.get("exported_models") or [])
     if floors:
         out.provenance["part_stage"]["session_floors"] = {
             base.videos.index(v): round(float(f), 3)

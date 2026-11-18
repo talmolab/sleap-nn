@@ -113,3 +113,144 @@ def test_fp16_warning_for_vit_pose_models(capsys):
     ]:
         _warn_fp16_vit_pose(*args)
         assert capsys.readouterr().out == ""
+
+
+@pytest.mark.parametrize(
+    "crop, scale, stride",
+    [(258, 0.25, 32), (144, 0.45, 32), (160, 0.5, 16), (192, 1.0, 32), (100, 0.75, 8)],
+)
+def test_network_only_size_is_the_host_size(crop, scale, stride):
+    """The traced size equals what the host's resize + stride padding produce."""
+    import torch
+
+    from sleap_nn.data.resizing import apply_pad_to_stride, resize_image
+    from sleap_nn.export.cli import _network_only_hw
+
+    host = apply_pad_to_stride(
+        resize_image(torch.zeros(1, 1, crop, crop), scale), stride
+    )
+    assert _network_only_hw((crop, crop), scale, stride) == tuple(host.shape[-2:])
+
+
+def test_vit_warning_covers_every_model_of_a_bundle(
+    monkeypatch,
+    minimal_instance_centroid_ckpt,
+    minimal_instance_centered_instance_ckpt,
+    tmp_path,
+):
+    """Two-model (centroid + instance) exports check each model for the ViT warning."""
+    import sleap_nn.export.cli as export_cli
+
+    calls = []
+    monkeypatch.setattr(
+        export_cli, "_warn_fp16_vit_pose", lambda c, mt, bt, f, p: calls.append(mt)
+    )
+    CliRunner().invoke(
+        export_cli.export,
+        [
+            str(minimal_instance_centroid_ckpt),
+            str(minimal_instance_centered_instance_ckpt),
+            "-o",
+            str(tmp_path / "x"),
+            "--format",
+            "onnx",
+        ],
+    )
+    assert sorted(calls) == ["centered_instance", "centroid"]
+
+
+def test_vit_warning_names_what_was_measured(capsys):
+    """The text claims the DINOv3 measurement only and names no pose-only model kind."""
+    from omegaconf import OmegaConf
+
+    from sleap_nn.export.cli import _warn_fp16_vit_pose
+
+    vit = OmegaConf.create(
+        {
+            "model_config": {
+                "backbone_config": {
+                    "pretrained": {"model_name": "timm/vit_base_patch16_dinov3"}
+                }
+            }
+        }
+    )
+    _warn_fp16_vit_pose(vit, "embedding", "pretrained", "tensorrt", "fp16")
+    out = capsys.readouterr().out
+    assert "DINOv3" in out and "other ViTs not tested" in out
+    assert "embedding model" in out and "pose model" not in out
+
+
+def _fake_export_dir(path, meta, ckpt=False):
+    path.mkdir(parents=True)
+    (path / "export_metadata.json").write_text(json.dumps(meta))
+    (path / "model.onnx").write_bytes(b"")
+    if ckpt:
+        (path / "best.ckpt").write_bytes(b"")
+    return str(path)
+
+
+def test_part_model_check_counts_checkpoint_directories(tmp_path):
+    """--part_model refuses only what it refused before; best.ckpt directories load it."""
+    import click
+
+    from sleap_nn.cli import _check_part_stage_flags
+
+    net = {"network_only": True, "model_type": "centered_instance"}
+    det = {"model_type": "bbox_detr"}
+    fused = {"model_type": "centered_instance"}
+    pose_ck = _fake_export_dir(tmp_path / "pose_ck", net, ckpt=True)
+    det_ck = _fake_export_dir(tmp_path / "det_ck", det, ckpt=True)
+    tail_ck = _fake_export_dir(tmp_path / "tail_ck", net, ckpt=True)
+    fused_ck = _fake_export_dir(tmp_path / "fused_ck", fused, ckpt=True)
+    fused_only = _fake_export_dir(tmp_path / "fused_only", fused)
+
+    def check(mps, part):
+        kw = dict(model_paths=mps, part_model=part, part_crop_rule="rule.json")
+        _check_part_stage_flags(kw, None)
+
+    # bedae2f7 accepted these; the checkpoint-wins rule must not refuse them now.
+    check([det_ck, pose_ck], tail_ck)
+    check([pose_ck], tail_ck)
+    # Several -m load best.ckpt: a fused export next to it is not what runs.
+    check([det_ck, fused_ck], tail_ck)
+    # Still refused as before: a fused export alone, and a single -m fused directory
+    # (that route takes the export whatever else the directory holds).
+    for mps in ([det_ck, fused_only], [fused_ck]):
+        with pytest.raises(click.UsageError, match="not fused exported"):
+            check(mps, tail_ck)
+
+
+def test_provenance_lists_part_model_exports(monkeypatch):
+    """A part model's exported graphs are listed at the top level, tagged stage: part."""
+    from types import SimpleNamespace
+
+    import sleap_nn.inference.provenance as prov
+    from sleap_nn.inference.predictor import Predictor
+
+    body, part = object(), object()
+    graphs = {
+        id(body): [{"file": "det/model.trt", "runtime": "tensorrt"}],
+        id(part): [{"file": "tail/model.trt", "runtime": "tensorrt"}],
+    }
+    monkeypatch.setattr(prov, "_describe_exported_runtimes", lambda r: graphs[id(r)])
+    me = SimpleNamespace(
+        tracker_config=None,
+        model_paths=["det", "pose"],
+        layer=body,
+        device="cpu",
+        part_stage=SimpleNamespace(part_predictor=SimpleNamespace(layer=part)),
+    )
+    out = Predictor._build_inference_provenance(
+        me, source=None, start_time=None, end_time=None, n_frames=0, inference_params={}
+    )
+    assert out["exported_models"] == [
+        {"file": "det/model.trt", "runtime": "tensorrt"},
+        {"file": "tail/model.trt", "runtime": "tensorrt", "stage": "part"},
+    ]
+    two_pass = {"exported_models": [{"file": "det/model.trt", "runtime": "tensorrt"}]}
+    prov._add_part_exports(two_pass, [{"file": "tail/model.onnx", "runtime": "onnx"}])
+    assert two_pass["exported_models"][-1] == {
+        "file": "tail/model.onnx",
+        "runtime": "onnx",
+        "stage": "part",
+    }

@@ -1343,13 +1343,25 @@ def _check_part_stage_flags(kwargs: dict, stream_to_file) -> None:
         )
     if not kwargs.get("part_crop_rule"):
         raise click.UsageError("--part_model needs --part_crop_rule.")
-    from sleap_nn.inference.exported_network import is_network_export
+    from pathlib import Path
+
+    from sleap_nn.inference.exported_network import _holds_network_export
 
     mps = kwargs.get("model_paths") or []
-    if not mps or any(
-        _is_export_dir(m) and not is_network_export(m)
-        for m in mps + [kwargs["part_model"]]
-    ):
+    # Directories loaded by the checkpoint loader (several -m, and the part model)
+    # load best.ckpt when they hold one: they count as checkpoint directories here.
+    # A single -m keeps its own route (an export directory goes to the exported
+    # route whatever else it holds), so the check there is unchanged.
+    loaded = set(mps if len(mps) > 1 else []) | {kwargs["part_model"]}
+
+    def refused(m):
+        if not _is_export_dir(m):
+            return False
+        if m in loaded and (Path(m) / "best.ckpt").exists():
+            return False
+        return not _holds_network_export(m)
+
+    if not mps or any(refused(m) for m in mps + [kwargs["part_model"]]):
         raise click.UsageError(
             "--part_model needs checkpoint pose models (-m) or network-only "
             "exports (`sleap-nn export --network-only`), not fused exported "

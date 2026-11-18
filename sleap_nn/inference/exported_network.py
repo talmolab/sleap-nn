@@ -45,11 +45,20 @@ def is_network_export(path: Union[str, Path]) -> bool:
     checkpoint) is a checkpoint directory: the checkpoint wins, as it did before
     exports could stand in for checkpoints.
     """
+    if (Path(path) / "best.ckpt").exists():
+        return False
+    return _holds_network_export(path)
+
+
+def _holds_network_export(path: Union[str, Path]) -> bool:
+    """Whether ``path`` holds a network-only graph, whatever else it holds.
+
+    :func:`is_network_export` without the ``best.ckpt`` rule: what a directory's
+    export is, not how the loader treats the directory.
+    """
     p = Path(path)
     meta = p / "export_metadata.json"
     if not (p.is_dir() and meta.exists()):
-        return False
-    if (p / "best.ckpt").exists():
         return False
     if not ((p / "model.onnx").exists() or (p / "model.trt").exists()):
         return False

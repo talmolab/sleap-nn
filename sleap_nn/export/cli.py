@@ -310,12 +310,14 @@ def export(
             "at a time (run `sleap-nn predict` with one -m per exported stage)."
         )
 
+    for c, mt, bt in zip(cfgs, model_types, backbone_types):  # bundles too
+        _warn_fp16_vit_pose(c, mt, bt, fmt, precision)
+
     if len(model_paths) == 1:
         model_path = model_paths[0]
         cfg = cfgs[0]
         model_type = model_types[0]
         backbone_type = backbone_types[0]
-        _warn_fp16_vit_pose(cfg, model_type, backbone_type, fmt.lower(), precision)
 
         if model_type not in (
             "centroid",
@@ -641,8 +643,7 @@ def export(
                     "(data_config.preprocessing.crop_size)."
                 )
             ns = int(cfg.model_config.backbone_config[backbone_type]["max_stride"])
-            nh = math.ceil(resolved_crop_size[0] * resolved_scale / ns) * ns
-            nw = math.ceil(resolved_crop_size[1] * resolved_scale / ns) * ns
+            nh, nw = _network_only_hw(resolved_crop_size, resolved_scale, ns)
             input_shape = (input_shape[0], input_shape[1], nh, nw)
 
         export_to_onnx(
@@ -1320,12 +1321,23 @@ def _mark_network_only(path: Path, output_names) -> None:
     path.write_text(json.dumps(data, indent=2, sort_keys=True))
 
 
-def _warn_fp16_vit_pose(cfg, model_type, backbone_type, fmt, precision) -> None:
-    """Warn on an fp16 TensorRT export of a pose model with a ViT backbone.
+def _network_only_hw(crop_hw, scale: float, stride: int) -> tuple:
+    """The crop size the host sends a network-only graph.
 
-    DINOv3 ViT-B pose (21 points) and tail (4 points) models kept 17-44% of their
-    keypoints within 0.5 px of fp32 in fp16 engines on TensorRT 10 and 11; bf16 kept
-    ~96% / ~89% and fp32 100%. The export default precision is unchanged.
+    The host resizes a crop to ``int(crop x scale)`` pixels per side
+    (:func:`~sleap_nn.data.resizing.resize_image`) and pads that up to the
+    backbone's stride (:func:`~sleap_nn.data.resizing.apply_pad_to_stride`).
+    """
+    return tuple(math.ceil(int(c * scale) / stride) * stride for c in crop_hw)
+
+
+def _warn_fp16_vit_pose(cfg, model_type, backbone_type, fmt, precision) -> None:
+    """Warn on an fp16 TensorRT export of a keypoint model with a ViT backbone.
+
+    Measured on DINOv3 ViT-B pose (21 points) and tail (4 points) models only:
+    17-44% of their keypoints within 0.5 px of fp32 in fp16 engines on TensorRT 10
+    and 11; bf16 kept ~96% / ~89% and fp32 100%. Other ViTs (DINOv2 ...) are not
+    tested. The export default precision is unchanged.
     """
     if fmt not in ("tensorrt", "both") or str(precision).lower() != "fp16":
         return
@@ -1339,10 +1351,11 @@ def _warn_fp16_vit_pose(cfg, model_type, backbone_type, fmt, precision) -> None:
     if "vit" not in name.lower():
         return
     click.echo(
-        f"Warning: a pose model with a ViT backbone ({name}) loses keypoint accuracy "
-        "in fp16 (DINOv3 ViT-B pose / tail models: 17-44% of keypoints within 0.5 px "
-        "of fp32, on TensorRT 10 and 11); export with --precision bf16 (a GPU with "
-        "compute capability >= 8.0) or fp32 unless fp16 is checked on your data."
+        f"Warning: {model_type} model with a ViT backbone ({name}): fp16 TensorRT "
+        "engines of DINOv3 ViT-B pose / tail models kept only 17-44% of keypoints "
+        "within 0.5 px of fp32 (TensorRT 10 and 11; other ViTs not tested). Export "
+        "with --precision bf16 (a GPU with compute capability >= 8.0) or fp32 unless "
+        "fp16 is checked on your data."
     )
 
 
