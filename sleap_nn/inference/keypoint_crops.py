@@ -758,6 +758,7 @@ def track_on_body_nodes(
 
     n_body = len(body_skeleton.nodes)
     back: Dict[int, Any] = {}
+    full_of: Dict[int, Any] = {}  # body frame -> full frame (a frame may repeat)
     frames = []
     for lf in labels.labeled_frames:
         insts = []
@@ -773,9 +774,9 @@ def track_on_body_nodes(
             )
             back[id(b)] = inst
             insts.append(b)
-        frames.append(
-            sio.LabeledFrame(video=lf.video, frame_idx=lf.frame_idx, instances=insts)
-        )
+        blf = sio.LabeledFrame(video=lf.video, frame_idx=lf.frame_idx, instances=insts)
+        full_of[id(blf)] = lf
+        frames.append(blf)
     body = sio.Labels(
         labeled_frames=frames,
         videos=labels.videos,
@@ -783,10 +784,9 @@ def track_on_body_nodes(
         provenance=dict(labels.provenance),
     )
     body = apply_tracking(body, tracker_config, progress_callback)
-    full_frames = {(id(lf.video), lf.frame_idx): lf for lf in labels.labeled_frames}
     ordered = []
-    for blf in body.labeled_frames:
-        lf = full_frames.pop((id(blf.video), blf.frame_idx))
+    for blf in body.labeled_frames:  # the tracker keeps the frame objects
+        lf = full_of.pop(id(blf))
         kept = []
         for b in blf.instances:
             inst = back[id(b)]
@@ -795,7 +795,7 @@ def track_on_body_nodes(
             kept.append(inst)
         lf.instances = kept
         ordered.append(lf)
-    labels.labeled_frames = ordered + list(full_frames.values())
+    labels.labeled_frames = ordered + list(full_of.values())
     labels.tracks = list(body.tracks)
     if "tracking" in body.provenance:
         labels.provenance["tracking"] = body.provenance["tracking"]

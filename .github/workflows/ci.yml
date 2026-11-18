@@ -328,6 +328,7 @@ jobs:
               tests/inference/layers/backends/test_onnx_backend.py \
               tests/inference/test_factory_export.py \
               tests/inference/ops/test_onnx_export.py \
+              tests/inference/test_part_streaming_fixes.py \
               -v --durations=10 --cov=sleap_nn --cov-report=xml
 
       - name: Assert the tests left no stray files in the checkout

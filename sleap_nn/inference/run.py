@@ -996,7 +996,7 @@ def predict(
 
     if part_stream is not None:
         # The keys two passes write (run_part_stage), plus streaming=True; the floors
-        # are the running floors at the end of each video, null without a floor.
+        # are the running floors at the end of each video (no key without a floor).
         labels.provenance["part_stage"] = dict(
             rule=part_stream.rule.to_dict(),
             part_prefix=part_prefix,
@@ -1011,13 +1011,12 @@ def predict(
                     **part_stream.part_predictor._preprocess_provenance_params(),
                 },
             ),
-            session_floors=(
-                {int(k): round(float(v), 3) for k, v in part_stream.last_floors.items()}
-                if part_stream.rule.session_floor is not None
-                else None
-            ),
             streaming=True,
         )
+        if part_stream.rule.session_floor is not None:  # no key without, as two passes
+            labels.provenance["part_stage"]["session_floors"] = {
+                int(k): round(float(v), 3) for k, v in part_stream.last_floors.items()
+            }
     elif part_model_paths:
         from sleap_nn.inference.keypoint_crops import run_part_stage
 
