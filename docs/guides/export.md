@@ -204,11 +204,16 @@ Runtime or TensorRT, so exported and checkpoint predictions differ only by the r
 numerics (with `--input-dtype float32` the graphs receive exactly the checkpoint path's
 inputs). A directory that holds both `best.ckpt` and an export (exported into the
 checkpoint's own directory) loads the checkpoint wherever model directories go
-through the checkpoint loader: several `--model_paths` (with or without
-`--stream-to-file`), a `--part_model` directory, and the Python API with one or more
-paths (`predict(model_paths=[d])`, `open_stream`, `Predictor.from_model_paths([d])`).
-Only a lone `--model_paths` on the command line takes the exported route for such a
-directory (and `--stream-to-file` with one directory refuses it). `--runtime` picks the runtime for
+through the checkpoint loader, as before #857: several `--model_paths` (with or
+without `--stream-to-file`), a `--part_model` directory, and the Python API with one
+or more paths (`predict(model_paths=[d])`, `open_stream`,
+`Predictor.from_model_paths([d])`); a `--network-only` export (new in #857) follows the
+same rule. A lone `--model_paths` on the command line takes the exported route for such
+a directory, as it always has (and `--stream-to-file` with one directory refuses it).
+New, accepted where it was refused before #857: such a directory listed among several
+`--model_paths` together with `--part_model` runs its checkpoint (before #857 the
+`--part_model` check refused it; after #857 it ran a detector export and refused a fused
+export). `--runtime` picks the runtime for
 every export directory (`auto` prefers `model.trt`), on every route (several
 `--model_paths`, `--part_model`, `--stream-to-file`); the predictions' provenance
 (`exported_models`) records the runtime, and for an engine its precision, of each
