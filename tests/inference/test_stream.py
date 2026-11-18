@@ -438,43 +438,68 @@ def test_warmup_boxes_on_the_device_real_boxes_reach(
     monkeypatch,
     device,
 ):
-    """The warm-up's dummy boxes reach the pose stage on the device a real frame's boxes do.
+    """The warm-up feeds the pose and part models as a real frame does.
 
     A real frame's boxes come from the first stage on its device (the card, for a
-    CUDA detector) and the crop windows are computed there. If the warm-up handed
-    its dummy boxes over on the host, the first real frame would load those GPU
-    operations' code (CUDA lazy module loading) and be the slow one (seen with
-    TensorRT engines and frames on the GPU: 28 ms instead of 11). On the CPU both
-    are the host; the CUDA case fails when the warm-up's dummy boxes stay on the
-    host.
+    CUDA detector) and the crop windows are computed there; with a part stage and
+    ``frames_on_gpu`` the frame is uploaded once and the part model cuts its crops
+    from that card copy. If the warm-up handed its dummy boxes or frame over on
+    the host, the first real frame would load those GPU operations' code (CUDA
+    lazy module loading) and be the slow one (seen with TensorRT engines and
+    frames on the GPU: 28 ms instead of 11). On the CPU everything is on the
+    host; the CUDA case fails when the warm-up's dummy boxes or the part model's
+    dummy frame stay on the host.
     """
     from sleap_nn.inference.layers.bbox import BBoxStageLayer
+    from sleap_nn.inference.layers.topdown import TopDownLayer
     from sleap_nn.inference.run import open_stream
 
-    given, real = [], []
+    given, real, frames_in = [], [], []
     orig = BBoxStageLayer.predict
+    orig_td = TopDownLayer.predict
 
     def spy(self, image, *a, boxes=None, **k):
         out = orig(self, image, *a, boxes=boxes, **k)
         if getattr(self, "use_given_boxes", False):
             given.append(torch.as_tensor(boxes).device.type)
         elif isinstance(out.pred_centroids, torch.Tensor):
-            real.append(out.pred_centroids.device.type)
+            if float(torch.as_tensor(image).abs().max()) == 0:
+                # an empty frame: a trained detector finds nothing there (this
+                # tiny one does), so only the given-box warm-up reaches stage 2
+                out.pred_centroids = torch.full_like(out.pred_centroids, float("nan"))
+            else:
+                real.append(out.pred_centroids.device.type)
         return out
 
+    def spy_td(self, image, *a, frame_boxes=None, **k):
+        # (layer, device of the frame) for calls that cut at least one crop
+        if frame_boxes is not None and bool(torch.isfinite(frame_boxes).all(-1).any()):
+            dev = image.device.type if isinstance(image, torch.Tensor) else "cpu"
+            frames_in.append((id(self), dev))
+        return orig_td(self, image, *a, frame_boxes=frame_boxes, **k)
+
     monkeypatch.setattr(BBoxStageLayer, "predict", spy)
+    monkeypatch.setattr(TopDownLayer, "predict", spy_td)
     frames = _video_frames(shifted_video)
     kw = dict(
         model_paths=[detector_pair["det"], detector_pair["ci_bbox"]],
         device=device,
         peak_threshold=0.0,
         bbox_nms_iou=0.7,
+        part_model_paths=[str(minimal_instance_centered_instance_ckpt)],
+        part_crop_rule=RULE,
+        part_peak_threshold=0.0,
+        part_prefix="part/",
         frames_on_gpu=device == "cuda",  # the real-time settings
     )
     with open_stream(**kw, frame_shape=frames[0].shape) as stream:
-        warm = set(given)
+        part_id = id(stream._predictor.part_stage.layer)
+        warm, warm_part = set(given), {d for i, d in frames_in if i == part_id}
         real.clear()
+        frames_in.clear()
         for f in frames:
             stream.push(f)
-    assert warm and real
-    assert set(real) <= warm, (set(real), warm)
+        real_part = {d for i, d in frames_in if i == part_id}
+    assert warm and real and warm_part and real_part
+    assert set(real) <= warm, (set(real), warm)  # pose boxes
+    assert real_part <= warm_part, (real_part, warm_part)  # the part model's frame
