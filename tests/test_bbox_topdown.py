@@ -287,8 +287,13 @@ def _train_config(config, tmp_path, model_type, run_name, **pre):
 
 
 @pytest.fixture(scope="module")
-def trained_pair(tmp_path_factory, pytestconfig):
-    """A CenterNet detector + box-scaled and fixed-crop centered-instance models."""
+def trained_pair(bbox_det_pair, tmp_path_factory, pytestconfig):
+    """A CenterNet detector + box-scaled and fixed-crop centered-instance models.
+
+    The detector and the box-scaled model are the session's shared pair
+    (``tests/fixtures/bbox_models.py``, same training settings); only the fixed-crop
+    model is trained here.
+    """
     from pathlib import Path
 
     from sleap_nn.training.model_trainer import ModelTrainer
@@ -297,20 +302,10 @@ def trained_pair(tmp_path_factory, pytestconfig):
     tmp_path = tmp_path_factory.mktemp("bbox_topdown")
     data_dir = Path(pytestconfig.rootdir) / "tests/assets/datasets"
     base = config_fixture.__wrapped__(data_dir)
-    dirs = {}
-    for name, model_type, pre in (
-        ("det", "bbox_centernet", {}),
-        (
-            "ci_bbox",
-            "centered_instance",
-            {"crop_mode": "bbox", "crop_size": None, "crop_bbox_aspect": "square"},
-        ),
-        ("ci_fixed", "centered_instance", {}),
-    ):
-        cfg = _train_config(base, tmp_path, model_type, name, **pre)
-        trainer = ModelTrainer.get_model_trainer_from_config(cfg)
-        trainer.train()
-        dirs[name] = tmp_path / name
+    dirs = dict(bbox_det_pair)
+    cfg = _train_config(base, tmp_path, "centered_instance", "ci_fixed")
+    ModelTrainer.get_model_trainer_from_config(cfg).train()
+    dirs["ci_fixed"] = tmp_path / "ci_fixed"
     return dirs
 
 
