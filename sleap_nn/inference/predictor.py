@@ -1358,6 +1358,9 @@ class Predictor:
     # A part stage run on each batch right after the pose stage
     # (keypoint_crops.StreamingPartStage; ``predict(part_streaming=True)``).
     part_stage: Optional[Any] = None
+    # Undo head-to-tail flips frame to frame (flip_fix.FlipFixer;
+    # ``predict(fix_flips=...)``); off by default.
+    flip_fixer: Optional[Any] = None
 
     def __attrs_post_init__(self) -> None:
         """Resolve OKS-NMS sigmas; warn if ``paf_workers`` can't be used.
@@ -2383,6 +2386,8 @@ class Predictor:
         )
         if self.part_stage is not None:
             self.part_stage.reset()
+        if self.flip_fixer is not None:
+            self.flip_fixer.reset()
         outputs_list = list(self._batch_iter(provider, progress_callback, layer=layer))
         _prov_end = datetime.now()
 
@@ -2566,10 +2571,13 @@ class Predictor:
         )
         if self.part_stage is not None:
             self.part_stage.reset()
+        if self.flip_fixer is not None:
+            self.flip_fixer.reset()
         if (
             self.paf_workers > 0
             and self._can_pipeline()
             and self.part_stage is None  # the pipelined path has no part stage
+            and self.flip_fixer is None  # nor the flip fix
         ):
             yield from self._predict_streaming_pipelined(
                 provider, progress_callback, layer=layer
@@ -2779,6 +2787,12 @@ class Predictor:
                         device, non_blocking=True
                     )
             outputs = layer.predict(images, **kwargs)
+            if self.flip_fixer is not None:
+                outputs = self.flip_fixer(
+                    outputs,
+                    getattr(batch, "frame_indices", None),
+                    getattr(batch, "video_indices", None),
+                )
             outputs = pipeline(outputs)
             if self.part_stage is not None:
                 outputs = self.part_stage(

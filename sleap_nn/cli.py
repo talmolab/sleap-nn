@@ -1322,6 +1322,12 @@ def _run_inference_impl(**kwargs):
         _check_part_stage_flags(kwargs, stream_to_file)
     if kwargs.get("part_streaming") and kwargs.get("part_model") is None:
         raise click.UsageError("--part_streaming needs --part_model.")
+    if kwargs.get("fix_flips") is not None:
+        if stream_to_file is not None:
+            raise click.UsageError(
+                "--fix_flips is not supported with --stream-to-file; run without it."
+            )
+        _fix_flips_arg(kwargs)  # two node names, or a usage error now
 
     # ── Stream-to-file path: new Predictor + IncrementalLabelsWriter ───
     if stream_to_file is not None:
@@ -1355,6 +1361,19 @@ def _check_part_stage_flags(kwargs: dict, stream_to_file) -> None:
             "exports (`sleap-nn export --network-only`), not fused exported "
             "models."
         )
+
+
+def _fix_flips_arg(kwargs: dict) -> Optional[list]:
+    """``predict``'s ``fix_flips`` from ``--fix_flips HEAD,TAIL`` (``None`` when absent)."""
+    value = kwargs.get("fix_flips")
+    if value is None:
+        return None
+    nodes = [n.strip() for n in str(value).split(",") if n.strip()]
+    if len(nodes) != 2:
+        raise click.UsageError(
+            f"--fix_flips takes two node names, head and tail: e.g. nose,tail_base; got {value!r}."
+        )
+    return nodes
 
 
 def _part_stage_kwargs(kwargs: dict) -> dict:
@@ -2914,6 +2933,7 @@ def _run_in_memory_new_flow(
         "box_score_threshold": kwargs.get("box_score_threshold") or 0.0,
         **_node_filter_kwargs(kwargs),
         **_part_stage_kwargs(kwargs),
+        "fix_flips": _fix_flips_arg(kwargs),
         "min_mask_area": kwargs.get("min_mask_area", 0),
         "center_nms_kernel": kwargs.get("center_nms_kernel", 3),
         "mask_cleanup": kwargs.get("mask_cleanup", False),
@@ -4212,6 +4232,25 @@ def _common_inference_options(f):
                 "--batch_size); the first session_min_boxes boxes of a run get no "
                 "floor; each --frames chunk starts a new floor. Tracking uses the "
                 "pose nodes only, as without this flag."
+            ),
+        ),
+        click.option(
+            "--fix_flips",
+            "--fix-flips",
+            "fix_flips",
+            type=str,
+            default=None,
+            metavar="HEAD,TAIL",
+            help=(
+                "Undo head-to-tail flips frame to frame (off by default): an instance "
+                "whose HEAD and TAIL points swapped places since the previous frame "
+                "(matched to the same animal by box overlap) is turned back 180 "
+                "degrees about its head-tail midpoint, unless the swapped points now "
+                "score clearly higher. Needs frames in order: each frame is compared "
+                "with the previous frame of the same video only; nothing changes at a "
+                "video's first frame or after a gap; batch boundaries make no "
+                "difference. Runs before the part stage. Checked on top-view mice "
+                "(nose,tail_base)."
             ),
         ),
         click.option(

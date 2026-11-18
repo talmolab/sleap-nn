@@ -494,6 +494,7 @@ def _build_predictor(
     part_strip_prefix,
     part_peak_threshold,
     part_prefix,
+    fix_flips=None,
 ):
     """Build the predictor (and the streaming part stage) the way :func:`predict` does.
 
@@ -636,6 +637,13 @@ def _build_predictor(
             build_kwargs["max_instances"] = max_instances
         predictor = Predictor.from_export_dir(export_dir, **build_kwargs)
 
+    if fix_flips is not None:
+        from sleap_nn.inference.flip_fix import FlipFixer
+
+        predictor.flip_fixer = FlipFixer.for_skeleton(
+            predictor.skeleton.node_names, list(fix_flips)
+        )
+
     part_stream = None
     if part_model_paths and part_streaming:
         from sleap_nn.inference.keypoint_crops import build_streaming_part_stage
@@ -716,6 +724,8 @@ def predict(
     part_strip_prefix: Optional[Union[bool, str]] = None,
     part_peak_threshold: Optional[float] = None,
     part_prefix: Optional[str] = None,
+    # Undo head-to-tail flips frame to frame (off by default)
+    fix_flips: Optional[Sequence[str]] = None,
     # SAM prompted-mask producer (explicit, no default; PLAN L2). When set, masks
     # are produced from the existing poses in ``source`` (no trained seg model).
     mask_backend: Optional[str] = None,
@@ -862,6 +872,16 @@ def predict(
             models (export them filtered instead).
         strip_prefix: Rename the kept nodes: ``True`` strips the ``node_filter``
             prefix, a string strips that prefix.
+        fix_flips: ``(head, tail)`` node names: undo head-to-tail flips frame to
+            frame (:mod:`sleap_nn.inference.flip_fix`; off by default). An
+            instance whose head and tail points swapped places since the previous
+            frame (matched by box overlap) is turned back 180 degrees about its
+            head-tail midpoint, unless the swapped points now score clearly higher.
+            Needs frames in order: a frame is compared with the previous frame of
+            the same video only (nothing at a video's first frame or after a gap;
+            batch boundaries make no difference). Checked on top-view mice
+            (``("nose", "tail_base")``). Runs before the part stage, so part crops
+            use the turned points.
         part_streaming: Run the part stage on each batch right after the pose
             stage, on the frames already in memory, with a running crop floor
             instead of the whole-video floor
@@ -1088,6 +1108,7 @@ def predict(
         part_strip_prefix=part_strip_prefix,
         part_peak_threshold=part_peak_threshold,
         part_prefix=part_prefix,
+        fix_flips=fix_flips,
     )
 
     # Run inference with prediction-time overrides
@@ -1112,6 +1133,10 @@ def predict(
         return_class_vectors=return_class_vectors,
     )
 
+    if predictor.flip_fixer is not None:
+        labels.provenance["fix_flips"] = dict(
+            nodes=list(fix_flips), **predictor.flip_fixer.counts
+        )
     if part_stream is not None:
         # The keys two passes write (run_part_stage), plus streaming=True; the floors
         # are the running floors at the end of each video (no key without a floor).
