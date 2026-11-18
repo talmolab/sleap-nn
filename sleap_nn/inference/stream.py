@@ -386,6 +386,18 @@ class PoseStream:
         pose.centroid_layer = given
         return pose
 
+    def _first_stage_device(self, image: np.ndarray) -> torch.device:
+        """The device the top-down first stage returns its centroids / boxes on.
+
+        Found by running the first stage on ``image`` (an empty dummy frame), so it
+        is whatever a real frame's boxes reach the crop stage on.
+        """
+        out = self._layer.centroid_layer.predict(image)
+        centroids = getattr(out, "pred_centroids", None)
+        if isinstance(centroids, torch.Tensor):
+            return centroids.device
+        return torch.device("cpu")
+
     def _warmup(self, frame_shape: Sequence[int]) -> None:
         """Run dummy data through every network so the first real frame is not the slow one.
 
@@ -394,8 +406,14 @@ class PoseStream:
         Two empty frames go through
         the whole pipeline (the first stage, and everything for one-stage models);
         then the pose model of a top-down pair and the part model each run on 1, 2,
-        3 and 4 dummy crops (boxes placed in an empty frame). The frame counter,
-        frame size and crop floor are cleared afterwards; nothing is kept.
+        3 and 4 dummy crops (boxes placed in an empty frame). The pose model's dummy
+        boxes are put on the device the first stage hands its boxes on (the card,
+        for a GPU detector), so the crop windows, crops and pose model run the same
+        GPU operations as on a real frame with animals; otherwise CUDA would load
+        those operations' code on the first real frame (lazy module loading) and
+        that frame would be the slow one. The part model's dummy boxes stay on the
+        host, where the part stage builds its boxes from the body points. The frame
+        counter, frame size and crop floor are cleared afterwards; nothing is kept.
         """
         self._check_open()
         shape = (
@@ -406,6 +424,7 @@ class PoseStream:
             self._run(dummy, 0, self._video)
         pose = self._given_box_pose_layer()
         part = self._predictor.part_stage
+        box_device = self._first_stage_device(dummy) if pose is not None else None
         h, w = shape[:2]
         side = max(8.0, min(h, w) / 4.0)
         for k in _WARMUP_CROPS:
@@ -417,7 +436,11 @@ class PoseStream:
             fb = torch.from_numpy(boxes)
             fs = torch.ones((1, k))
             if pose is not None:
-                pose.predict(dummy, frame_boxes=fb, frame_box_scores=fs)
+                pose.predict(
+                    dummy,
+                    frame_boxes=fb.to(box_device),
+                    frame_box_scores=fs.to(box_device),
+                )
             if part is not None:
                 part.layer.predict(dummy, frame_boxes=fb, frame_box_scores=fs)
         self._clear()

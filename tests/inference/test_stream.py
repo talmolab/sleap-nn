@@ -425,3 +425,56 @@ def test_public_surface(
     with pytest.raises(AttributeError):
         stream.channel_order = "bgr"
     assert stream.keep is False and stream.channel_order == "rgb"
+
+
+_CUDA = pytest.mark.skipif(not torch.cuda.is_available(), reason="needs a CUDA device")
+
+
+@pytest.mark.parametrize("device", ["cpu", pytest.param("cuda", marks=_CUDA)])
+def test_warmup_boxes_on_the_device_real_boxes_reach(
+    shifted_video,
+    detector_pair,
+    minimal_instance_centered_instance_ckpt,
+    monkeypatch,
+    device,
+):
+    """The warm-up's dummy boxes reach the pose stage on the device a real frame's boxes do.
+
+    A real frame's boxes come from the first stage on its device (the card, for a
+    CUDA detector) and the crop windows are computed there. If the warm-up handed
+    its dummy boxes over on the host, the first real frame would load those GPU
+    operations' code (CUDA lazy module loading) and be the slow one (seen with
+    TensorRT engines and frames on the GPU: 28 ms instead of 11). On the CPU both
+    are the host; the CUDA case fails when the warm-up's dummy boxes stay on the
+    host.
+    """
+    from sleap_nn.inference.layers.bbox import BBoxStageLayer
+    from sleap_nn.inference.run import open_stream
+
+    given, real = [], []
+    orig = BBoxStageLayer.predict
+
+    def spy(self, image, *a, boxes=None, **k):
+        out = orig(self, image, *a, boxes=boxes, **k)
+        if getattr(self, "use_given_boxes", False):
+            given.append(torch.as_tensor(boxes).device.type)
+        elif isinstance(out.pred_centroids, torch.Tensor):
+            real.append(out.pred_centroids.device.type)
+        return out
+
+    monkeypatch.setattr(BBoxStageLayer, "predict", spy)
+    frames = _video_frames(shifted_video)
+    kw = dict(
+        model_paths=[detector_pair["det"], detector_pair["ci_bbox"]],
+        device=device,
+        peak_threshold=0.0,
+        bbox_nms_iou=0.7,
+        frames_on_gpu=device == "cuda",  # the real-time settings
+    )
+    with open_stream(**kw, frame_shape=frames[0].shape) as stream:
+        warm = set(given)
+        real.clear()
+        for f in frames:
+            stream.push(f)
+    assert warm and real
+    assert set(real) <= warm, (set(real), warm)
