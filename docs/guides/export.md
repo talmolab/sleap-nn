@@ -211,9 +211,7 @@ every export directory (`auto` prefers `model.trt`), on every route (several
 `--model_paths`, `--part_model`, `--stream-to-file`); the predictions' provenance
 (`exported_models`) records the runtime, and for an engine its precision, of each
 exported graph that ran (a part model's tagged `stage: part`). A `--network-only` crop export passed alone (or with `--boxes`)
-runs exactly as its checkpoint would there. An exported box detector passed alone
-decodes its boxes with `--peak_threshold` and `--bbox_nms_iou` when they are given, as
-it does next to a pose model. Node filters are baked in at export (`--nodes` /
+runs exactly as its checkpoint would there. Node filters are baked in at export (`--nodes` /
 `--node-prefix` / `--strip-prefix`); `--node_prefix` at prediction time is refused for
 an exported network. `--max-batch-size` is a TensorRT engine's batch limit: larger
 crop batches run in chunks of it. A TensorRT engine runs on the current CUDA device:
