@@ -82,9 +82,21 @@ CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"]}
     type=click.Choice(["fp32", "fp16", "tf32", "bf16"], case_sensitive=False),
     default="fp16",
     show_default=True,
-    help="TensorRT precision mode. 'bf16' (TensorRT >= 10) keeps fp32's range: use it "
-    "for models whose activations overflow fp16 (e.g. a DINOv3 bbox_detr detector "
-    "loses boxes in fp16).",
+    help="TensorRT precision mode. 'bf16' needs a GPU with compute capability >= 8.0 "
+    "and keeps fp32's range where fp16 overflows (a DINOv3 bbox_detr detector loses "
+    "boxes in fp16); in graphs that compute coordinates (box detectors, peaks found in "
+    "the graph) every layer outside the backbone is kept in fp32. TensorRT 11 builds "
+    "fp16 / bf16 strongly typed (Cast nodes in the graph; see --strongly-typed). "
+    "Reduced precision still moves outputs: check accuracy on your data against fp32.",
+)
+@click.option(
+    "--strongly-typed",
+    is_flag=True,
+    default=False,
+    help="TensorRT 10: build a strongly typed engine, with fp16 / bf16 carried by "
+    "Cast nodes in the graph instead of builder flags. TensorRT 11 builds this way "
+    "always (it removed the flags); the option lets TensorRT 10 build the same "
+    "engines. Default off.",
 )
 @click.option(
     "--peak-threshold",
@@ -147,6 +159,7 @@ def export(
     dist_penalty_weight: float,
     device: str,
     precision: str,
+    strongly_typed: bool,
     peak_threshold: float,
     workspace_size_gb: Optional[float],
     verify: bool,
@@ -158,6 +171,7 @@ def export(
     import torch
 
     from sleap_nn.export.exporters import export_to_onnx, export_to_tensorrt
+    from sleap_nn.export.exporters.tensorrt_exporter import BACKBONE_SCOPE
     from sleap_nn.export.exporters.onnx_exporter import has_rope
     from sleap_nn.export.metadata import (
         build_base_metadata,
@@ -205,6 +219,11 @@ def export(
     )
 
     fmt = fmt.lower()
+    if opt_batch_size is not None and fmt == "onnx":
+        click.echo(
+            "Note: --opt-batch-size only shapes TensorRT engines; it is ignored for "
+            "--format onnx (recorded in the export metadata)."
+        )
     if opt_batch_size is not None and not 1 <= opt_batch_size <= max_batch_size:
         raise click.ClickException(
             f"--opt-batch-size {opt_batch_size} must be between 1 and "
@@ -574,6 +593,16 @@ def export(
                 "take uint8."
             )
         graph_dtype = torch.float32 if input_dtype == "float32" else torch.uint8
+        if (
+            model_type == "bbox_detr"
+            and fmt in ("tensorrt", "both")
+            and precision.lower() == "fp16"
+        ):
+            click.echo(
+                "Warning: a bbox_detr detector can lose boxes in fp16 (its activations "
+                "can overflow fp16's range); export with --precision bf16 or fp32 "
+                "unless fp16 is checked on your data."
+            )
 
         export_to_onnx(
             wrapper,
@@ -635,6 +664,14 @@ def export(
         metadata.save(export_dir / "export_metadata.json")
         if network_only:
             _mark_network_only(export_dir / "export_metadata.json", output_names)
+        if opt_batch_size is not None:
+            _record_build(
+                export_dir / "export_metadata.json",
+                {
+                    "opt_batch_size": opt_batch_size,
+                    "opt_batch_size_applies_to": "tensorrt",
+                },
+            )
 
         if training_config_text is not None:
             try:
@@ -670,6 +707,11 @@ def export(
 
             if opt_batch_size is not None and trt_opt_shape is None:
                 trt_opt_shape = (opt_batch_size,) + tuple(trt_input_shape[1:])
+            # Graphs that compute coordinates keep every layer outside the backbone
+            # in fp32 under bf16; feature-map graphs (network-only confmaps,
+            # embeddings) keep only their transposed convolutions in fp32.
+            coords_in_graph = not network_only and model_type != "embedding"
+            build_info = {}
             export_to_tensorrt(
                 wrapper,
                 trt_out_path,
@@ -681,6 +723,9 @@ def export(
                 max_shape=trt_max_shape,
                 **trt_workspace_kwargs,
                 verbose=True,
+                bf16_fp32_outside=BACKBONE_SCOPE if coords_in_graph else None,
+                build_info=build_info,
+                strongly_typed=strongly_typed,
             )
             # Update metadata for TensorRT
             trt_metadata = build_base_metadata(
@@ -722,6 +767,7 @@ def export(
             trt_metadata.save(export_dir / "model.trt.metadata.json")
             if network_only:
                 _mark_network_only(export_dir / "model.trt.metadata.json", output_names)
+            _record_build(export_dir / "model.trt.metadata.json", build_info)
         return
 
     if len(model_paths) == 2 and set(model_types) == {
@@ -897,6 +943,7 @@ def export(
         if fmt in ("tensorrt", "both"):
             trt_out_path = export_dir / "model.trt"
             B, C, H, W = input_shape
+            build_info = {}
             export_to_tensorrt(
                 wrapper,
                 trt_out_path,
@@ -911,6 +958,9 @@ def export(
                 verbose=True,
                 # As for the ONNX graph: only the centroid model sees the frame.
                 static_hw=has_rope(centroid_model),
+                bf16_fp32_outside=BACKBONE_SCOPE,
+                build_info=build_info,
+                strongly_typed=strongly_typed,
             )
             # Update metadata for TensorRT
             trt_metadata = build_base_metadata(
@@ -943,6 +993,7 @@ def export(
                 centroid_method=resolve_centroid_method(centroid_cfg, "centroid"),
             )
             trt_metadata.save(export_dir / "model.trt.metadata.json")
+            _record_build(export_dir / "model.trt.metadata.json", build_info)
         return
 
     # Combined multiclass top-down export (centroid + multi_class_topdown)
@@ -1112,6 +1163,7 @@ def export(
         if fmt in ("tensorrt", "both"):
             trt_out_path = export_dir / "model.trt"
             B, C, H, W = input_shape
+            build_info = {}
             export_to_tensorrt(
                 wrapper,
                 trt_out_path,
@@ -1126,6 +1178,9 @@ def export(
                 verbose=True,
                 # As for the ONNX graph: only the centroid model sees the frame.
                 static_hw=has_rope(centroid_model),
+                bf16_fp32_outside=BACKBONE_SCOPE,
+                build_info=build_info,
+                strongly_typed=strongly_typed,
             )
             trt_metadata = build_base_metadata(
                 export_format="tensorrt",
@@ -1159,6 +1214,7 @@ def export(
                 centroid_method=resolve_centroid_method(centroid_cfg, "centroid"),
             )
             trt_metadata.save(export_dir / "model.trt.metadata.json")
+            _record_build(export_dir / "model.trt.metadata.json", build_info)
         return
 
     raise click.ClickException(
@@ -1166,6 +1222,25 @@ def export(
         "or two paths (centroid + centered_instance or centroid + multi_class_topdown) "
         "for combined top-down export."
     )
+
+
+def _record_build(path: Path, info: dict) -> None:
+    """Write what the engine build actually did into its metadata file.
+
+    ``precision_built`` replaces ``precision`` (an fp16 request on a GPU without fast
+    fp16 builds fp32); other keys (``bf16_scope``, ``bf16_fp32_layers``,
+    ``opt_batch_size`` ...) are added. Nothing is written for an empty ``info``.
+    """
+    import json
+
+    if not info:
+        return
+    data = json.loads(path.read_text())
+    info = dict(info)
+    if "precision_built" in info:
+        data["precision"] = info.pop("precision_built")
+    data.update(info)
+    path.write_text(json.dumps(data, indent=2, sort_keys=True))
 
 
 def _mark_network_only(path: Path, output_names) -> None:
