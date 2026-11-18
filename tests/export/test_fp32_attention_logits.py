@@ -321,3 +321,37 @@ def test_cli_refusals(
         ],
     )
     assert result.exit_code != 0 and message in result.output, result.output
+
+
+def test_family_fallback_wins_over_the_recipe(monkeypatch):
+    """A family built fp32 by #867's fallback records the recipe as not applied."""
+    import sleap_nn.export.exporters.tensorrt_exporter as te
+
+    class Fails(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.w = torch.nn.Parameter(torch.zeros(1))
+
+    seen = {}
+
+    def fake_onnx_build(*a, fp32_islands=None, **kw):
+        seen.update(precision=a[7], fp32_islands=fp32_islands)
+        return a[1]
+
+    monkeypatch.setitem(sys.modules, "tensorrt", _fake_trt("11.5.0.63")[0])
+    monkeypatch.setattr(te, "_reduced_precision_fails", lambda: (Fails,))
+    monkeypatch.setattr(te, "_export_tensorrt_onnx", fake_onnx_build)
+    monkeypatch.setattr(te, "_WARNED", set())
+    info = {}
+    te.export_to_tensorrt(
+        Fails(),
+        "model.trt",
+        input_shape=(1, 3, 8, 8),
+        precision="fp16",
+        verbose=False,
+        _build_info=info,
+        fp32_islands="attention_logits",
+    )
+    assert seen == {"precision": "fp32", "fp32_islands": None}
+    assert info["fp32_islands"] == {"recipe": "attention_logits", "applied": False}
+    assert info["precision_requested"] == "fp16"
