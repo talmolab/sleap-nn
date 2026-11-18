@@ -200,7 +200,11 @@ def test_streaming_over_batches_and_videos(
     assert set(two.provenance["part_stage"]) <= set(prov) and prov["streaming"] is True
     assert "session_floors" not in prov  # no floor: no key, as two passes
     pp = prov["part_provenance"]
-    assert pp["model_paths"] == [part] and pp["model_type"] and pp["inference_config"]
+    from pathlib import Path
+
+    # provenance stores resolved POSIX paths (the same on every system)
+    assert pp["model_paths"] == [Path(part).resolve().as_posix()]
+    assert pp["model_type"] and pp["inference_config"]
     floored = predict(
         two_videos, part_streaming=True, **dict(kw, part_crop_rule=RULE_FLOOR)
     )
