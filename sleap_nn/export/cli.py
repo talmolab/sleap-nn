@@ -620,6 +620,7 @@ def export(
                 "can overflow fp16's range); export with --precision bf16 or fp32 "
                 "unless fp16 is checked on your data."
             )
+        _warn_fp16_vit_pose(cfg, model_type, backbone_type, fmt, precision)
         if network_only:
             # The host scales each crop by preprocessing.scale and pads it to the
             # backbone's max_stride before the network: trace (and profile) at that
@@ -1303,6 +1304,32 @@ def _record_build(path: Path, info: dict) -> None:
         data["precision"] = info.pop("precision_built")
     data.update(info)
     path.write_text(json.dumps(data, indent=2, sort_keys=True))
+
+
+def _warn_fp16_vit_pose(cfg, model_type, backbone_type, fmt, precision) -> None:
+    """Warn on an fp16 TensorRT export of a pose model with a ViT backbone.
+
+    DINOv3 ViT-B pose (21 points) and tail (4 points) models kept 17-44% of their
+    keypoints within 0.5 px of fp32 in fp16 engines on TensorRT 10 and 11; bf16 kept
+    ~96% / ~89% and fp32 100%. The export default precision is unchanged.
+    """
+    if fmt not in ("tensorrt", "both") or str(precision).lower() != "fp16":
+        return
+    if model_type in ("bbox_centernet", "bbox_ssd", "bbox_detr"):
+        return  # box detectors have their own note (TensorRT precision guide)
+    try:
+        bb = cfg.model_config.backbone_config[backbone_type]
+        name = str(bb.get("model_name") or "") if backbone_type == "pretrained" else ""
+    except (AttributeError, KeyError, TypeError):
+        return
+    if "vit" not in name.lower():
+        return
+    click.echo(
+        f"Warning: a pose model with a ViT backbone ({name}) loses keypoint accuracy "
+        "in fp16 (DINOv3 ViT-B pose / tail models: 17-44% of keypoints within 0.5 px "
+        "of fp32, on TensorRT 10 and 11); export with --precision bf16 (a GPU with "
+        "compute capability >= 8.0) or fp32 unless fp16 is checked on your data."
+    )
 
 
 def _mark_network_only(path: Path, output_names) -> None:

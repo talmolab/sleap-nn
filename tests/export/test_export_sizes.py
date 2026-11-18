@@ -81,3 +81,35 @@ def test_checkpoint_wins_over_an_export_in_the_same_directory(tmp_path):
     assert is_network_export(d)
     (d / "best.ckpt").write_bytes(b"")
     assert not is_network_export(d)
+
+
+def test_fp16_warning_for_vit_pose_models(capsys):
+    """fp16 TensorRT exports of ViT-backbone pose models warn; UNets and fp32 do not."""
+    from omegaconf import OmegaConf
+
+    from sleap_nn.export.cli import _warn_fp16_vit_pose
+
+    vit = OmegaConf.create(
+        {
+            "model_config": {
+                "backbone_config": {
+                    "pretrained": {
+                        "model_name": "timm/vit_base_patch16_dinov3.lvd1689m"
+                    }
+                }
+            }
+        }
+    )
+    unet = OmegaConf.create(
+        {"model_config": {"backbone_config": {"unet": {"filters": 16}}}}
+    )
+    _warn_fp16_vit_pose(vit, "centered_instance", "pretrained", "tensorrt", "fp16")
+    assert "ViT backbone" in capsys.readouterr().out
+    for args in [
+        (vit, "centered_instance", "pretrained", "tensorrt", "bf16"),
+        (vit, "centered_instance", "pretrained", "onnx", "fp16"),
+        (vit, "bbox_detr", "pretrained", "tensorrt", "fp16"),
+        (unet, "centered_instance", "unet", "tensorrt", "fp16"),
+    ]:
+        _warn_fp16_vit_pose(*args)
+        assert capsys.readouterr().out == ""
