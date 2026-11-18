@@ -15,7 +15,8 @@ use, so the same ``--precision`` means the same thing on both versions:
   ``pkg.torch.onnx.name_scopes``) contains it, e.g. ``"backbone/"``; ``None``
   converts every eligible node.
 - Under fp16, nodes fed by a constant beyond fp16's range (|x| > 65504, e.g. the 1e9
-  sentinels that mask absent peaks) stay fp32 (ModelOpt AutoCast's ``init_max``).
+  sentinels that mask absent peaks), and the float values computed from it downstream,
+  stay fp32 (ModelOpt AutoCast keeps these from initializer and measured magnitudes).
 - The normalization ops, reductions, ``Pow``, ``Sqrt``, ``Reciprocal``, ``Exp`` and
   ``Log`` stay in fp32 (:data:`KEEP_FP32_OPS`; fp16 overflows there first). A norm
   decomposed into elementwise ops keeps only those ops in fp32: its ``Sub`` / ``Add``
@@ -261,6 +262,12 @@ def cast_onnx_precision(
                 for attr in node.attribute:
                     if attr.name == "value" and attr.HasField("t") and too_big(attr.t):
                         big.add(node.output[0])
+        # Values built from such a constant can stay that large downstream (e.g. a
+        # mask times 1e9, then a max over it): follow them through the float ops.
+        if big:
+            for node in g.node:
+                if any(t in big for t in node.input):
+                    big.update(t for t in node.output if t and types.get(t) == FLOAT)
 
     # 1. Which nodes run in the reduced type.
     reduced: Set[int] = set()

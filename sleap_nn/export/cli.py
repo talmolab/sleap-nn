@@ -712,12 +712,15 @@ def export(
             # embeddings) keep only their transposed convolutions in fp32.
             coords_in_graph = not network_only and model_type != "embedding"
             build_info = {}
+            build_precision = _strong_typing_precision(
+                model_type, precision, strongly_typed, build_info
+            )
             export_to_tensorrt(
                 wrapper,
                 trt_out_path,
                 input_shape=trt_input_shape,
                 input_dtype=graph_dtype,
-                precision=precision,
+                precision=build_precision,
                 min_shape=trt_min_shape,
                 opt_shape=trt_opt_shape,
                 max_shape=trt_max_shape,
@@ -1222,6 +1225,43 @@ def export(
         "or two paths (centroid + centered_instance or centroid + multi_class_topdown) "
         "for combined top-down export."
     )
+
+
+#: Model types whose reduced-precision engines do not reproduce the fp32 graph within
+#: the export tolerance (peaks of the multi-class bottom-up fixture: 40-77% within
+#: 0.5 px at fp16 / bf16 on TensorRT 10 and 11). On the strongly typed path (TensorRT
+#: 11, or --strongly-typed) they are built in fp32 with a warning.
+STRONG_TYPING_FP32_ONLY = ("multi_class_bottomup",)
+
+
+def _strong_typing_precision(
+    model_type: str, precision: str, strongly_typed: bool, build_info: dict
+) -> str:
+    """The precision to build: fp32 for STRONG_TYPING_FP32_ONLY on the strongly typed path."""
+    if precision.lower() not in ("fp16", "bf16") or model_type not in (
+        STRONG_TYPING_FP32_ONLY
+    ):
+        return precision
+    try:
+        import tensorrt as trt
+
+        from sleap_nn.export.exporters.tensorrt_exporter import has_weak_typing
+
+        strong = bool(strongly_typed) or not has_weak_typing(trt)
+    except ImportError:
+        strong = bool(strongly_typed)
+    if not strong:
+        return precision  # TensorRT 10 builder flags: as before
+    click.echo(
+        f"Warning: a {model_type} engine does not reproduce its fp32 graph in "
+        f"{precision} with strong typing (TensorRT 11 or --strongly-typed); building "
+        "fp32 instead (recorded in the metadata)."
+    )
+    build_info["precision_requested"] = precision
+    build_info["precision_fallback"] = (
+        f"{model_type}: {precision} does not reproduce the fp32 graph; built fp32"
+    )
+    return "fp32"
 
 
 def _record_build(path: Path, info: dict) -> None:

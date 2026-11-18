@@ -193,3 +193,26 @@ def test_reduced_precision_engines_build(
         graph = out / meta["tensorrt_graph"]
         assert graph.exists() and graph.parent.name == "tensorrt_graph"
     assert meta["precision"] in (precision, "fp32")  # fp32: no fast fp16 on 10.x
+
+
+def test_multi_class_bottomup_falls_back_to_fp32_with_strong_typing(monkeypatch):
+    import sys
+    import types
+
+    from sleap_nn.export.cli import _strong_typing_precision
+
+    v11 = types.ModuleType("tensorrt")
+    v11.BuilderFlag = types.SimpleNamespace(TF32=1)  # no FP16 / BF16: TensorRT 11
+    v10 = types.ModuleType("tensorrt")
+    v10.BuilderFlag = types.SimpleNamespace(TF32=1, FP16=2, BF16=3)
+    info = {}
+    monkeypatch.setitem(sys.modules, "tensorrt", v11)
+    assert (
+        _strong_typing_precision("multi_class_bottomup", "fp16", False, info) == "fp32"
+    )
+    assert info["precision_requested"] == "fp16" and "precision_fallback" in info
+    assert _strong_typing_precision("bottomup", "fp16", False, {}) == "fp16"
+    assert _strong_typing_precision("multi_class_bottomup", "fp32", False, {}) == "fp32"
+    monkeypatch.setitem(sys.modules, "tensorrt", v10)
+    assert _strong_typing_precision("multi_class_bottomup", "bf16", False, {}) == "bf16"
+    assert _strong_typing_precision("multi_class_bottomup", "bf16", True, {}) == "fp32"

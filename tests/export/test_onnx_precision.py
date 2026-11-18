@@ -562,7 +562,9 @@ def test_fp16_keeps_nodes_fed_by_constants_beyond_its_range():
     assert by_name["/model/backbone/Relu"].output[0].endswith("__fp16")
     assert not by_name["/peaks/Add"].output[0].endswith("__fp16")
     assert not by_name["/peaks/Mul"].output[0].endswith("__fp16")
-    assert info["fp32_nodes_in_scope"] == {"constant beyond fp16 range": 2}
+    assert info["fp32_nodes_in_scope"] == {
+        "constant beyond fp16 range": 2
+    }  # Add, and Mul downstream
     # bf16 has fp32's range: the same nodes are converted.
     _, info = cast_onnx_precision(m, "bf16")
     assert "constant beyond fp16 range" not in info["fp32_nodes_in_scope"]
