@@ -18,4 +18,4 @@ from sleap_nn.inference.provenance import (
     build_tracking_only_provenance,
     merge_provenance,
 )
-from sleap_nn.inference.run import predict
+from sleap_nn.inference.run import open_stream, predict

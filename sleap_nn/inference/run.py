@@ -27,12 +27,14 @@ Usage::
 
 from __future__ import annotations
 
+import inspect
 from datetime import datetime
 from pathlib import Path
 from typing import (
     TYPE_CHECKING,
     Any,
     Callable,
+    Dict,
     List,
     Optional,
     Sequence,
@@ -439,6 +441,223 @@ def _attach_box_source(
     return source, "given"
 
 
+def _build_predictor(
+    *,
+    device,
+    batch_size,
+    paf_workers,
+    precision,
+    export_dir,
+    filter_config,
+    tracker_config,
+    model_paths,
+    backbone_ckpt_path,
+    head_ckpt_path,
+    preprocess_config,
+    anchor_part,
+    peak_threshold,
+    max_instances,
+    centroid_only,
+    emit_centroid,
+    max_edge_length_ratio,
+    dist_penalty_weight,
+    n_points,
+    min_instance_peaks,
+    min_line_scores,
+    fg_threshold,
+    min_mask_area,
+    center_nms_kernel,
+    mask_cleanup,
+    mask_cleanup_radius,
+    distance_gate_alpha,
+    bbox_nms_iou,
+    merge_fragments,
+    merge_method,
+    merge_thresholds,
+    merge_w_valley,
+    merge_w_offset,
+    merge_dilate,
+    full_res_masks,
+    mask_output,
+    polygon_epsilon,
+    flip_test,
+    frames_on_gpu,
+    runtime,
+    box_mode,
+    box_score_threshold,
+    node_filter,
+    strip_prefix,
+    part_model_paths,
+    part_streaming,
+    part_crop_rule,
+    part_node_filter,
+    part_strip_prefix,
+    part_peak_threshold,
+    part_prefix,
+):
+    """Build the predictor (and the streaming part stage) the way :func:`predict` does.
+
+    Shared by :func:`predict` and :func:`open_stream`, so both run the same pipeline.
+    Returns ``(predictor, part_stream)``; ``part_stream`` is ``None`` unless the part
+    stage streams.
+    """
+    from sleap_nn.inference.predictor import Predictor
+
+    build_kwargs: dict = {
+        "device": device,
+        "batch_size": batch_size,
+        "paf_workers": paf_workers,
+    }
+    if precision != "32":
+        if export_dir:
+            raise ValueError(
+                "precision is not available for exported (ONNX/TensorRT) models; "
+                "export them at the precision you want instead."
+            )
+        build_kwargs["precision"] = precision
+    if filter_config is not None:
+        build_kwargs["filter_config"] = filter_config
+    if tracker_config is not None:
+        build_kwargs["tracker_config"] = tracker_config
+
+    if model_paths:
+        # `embedding` (re-ID) models emit appearance vectors, not poses, so this
+        # pose-packaging path cannot consume them (a lone embedding model would emit
+        # empty Labels, and a composed centroid+embedding model would crash on the
+        # skeleton-less centroid packaging). Route the user to the dedicated stream.
+        from sleap_nn.config.utils import get_model_type_from_cfg, resolve_model_dir
+        from sleap_nn.inference.loaders import _load_training_config
+
+        _model_types = []
+        for _mp in model_paths:
+            try:
+                _cfg, _ = _load_training_config(resolve_model_dir(_mp))
+                _model_types.append(get_model_type_from_cfg(config=_cfg))
+            except Exception:  # noqa: BLE001 - only used to detect the embedding case
+                _model_types.append(None)
+        if "embedding" in _model_types:
+            raise ValueError(
+                "Embedding (re-ID) models emit appearance vectors, not poses, and are "
+                "not supported by `predict` (which packages pose Labels). Use the "
+                "dedicated embedding path instead:\n"
+                "  sleap-nn predict --data_path <detections.slp> --model_paths "
+                "<embedding_dir> --save_embeddings slp\n"
+                "(a lone embedding model EMBEDS EXISTING detections, so its input is "
+                "a .slp; pass a detection model alongside it to run on a video)\n"
+                "or, from Python:\n"
+                "  from sleap_nn.inference.embedding import predict_embeddings_to_slp\n"
+                "  predict_embeddings_to_slp(model_paths=[embedding_dir], "
+                "data_path=src, output_path='out.slp')"
+            )
+        if backbone_ckpt_path is not None:
+            build_kwargs["backbone_ckpt_path"] = backbone_ckpt_path
+        if head_ckpt_path is not None:
+            build_kwargs["head_ckpt_path"] = head_ckpt_path
+        if preprocess_config is not None:
+            build_kwargs["preprocess_config"] = preprocess_config
+        if anchor_part is not None:
+            build_kwargs["anchor_part"] = anchor_part
+        if peak_threshold is not None:
+            build_kwargs["peak_threshold"] = peak_threshold
+        if max_instances is not None:
+            build_kwargs["max_instances"] = max_instances
+        if centroid_only:
+            build_kwargs["centroid_only"] = True
+        if emit_centroid != "instance":
+            build_kwargs["emit_centroid"] = emit_centroid
+        # Bottom-up PAF knobs configure the scorer at load time (#583); inert
+        # for non-bottom-up models (load_model_assets forwards them only there).
+        build_kwargs["max_edge_length_ratio"] = max_edge_length_ratio
+        build_kwargs["dist_penalty_weight"] = dist_penalty_weight
+        build_kwargs["n_points"] = n_points
+        build_kwargs["min_instance_peaks"] = min_instance_peaks
+        build_kwargs["min_line_scores"] = min_line_scores
+        # Segmentation knobs configure the SegmentationLayer at load time; inert
+        # for non-segmentation models (load_model_assets forwards them only there).
+        build_kwargs["fg_threshold"] = fg_threshold
+        build_kwargs["min_mask_area"] = min_mask_area
+        build_kwargs["center_nms_kernel"] = center_nms_kernel
+        build_kwargs["mask_cleanup"] = mask_cleanup
+        build_kwargs["mask_cleanup_radius"] = mask_cleanup_radius
+        build_kwargs["distance_gate_alpha"] = distance_gate_alpha
+        build_kwargs["bbox_nms_iou"] = bbox_nms_iou
+        build_kwargs["merge_fragments"] = merge_fragments
+        build_kwargs["merge_method"] = merge_method
+        build_kwargs["merge_thresholds"] = merge_thresholds
+        build_kwargs["merge_w_valley"] = merge_w_valley
+        build_kwargs["merge_w_offset"] = merge_w_offset
+        build_kwargs["merge_dilate"] = merge_dilate
+        build_kwargs["full_res_masks"] = full_res_masks
+        build_kwargs["mask_output"] = mask_output
+        build_kwargs["polygon_epsilon"] = polygon_epsilon
+        build_kwargs["flip_test"] = flip_test
+        if frames_on_gpu:
+            build_kwargs["frames_on_gpu"] = True
+        if runtime != "auto":
+            # Network-only export directories among model_paths (`--network-only`
+            # or box detector exports) run on this runtime.
+            build_kwargs["export_runtime"] = runtime
+        if box_mode is not None:
+            build_kwargs["boxes"] = box_mode
+            build_kwargs["box_score_threshold"] = box_score_threshold
+        if node_filter is not None:
+            build_kwargs["node_filter"] = node_filter
+            build_kwargs["strip_prefix"] = strip_prefix
+        predictor = Predictor.from_model_paths(model_paths, **build_kwargs)
+    else:
+        if node_filter is not None:
+            raise ValueError(
+                "node_filter is not available for exported (ONNX/TensorRT) models; "
+                "export the filtered model (`sleap-nn export --nodes/--node_prefix`) "
+                "or run the checkpoint directory."
+            )
+        if flip_test:
+            raise ValueError(
+                "flip_test is not available for exported (ONNX/TensorRT) models, "
+                "whose peak finding is baked into the graph; run the checkpoint "
+                "directory instead."
+            )
+        if box_mode is not None:
+            raise ValueError(
+                "boxes is not supported for exported models; use the checkpoint."
+            )
+        if frames_on_gpu:
+            raise ValueError(
+                "frames_on_gpu is not available for exported model directories "
+                "(export_dir); pass network-only exports as model paths instead."
+            )
+        # Exported ONNX/TRT models bake most post-processing into the graph at
+        # export time; only these construction-time knobs still apply.
+        build_kwargs["runtime"] = runtime
+        build_kwargs["min_instance_peaks"] = min_instance_peaks
+        build_kwargs["min_line_scores"] = min_line_scores
+        build_kwargs["emit_centroid"] = emit_centroid
+        if max_instances is not None:
+            build_kwargs["max_instances"] = max_instances
+        predictor = Predictor.from_export_dir(export_dir, **build_kwargs)
+
+    part_stream = None
+    if part_model_paths and part_streaming:
+        from sleap_nn.inference.keypoint_crops import build_streaming_part_stage
+
+        part_stream, merged = build_streaming_part_stage(
+            predictor.skeleton,
+            part_model_paths,
+            part_crop_rule,
+            device=device,
+            batch_size=batch_size,
+            precision=precision,
+            node_filter=part_node_filter,
+            strip_prefix=part_strip_prefix,
+            peak_threshold=part_peak_threshold,
+            part_prefix=part_prefix,
+            export_runtime=runtime,
+        )
+        predictor.part_stage = part_stream
+        predictor.skeleton = merged
+    return predictor, part_stream
+
+
 def predict(
     source: Any,
     *,
@@ -733,8 +952,6 @@ def predict(
     """
     import torch
 
-    from sleap_nn.inference.predictor import Predictor
-
     # Before any model load or inference (SAM included): `save_predictions` makes
     # the same check, but only once the whole pass has run.
     _refuse_overwriting_source_before_inference(source, output_path, output_format)
@@ -819,158 +1036,59 @@ def predict(
         )
 
     # Build predictor
-    build_kwargs: dict = {
-        "device": device,
-        "batch_size": batch_size,
-        "paf_workers": paf_workers,
-    }
-    if precision != "32":
-        if export_dir:
-            raise ValueError(
-                "precision is not available for exported (ONNX/TensorRT) models; "
-                "export them at the precision you want instead."
-            )
-        build_kwargs["precision"] = precision
-    if filter_config is not None:
-        build_kwargs["filter_config"] = filter_config
-    if tracker_config is not None:
-        build_kwargs["tracker_config"] = tracker_config
-
-    if model_paths:
-        # `embedding` (re-ID) models emit appearance vectors, not poses, so this
-        # pose-packaging path cannot consume them (a lone embedding model would emit
-        # empty Labels, and a composed centroid+embedding model would crash on the
-        # skeleton-less centroid packaging). Route the user to the dedicated stream.
-        from sleap_nn.config.utils import get_model_type_from_cfg, resolve_model_dir
-        from sleap_nn.inference.loaders import _load_training_config
-
-        _model_types = []
-        for _mp in model_paths:
-            try:
-                _cfg, _ = _load_training_config(resolve_model_dir(_mp))
-                _model_types.append(get_model_type_from_cfg(config=_cfg))
-            except Exception:  # noqa: BLE001 - only used to detect the embedding case
-                _model_types.append(None)
-        if "embedding" in _model_types:
-            raise ValueError(
-                "Embedding (re-ID) models emit appearance vectors, not poses, and are "
-                "not supported by `predict` (which packages pose Labels). Use the "
-                "dedicated embedding path instead:\n"
-                "  sleap-nn predict --data_path <detections.slp> --model_paths "
-                "<embedding_dir> --save_embeddings slp\n"
-                "(a lone embedding model EMBEDS EXISTING detections, so its input is "
-                "a .slp; pass a detection model alongside it to run on a video)\n"
-                "or, from Python:\n"
-                "  from sleap_nn.inference.embedding import predict_embeddings_to_slp\n"
-                "  predict_embeddings_to_slp(model_paths=[embedding_dir], "
-                "data_path=src, output_path='out.slp')"
-            )
-        if backbone_ckpt_path is not None:
-            build_kwargs["backbone_ckpt_path"] = backbone_ckpt_path
-        if head_ckpt_path is not None:
-            build_kwargs["head_ckpt_path"] = head_ckpt_path
-        if preprocess_config is not None:
-            build_kwargs["preprocess_config"] = preprocess_config
-        if anchor_part is not None:
-            build_kwargs["anchor_part"] = anchor_part
-        if peak_threshold is not None:
-            build_kwargs["peak_threshold"] = peak_threshold
-        if max_instances is not None:
-            build_kwargs["max_instances"] = max_instances
-        if centroid_only:
-            build_kwargs["centroid_only"] = True
-        if emit_centroid != "instance":
-            build_kwargs["emit_centroid"] = emit_centroid
-        # Bottom-up PAF knobs configure the scorer at load time (#583); inert
-        # for non-bottom-up models (load_model_assets forwards them only there).
-        build_kwargs["max_edge_length_ratio"] = max_edge_length_ratio
-        build_kwargs["dist_penalty_weight"] = dist_penalty_weight
-        build_kwargs["n_points"] = n_points
-        build_kwargs["min_instance_peaks"] = min_instance_peaks
-        build_kwargs["min_line_scores"] = min_line_scores
-        # Segmentation knobs configure the SegmentationLayer at load time; inert
-        # for non-segmentation models (load_model_assets forwards them only there).
-        build_kwargs["fg_threshold"] = fg_threshold
-        build_kwargs["min_mask_area"] = min_mask_area
-        build_kwargs["center_nms_kernel"] = center_nms_kernel
-        build_kwargs["mask_cleanup"] = mask_cleanup
-        build_kwargs["mask_cleanup_radius"] = mask_cleanup_radius
-        build_kwargs["distance_gate_alpha"] = distance_gate_alpha
-        build_kwargs["bbox_nms_iou"] = bbox_nms_iou
-        build_kwargs["merge_fragments"] = merge_fragments
-        build_kwargs["merge_method"] = merge_method
-        build_kwargs["merge_thresholds"] = merge_thresholds
-        build_kwargs["merge_w_valley"] = merge_w_valley
-        build_kwargs["merge_w_offset"] = merge_w_offset
-        build_kwargs["merge_dilate"] = merge_dilate
-        build_kwargs["full_res_masks"] = full_res_masks
-        build_kwargs["mask_output"] = mask_output
-        build_kwargs["polygon_epsilon"] = polygon_epsilon
-        build_kwargs["flip_test"] = flip_test
-        if frames_on_gpu:
-            build_kwargs["frames_on_gpu"] = True
-        if runtime != "auto":
-            # Network-only export directories among model_paths (`--network-only`
-            # or box detector exports) run on this runtime.
-            build_kwargs["export_runtime"] = runtime
-        if box_mode is not None:
-            build_kwargs["boxes"] = box_mode
-            build_kwargs["box_score_threshold"] = box_score_threshold
-        if node_filter is not None:
-            build_kwargs["node_filter"] = node_filter
-            build_kwargs["strip_prefix"] = strip_prefix
-        predictor = Predictor.from_model_paths(model_paths, **build_kwargs)
-    else:
-        if node_filter is not None:
-            raise ValueError(
-                "node_filter is not available for exported (ONNX/TensorRT) models; "
-                "export the filtered model (`sleap-nn export --nodes/--node_prefix`) "
-                "or run the checkpoint directory."
-            )
-        if flip_test:
-            raise ValueError(
-                "flip_test is not available for exported (ONNX/TensorRT) models, "
-                "whose peak finding is baked into the graph; run the checkpoint "
-                "directory instead."
-            )
-        if box_mode is not None:
-            raise ValueError(
-                "boxes is not supported for exported models; use the checkpoint."
-            )
-        if frames_on_gpu:
-            raise ValueError(
-                "frames_on_gpu is not available for exported model directories "
-                "(export_dir); pass network-only exports as model paths instead."
-            )
-        # Exported ONNX/TRT models bake most post-processing into the graph at
-        # export time; only these construction-time knobs still apply.
-        build_kwargs["runtime"] = runtime
-        build_kwargs["min_instance_peaks"] = min_instance_peaks
-        build_kwargs["min_line_scores"] = min_line_scores
-        build_kwargs["emit_centroid"] = emit_centroid
-        if max_instances is not None:
-            build_kwargs["max_instances"] = max_instances
-        predictor = Predictor.from_export_dir(export_dir, **build_kwargs)
-
-    part_stream = None
-    if part_model_paths and part_streaming:
-        from sleap_nn.inference.keypoint_crops import build_streaming_part_stage
-
-        part_stream, merged = build_streaming_part_stage(
-            predictor.skeleton,
-            part_model_paths,
-            part_crop_rule,
-            device=device,
-            batch_size=batch_size,
-            precision=precision,
-            node_filter=part_node_filter,
-            strip_prefix=part_strip_prefix,
-            peak_threshold=part_peak_threshold,
-            part_prefix=part_prefix,
-            export_runtime=runtime,
-        )
-        predictor.part_stage = part_stream
-        predictor.skeleton = merged
+    predictor, part_stream = _build_predictor(
+        device=device,
+        batch_size=batch_size,
+        paf_workers=paf_workers,
+        precision=precision,
+        export_dir=export_dir,
+        filter_config=filter_config,
+        tracker_config=tracker_config,
+        model_paths=model_paths,
+        backbone_ckpt_path=backbone_ckpt_path,
+        head_ckpt_path=head_ckpt_path,
+        preprocess_config=preprocess_config,
+        anchor_part=anchor_part,
+        peak_threshold=peak_threshold,
+        max_instances=max_instances,
+        centroid_only=centroid_only,
+        emit_centroid=emit_centroid,
+        max_edge_length_ratio=max_edge_length_ratio,
+        dist_penalty_weight=dist_penalty_weight,
+        n_points=n_points,
+        min_instance_peaks=min_instance_peaks,
+        min_line_scores=min_line_scores,
+        fg_threshold=fg_threshold,
+        min_mask_area=min_mask_area,
+        center_nms_kernel=center_nms_kernel,
+        mask_cleanup=mask_cleanup,
+        mask_cleanup_radius=mask_cleanup_radius,
+        distance_gate_alpha=distance_gate_alpha,
+        bbox_nms_iou=bbox_nms_iou,
+        merge_fragments=merge_fragments,
+        merge_method=merge_method,
+        merge_thresholds=merge_thresholds,
+        merge_w_valley=merge_w_valley,
+        merge_w_offset=merge_w_offset,
+        merge_dilate=merge_dilate,
+        full_res_masks=full_res_masks,
+        mask_output=mask_output,
+        polygon_epsilon=polygon_epsilon,
+        flip_test=flip_test,
+        frames_on_gpu=frames_on_gpu,
+        runtime=runtime,
+        box_mode=box_mode,
+        box_score_threshold=box_score_threshold,
+        node_filter=node_filter,
+        strip_prefix=strip_prefix,
+        part_model_paths=part_model_paths,
+        part_streaming=part_streaming,
+        part_crop_rule=part_crop_rule,
+        part_node_filter=part_node_filter,
+        part_strip_prefix=part_strip_prefix,
+        part_peak_threshold=part_peak_threshold,
+        part_prefix=part_prefix,
+    )
 
     # Run inference with prediction-time overrides
     labels = predictor.predict(
@@ -1045,3 +1163,164 @@ def predict(
         )
 
     return labels
+
+
+def _predict_defaults() -> Dict[str, Any]:
+    """``predict``'s keyword defaults (the one place they are written)."""
+    return {
+        k: p.default
+        for k, p in inspect.signature(predict).parameters.items()
+        if p.default is not inspect.Parameter.empty
+    }
+
+
+def open_stream(
+    model_paths: List[str],
+    *,
+    device: str = "auto",
+    precision: str = "32",
+    runtime: str = "auto",
+    preprocess_config: Optional[Any] = None,
+    anchor_part: Optional[str] = None,
+    bbox_nms_iou: Optional[float] = None,
+    flip_test: bool = False,
+    frames_on_gpu: bool = False,
+    node_filter: Optional[Union[str, List[str]]] = None,
+    strip_prefix: Optional[Union[bool, str]] = None,
+    filter_config: Optional[Any] = None,
+    part_model_paths: Optional[List[str]] = None,
+    part_crop_rule: Optional[Any] = None,
+    part_node_filter: Optional[Union[str, List[str]]] = None,
+    part_strip_prefix: Optional[Union[bool, str]] = None,
+    part_peak_threshold: Optional[float] = None,
+    part_prefix: Optional[str] = None,
+    peak_threshold: Optional[float] = None,
+    centroid_threshold: Optional[float] = None,
+    keypoint_threshold: Optional[float] = None,
+    max_instances: Optional[int] = None,
+    integral_refinement: Optional[str] = None,
+    integral_patch_size: Optional[int] = None,
+    frame_shape: Optional[Tuple[int, ...]] = None,
+    channel_order: str = "rgb",
+    keep: bool = False,
+):
+    """Open a frame-in, pose-out stream (:class:`~sleap_nn.inference.stream.PoseStream`).
+
+    Builds the same pipeline as :func:`predict` with the same model arguments
+    (checkpoints, or network-only export folders as ``model_paths`` with
+    ``runtime``), at batch size 1, with the part stage streaming
+    (``part_streaming=True``). Arguments not listed here take :func:`predict`'s
+    defaults. Per-frame options (``peak_threshold``, ``centroid_threshold``,
+    ``keypoint_threshold``, ``max_instances``, the refinement, ``filter_config``) mean
+    what they mean for :func:`predict`. The models must end in keypoints
+    (single-instance, bottom-up, or a top-down pair); others raise ``ValueError``.
+
+    Args:
+        model_paths: Model directories (checkpoints, or network-only export folders
+            run with ``runtime``), as for :func:`predict`.
+        device: As for :func:`predict` (``"auto"``: CUDA, then MPS, then CPU).
+        precision: As for :func:`predict` (``"32"``, ``"bf16"``, ``"fp16"``).
+        runtime: Runtime of network-only export folders, as for :func:`predict`
+            (the part model's too).
+        preprocess_config: As for :func:`predict`.
+        anchor_part: As for :func:`predict`.
+        bbox_nms_iou: As for :func:`predict` (box detectors).
+        flip_test: As for :func:`predict`.
+        frames_on_gpu: As for :func:`predict`: frames go to the GPU before stage 1.
+        node_filter: As for :func:`predict`.
+        strip_prefix: As for :func:`predict`.
+        filter_config: As for :func:`predict` (applied to every frame).
+        part_model_paths: The part model, as for :func:`predict`; its stage always
+            streams (running crop floor kept by the stream).
+        part_crop_rule: As for :func:`predict` (needed with ``part_model_paths``).
+        part_node_filter: As for :func:`predict`.
+        part_strip_prefix: As for :func:`predict`.
+        part_peak_threshold: As for :func:`predict`.
+        part_prefix: As for :func:`predict`.
+        peak_threshold: As for :func:`predict` (per frame).
+        centroid_threshold: As for :func:`predict` (per frame).
+        keypoint_threshold: As for :func:`predict` (per frame).
+        max_instances: As for :func:`predict`: the cap on instances per frame.
+        integral_refinement: As for :func:`predict`.
+        integral_patch_size: As for :func:`predict`.
+        frame_shape: ``(H, W)`` or ``(H, W, C)`` of the frames to come: when given,
+            a warm-up runs before the stream is returned (every network on dummy data). Without
+            it there is no warm-up, and the first frames pay the networks'
+            first-call costs.
+        channel_order: ``"rgb"`` (default, as sleap-io readers give) or ``"bgr"``
+            (as OpenCV gives): colour frames in BGR are swapped to RGB.
+        keep: Keep every frame's outputs (on the CPU) for :meth:`PoseStream.labels`
+            / :meth:`PoseStream.save`; memory grows with every frame pushed.
+
+    Returns:
+        A :class:`~sleap_nn.inference.stream.PoseStream`.
+
+    Example::
+
+        from sleap_nn.inference.run import open_stream
+
+        with open_stream(["models/detector", "models/pose"], channel_order="bgr",
+                         frame_shape=(1024, 1280, 3)) as stream:
+            for frame in camera:                      # uint8 H x W x C frames
+                poses = stream.push(frame)            # this frame's instances
+                print(len(poses), poses.points.shape, stream.last_latency_ms)
+    """
+    import torch
+
+    from sleap_nn.inference.stream import PoseStream
+
+    if part_model_paths and part_crop_rule is None:
+        raise ValueError("part_model_paths needs a part_crop_rule.")
+    if device == "auto":
+        device = (
+            "cuda"
+            if torch.cuda.is_available()
+            else "mps" if torch.backends.mps.is_available() else "cpu"
+        )
+    defaults = _predict_defaults()
+    build = {
+        name: defaults[name]
+        for name in inspect.signature(_build_predictor).parameters
+        if name in defaults
+    }
+    build.update(
+        device=device,
+        batch_size=1,
+        paf_workers=0,
+        precision=precision,
+        export_dir=None,
+        filter_config=filter_config,
+        tracker_config=None,
+        model_paths=list(model_paths),
+        preprocess_config=preprocess_config,
+        anchor_part=anchor_part,
+        peak_threshold=peak_threshold,
+        max_instances=max_instances,
+        bbox_nms_iou=bbox_nms_iou,
+        flip_test=flip_test,
+        frames_on_gpu=frames_on_gpu,
+        runtime=runtime,
+        box_mode=None,
+        node_filter=node_filter,
+        strip_prefix=strip_prefix,
+        part_model_paths=part_model_paths,
+        part_streaming=True,
+        part_crop_rule=part_crop_rule,
+        part_node_filter=part_node_filter,
+        part_strip_prefix=part_strip_prefix,
+        part_peak_threshold=part_peak_threshold,
+        part_prefix=part_prefix,
+    )
+    predictor, _ = _build_predictor(**build)
+    layer = predictor._scoped_postprocess_layer(
+        peak_threshold=peak_threshold,
+        centroid_threshold=centroid_threshold,
+        keypoint_threshold=keypoint_threshold,
+        max_instances=max_instances,
+        integral_refinement=integral_refinement,
+        integral_patch_size=integral_patch_size,
+    )
+    stream = PoseStream(predictor, layer, channel_order=channel_order, keep=keep)
+    if frame_shape is not None:
+        stream._warmup(frame_shape)
+    return stream

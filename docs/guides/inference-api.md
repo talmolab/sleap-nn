@@ -523,6 +523,77 @@ hand it. Note this bypasses the predictor's `FilterPipeline` and tracking;
 apply [`FilterPipeline`](#applying-filters-manually) / `apply_tracking`
 yourself if needed.
 
+### Frame in, pose out: `open_stream`
+
+`open_stream` builds the same pipeline as `predict` (same model arguments, filters
+and part stage) and returns a `PoseStream`: push one frame, get that frame's
+poses back. A camera loop is about ten lines:
+
+```python
+import cv2
+from sleap_nn.inference.run import open_stream
+
+cap = cv2.VideoCapture(0)
+ok, frame = cap.read()
+with open_stream(["models/detector", "models/pose"], channel_order="bgr",
+                 frame_shape=frame.shape) as stream:      # warm-up runs here
+    while ok:
+        poses = stream.push(frame)           # FramePoses for this frame
+        print(poses.frame_idx, len(poses), poses.points.shape, stream.last_latency_ms)
+        ok, frame = cap.read()
+```
+
+`FramePoses` holds numpy arrays for one frame: `points` `(instances, nodes, 2)`,
+`point_scores`, `instance_scores`, and for box detectors `boxes` `(instances, 4)` and
+`box_scores`; `node_names` names the nodes. A frame with no animal gives arrays with
+zero rows.
+
+- **Same result as `predict`.** Pushing a video's frames one by one gives the
+  points of `sleap-nn predict --batch_size 1 --part_streaming` (bit-identical
+  in the tests). Per-frame options (`peak_threshold`, `centroid_threshold`,
+  `max_instances`, `filter_config`, ...) mean what they mean for `predict`;
+  arguments `open_stream` does not list take `predict`'s defaults.
+- **Models.** The models must end in keypoints: a single-instance or bottom-up
+  model, or a top-down pair (a centroid model or a box detector, with a
+  centered-instance model). Others (a lone detector or centroid model) raise at
+  open.
+- **Input.** `uint8` numpy arrays or tensors, `(H, W)` or `(H, W, C)` with `C` 1 or
+  3, in any memory layout. Colour frames are taken as RGB (what sleap-io gives);
+  pass `channel_order="bgr"` for OpenCV frames. Anything else raises. All frames
+  of a stream have one size: a different size raises until you call
+  `stream.reset()`, which also starts a new video (frame counter, the part stage's
+  running crop size). A `push` that raises leaves the stream as it was.
+- **Warm-up.** With `frame_shape=`, `open_stream` runs every network on dummy
+  data first (the first stage, the pose model on 1-4 crops, the part model);
+  without it there is no warm-up and the first frames are slower.
+- **No tracker.** Instances come in detection order; identities are not kept across
+  frames. Run a tracker on the results yourself.
+- **Keeping results.** `keep=True` keeps every frame's outputs (on the CPU) for
+  `stream.labels()` / `stream.save("out.slp")`, one video per `reset()`; memory
+  grows with every frame, so leave it off for long live runs.
+- **One caller.** A stream is meant for one thread pushing frames in order.
+
+#### Settings for low latency
+
+TensorRT bf16 export folders (`--network-only` for the centered-instance and
+part models) and frames moved to the GPU before the first stage:
+
+```bash
+sleap-nn export models/detector -o low_latency/detector --format tensorrt --precision bf16 --device cuda
+sleap-nn export models/pose -o low_latency/pose --network-only --input-dtype float32 --format tensorrt --precision bf16 --device cuda
+sleap-nn export models/tail -o low_latency/tail --network-only --input-dtype float32 --format tensorrt --precision bf16 --device cuda
+```
+
+```python
+stream = open_stream(["low_latency/detector", "low_latency/pose"], runtime="tensorrt",
+                     frames_on_gpu=True, part_model_paths=["low_latency/tail"],
+                     part_crop_rule="tail_crop_rule.json", frame_shape=(1024, 1280, 3))
+```
+
+How long a `push` takes depends on the card, the CPU and the number of animals:
+time it on your machine with `stream.last_latency_ms` (from the `push` call to the
+results back as numpy arrays) before relying on it.
+
 ---
 
 ## See also
