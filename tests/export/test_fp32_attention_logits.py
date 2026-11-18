@@ -258,6 +258,7 @@ def test_coordinate_graphs_keep_fp32_outside_the_backbone(monkeypatch, tmp_path)
         if n.op_type != "Cast" and n.output[0].endswith("__fp16")
     ]
     assert reduced and all(BACKBONE_SCOPE in n for n in reduced)
+    assert info["fp32_islands"]["products"] == 1
     # Without the recipe, fp16 stays whole-graph (unchanged).
     parsed, _ = _build(
         monkeypatch, tmp_path / "p", m, _bf16_fp32_outside=BACKBONE_SCOPE
@@ -355,3 +356,29 @@ def test_family_fallback_wins_over_the_recipe(monkeypatch):
     assert seen == {"precision": "fp32", "fp32_islands": None}
     assert info["fp32_islands"] == {"recipe": "attention_logits", "applied": False}
     assert info["precision_requested"] == "fp16"
+
+
+def test_unmatched_softmax_outside_the_scope_is_not_reported(
+    monkeypatch, tmp_path, capsys
+):
+    """Outside the reduced scope everything is fp32: no warning for its softmaxes."""
+    import sleap_nn.export.exporters.tensorrt_exporter as te
+
+    m = _attention_graph()
+    g = m.graph  # a softmax over a linear layer, outside the backbone (a decoder's)
+    g.node.append(
+        helper.make_node("Softmax", ["y"], ["probs"], name="/model/head/Softmax")
+    )
+    g.output.append(helper.make_tensor_value_info("probs", F, [1, T, 2]))
+    monkeypatch.setattr(te, "_WARNED", set())
+    _, info = _build(
+        monkeypatch,
+        tmp_path / "s",
+        m,
+        fp32_islands="attention_logits",
+        _bf16_fp32_outside=BACKBONE_SCOPE,
+    )
+    assert info["fp32_islands"]["softmax_unmatched"] == 0
+    assert "found no logits product" not in capsys.readouterr().out
+    _, info = _build(monkeypatch, tmp_path / "w", m, fp32_islands="attention_logits")
+    assert info["fp32_islands"]["softmax_unmatched"] == 1  # whole graph: reported

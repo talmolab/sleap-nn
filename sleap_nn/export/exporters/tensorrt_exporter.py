@@ -415,6 +415,8 @@ def _write_typed_graph(
         by_output = {n.output[0]: n for n in original.graph.node if n.output}
         if scope is not None:  # outside the scope everything is fp32 anyway
             products = [t for t in products if scope in _scope_path(by_output[t])]
+            by_name = {n.name or n.output[0]: n for n in original.graph.node}
+            unmatched = [u for u in unmatched if scope in _scope_path(by_name[u])]
         islands = set(products)
         record = {
             "recipe": fp32_islands,
