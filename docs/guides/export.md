@@ -163,7 +163,10 @@ with two computed inputs (not weights) that reaches a `Softmax` through scale, m
 bias, soft-capping and layout ops. When a softmax has more than one such candidate
 (relative-position terms, scores carried over from an earlier block), all of them stay
 fp32 and the softmax is reported. Softmaxes inside control-flow bodies (`If` / `Loop`)
-are counted and reported, not handled. The counts are written to the metadata
+are counted and reported, not handled. One limit is not detected: a further product
+applied to the scores after Q.K^T on the same path (the scores times a data-dependent
+matrix) hides Q.K^T from the search, and the record then looks clean; no sleap-nn
+backbone is known to do this. The counts are written to the metadata
 (`fp32_islands`: softmaxes in scope, products, unmatched, ambiguous, shared). A graph
 with no products (UNets, CenterNet / SSD heads) gets a warning and the engine it would
 get without products: plain fp16 for crop (`--network-only`) graphs, and fp16 inside the

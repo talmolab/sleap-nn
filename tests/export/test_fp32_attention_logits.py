@@ -302,11 +302,50 @@ def test_vit_warning_names_the_remedy_and_waits_for_the_build(capsys):
     for rec in (
         _islands_record("attention_logits", False, products=0, softmax_unmatched=0),
         _islands_record("attention_logits", True, products=11, softmax_unmatched=1),
+        _islands_record("attention_logits", True, products=12, softmax_in_subgraphs=1),
         _islands_record("attention_logits", False, reason="family built fp32"),
     ):
         _emit_deferred_warnings(held, {"fp32_islands": rec})
-    _emit_deferred_warnings(held, {})
-    assert shown == [1, 1, 1, 1]
+    _emit_deferred_warnings(held, {})  # also what a failed build passes
+    assert shown == [1, 1, 1, 1, 1]
+
+
+def test_a_failed_build_prints_the_held_back_warnings(
+    monkeypatch, minimal_instance_centered_instance_ckpt, tmp_path
+):
+    """The ViT / bbox_detr warnings held back by the switch are not lost on failure."""
+    import importlib.machinery
+
+    import sleap_nn.export.cli as export_cli
+    import sleap_nn.export.exporters as exporters
+
+    trt11 = _fake_trt("11.5.0.63")[0]
+    trt11.__spec__ = importlib.machinery.ModuleSpec("tensorrt", None)
+    monkeypatch.setitem(sys.modules, "tensorrt", trt11)
+    held = []
+    monkeypatch.setattr(
+        export_cli,
+        "_warn_fp16_vit_pose",
+        lambda *a: held.append("warned"),
+    )
+
+    def broken(*a, **kw):
+        raise RuntimeError("engine build failed")
+
+    monkeypatch.setattr(exporters, "export_to_tensorrt", broken)
+    result = CliRunner().invoke(
+        export_cli.export,
+        [
+            str(minimal_instance_centered_instance_ckpt),
+            "-o",
+            str(tmp_path / "x"),
+            "--format",
+            "tensorrt",
+            "--fp32-attention-logits",
+        ],
+    )
+    assert result.exit_code != 0
+    assert held == ["warned"]
 
 
 @pytest.mark.parametrize(

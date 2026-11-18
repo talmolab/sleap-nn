@@ -825,23 +825,28 @@ def export(
             # embeddings) keep only their transposed convolutions in fp32.
             coords_in_graph = not network_only and model_type != "embedding"
             build_info = {}
-            export_to_tensorrt(
-                wrapper,
-                trt_out_path,
-                input_shape=trt_input_shape,
-                input_dtype=graph_dtype,
-                precision=precision,
-                min_shape=trt_min_shape,
-                opt_shape=trt_opt_shape,
-                max_shape=trt_max_shape,
-                **trt_workspace_kwargs,
-                verbose=True,
-                _bf16_fp32_outside=BACKBONE_SCOPE if coords_in_graph else None,
-                _build_info=build_info,
-                strongly_typed=strongly_typed,
-                force_precision=force_precision,
-                fp32_islands=fp32_islands,
-            )
+            try:
+                export_to_tensorrt(
+                    wrapper,
+                    trt_out_path,
+                    input_shape=trt_input_shape,
+                    input_dtype=graph_dtype,
+                    precision=precision,
+                    min_shape=trt_min_shape,
+                    opt_shape=trt_opt_shape,
+                    max_shape=trt_max_shape,
+                    **trt_workspace_kwargs,
+                    verbose=True,
+                    _bf16_fp32_outside=BACKBONE_SCOPE if coords_in_graph else None,
+                    _build_info=build_info,
+                    strongly_typed=strongly_typed,
+                    force_precision=force_precision,
+                    fp32_islands=fp32_islands,
+                )
+            except BaseException:
+                # A failed build still prints the warnings held back above.
+                _emit_deferred_warnings(deferred, {})
+                raise
             # Update metadata for TensorRT
             trt_metadata = build_base_metadata(
                 export_format="tensorrt",
@@ -1060,26 +1065,33 @@ def export(
             trt_out_path = export_dir / "model.trt"
             B, C, H, W = input_shape
             build_info = {}
-            export_to_tensorrt(
-                wrapper,
-                trt_out_path,
-                input_shape=input_shape,
-                input_dtype=torch.uint8,
-                precision=precision,
-                max_shape=(max_batch_size, C, H * 2, W * 2),
-                opt_shape=(
-                    (opt_batch_size, C, H, W) if opt_batch_size is not None else None
-                ),
-                **trt_workspace_kwargs,
-                verbose=True,
-                # As for the ONNX graph: only the centroid model sees the frame.
-                static_hw=has_rope(centroid_model),
-                _bf16_fp32_outside=BACKBONE_SCOPE,
-                _build_info=build_info,
-                strongly_typed=strongly_typed,
-                force_precision=force_precision,
-                fp32_islands=fp32_islands,
-            )
+            try:
+                export_to_tensorrt(
+                    wrapper,
+                    trt_out_path,
+                    input_shape=input_shape,
+                    input_dtype=torch.uint8,
+                    precision=precision,
+                    max_shape=(max_batch_size, C, H * 2, W * 2),
+                    opt_shape=(
+                        (opt_batch_size, C, H, W)
+                        if opt_batch_size is not None
+                        else None
+                    ),
+                    **trt_workspace_kwargs,
+                    verbose=True,
+                    # As for the ONNX graph: only the centroid model sees the frame.
+                    static_hw=has_rope(centroid_model),
+                    _bf16_fp32_outside=BACKBONE_SCOPE,
+                    _build_info=build_info,
+                    strongly_typed=strongly_typed,
+                    force_precision=force_precision,
+                    fp32_islands=fp32_islands,
+                )
+            except BaseException:
+                # A failed build still prints the warnings held back above.
+                _emit_deferred_warnings(deferred, {})
+                raise
             # Update metadata for TensorRT
             trt_metadata = build_base_metadata(
                 export_format="tensorrt",
@@ -1283,26 +1295,33 @@ def export(
             trt_out_path = export_dir / "model.trt"
             B, C, H, W = input_shape
             build_info = {}
-            export_to_tensorrt(
-                wrapper,
-                trt_out_path,
-                input_shape=input_shape,
-                input_dtype=torch.uint8,
-                precision=precision,
-                max_shape=(max_batch_size, C, H * 2, W * 2),
-                opt_shape=(
-                    (opt_batch_size, C, H, W) if opt_batch_size is not None else None
-                ),
-                **trt_workspace_kwargs,
-                verbose=True,
-                # As for the ONNX graph: only the centroid model sees the frame.
-                static_hw=has_rope(centroid_model),
-                _bf16_fp32_outside=BACKBONE_SCOPE,
-                _build_info=build_info,
-                strongly_typed=strongly_typed,
-                force_precision=force_precision,
-                fp32_islands=fp32_islands,
-            )
+            try:
+                export_to_tensorrt(
+                    wrapper,
+                    trt_out_path,
+                    input_shape=input_shape,
+                    input_dtype=torch.uint8,
+                    precision=precision,
+                    max_shape=(max_batch_size, C, H * 2, W * 2),
+                    opt_shape=(
+                        (opt_batch_size, C, H, W)
+                        if opt_batch_size is not None
+                        else None
+                    ),
+                    **trt_workspace_kwargs,
+                    verbose=True,
+                    # As for the ONNX graph: only the centroid model sees the frame.
+                    static_hw=has_rope(centroid_model),
+                    _bf16_fp32_outside=BACKBONE_SCOPE,
+                    _build_info=build_info,
+                    strongly_typed=strongly_typed,
+                    force_precision=force_precision,
+                    fp32_islands=fp32_islands,
+                )
+            except BaseException:
+                # A failed build still prints the warnings held back above.
+                _emit_deferred_warnings(deferred, {})
+                raise
             trt_metadata = build_base_metadata(
                 export_format="tensorrt",
                 model_type="multi_class_topdown_combined",
@@ -1349,12 +1368,17 @@ def export(
 def _emit_deferred_warnings(deferred: list, build_info: dict) -> None:
     """Print the fp16 warnings held back by ``--fp32-attention-logits``.
 
-    They are dropped only when the rewrite kept logits products in fp32 and left no
-    softmax without one (``fp32_islands`` in the build info); otherwise they are
-    printed as they would be without the option.
+    They are dropped only when the rewrite kept logits products in fp32, left no
+    softmax without one and found none inside control-flow bodies (``fp32_islands``
+    in the build info); otherwise (a failed build included) they are printed as they
+    would be without the option.
     """
     rec = build_info.get("fp32_islands") or {}
-    if rec.get("applied") and not rec.get("softmax_unmatched"):
+    if (
+        rec.get("applied")
+        and not rec.get("softmax_unmatched")
+        and not rec.get("softmax_in_subgraphs")
+    ):
         return
     for warn in deferred:
         warn()
