@@ -315,6 +315,7 @@ def export(
         cfg = cfgs[0]
         model_type = model_types[0]
         backbone_type = backbone_types[0]
+        _warn_fp16_vit_pose(cfg, model_type, backbone_type, fmt.lower(), precision)
 
         if model_type not in (
             "centroid",
@@ -620,7 +621,6 @@ def export(
                 "can overflow fp16's range); export with --precision bf16 or fp32 "
                 "unless fp16 is checked on your data."
             )
-        _warn_fp16_vit_pose(cfg, model_type, backbone_type, fmt, precision)
         if network_only:
             # The host scales each crop by preprocessing.scale and pads it to the
             # backbone's max_stride before the network: trace (and profile) at that
@@ -1306,6 +1306,20 @@ def _record_build(path: Path, info: dict) -> None:
     path.write_text(json.dumps(data, indent=2, sort_keys=True))
 
 
+def _mark_network_only(path: Path, output_names) -> None:
+    """Record a ``--network-only`` export in its metadata file.
+
+    The keys are added to the JSON only for such exports (not as
+    ``ExportMetadata`` fields), so every other export's metadata is unchanged.
+    """
+    import json
+
+    data = json.loads(path.read_text())
+    data["network_only"] = True
+    data["output_names"] = list(output_names)
+    path.write_text(json.dumps(data, indent=2, sort_keys=True))
+
+
 def _warn_fp16_vit_pose(cfg, model_type, backbone_type, fmt, precision) -> None:
     """Warn on an fp16 TensorRT export of a pose model with a ViT backbone.
 
@@ -1330,20 +1344,6 @@ def _warn_fp16_vit_pose(cfg, model_type, backbone_type, fmt, precision) -> None:
         "of fp32, on TensorRT 10 and 11); export with --precision bf16 (a GPU with "
         "compute capability >= 8.0) or fp32 unless fp16 is checked on your data."
     )
-
-
-def _mark_network_only(path: Path, output_names) -> None:
-    """Record a ``--network-only`` export in its metadata file.
-
-    The keys are added to the JSON only for such exports (not as
-    ``ExportMetadata`` fields), so every other export's metadata is unchanged.
-    """
-    import json
-
-    data = json.loads(path.read_text())
-    data["network_only"] = True
-    data["output_names"] = list(output_names)
-    path.write_text(json.dumps(data, indent=2, sort_keys=True))
 
 
 def _copy_training_config(
