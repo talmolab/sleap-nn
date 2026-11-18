@@ -96,7 +96,7 @@ sleap-nn export MODEL_PATH [options]
 
 | `--precision` | What runs | Needs |
 |---------------|-----------|-------|
-| `fp32` | strict IEEE fp32 (TF32 off) | TensorRT >= 10.13 |
+| `fp32` | strict IEEE fp32 (TF32 off) | TensorRT >= 10.13 (older 10.x: a warning, built with its builder flags as before) |
 | `tf32` | fp32 with TensorRT's TF32 kernels (10-bit mantissa in matrix products) | TensorRT >= 10.13 |
 | `fp16` | fp16 (fp16's range: large activations can overflow) | TensorRT >= 10.13 |
 | `bf16` | bf16 (fp32's range, 8 significant bits); in graphs that compute coordinates (box detectors, peaks found in the graph) every layer outside the backbone stays fp32; transposed convolutions always | TensorRT >= 10.13 and a GPU with compute capability >= 8.0 (judged on the `--device` GPU, where the engine is built) |
@@ -112,9 +112,11 @@ How the reduced precisions are built depends on the TensorRT version:
   type, with the same scopes as on 10.x. Always fp32 there: normalization ops,
   reductions, `Pow` / `Sqrt` / `Reciprocal` / `Exp` / `Log` / `CumSum`, nodes that
   shape inference cannot type (counted in the metadata, with a warning), tensors
-  that control-flow bodies (`If` / `Loop`) read; under fp16, every value beyond fp16's
-  range (|x| > 65504, e.g. the 1e9 sentinels for absent peaks) and what is computed
-  from it; under bf16, a transposed convolution and the node feeding it.
+  that control-flow bodies (`If` / `Loop`) read; under fp16, every constant beyond
+  fp16's range (|x| > 65504: initializers of any size, Constant nodes, fill values, e.g.
+  the 1e9 sentinels for absent peaks), constants computed from constants (up to a
+  million elements), and what the graph computes from those; under bf16, a transposed
+  convolution and the node feeding it.
 - `--strongly-typed` builds TensorRT 10.x engines the TensorRT 11 way (all of the
   above), to check an upgrade's numbers before making it.
 

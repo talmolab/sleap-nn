@@ -74,17 +74,20 @@ def _uses_strong_typing(trt_module) -> bool:
     removed FP16 / BF16, 10.x has them).
 
     Raises:
-        RuntimeError: Below the supported minimum, or when the flags contradict the
-            version.
+        RuntimeError: When the flags contradict the version (10.13 and newer). Below
+            the supported minimum a warning is printed and the flags decide, as
+            before.
     """
     version = str(getattr(trt_module, "__version__", "0"))
     major_minor = _tensorrt_version(version)
     if major_minor < _MIN_TENSORRT:
-        raise RuntimeError(
-            f"TensorRT {version} is older than the supported minimum "
-            f"{_MIN_TENSORRT[0]}.{_MIN_TENSORRT[1]}: pip install 'sleap-nn[tensorrt]' "
-            "(or 'tensorrt>=10.13'), or export with --format onnx."
+        # Below the pin: warn, and build on the builder-flag path as before.
+        _warn_once(
+            f"Warning: TensorRT {version} is older than the supported minimum "
+            f"{_MIN_TENSORRT[0]}.{_MIN_TENSORRT[1]} (pip install 'sleap-nn[tensorrt]'); "
+            "building with its builder flags as before."
         )
+        return not has_weak_typing(trt_module)
     strong = major_minor[0] >= 11
     if strong == has_weak_typing(trt_module):
         raise RuntimeError(
@@ -239,15 +242,13 @@ def export_to_tensorrt(
             msg = (
                 f"Warning: {what}; building fp32 instead (force_precision to override)."
             )
-            print(msg)
-            logger.warning(msg)
+            _warn_once(msg)
             info["precision_requested"] = precision
             info["precision_fallback"] = what + "; built fp32"
             precision = "fp32"
         else:
             msg = f"Warning: {what}; check the engine against fp32 on your data."
-            print(msg)
-            logger.warning(msg)
+            _warn_once(msg)
 
     save_path = Path(save_path)
     if not save_path.suffix:
@@ -354,7 +355,8 @@ def _write_typed_graph(
 
     from sleap_nn.export.exporters.onnx_precision import cast_onnx_precision
 
-    typed, info = cast_onnx_precision(onnx.load(str(onnx_path)), precision, scope)
+    original = onnx.load(str(onnx_path))
+    typed, info = cast_onnx_precision(original, precision, scope)
     out_dir = onnx_path.parent / "tensorrt_graph"
     out_dir.mkdir(exist_ok=True)
     out = out_dir / f"{onnx_path.stem}.{precision}.onnx"
@@ -367,10 +369,23 @@ def _write_typed_graph(
         default=None,
     )
     if precision == "fp16" and typed.ByteSize() < 2_000_000_000:
-        # Valid ONNX: the full check (types included) passes. Run before saving:
-        # saving with external data rewrites the in-memory tensors as references.
-        onnx.checker.check_model(typed, full_check=True)
-        info["graph_validity"] = "valid ONNX (full check)"
+        # The full check (types included), run before saving (saving with external
+        # data rewrites the in-memory tensors as references). It aborts the export only
+        # when the rewrite is at fault: the fp32 original passes and the rewrite fails.
+        try:
+            onnx.checker.check_model(original, full_check=True)
+            original_ok = True
+        except Exception as e:  # noqa: BLE001
+            original_ok = False
+            _warn_once(
+                f"Warning: the exported graph {onnx_path} fails ONNX's full check "
+                f"({type(e).__name__}); not caused by the fp16 rewrite, continuing."
+            )
+        if original_ok:
+            onnx.checker.check_model(typed, full_check=True)
+            info["graph_validity"] = "valid ONNX (full check)"
+        else:
+            info["graph_validity"] = "full check not run: the fp32 graph fails it"
     elif precision == "fp16":
         info["graph_validity"] = "structure checked (above 2 GB: types not checked)"
     else:
@@ -484,8 +499,7 @@ def _export_tensorrt_onnx(
                 f"typed by ONNX shape inference; they (and nodes fed only through them) "
                 f"stay fp32 in this {precision} engine (recorded in the metadata)."
             )
-            print(msg)
-            logger.warning(msg)
+            _warn_once(msg)
         scope = cast_info["scope"]
         info["precision_by_scope"] = {
             (f"nodes in '*{scope}*'" if scope else "whole graph"): (
@@ -760,3 +774,13 @@ def _reduced_precision_fails() -> tuple:
     )
 
     return (BottomUpMultiClassONNXWrapper,)
+
+
+_WARNED: set = set()
+
+
+def _warn_once(msg: str) -> None:
+    """Print an export warning once per process (stdout, with the exporter's output)."""
+    if msg not in _WARNED:
+        _WARNED.add(msg)
+        print(msg)

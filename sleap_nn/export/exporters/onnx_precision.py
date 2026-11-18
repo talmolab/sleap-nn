@@ -320,6 +320,17 @@ def cast_onnx_precision(
         consts = _constant_values(g)
         from onnx import numpy_helper
 
+        for init in g.initializer:  # every initializer, whatever its size (folding
+            if init.name in consts or init.data_type != FLOAT:  # is capped, not this)
+                continue
+            try:
+                a = numpy_helper.to_array(init)
+            except Exception:  # noqa: BLE001 -- external data not loaded
+                continue
+            a = a[np.isfinite(a)]
+            if a.size and float(np.abs(a).max()) > _FP16_MAX:
+                big.add(init.name)
+
         for node in g.node:  # a fill value, whatever the (runtime) shape
             if node.op_type == "ConstantOfShape" and node.output[0] not in consts:
                 for attr in node.attribute:

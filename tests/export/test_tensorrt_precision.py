@@ -220,9 +220,12 @@ def test_multi_class_bottomup_precision_through_the_cli(
 
     from .test_onnx_precision import _fake_trt
 
+    import sleap_nn.export.exporters.tensorrt_exporter as te
+
     trt, calls = _fake_trt(version)
     monkeypatch.setitem(sys.modules, "tensorrt", trt)
     monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+    monkeypatch.setattr(te, "_WARNED", set())  # warnings print once per process
     from sleap_nn.export.cli import export
 
     out = tmp_path / "x"

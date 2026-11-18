@@ -697,8 +697,8 @@ def test_fp16_range_rule_cases(case):
         ]
     else:
         nodes = [
-            h.make_node("Constant", [], ["a"], value_float=1e5),
-            h.make_node("Constant", [], ["b"], value_float=1e5),
+            h.make_node("Constant", [], ["a"], value_float=1e3),  # in range;
+            h.make_node("Constant", [], ["b"], value_float=1e3),  # product 1e6 is not
             h.make_node("Mul", ["a", "b"], ["k"], name="/c/Mul"),
         ]
     nodes += [
@@ -749,11 +749,46 @@ def test_tensorrt_version_decides_the_path():
 
     assert _uses_strong_typing(_fake_trt("11.5.0.63")[0]) is True
     assert _uses_strong_typing(_fake_trt("10.16.1.11")[0]) is False
-    with pytest.raises(RuntimeError, match="older than the supported minimum"):
-        _uses_strong_typing(_fake_trt("10.12.0")[0])
-    with pytest.raises(RuntimeError, match="older than the supported minimum"):
-        _uses_strong_typing(_fake_trt("8.6.1")[0])
+    # Below the supported minimum: a warning, and the builder flags as before.
+    assert _uses_strong_typing(_fake_trt("10.12.0")[0]) is False
     odd = _fake_trt("11.0.0")[0]
     odd.BuilderFlag.FP16, odd.BuilderFlag.BF16 = "FP16", "BF16"
     with pytest.raises(RuntimeError, match="do not match its version"):
         _uses_strong_typing(odd)
+
+
+def test_fp16_range_rule_scans_large_initializers():
+    """An initializer above the folding cap holding one value beyond fp16 stays fp32."""
+    from onnx import helper as h
+
+    big = np.zeros(1_000_001, np.float32)
+    big[7] = -1e9
+    m = _tiny(
+        [
+            h.make_node("Relu", ["x"], ["r"], name="/backbone/Relu"),
+            h.make_node("Add", ["r", "big"], ["y"], name="/peaks/Add"),
+        ],
+        [numpy_helper.from_array(big, "big")],
+        out_shape=(1_000_001,),
+        inp=("x", (1_000_001,)),
+    )
+    typed, info = cast_onnx_precision(m, "fp16")
+    by_name = {n.name: n for n in typed.graph.node if n.name}
+    assert not by_name["/peaks/Add"].output[0].endswith("__fp16")
+    inits = {i.name: i.data_type for i in typed.graph.initializer}
+    assert inits["big"] == TensorProto.FLOAT
+
+
+def test_full_check_blames_only_the_rewrite(tmp_path, monkeypatch, capsys):
+    """An fp32 graph that itself fails ONNX's full check is warned about, not refused."""
+    import sleap_nn.export.exporters.tensorrt_exporter as te
+
+    d = tmp_path / "exp"
+    d.mkdir()
+    m = _graph()
+    m.graph.output[0].type.tensor_type.shape.dim[3].dim_value = 31  # inference says 32
+    onnx.save(m, str(d / "model.onnx"))
+    monkeypatch.setattr(te, "_WARNED", set())
+    out, info = te._write_typed_graph(d / "model.onnx", "fp16", None)
+    assert info["graph_validity"].startswith("full check not run")
+    assert "not caused by the fp16 rewrite" in capsys.readouterr().out
