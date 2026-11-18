@@ -87,6 +87,7 @@ sleap-nn export MODEL_PATH [options]
 | `--opt-batch-size` | TensorRT: batch the engine's kernels are tuned for (profile `opt`; for throughput, the batch you run); ignored for `--format onnx` (noted in the metadata) | `INT` | `1` |
 | `--strongly-typed` | TensorRT 10.x: build fp16 / bf16 strongly typed, with the precision in the graph, as TensorRT 11 always does (see [Precision](#tensorrt-precision)) | Flag | `false` |
 | `--force-precision` | Build fp16 / bf16 even for a family whose reduced-precision engines fail its fp32 graph (multi-class bottom-up; see [Precision](#tensorrt-precision)) | Flag | `false` |
+| `--fp32-attention-logits` | With `--precision fp16`, strongly typed: keep each attention block's logits product (Q.K^T) in fp32 (see [fp16 for ViT backbones](#fp16-for-vit-backbones-fp32-attention-logits)) | Flag | `false` |
 | `--input-dtype` | Box detectors and `--network-only` exports: dtype of the graph's image input (`float32` receives the checkpoint path's own input; `auto` = `float32` for `bbox_detr`, `uint8` otherwise) | `auto`, `uint8`, `float32` | `auto` |
 | `--nodes` | Export only these confmap nodes (`single_instance` / `centered_instance`, alone or in a top-down bundle); repeat or comma-separate | `TEXT` | all nodes |
 | `--node-prefix` | Export only the nodes whose name starts with the prefix | `TEXT` | `None` |
@@ -147,6 +148,36 @@ outputs: compare against an `fp32` export on your own data. Example: a DINOv3
 `bbox_detr` detector loses boxes in `fp16`; in `bf16` with fp32 outside the backbone
 its box corners move by about 0.1 px (median) against `fp32`, and by about 1 px when
 the whole graph runs in bf16.
+
+#### fp16 for ViT backbones: `--fp32-attention-logits`
+
+Plain `fp16` engines of DINOv3 ViT-B models fail: pose / tail models kept 17-44% of
+their keypoints within 0.5 px of fp32, and a `bbox_detr` detector loses boxes, on
+TensorRT 10 and 11. The cause is the attention logits product (Q.K^T): TensorRT's fp16
+kernels accumulate it in fp16. `--fp32-attention-logits` (with `--precision fp16`, on
+the strongly typed path: TensorRT 11, or `--strongly-typed` on 10.x) keeps that one
+product per attention block in fp32; everything else is the usual fp16 rewrite above,
+and in graphs that compute coordinates fp16 runs only inside the backbone (as `bf16`
+does). The products are found by structure (the `MatMul` / `Einsum` feeding each
+`Softmax` through scale, mask and layout ops), not by name; their count is written to
+the metadata (`fp32_islands`), and a graph with none (UNets, CenterNet / SSD heads)
+gets a warning and a plain fp16 engine. On an RTX PRO 6000 Blackwell with TensorRT
+10.16, DINOv3 ViT-B detector, pose and tail engines built so kept TensorRT's fused
+attention kernel, ran at plain fp16 speed (detector 3.1 ms per 576 x 768 frame) and
+matched fp32 (same boxes on 200 frames, corners within 0.13 px at p99; 99.6% / 98.6%
+of pose / tail keypoints within 0.5 px, against 96% / 89% for bf16).
+
+Caveats: TensorRT chooses kernels per GPU by speed, so the same export built on another
+card (a GeForce card in particular) may accumulate other fp16 products differently and
+score differently: this is evidence for DINOv3 ViT-B on that card and TensorRT version
+only, and other ViTs (DINOv2 ...) are not tested. Build crop-model engines with
+`--opt-batch-size` at your usual number of animals per frame: a pose engine tuned for
+one crop took 0.66 ms for one crop and 1.33 ms for three; tuned for three, 0.91 and
+1.08 ms.
+
+The multi-class bottom-up fallback above is unchanged by the option (such a family is
+still built in fp32 on the strongly typed path); `--force-precision` is still the only
+override there.
 
 `--nodes` / `--node-prefix` slice the confmap head to the kept channels before
 tracing, so the exported graph computes only those confidence maps (see

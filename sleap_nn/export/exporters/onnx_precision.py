@@ -257,11 +257,88 @@ def _scope_path(node) -> str:
     return path
 
 
+#: Ops an attention block may put between its logits product and the softmax: scale,
+#: mask, bias, layout. :func:`find_attention_logits` walks through them.
+_LOGITS_PATH_OPS = frozenset(
+    {
+        "Mul",
+        "Div",
+        "Add",
+        "Sub",
+        "Where",
+        "Cast",
+        "Reshape",
+        "Transpose",
+        "Unsqueeze",
+        "Squeeze",
+        "Expand",
+        "Identity",
+    }
+)
+
+
+def find_attention_logits(model, max_depth: int = 8) -> Tuple[list, list]:
+    """The logits products (Q.K^T) of a graph's attention blocks, found by structure.
+
+    For each ``Softmax`` node, walk upstream from its input through scale, mask,
+    bias and layout ops (:data:`_LOGITS_PATH_OPS`) to the nearest ``MatMul`` or
+    ``Einsum`` whose two inputs are both computed (not initializers or constants):
+    that node is the block's logits product. A product with a constant input (a
+    linear layer) ends that branch. Names play no part, so any exporter's naming
+    works; a fused attention op (an ONNX ``Attention`` node, a contrib op) has no
+    such product and its softmax, if any, is reported as unmatched. Control-flow
+    bodies are not searched.
+
+    Returns:
+        ``(products, unmatched)``: the products' first output tensor names (unique in
+        a graph; what :func:`cast_onnx_precision` takes as ``keep_fp32_outputs``),
+        in graph order, and the names of the ``Softmax`` nodes with no product.
+    """
+    g = model.graph
+    producer = {t: n for n in g.node for t in n.output if t}
+    constant = {i.name for i in g.initializer} | {
+        t
+        for n in g.node
+        if n.op_type in ("Constant", "ConstantOfShape")
+        for t in n.output
+    }
+    products, unmatched = [], []
+    for sm in g.node:
+        if sm.op_type != "Softmax" or not sm.input:
+            continue
+        found, frontier, seen = None, [sm.input[0]], set()
+        for _ in range(max_depth):
+            nxt = []
+            for t in frontier:
+                n = producer.get(t)
+                if n is None or id(n) in seen:
+                    continue
+                seen.add(id(n))
+                if n.op_type in ("MatMul", "Einsum"):
+                    ins = [i for i in n.input if i]
+                    if len(ins) == 2 and not any(i in constant for i in ins):
+                        found = n
+                        break
+                    continue  # a linear layer: not attention logits
+                if n.op_type in _LOGITS_PATH_OPS:
+                    nxt += [i for i in n.input if i and i not in constant]
+            if found is not None or not nxt:
+                break
+            frontier = nxt
+        if found is None:
+            unmatched.append(sm.name or sm.output[0])
+        elif found.output[0] not in products:
+            products.append(found.output[0])
+    order = {n.output[0]: k for k, n in enumerate(g.node) if n.output}
+    return sorted(products, key=order.get), unmatched
+
+
 def cast_onnx_precision(
     model,
     precision: str,
     scope: Optional[str] = None,
     keep_fp32_ops: Optional[Iterable[str]] = None,
+    keep_fp32_outputs: Optional[Iterable[str]] = None,
 ) -> Tuple[object, dict]:
     """Rewrite an fp32 ONNX graph so chosen nodes compute in fp16 or bf16.
 
@@ -271,6 +348,10 @@ def cast_onnx_precision(
         scope: Convert only nodes whose name contains this string; ``None`` for all.
         keep_fp32_ops: Op types kept in fp32 (default :data:`_KEEP_FP32_OPS`, plus
             :data:`_KEEP_FP32_OPS_BF16` for bf16).
+        keep_fp32_outputs: Nodes kept in fp32 besides those, named by an output
+            tensor (e.g. the attention logits products of
+            :func:`find_attention_logits`); counted as ``"fp32 island"``. ``None``
+            (default): none.
 
     Returns:
         ``(new_model, info)``: the rewritten ``ModelProto`` (graph inputs and outputs
@@ -294,6 +375,7 @@ def cast_onnx_precision(
     keep = set(_KEEP_FP32_OPS if keep_fp32_ops is None else keep_fp32_ops)
     if precision == "bf16" and keep_fp32_ops is None:
         keep |= _KEEP_FP32_OPS_BF16
+    islands = set(keep_fp32_outputs or ())
 
     copy = onnx.ModelProto()
     copy.CopyFrom(model)  # no serialization: works above protobuf's 2 GB limit
@@ -379,6 +461,9 @@ def cast_onnx_precision(
             continue
         if node.op_type in keep:
             kept_in_scope[node.op_type] += 1
+            continue
+        if islands and any(t in islands for t in node.output):
+            kept_in_scope["fp32 island"] += 1
             continue
         if big and any(t in big for t in list(node.input) + list(node.output)):
             # reads, or itself computes, a value beyond fp16's range

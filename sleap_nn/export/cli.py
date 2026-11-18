@@ -108,6 +108,17 @@ CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"]}
     "--strongly-typed), and built as asked with a warning on TensorRT 10.",
 )
 @click.option(
+    "--fp32-attention-logits",
+    is_flag=True,
+    default=False,
+    help="With --precision fp16 on the strongly typed path (TensorRT 11, or "
+    "--strongly-typed on 10): keep each attention block's logits product (Q.K^T, found "
+    "by structure) in fp32, so TensorRT accumulates it in fp32; everything else is the "
+    "usual fp16 rewrite (in graphs with coordinates, fp16 only inside the backbone). "
+    "Measured on DINOv3 ViT-B detector / pose / tail models, whose plain fp16 engines "
+    "fail. Default off.",
+)
+@click.option(
     "--peak-threshold",
     type=float,
     default=0.2,
@@ -170,6 +181,7 @@ def export(
     precision: str,
     strongly_typed: bool,
     force_precision: bool,
+    fp32_attention_logits: bool,
     peak_threshold: float,
     workspace_size_gb: Optional[float],
     verify: bool,
@@ -239,6 +251,29 @@ def export(
             f"--opt-batch-size {opt_batch_size} must be between 1 and "
             f"--max-batch-size ({max_batch_size})."
         )
+
+    if fp32_attention_logits:
+        if fmt not in ("tensorrt", "both"):
+            raise click.ClickException(
+                "--fp32-attention-logits shapes TensorRT engines: use --format "
+                "tensorrt or both."
+            )
+        if precision.lower() != "fp16":
+            raise click.ClickException(
+                f"--fp32-attention-logits applies to --precision fp16, not "
+                f"{precision}: bf16 already accumulates in fp32, and fp32 / tf32 keep "
+                "everything in fp32."
+            )
+        import tensorrt as _trt
+
+        from sleap_nn.export.exporters.tensorrt_exporter import _uses_strong_typing
+
+        if not strongly_typed and not _uses_strong_typing(_trt):
+            raise click.ClickException(
+                "--fp32-attention-logits needs the strongly typed build: add "
+                "--strongly-typed on TensorRT 10 (TensorRT 11 builds that way always)."
+            )
+    fp32_islands = "attention_logits" if fp32_attention_logits else None
 
     trt_workspace_kwargs = (
         {"workspace_size": int(workspace_size_gb * (1 << 30))}
@@ -311,7 +346,7 @@ def export(
         )
 
     for c, mt, bt in zip(cfgs, model_types, backbone_types):  # bundles too
-        _warn_fp16_vit_pose(c, mt, bt, fmt, precision)
+        _warn_fp16_vit_pose(c, mt, bt, fmt, precision, fp32_attention_logits)
 
     if len(model_paths) == 1:
         model_path = model_paths[0]
@@ -617,6 +652,7 @@ def export(
             model_type == "bbox_detr"
             and fmt in ("tensorrt", "both")
             and precision.lower() == "fp16"
+            and not fp32_attention_logits  # its decoder stays fp32, its logits too
         ):
             click.echo(
                 "Warning: a bbox_detr detector can lose boxes in fp16 (its activations "
@@ -788,6 +824,7 @@ def export(
                 _build_info=build_info,
                 strongly_typed=strongly_typed,
                 force_precision=force_precision,
+                fp32_islands=fp32_islands,
             )
             # Update metadata for TensorRT
             trt_metadata = build_base_metadata(
@@ -1024,6 +1061,7 @@ def export(
                 _build_info=build_info,
                 strongly_typed=strongly_typed,
                 force_precision=force_precision,
+                fp32_islands=fp32_islands,
             )
             # Update metadata for TensorRT
             trt_metadata = build_base_metadata(
@@ -1245,6 +1283,7 @@ def export(
                 _build_info=build_info,
                 strongly_typed=strongly_typed,
                 force_precision=force_precision,
+                fp32_islands=fp32_islands,
             )
             trt_metadata = build_base_metadata(
                 export_format="tensorrt",
@@ -1331,7 +1370,9 @@ def _network_only_hw(crop_hw, scale: float, stride: int) -> tuple:
     return tuple(math.ceil(int(c * scale) / stride) * stride for c in crop_hw)
 
 
-def _warn_fp16_vit_pose(cfg, model_type, backbone_type, fmt, precision) -> None:
+def _warn_fp16_vit_pose(
+    cfg, model_type, backbone_type, fmt, precision, fp32_attention_logits=False
+) -> None:
     """Warn on an fp16 TensorRT export of a keypoint model with a ViT backbone.
 
     Measured on DINOv3 ViT-B pose (21 points) and tail (4 points) models only:
@@ -1341,6 +1382,8 @@ def _warn_fp16_vit_pose(cfg, model_type, backbone_type, fmt, precision) -> None:
     """
     if fmt not in ("tensorrt", "both") or str(precision).lower() != "fp16":
         return
+    if fp32_attention_logits:
+        return  # the remedy is on (the logits product is what fails in fp16)
     if model_type in ("bbox_centernet", "bbox_ssd", "bbox_detr"):
         return  # box detectors have their own note (TensorRT precision guide)
     try:
@@ -1354,8 +1397,9 @@ def _warn_fp16_vit_pose(cfg, model_type, backbone_type, fmt, precision) -> None:
         f"Warning: {model_type} model with a ViT backbone ({name}): fp16 TensorRT "
         "engines of DINOv3 ViT-B pose / tail models kept only 17-44% of keypoints "
         "within 0.5 px of fp32 (TensorRT 10 and 11; other ViTs not tested). Export "
-        "with --precision bf16 (a GPU with compute capability >= 8.0) or fp32 unless "
-        "fp16 is checked on your data."
+        "with --precision bf16 (a GPU with compute capability >= 8.0), fp32, or fp16 "
+        "with --fp32-attention-logits (strongly typed), unless plain fp16 is checked on "
+        "your data."
     )
 
 
