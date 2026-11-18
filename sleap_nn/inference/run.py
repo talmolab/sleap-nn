@@ -879,7 +879,10 @@ def predict(
             head-tail midpoint, unless the swapped points now score clearly higher.
             Needs frames in order: a frame is compared with the previous frame of
             the same video only (nothing at a video's first frame or after a gap;
-            batch boundaries make no difference). Checked on top-view mice
+            batch boundaries make no difference). Decisions chain from frame to
+            frame (each frame is judged against the corrected previous one), so
+            results depend on where a video starts and on anything that moves
+            points slightly, such as ``batch_size``. Checked on top-view mice
             (``("nose", "tail_base")``). Runs before the part stage, so part crops
             use the turned points.
         part_streaming: Run the part stage on each batch right after the pose

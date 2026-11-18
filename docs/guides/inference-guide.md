@@ -391,6 +391,33 @@ Post-processing filters (node count, confidence score, overlap NMS) remove low-q
 
 ---
 
+## Undoing Head-to-Tail Flips
+
+On video, a pose model sometimes swaps an animal's head and tail ends on a single
+frame. `--fix_flips HEAD,TAIL` (off by default) turns such an instance back 180 degrees
+about its head-tail midpoint. An instance counts as flipped when its head point lands
+near the previous frame's tail point and its tail point near the previous head point
+(the same animal, matched by box overlap). A flip whose head and tail points now
+score clearly higher than before is kept.
+
+```bash
+sleap-nn predict -i video.mp4 -m models/detector -m models/pose --fix_flips nose,tail_base
+```
+
+- Frames must come in order: each frame is compared with the previous frame of the
+  same video only. Nothing changes at a video's first frame or after a gap; batch
+  boundaries make no difference.
+- Decisions chain from frame to frame (each frame is judged against the corrected
+  previous one). So results depend on where a video starts, and anything that moves
+  points slightly, such as another `--batch_size`, can change a decision and the ones
+  after it.
+- It runs before the part stage (`--part_model`), so part crops use the turned points.
+  The counts go to the output's provenance (`fix_flips`).
+- Checked on top-view mice (`nose,tail_base`): flips fell by more than half where
+  they were common, and point error on labelled frames did not change.
+
+---
+
 ## Processing Order
 
 !!! abstract "Deep dive"

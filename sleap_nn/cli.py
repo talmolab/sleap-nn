@@ -4249,7 +4249,10 @@ def _common_inference_options(f):
                 "score clearly higher. Needs frames in order: each frame is compared "
                 "with the previous frame of the same video only; nothing changes at a "
                 "video's first frame or after a gap; batch boundaries make no "
-                "difference. Runs before the part stage. Checked on top-view mice "
+                "difference. Decisions chain from frame to frame (each frame is judged "
+                "against the corrected previous one), so results depend on where a "
+                "video starts and on anything that moves points slightly, such as "
+                "--batch_size. Runs before the part stage. Checked on top-view mice "
                 "(nose,tail_base)."
             ),
         ),
