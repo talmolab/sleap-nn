@@ -561,7 +561,7 @@ def test_part_streaming_matches_two_pass_without_floor(
         for lf in streamed
         for i in lf.predicted_instances
     )
-    assert streamed.provenance["part_stage"]["running_floors_at_end"]
+    assert streamed.provenance["part_stage"]["session_floors"]  # running, at the end
 
 
 def test_cli_part_streaming_needs_part_model(minimal_instance, tmp_path):

@@ -107,9 +107,10 @@ class TopDownLayer:
     crop_max_hw: Optional[Tuple[Optional[int], Optional[int]]] = None
     # ``frames_on_gpu`` (off by default; set by the predictor): move each batch of
     # frames to the GPU before stage 1, so stage 1's resize / letterbox and the
-    # crops' frame-size match run there instead of on the CPU. A uint8 resize on
-    # the GPU rounds some pixels one grey level differently, so outputs change at
-    # the level of floating-point noise.
+    # crops' frame-size match run there instead of on the CPU. Not bit-identical to
+    # the CPU resize: a uint8 resize on the GPU rounds some pixels one grey level
+    # differently, which can move a box near the score threshold. Without a CUDA
+    # stage (``_frames_device()`` is None) the frames stay where they are.
     frames_on_gpu: bool = False
 
     def _frames_device(self) -> Optional[torch.device]:
