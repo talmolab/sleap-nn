@@ -663,18 +663,23 @@ class TestBottomUpTensorRTAccuracy:
     @pytest.fixture(scope="class")
     def trt_bottomup_labels(self, exported_trt_dir, video_path):
         """Run TensorRT inference on the test video."""
-        from sleap_nn.export.inference import predict
+        # (`sleap_nn.export.inference.predict` is gone: the exported-model API is
+        # Predictor.from_export_dir, as in the ONNX fixture above.)
+        from sleap_nn.inference.predictor import Predictor
+        from sleap_nn.inference.providers import VideoProvider
 
-        labels, stats = predict(
+        sio_video = sio.Video.from_filename(str(video_path))
+        n_total = min(_N_FRAMES, len(sio_video))
+        provider = VideoProvider(
+            video=sio_video, batch_size=4, frames=list(range(n_total))
+        )
+        predictor = Predictor.from_export_dir(
             export_dir=exported_trt_dir,
-            video_path=video_path,
             runtime="tensorrt",
             device="cuda",
-            batch_size=4,
-            n_frames=_N_FRAMES,
             peak_conf_threshold=_PEAK_THRESHOLD,
         )
-        return labels
+        return predictor.predict(provider, make_labels=True, videos=[sio_video])
 
     def test_tensorrt_export_and_instance_count(
         self, trt_bottomup_labels, onnx_bottomup_labels

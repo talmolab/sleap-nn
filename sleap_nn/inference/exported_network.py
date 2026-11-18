@@ -128,6 +128,14 @@ class ExportedNetwork(nn.Module):
             torch.zeros((1,) + tuple(img.shape[1:]), dtype=img.dtype)
         ]
         parts = [self.backend(c) for c in chunks]
+        for c, q in zip(chunks, parts):
+            for k, v in q.items():
+                if v.ndim == 0 or v.shape[0] != c.shape[0]:
+                    raise RuntimeError(
+                        f"{self.export_dir}: output '{k}' (shape {tuple(v.shape)}) is "
+                        f"not batch-first for a batch of {c.shape[0]}; this export "
+                        "cannot run in the checkpoint pipeline."
+                    )
         out = {
             k: torch.cat([q[k].to(self.out_device).float() for q in parts])[:n]
             for k in parts[0]

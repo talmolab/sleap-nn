@@ -81,14 +81,72 @@ sleap-nn export MODEL_PATH [options]
 |--------|-------------|--------|---------|
 | `-o`, `--output` | Output directory | `PATH` | Required |
 | `-f`, `--format` | Export format | `onnx`, `tensorrt`, `both` | `onnx` |
-| `--precision` | TensorRT precision | `fp32`, `fp16`, `tf32` | `fp16` |
+| `--precision` | TensorRT precision (see [Precision](#tensorrt-precision)) | `fp32`, `fp16`, `tf32`, `bf16` | `fp16` |
 | `--max-instances` | Max instances per frame | `INT` | `20` |
 | `--max-batch-size` | Max batch size (TensorRT profile; larger batches run in chunks of it) | `INT` | `8` |
-| `--opt-batch-size` | TensorRT: batch the engine's kernels are tuned for (profile `opt`; for throughput, the batch you run) | `INT` | `1` |
+| `--opt-batch-size` | TensorRT: batch the engine's kernels are tuned for (profile `opt`; for throughput, the batch you run); ignored for `--format onnx` (noted in the metadata) | `INT` | `1` |
+| `--strongly-typed` | TensorRT 10.x: build fp16 / bf16 strongly typed, with the precision in the graph, as TensorRT 11 always does (see [Precision](#tensorrt-precision)) | Flag | `false` |
+| `--force-precision` | Build fp16 / bf16 even for a family whose reduced-precision engines fail its fp32 graph (multi-class bottom-up; see [Precision](#tensorrt-precision)) | Flag | `false` |
 | `--input-dtype` | Box detectors and `--network-only` exports: dtype of the graph's image input (`float32` receives the checkpoint path's own input; `auto` = `float32` for `bbox_detr`, `uint8` otherwise) | `auto`, `uint8`, `float32` | `auto` |
 | `--nodes` | Export only these confmap nodes (`single_instance` / `centered_instance`, alone or in a top-down bundle); repeat or comma-separate | `TEXT` | all nodes |
 | `--node-prefix` | Export only the nodes whose name starts with the prefix | `TEXT` | `None` |
 | `--strip-prefix` | Name the `--node-prefix` nodes without the prefix in the exported metadata and `training_config` | Flag | `false` |
+
+### TensorRT precision
+
+| `--precision` | What runs | Needs |
+|---------------|-----------|-------|
+| `fp32` | strict IEEE fp32 (TF32 off) | TensorRT >= 10.13 (older 10.x: a warning, built with its builder flags as before) |
+| `tf32` | fp32 with TensorRT's TF32 kernels (10-bit mantissa in matrix products) | TensorRT >= 10.13 |
+| `fp16` | fp16 (fp16's range: large activations can overflow) | TensorRT >= 10.13 |
+| `bf16` | bf16 (fp32's range, 8 significant bits); in graphs that compute coordinates (box detectors, peaks found in the graph) every layer outside the backbone stays fp32; transposed convolutions always | TensorRT >= 10.13 and a GPU with compute capability >= 8.0 (judged on the `--device` GPU, where the engine is built) |
+
+How the reduced precisions are built depends on the TensorRT version:
+
+- **TensorRT 10.x** (default): builder flags (weak typing): TensorRT picks fp16 / bf16
+  kernels where they are faster, and sleap-nn holds the fp32 layers above in fp32.
+- **TensorRT 11** removed those flags: every network is strongly typed, and each
+  tensor runs in the type the graph gives it. sleap-nn then writes the precision into
+  the graph it hands TensorRT ("strong typing"): it converts the chosen nodes'
+  weights and inserts `Cast` nodes where a tensor crosses between fp32 and the reduced
+  type, with the same scopes as on 10.x. Always fp32 there: normalization ops,
+  reductions, `Pow` / `Sqrt` / `Reciprocal` / `Exp` / `Log` / `CumSum`, nodes that
+  shape inference cannot type (counted in the metadata, with a warning), tensors
+  that control-flow bodies (`If` / `Loop`) read; under fp16, every constant beyond
+  fp16's range (|x| > 65504: initializers of any size, Constant nodes, fill values, e.g.
+  the 1e9 sentinels for absent peaks), constants computed from constants (up to a
+  million elements), and what the graph computes from those; under bf16, a transposed
+  convolution and the node feeding it.
+- `--strongly-typed` builds TensorRT 10.x engines the TensorRT 11 way (all of the
+  above), to check an upgrade's numbers before making it.
+
+`model.onnx` itself stays fp32. On the strongly typed path the graph TensorRT parsed is
+saved as `tensorrt_graph/model.<precision>.onnx` at the export's opset: the fp16 graph
+passes ONNX's full check (types included); the **bf16 graph is for TensorRT only**
+(ONNX allows bfloat16 in `Conv`, pooling, `TopK`, `GridSample` ... only from opset 22),
+as the metadata (`graph_validity`) says.
+
+Multi-class bottom-up models do not reproduce their fp32 graph in fp16 or bf16 (on a
+test model, 40-77% of peaks within 0.5 px, on TensorRT 10 and 11): on the strongly
+typed path they are built in fp32 with a warning (`precision_requested` /
+`precision_fallback` in the metadata); `--force-precision` builds what was asked. On
+TensorRT 10's builder flags they are built as asked, with a warning.
+
+The same `--precision` therefore gives slightly different numbers on TensorRT 10 and
+11 (TensorRT 10 also picks fp32 for some layers on its own). Engines, and results from
+them, are not interchangeable between TensorRT major versions: compare a new
+version's engines against `fp32` on your data before switching.
+
+The precision, typing (`weak` / `strong`), the precision per part of the graph
+(`precision_by_scope`) and the TensorRT version actually built are written to
+`model.trt.metadata.json` (an `fp16` request on a TensorRT 10 GPU without fast fp16
+builds, and records, `fp32`). An engine runs only on the TensorRT version (and GPU
+model) that built it: after upgrading TensorRT, export the engines again (`sleap-nn
+export ... --format tensorrt`); `model.onnx` does not change. Reduced precision moves
+outputs: compare against an `fp32` export on your own data. Example: a DINOv3
+`bbox_detr` detector loses boxes in `fp16`; in `bf16` with fp32 outside the backbone
+its box corners move by about 0.1 px (median) against `fp32`, and by about 1 px when
+the whole graph runs in bf16.
 
 `--nodes` / `--node-prefix` slice the confmap head to the kept channels before
 tracing, so the exported graph computes only those confidence maps (see
@@ -123,15 +181,19 @@ A box detector with a centered-instance model -- fixed or box-scaled crops
 the checkpoint directories:
 
 ```bash
-sleap-nn export models/detector -o exports/detector --format both
+sleap-nn export models/detector -o exports/detector --format both --precision bf16
 sleap-nn export models/pose -o exports/pose --format both --network-only --input-dtype float32 \
-    --max-batch-size 64 --node-prefix my_set/ --strip-prefix
+    --precision bf16 --max-batch-size 64 --node-prefix my_set/ --strip-prefix
 sleap-nn export models/tail -o exports/tail --format both --network-only --input-dtype float32 \
-    --max-batch-size 64
+    --precision bf16 --max-batch-size 64
 
 sleap-nn predict -i video.mp4 -o out.slp -m exports/detector -m exports/pose \
     --part_model exports/tail --part_crop_rule rule.json --runtime tensorrt
 ```
+
+Pass a `--precision` that your models keep their accuracy in (`bf16` or `fp32` for a
+DINOv3 `bbox_detr` detector: the default `fp16` can lose its boxes); `sleap-nn predict`
+runs the TensorRT engine of a directory that holds one.
 
 A network-only graph is the network alone (preprocessed crop in, raw confidence maps
 out; a detector's graph is network-only by construction). Each export directory stands

@@ -33,7 +33,18 @@ def run_in_batch_chunks(
     """
     if max_batch is None or x.shape[0] <= max_batch:
         return run(x)
-    parts = [run(x[i : i + max_batch]) for i in range(0, x.shape[0], max_batch)]
+    starts = range(0, x.shape[0], max_batch)
+    parts = [run(x[i : i + max_batch]) for i in starts]
+    for i, part in zip(starts, parts):
+        n = min(max_batch, x.shape[0] - i)
+        for k, v in part.items():
+            if v.ndim == 0 or v.shape[0] != n:
+                raise RuntimeError(
+                    f"Output '{k}' (shape {tuple(v.shape)}) is not batch-first for a "
+                    f"chunk of {n}, so chunks of this engine cannot be joined. Run "
+                    f"batches of at most {max_batch}, or re-export with "
+                    f"--max-batch-size >= {x.shape[0]}."
+                )
     return {k: torch.cat([p[k] for p in parts], dim=0) for k in parts[0]}
 
 
@@ -89,9 +100,17 @@ class TensorRTBackend:
         with open(engine_path, "rb") as f:
             self._engine = trt.Runtime(logger).deserialize_cuda_engine(f.read())
         if self._engine is None:
-            raise RuntimeError(f"Failed to load TensorRT engine: {engine_path}")
+            raise RuntimeError(_load_failure_message(engine_path, trt.__version__))
 
         self._context = self._engine.create_execution_context()
+        if self._context is None:
+            raise RuntimeError(
+                f"Could not create a TensorRT execution context for {engine_path}. "
+                "The likely cause is not enough free GPU memory: an engine reserves "
+                "memory for its optimization profile's maximum shape (sleap-nn export "
+                "--max-batch-size). Free GPU memory, or re-export with a smaller "
+                "--max-batch-size."
+            )
         for i in range(self._engine.num_io_tensors):
             name = self._engine.get_tensor_name(i)
             if self._engine.get_tensor_mode(name) == trt.TensorIOMode.INPUT:
@@ -147,7 +166,18 @@ class TensorRTBackend:
             x = x.to(torch.float32)
         x = x.contiguous()
 
-        self._context.set_input_shape(input_name, tuple(x.shape))
+        if not self._context.set_input_shape(input_name, tuple(x.shape)):
+            try:
+                lo, _, hi = self._engine.get_tensor_profile_shape(input_name, 0)
+                bounds = f" (profile min {tuple(lo)}, max {tuple(hi)})"
+            except Exception:  # noqa: BLE001 -- static engines / older TensorRT
+                bounds = ""
+            raise ValueError(
+                f"Input shape {tuple(x.shape)} is outside the TensorRT engine's "
+                f"optimization profile{bounds} for '{input_name}' "
+                f"({self.engine_path}). Re-export at the size the frames or crops "
+                "have here, with a --max-batch-size that covers the batch."
+            )
 
         bindings: Dict[str, int] = {input_name: x.data_ptr()}
         outputs: Dict[str, torch.Tensor] = {}
@@ -198,3 +228,43 @@ class TensorRTBackend:
         if not candidates:
             raise FileNotFoundError(f"No .trt file found in {export_dir}")
         return cls(engine_path=str(candidates[0]))
+
+
+def _load_failure_message(engine_path: Path, trt_version: str) -> str:
+    """Explain why TensorRT could not deserialize an engine file.
+
+    An engine runs only on the TensorRT version (and GPU) that built it. The engine's
+    ``model.trt.metadata.json`` names that version when sleap-nn wrote it.
+    """
+    import json
+
+    built_with = None
+    meta = engine_path.with_name(engine_path.name + ".metadata.json")
+    if meta.exists():
+        try:
+            built_with = json.loads(meta.read_text()).get("tensorrt_version")
+        except (OSError, ValueError):
+            built_with = None
+    rebuild = (
+        "Export it again in this environment (`sleap-nn export <model> ... --format "
+        "tensorrt`), or run the directory's model.onnx with `--runtime onnx`."
+    )
+    if built_with and str(built_with) != str(trt_version):
+        return (
+            f"Failed to load TensorRT engine {engine_path}: it was built with TensorRT "
+            f"{built_with}, and this is TensorRT {trt_version}; an engine runs only on "
+            f"the TensorRT version that built it. {rebuild}"
+        )
+    return (
+        f"Failed to load TensorRT engine {engine_path} with TensorRT {trt_version}"
+        + (
+            f" (built with the same version, {built_with})."
+            if built_with
+            else " (its metadata does not name the building version)."
+        )
+        + " Possible causes: not enough free GPU memory to load it; a GPU model other "
+        "than the one it was built on (engines are tied to the GPU architecture); a "
+        "truncated or corrupted file"
+        + ("" if built_with else "; another TensorRT version")
+        + f". {rebuild}"
+    )
