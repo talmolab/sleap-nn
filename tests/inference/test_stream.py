@@ -96,7 +96,8 @@ def test_stream_matches_predict_over_frames_with_floor_and_options(
     ref = predict(shifted_video, batch_size=1, part_streaming=True, **kw)
     with open_stream(**kw) as stream:
         got = [stream.push(f) for f in _video_frames(shifted_video)]
-        assert stream._predictor.part_stage.last_floors  # the floor ran
+        floors = stream._predictor.part_stage.last_floors
+        assert max(floors.values()) > RULE["min_half_side"]  # the floor enlarged crops
         assert stream.node_names == ["A", "B", "part/A", "part/B"]
     assert _assert_same(ref, got, 4) >= 12
 
@@ -354,3 +355,73 @@ def test_warmup_reaches_the_pose_network(
     stream = open_stream(**{**kw, "peak_threshold": 2.0}, frame_shape=frame.shape)
     assert {1, 2, 3, 4} <= set(sizes)
     assert stream._next_idx == 0 and stream._shape is None
+
+
+def test_failure_after_the_part_stage_leaves_the_stream_as_it_was(
+    minimal_instance,
+    minimal_instance_centroid_ckpt,
+    minimal_instance_centered_instance_ckpt,
+    monkeypatch,
+):
+    """A failure after the part stage returned (here in reading the outputs back,
+    where a late CUDA error or a Ctrl-C lands) also leaves the floor as it was."""
+    import sleap_nn.inference.stream as S
+    from sleap_nn.inference.run import open_stream
+
+    kw = _kw(
+        minimal_instance_centroid_ckpt,
+        minimal_instance_centered_instance_ckpt,
+        part=True,
+    )
+    frame = _frames(minimal_instance)[0]
+    other = np.roll(frame, 5, axis=0)
+    ref = open_stream(**kw)
+    want = [ref.push(f) for f in (frame, other, frame)]
+    stream = open_stream(**kw, keep=True)
+    stream.push(frame)
+    before = _state(stream)
+    real = S._frame_poses_from_outputs
+
+    def boom(*a, **k):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(S, "_frame_poses_from_outputs", boom)
+    with pytest.raises(KeyboardInterrupt):
+        stream.push(other)
+    assert _state(stream) == before
+    monkeypatch.setattr(S, "_frame_poses_from_outputs", real)
+    for w, f in zip(want[1:], (other, frame)):
+        g = stream.push(f)
+        assert w.frame_idx == g.frame_idx
+        np.testing.assert_array_equal(w.points, g.points)
+
+
+def test_tiled_single_instance_model_accepted(minimal_instance_single_instance_ckpt):
+    """A tiled single-instance model gives keypoints: not refused at open."""
+    from sleap_nn.inference.layers.tiled import TiledLayer
+    from sleap_nn.inference.predictor import Predictor
+    from sleap_nn.inference.stream import _check_keypoint_layer
+
+    p = Predictor.from_model_paths(
+        [str(minimal_instance_single_instance_ckpt)], device="cpu"
+    )
+    _check_keypoint_layer(TiledLayer(p.layer, tile_size=64, overlap=16))
+
+
+def test_public_surface(
+    minimal_instance_centroid_ckpt, minimal_instance_centered_instance_ckpt
+):
+    """Warm-up runs at open only; channel_order and keep are fixed; open_stream sits
+    beside predict."""
+    from sleap_nn.inference import open_stream, predict  # noqa: F401
+    from sleap_nn.inference.stream import PoseStream
+
+    assert not hasattr(PoseStream, "warmup")
+    stream = open_stream(
+        **_kw(minimal_instance_centroid_ckpt, minimal_instance_centered_instance_ckpt)
+    )
+    with pytest.raises(AttributeError):
+        stream.keep = True
+    with pytest.raises(AttributeError):
+        stream.channel_order = "bgr"
+    assert stream.keep is False and stream.channel_order == "rgb"

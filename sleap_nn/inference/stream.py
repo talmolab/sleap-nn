@@ -124,6 +124,10 @@ def _check_keypoint_layer(layer: Any) -> None:
         TopDownSegmentationLayer,
     )
 
+    from sleap_nn.inference.layers.tiled import TiledLayer
+
+    if isinstance(layer, TiledLayer):  # a tiled model: what it tiles decides
+        layer = layer.inner
     if isinstance(layer, TopDownLayer) and not isinstance(
         layer, TopDownSegmentationLayer
     ):
@@ -191,8 +195,8 @@ class PoseStream:
         _check_keypoint_layer(layer)
         self._predictor = predictor
         self._layer = layer
-        self.channel_order = channel_order
-        self.keep = keep
+        self._channel_order = channel_order
+        self._keep = keep
         self.node_names = (
             [n.name for n in predictor.skeleton.nodes]
             if predictor.skeleton is not None
@@ -204,6 +208,16 @@ class PoseStream:
         self._video_frames = 0  # frames kept for the current video
         self._closed = False
         self._clear()
+
+    @property
+    def channel_order(self) -> str:
+        """``"rgb"`` or ``"bgr"``, fixed at open."""
+        return self._channel_order
+
+    @property
+    def keep(self) -> bool:
+        """Whether pushed frames are kept for :meth:`labels`, fixed at open."""
+        return self._keep
 
     # ── state ────────────────────────────────────────────────────────────
     def _clear(self) -> None:
@@ -233,7 +247,7 @@ class PoseStream:
         if self._closed:
             return
         self._closed = True
-        if not self.keep:
+        if not self._keep:
             self._predictor = None
             self._layer = None
 
@@ -277,7 +291,7 @@ class PoseStream:
             raise ValueError(
                 f"Frame shape changed from {self._shape} to {shape}; call reset() to start a new video."
             )
-        if self.channel_order == "bgr" and shape[-1] == 3:
+        if self._channel_order == "bgr" and shape[-1] == 3:
             frame = (
                 frame[..., ::-1]
                 if isinstance(frame, np.ndarray)
@@ -305,10 +319,21 @@ class PoseStream:
         t0 = time.perf_counter()
         images, shape = self._as_batch(frame)
         idx = self._next_idx if frame_idx is None else int(frame_idx)
-        outputs = self._run(images, idx, self._video)
-        poses = _frame_poses_from_outputs(outputs, idx, self.node_names)
-        if self.keep:
-            self._outputs.append(outputs.slim())
+        part = self._predictor.part_stage
+        if part is not None:
+            part.forget_last()
+        try:
+            outputs = self._run(images, idx, self._video)
+            poses = _frame_poses_from_outputs(outputs, idx, self.node_names)
+            kept = outputs.slim() if self._keep else None
+        except (
+            BaseException
+        ):  # anything after the part stage too (a late CUDA error, Ctrl-C)
+            if part is not None:
+                part.undo_last()
+            raise
+        if kept is not None:
+            self._outputs.append(kept)
             self._video_frames += 1
         self._shape = shape
         self._next_idx = idx + 1
@@ -361,11 +386,12 @@ class PoseStream:
         pose.centroid_layer = given
         return pose
 
-    def warmup(self, frame_shape: Sequence[int]) -> None:
+    def _warmup(self, frame_shape: Sequence[int]) -> None:
         """Run dummy data through every network so the first real frame is not the slow one.
 
         :func:`~sleap_nn.inference.run.open_stream` calls this when given
-        ``frame_shape``; without it there is no warm-up. Two empty frames go through
+        ``frame_shape``, before any frame is pushed; without it there is no warm-up.
+        Two empty frames go through
         the whole pipeline (the first stage, and everything for one-stage models);
         then the pose model of a top-down pair and the part model each run on 1, 2,
         3 and 4 dummy crops (boxes placed in an empty frame). The frame counter,
@@ -407,7 +433,7 @@ class PoseStream:
         """
         import sleap_io as sio
 
-        if not self.keep:
+        if not self._keep:
             raise ValueError("labels() needs a stream opened with keep=True.")
         n_videos = self._video + (1 if self._video_frames else 0)
         if video is None:

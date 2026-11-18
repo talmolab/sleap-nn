@@ -1244,7 +1244,7 @@ def open_stream(
         integral_refinement: As for :func:`predict`.
         integral_patch_size: As for :func:`predict`.
         frame_shape: ``(H, W)`` or ``(H, W, C)`` of the frames to come: when given,
-            :meth:`PoseStream.warmup` runs before the stream is returned. Without
+            a warm-up runs before the stream is returned (every network on dummy data). Without
             it there is no warm-up, and the first frames pay the networks'
             first-call costs.
         channel_order: ``"rgb"`` (default, as sleap-io readers give) or ``"bgr"``
@@ -1322,5 +1322,5 @@ def open_stream(
     )
     stream = PoseStream(predictor, layer, channel_order=channel_order, keep=keep)
     if frame_shape is not None:
-        stream.warmup(frame_shape)
+        stream._warmup(frame_shape)
     return stream

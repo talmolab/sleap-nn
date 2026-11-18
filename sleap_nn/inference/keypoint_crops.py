@@ -695,6 +695,7 @@ class StreamingPartStage:
         self.halves = {}
         self.every = RunningMedian()
         self.last_floors = {}
+        self._last = None
 
     def _floor(self, video: int) -> float:
         rule = self.rule
@@ -727,18 +728,39 @@ class StreamingPartStage:
         )
         added: List[Tuple[int, float]] = []
         floors_before = dict(self.last_floors)
+        self._last = None
         try:
-            return self._call(images, outputs, kpts, vids, added)
+            out = self._call(images, outputs, kpts, vids, added)
         except BaseException:
             # Leave the floors as they were: a failed call adds nothing to the history.
-            for video, half in reversed(added):
-                med = self.halves[video]
-                med.remove(half)
-                if not len(med):
-                    del self.halves[video]
-                self.every.remove(half)
-            self.last_floors = floors_before
+            self._undo(added, floors_before)
             raise
+        self._last = (added, floors_before)
+        return out
+
+    def _undo(
+        self, added: List[Tuple[int, float]], floors_before: Dict[int, float]
+    ) -> None:
+        for video, half in reversed(added):
+            med = self.halves[video]
+            med.remove(half)
+            if not len(med):
+                del self.halves[video]
+            self.every.remove(half)
+        self.last_floors = floors_before
+
+    def undo_last(self) -> None:
+        """Take back the last call's floor additions (a caller's later step failed).
+
+        Does nothing if :meth:`forget_last` ran since, or the call itself failed.
+        """
+        if getattr(self, "_last", None) is not None:
+            self._undo(*self._last)
+            self._last = None
+
+    def forget_last(self) -> None:
+        """Make the last call final (:meth:`undo_last` will not take it back)."""
+        self._last = None
 
     def _call(
         self,

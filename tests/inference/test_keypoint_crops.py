@@ -901,3 +901,42 @@ def test_streaming_stage_failure_leaves_the_floor_as_it_was():
         stage(torch.zeros(1, 1, 8, 8), frame(), torch.tensor([1]))
     assert (len(stage.halves[0]), stage.halves[0].median(), len(stage.every)) == before
     assert 1 not in stage.halves and stage.last_floors == floors
+
+
+def test_streaming_stage_undo_last_and_forget_last():
+    """undo_last takes back the last successful call; after forget_last it does nothing."""
+    import torch
+
+    from sleap_nn.inference.keypoint_crops import StreamingPartStage
+    from sleap_nn.inference.outputs import Outputs
+
+    class _Part:
+        def predict(self, images, frame_boxes, frame_box_scores):
+            B, k = frame_boxes.shape[:2]
+            return Outputs(
+                pred_keypoints=torch.zeros(B, k, 1, 2),
+                pred_peak_values=torch.ones(B, k, 1),
+            )
+
+    rule = KeypointCropRule(
+        center=["a"], reference=["b"], scale=1.0, session_floor=1.0, session_min_boxes=2
+    )
+    stage = StreamingPartStage(_Part(), rule, ["a", "b"])
+    rng = np.random.default_rng(1)
+
+    def call():
+        k = rng.normal(100, 30, (1, 3, 2, 2)).astype(np.float32)
+        stage(torch.zeros(1, 1, 8, 8), Outputs(pred_keypoints=torch.from_numpy(k)))
+
+    for _ in range(4):
+        call()
+    state = (len(stage.every), stage.every.median(), dict(stage.last_floors))
+    call()
+    stage.undo_last()
+    assert (len(stage.every), stage.every.median(), dict(stage.last_floors)) == state
+    stage.undo_last()  # twice: nothing more
+    assert len(stage.every) == state[0]
+    call()
+    stage.forget_last()
+    stage.undo_last()
+    assert len(stage.every) == state[0] + 3
