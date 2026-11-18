@@ -526,3 +526,43 @@ def test_backend_names_the_building_version(tmp_path):
     assert "built with TensorRT 10.16.1.11, and this is TensorRT 11.5.0.63" in msg
     msg = _load_failure_message(eng, "10.16.1.11")
     assert "(built with TensorRT 10.16.1.11)" in msg
+
+
+def test_fp16_keeps_nodes_fed_by_constants_beyond_its_range():
+    """A 1e9 sentinel (masked peaks) would become inf in fp16: its consumer stays fp32."""
+    from onnx import helper as h
+
+    nodes = [
+        h.make_node("Relu", ["x"], ["r"], name="/model/backbone/Relu"),
+        h.make_node(
+            "Constant",
+            [],
+            ["big"],
+            value=numpy_helper.from_array(np.array(1e9, np.float32), "big"),
+        ),
+        h.make_node(
+            "ConstantOfShape",
+            ["shape"],
+            ["neg"],
+            value=numpy_helper.from_array(np.array([-1e9], np.float32), "v"),
+        ),
+        h.make_node("Add", ["r", "big"], ["a"], name="/peaks/Add"),
+        h.make_node("Mul", ["a", "neg"], ["y"], name="/peaks/Mul"),
+    ]
+    g = h.make_graph(
+        nodes,
+        "g",
+        [h.make_tensor_value_info("x", TensorProto.FLOAT, [4])],
+        [h.make_tensor_value_info("y", TensorProto.FLOAT, [4])],
+        initializer=[numpy_helper.from_array(np.array([4], np.int64), "shape")],
+    )
+    m = h.make_model(g, opset_imports=[h.make_opsetid("", 17)])
+    typed, info = cast_onnx_precision(m, "fp16")
+    by_name = {n.name: n for n in typed.graph.node if n.name}
+    assert by_name["/model/backbone/Relu"].output[0].endswith("__fp16")
+    assert not by_name["/peaks/Add"].output[0].endswith("__fp16")
+    assert not by_name["/peaks/Mul"].output[0].endswith("__fp16")
+    assert info["fp32_nodes_in_scope"] == {"constant beyond fp16 range": 2}
+    # bf16 has fp32's range: the same nodes are converted.
+    _, info = cast_onnx_precision(m, "bf16")
+    assert "constant beyond fp16 range" not in info["fp32_nodes_in_scope"]

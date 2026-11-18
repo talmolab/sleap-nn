@@ -14,6 +14,8 @@ use, so the same ``--precision`` means the same thing on both versions:
   ``/model/backbone/...``) or its module path (the dynamo exporter's
   ``pkg.torch.onnx.name_scopes``) contains it, e.g. ``"backbone/"``; ``None``
   converts every eligible node.
+- Under fp16, nodes fed by a constant beyond fp16's range (|x| > 65504, e.g. the 1e9
+  sentinels that mask absent peaks) stay fp32 (ModelOpt AutoCast's ``init_max``).
 - The normalization ops, reductions, ``Pow``, ``Sqrt``, ``Reciprocal``, ``Exp`` and
   ``Log`` stay in fp32 (:data:`KEEP_FP32_OPS`; fp16 overflows there first). A norm
   decomposed into elementwise ops keeps only those ops in fp32: its ``Sub`` / ``Add``
@@ -88,6 +90,10 @@ NEVER_CONVERT = frozenset(
         "NonZero",
     }
 )
+
+#: Largest finite fp16 magnitude: a node fed by a constant beyond it stays fp32 under fp16
+#: (e.g. the 1e9 sentinels that mask absent peaks); ModelOpt AutoCast's ``init_max``.
+FP16_MAX = 65504.0
 
 #: Float inputs whose type the operator definition fixes (never cast).
 FIXED_FLOAT_INPUTS = {"Resize": (1, 2), "Upsample": (1,)}
@@ -237,6 +243,25 @@ def cast_onnx_precision(
             if t and i not in fixed and types.get(t) == FLOAT
         }
 
+    # Constants beyond fp16's range (fp16 only): their consumers stay fp32.
+    big: Set[str] = set()
+    if precision == "fp16":
+        from onnx import numpy_helper
+
+        def too_big(t) -> bool:
+            if t.data_type != FLOAT:
+                return False
+            a = numpy_helper.to_array(t)
+            a = a[np.isfinite(a)]  # inf / NaN exist in fp16 (NaN fills absent peaks)
+            return bool(a.size) and bool(np.abs(a).max() > FP16_MAX)
+
+        big = {name for name, init in inits.items() if too_big(init)}
+        for node in g.node:
+            if node.op_type in ("Constant", "ConstantOfShape"):
+                for attr in node.attribute:
+                    if attr.name == "value" and attr.HasField("t") and too_big(attr.t):
+                        big.add(node.output[0])
+
     # 1. Which nodes run in the reduced type.
     reduced: Set[int] = set()
     kept_in_scope: Dict[str, int] = defaultdict(int)
@@ -257,6 +282,9 @@ def cast_onnx_precision(
             continue  # an input of unknown type could not be cast consistently
         if node.op_type in keep:
             kept_in_scope[node.op_type] += 1
+            continue
+        if big and any(t in big for t in node.input):
+            kept_in_scope["constant beyond fp16 range"] += 1
             continue
         reduced.add(k)
     if precision == "bf16" and "ConvTranspose" in keep:
