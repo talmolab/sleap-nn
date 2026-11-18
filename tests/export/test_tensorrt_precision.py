@@ -150,3 +150,46 @@ def test_strongly_typed_option_reaches_the_build(
     )
     assert result.exit_code == 0, result.output
     assert seen["strongly_typed"] is True
+
+
+@pytest.mark.parametrize("strongly_typed", [False, True])
+@pytest.mark.parametrize("precision", ["fp16", "bf16"])
+@pytest.mark.parametrize(
+    "ckpt_fixture",
+    ["minimal_instance_centroid_ckpt", "minimal_instance_bottomup_ckpt"],
+)
+def test_reduced_precision_engines_build(
+    request, tmp_path, ckpt_fixture, precision, strongly_typed
+):
+    """Real engine builds of UNets with transposed convolutions, on this TensorRT.
+
+    On TensorRT 11 (and with --strongly-typed on 10.x) the precision is carried by
+    the graph; a bf16 graph with a transposed convolution failed to build there.
+    """
+    from .conftest import _has_tensorrt
+
+    if not (torch.cuda.is_available() and _has_tensorrt()):
+        pytest.skip("needs CUDA and TensorRT")
+    import tensorrt as trt
+
+    if precision == "bf16" and torch.cuda.get_device_capability() < (8, 0):
+        pytest.skip("bf16 needs compute capability 8.0")
+    if strongly_typed and not hasattr(
+        trt.NetworkDefinitionCreationFlag, "STRONGLY_TYPED"
+    ):
+        pytest.skip("this TensorRT has no strongly typed networks")
+    from sleap_nn.export.cli import export
+
+    out = tmp_path / "x"
+    args = [str(request.getfixturevalue(ckpt_fixture)), "-o", str(out)]
+    args += ["--format", "tensorrt", "--precision", precision, "--device", "cuda"]
+    args += ["--max-batch-size", "2"] + (["--strongly-typed"] if strongly_typed else [])
+    result = CliRunner().invoke(export, args)
+    assert result.exit_code == 0, result.output + str(result.exception)
+    meta = json.loads((out / "model.trt.metadata.json").read_text())
+    assert meta["tensorrt_version"] == trt.__version__
+    strong = strongly_typed or meta["typing"] == "strong"
+    if strong:
+        graph = out / meta["tensorrt_graph"]
+        assert graph.exists() and graph.parent.name == "tensorrt_graph"
+    assert meta["precision"] in (precision, "fp32")  # fp32: no fast fp16 on 10.x

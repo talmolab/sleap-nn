@@ -85,6 +85,7 @@ sleap-nn export MODEL_PATH [options]
 | `--max-instances` | Max instances per frame | `INT` | `20` |
 | `--max-batch-size` | Max batch size (TensorRT profile; larger batches run in chunks of it) | `INT` | `8` |
 | `--opt-batch-size` | TensorRT: batch the engine's kernels are tuned for (profile `opt`; for throughput, the batch you run); ignored for `--format onnx` (noted in the metadata) | `INT` | `1` |
+| `--strongly-typed` | TensorRT 10.x: build fp16 / bf16 strongly typed, with the precision in the graph, as TensorRT 11 always does (see [Precision](#tensorrt-precision)) | Flag | `false` |
 | `--input-dtype` | Box detectors and `--network-only` exports: dtype of the graph's image input (`float32` receives the checkpoint path's own input; `auto` = `float32` for `bbox_detr`, `uint8` otherwise) | `auto`, `uint8`, `float32` | `auto` |
 | `--nodes` | Export only these confmap nodes (`single_instance` / `centered_instance`, alone or in a top-down bundle); repeat or comma-separate | `TEXT` | all nodes |
 | `--node-prefix` | Export only the nodes whose name starts with the prefix | `TEXT` | `None` |
@@ -107,13 +108,22 @@ How the reduced precisions are built depends on the TensorRT version:
   tensor runs in the type the graph gives it. sleap-nn then writes the precision into
   the graph it hands TensorRT: it converts the chosen nodes' weights and inserts `Cast`
   nodes where a tensor crosses between fp32 and the reduced type (same scopes as on
-  10.x; normalizations and reductions stay fp32). `model.onnx` itself stays fp32.
+  10.x; normalization ops, reductions, `Pow` / `Sqrt` / `Reciprocal` / `Exp` / `Log`
+  stay fp32; under bf16 a transposed convolution and the node feeding it stay fp32).
+  `model.onnx` itself stays fp32; the graph TensorRT parsed is saved as
+  `tensorrt_graph/model.<precision>.onnx` in the export directory (same opset).
 - `--strongly-typed` builds TensorRT 10.x engines the TensorRT 11 way, to check an
   upgrade's numbers before making it.
 
-The precision, typing (`weak` / `strong`) and TensorRT version actually built are
-written to `model.trt.metadata.json` (an `fp16` request on a TensorRT 10 GPU without
-fast fp16 builds, and records, `fp32`). An engine runs only on the TensorRT version
+The same `--precision` therefore gives slightly different numbers on TensorRT 10 and
+11 (TensorRT 10 also picks fp32 for some layers on its own). Engines, and results from
+them, are not interchangeable between TensorRT major versions: compare a new
+version's engines against `fp32` on your data before switching.
+
+The precision, typing (`weak` / `strong`), the precision per part of the graph
+(`precision_by_scope`) and the TensorRT version actually built are written to
+`model.trt.metadata.json` (an `fp16` request on a TensorRT 10 GPU without fast fp16
+builds, and records, `fp32`). An engine runs only on the TensorRT version
 that built it: after upgrading TensorRT, export the engines again (`sleap-nn export
 ... --format tensorrt`); `model.onnx` does not change. Reduced precision moves outputs: compare against an
 `fp32` export on your own data. Example: a DINOv3 `bbox_detr` detector loses boxes in

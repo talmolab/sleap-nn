@@ -242,6 +242,53 @@ def export_to_tensorrt(
         raise ValueError(f"Unknown method: {method}. Use 'onnx' or 'jit'.")
 
 
+def _write_typed_graph(
+    onnx_path: Path, precision: str, scope: Optional[str]
+) -> Tuple[Path, dict]:
+    """Write the fp16 / bf16 version of an exported graph for a strongly typed build.
+
+    Args:
+        onnx_path: The export's fp32 ``model.onnx`` (external weights next to it
+            are read too).
+        precision: ``"fp16"`` or ``"bf16"``.
+        scope: Reduce only nodes inside this scope (:data:`BACKBONE_SCOPE`); ``None``
+            for the whole graph.
+
+    Returns:
+        ``(path, info)``: ``tensorrt_graph/<stem>.<precision>.onnx`` next to
+        ``onnx_path`` (weights in ``<name>.data`` beside it above 1.8 GB), checked
+        with the ONNX checker; ``info`` from
+        :func:`~sleap_nn.export.exporters.onnx_precision.cast_onnx_precision` plus
+        the graph's ``opset`` (that of ``model.onnx``: the rewrite adds no new op
+        set).
+    """
+    import onnx
+
+    from sleap_nn.export.exporters.onnx_precision import cast_onnx_precision
+
+    typed, info = cast_onnx_precision(onnx.load(str(onnx_path)), precision, scope)
+    out_dir = onnx_path.parent / "tensorrt_graph"
+    out_dir.mkdir(exist_ok=True)
+    out = out_dir / f"{onnx_path.stem}.{precision}.onnx"
+    data = out_dir / (out.name + ".data")
+    if data.exists():
+        data.unlink()
+    big = typed.ByteSize() > 1_800_000_000
+    onnx.save_model(
+        typed,
+        str(out),
+        save_as_external_data=big,
+        all_tensors_to_one_file=True,
+        location=data.name,
+    )
+    onnx.checker.check_model(str(out))
+    info["opset"] = max(
+        (o.version for o in typed.opset_import if o.domain in ("", "ai.onnx")),
+        default=None,
+    )
+    return out, info
+
+
 def _export_tensorrt_onnx(
     model: nn.Module,
     save_path: Path,
@@ -304,8 +351,8 @@ def _export_tensorrt_onnx(
         print(f"  Building TensorRT engine (this may take a while)...")
 
     # Create TensorRT builder
-    logger = trt.Logger(trt.Logger.WARNING if not verbose else trt.Logger.INFO)
-    builder = trt.Builder(logger)
+    trt_logger = trt.Logger(trt.Logger.WARNING if not verbose else trt.Logger.INFO)
+    builder = trt.Builder(trt_logger)
     # EXPLICIT_BATCH is the only mode (and a no-op flag) since TensorRT 10; 11 dropped it.
     creation = trt.NetworkDefinitionCreationFlag
     flags = 0
@@ -315,25 +362,28 @@ def _export_tensorrt_onnx(
         # Opt-in on TensorRT 10; TensorRT 11 networks are strongly typed anyway.
         flags |= 1 << int(creation.STRONGLY_TYPED)
     network = builder.create_network(flags)
-    parser = trt.OnnxParser(network, logger)
+    parser = trt.OnnxParser(network, trt_logger)
 
     # Parse ONNX model
-    with open(onnx_path, "rb") as f:
-        onnx_bytes = f.read()
     if strong and precision in ("fp16", "bf16"):
         # Strongly typed: the graph carries the precision. Same rules as the
         # weak-typing builds below: bf16 only inside bf16_fp32_outside when given,
-        # transposed convolutions (bf16) and normalizations in fp32.
-        import onnx
-
-        from sleap_nn.export.exporters.onnx_precision import cast_onnx_precision
-
-        scope = bf16_fp32_outside if precision == "bf16" else None
-        typed, cast_info = cast_onnx_precision(
-            onnx.load_from_string(onnx_bytes), precision, scope=scope
+        # transposed convolutions (bf16) and normalizations in fp32. The rewritten
+        # graph is saved next to the engine (tensorrt_graph/, never picked up as
+        # the export's ONNX model) and checked before TensorRT parses it.
+        typed_path, cast_info = _write_typed_graph(
+            onnx_path, precision, bf16_fp32_outside if precision == "bf16" else None
         )
-        onnx_bytes = typed.SerializeToString()
         info["graph_casts"] = cast_info
+        info["tensorrt_graph"] = str(typed_path.relative_to(onnx_path.parent))
+        scope = cast_info["scope"]
+        info["precision_by_scope"] = {
+            (f"nodes in '*{scope}*'" if scope else "whole graph"): (
+                f"{precision}, except {cast_info['fp32_nodes_in_scope'] or 'none'} "
+                "in fp32"
+            ),
+            **({"every other node": "fp32"} if scope else {}),
+        }
         if precision == "bf16":
             info["bf16_scope"] = (
                 f"bf16 only in nodes named '*{scope}*'; every other float node fp32"
@@ -343,9 +393,14 @@ def _export_tensorrt_onnx(
         if verbose:
             print(
                 f"  Strongly typed {precision}: {cast_info['reduced_nodes']} nodes in "
-                f"{precision}, {cast_info['casts_inserted']} casts inserted"
+                f"{precision}, {cast_info['casts_inserted']} casts inserted "
+                f"({typed_path})"
             )
-    if not parser.parse(onnx_bytes, str(onnx_path)):
+        parsed = parser.parse_from_file(str(typed_path))
+    else:
+        with open(onnx_path, "rb") as f:
+            parsed = parser.parse(f.read(), str(onnx_path))
+    if not parsed:
         errors = []
         for i in range(parser.num_errors):
             errors.append(str(parser.get_error(i)))
@@ -368,6 +423,13 @@ def _export_tensorrt_onnx(
                 "This GPU has no fast fp16: the engine is built in fp32 (recorded as "
                 "fp32 in the export metadata)."
             )
+        info["precision_by_scope"] = {
+            "whole graph": (
+                "fp16 where TensorRT picks it"
+                if info["precision_built"] == "fp16"
+                else "fp32 (no fast fp16)"
+            )
+        }
     elif precision == "bf16":
         # bf16 kernels where faster, with fp32's exponent range (fp16 can overflow
         # in large-activation transformers). Weak typing: TensorRT 10.x.
@@ -377,20 +439,21 @@ def _export_tensorrt_onnx(
         # bf16_fp32_outside, every float layer outside that scope stays in fp32 too:
         # bf16 keeps 8 significant bits, so coordinate arithmetic in the graph
         # (box decoding, proposals, peak refinement) would round by pixels.
-        pinned = 0
+        pinned = free = 0
         for i in range(network.num_layers):
             layer = network.get_layer(i)
             is_deconv = layer.type == trt.LayerType.DECONVOLUTION
             outside = bf16_fp32_outside is not None and bf16_fp32_outside not in (
                 layer.name or ""
             )
-            if not (is_deconv or outside):
-                continue
             if layer.type == trt.LayerType.SHAPE or not all(
                 layer.get_output(j).dtype == trt.float32
                 for j in range(layer.num_outputs)
             ):
                 continue  # shape / integer / boolean layers keep their own types
+            if not (is_deconv or outside):
+                free += 1
+                continue
             layer.precision = trt.float32
             for j in range(layer.num_outputs):
                 layer.set_output_type(j, trt.float32)
@@ -404,6 +467,27 @@ def _export_tensorrt_onnx(
             else "bf16; transposed convolutions fp32"
         )
         info["bf16_fp32_layers"] = pinned
+        if bf16_fp32_outside is not None and pinned and not free:
+            # No layer name carries the scope (e.g. a graph from the dynamo exporter,
+            # whose nodes are named node_*): every layer was held in fp32.
+            info["precision_built"] = "fp32"
+            info["bf16_scope"] += " (no layer matched the scope: built fp32)"
+            logger.warning(
+                f"No TensorRT layer name contains {bf16_fp32_outside!r}: every float "
+                "layer was held in fp32, so this bf16 engine computes in fp32 "
+                "(recorded as fp32)."
+            )
+        info["precision_by_scope"] = (
+            {
+                f"layers in '*{bf16_fp32_outside}*'": "bf16 where TensorRT picks it",
+                "every other layer": "fp32",
+            }
+            if bf16_fp32_outside is not None
+            else {
+                "whole graph": "bf16 where TensorRT picks it",
+                "transposed convolutions": "fp32",
+            }
+        )
         if verbose:
             print(f"  Enabled BF16 mode ({pinned} float layers kept in fp32)")
     elif precision == "tf32":
@@ -419,6 +503,11 @@ def _export_tensorrt_onnx(
             config.clear_flag(trt.BuilderFlag.TF32)
         if verbose:
             print("  Using strict FP32 mode (TF32 disabled)")
+
+    if precision in ("fp32", "tf32"):
+        info["precision_by_scope"] = {
+            "whole graph": "fp32, TF32 off" if precision == "fp32" else "tf32"
+        }
 
     # Set up optimization profile for dynamic shapes
     profile = builder.create_optimization_profile()

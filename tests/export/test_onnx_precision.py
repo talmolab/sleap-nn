@@ -109,13 +109,13 @@ def test_bf16_backbone_scope():
     m, info = cast_onnx_precision(_graph(), "bf16", scope=BACKBONE_SCOPE)
     onnx.checker.check_model(m)
     by_name = {n.name: n for n in m.graph.node}
-    # Conv, Relu and Resize run in bf16; LayerNorm and (bf16) ConvTranspose stay fp32;
-    # the head (outside the scope) stays fp32.
+    # Conv and Relu run in bf16; LayerNorm, the (bf16) ConvTranspose and the Resize
+    # feeding it stay fp32; the head (outside the scope) stays fp32.
     assert by_name["/model/backbone/conv/Conv"].output[0].endswith("__bf16")
     assert by_name["/model/backbone/act/Relu"].output[0].endswith("__bf16")
-    assert by_name["/model/backbone/up/Resize"].output[0].endswith("__bf16")
     for name in (
         "/model/backbone/norm/LayerNormalization",
+        "/model/backbone/up/Resize",
         "/model/backbone/deconv/ConvTranspose",
         "/model/head/Add",
     ):
@@ -127,11 +127,20 @@ def test_bf16_backbone_scope():
     assert inits["Wt"] == inits["bias"] == inits["scales"] == TensorProto.FLOAT
     assert [o.type.tensor_type.elem_type for o in m.graph.output] == [TensorProto.FLOAT]
     assert m.graph.input[0].type.tensor_type.elem_type == TensorProto.FLOAT
-    assert info["fp32_nodes_in_scope"] == {"ConvTranspose": 1, "LayerNormalization": 1}
-    assert info["reduced_nodes"] == 3 and info["initializers_converted"] == 1
+    assert info["fp32_nodes_in_scope"] == {
+        "ConvTranspose": 1,
+        "LayerNormalization": 1,
+        "input of ConvTranspose": 1,
+    }
+    assert info["reduced_nodes"] == 2 and info["initializers_converted"] == 1
     # images -> bf16 for the Conv; Conv out -> fp32 for LayerNorm; LayerNorm out ->
-    # bf16 for Relu; Resize out -> fp32 for ConvTranspose.
+    # bf16 for Relu; Relu out -> fp32 for the Resize feeding the ConvTranspose.
     assert info["casts_inserted"] == 4
+    # No cast sits directly on the transposed convolution's input (TensorRT 11 fuses
+    # such a pair into a bf16 deconvolution it cannot build).
+    producer = {o: n for n in m.graph.node for o in n.output}
+    deconv = by_name["/model/backbone/deconv/ConvTranspose"]
+    assert producer[deconv.input[0]].op_type != "Cast"
     for n in m.graph.node:
         if n.op_type == "Cast":
             to = helper.get_attribute_value(n.attribute[0])
@@ -175,6 +184,83 @@ def test_unknown_scope_and_precision():
         cast_onnx_precision(_graph(), "fp32")
 
 
+def test_scope_from_module_path_metadata():
+    """Dynamo-exported nodes (named node_*) match the scope by their module path."""
+    g = _graph()
+    for n in g.graph.node:
+        path = "model.head" if "/head/" in n.name else "model.backbone.block"
+        n.name = "node_" + n.op_type.lower()
+        n.metadata_props.add(
+            key="pkg.torch.onnx.name_scopes", value=str(["", "model", path])
+        )
+    m, info = cast_onnx_precision(g, "bf16", scope=BACKBONE_SCOPE)
+    reduced = {
+        n.name
+        for n in m.graph.node
+        if n.op_type != "Cast" and n.output[0].endswith("__bf16")
+    }
+    assert reduced == {"node_conv", "node_relu"}
+    assert "node_add" not in reduced  # the head is outside the scope
+
+
+def test_external_data_graph(tmp_path):
+    """A graph whose weights live in a separate file (exports above 2 GB) is rewritten."""
+    from sleap_nn.export.exporters.tensorrt_exporter import _write_typed_graph
+
+    d = tmp_path / "exp"
+    d.mkdir()
+    onnx.save_model(
+        _graph(),
+        str(d / "model.onnx"),
+        save_as_external_data=True,
+        all_tensors_to_one_file=True,
+        location="model.onnx.data",
+        size_threshold=0,
+    )
+    out, info = _write_typed_graph(d / "model.onnx", "fp16", None)
+    assert out == d / "tensorrt_graph" / "model.fp16.onnx"
+    assert info["opset"] == 17 and info["reduced_nodes"] > 0
+    m = onnx.load(str(out))
+    onnx.checker.check_model(m)
+    inits = {i.name: i.data_type for i in m.graph.initializer}
+    assert inits["W"] == TensorProto.FLOAT16
+    # The ONNX backend's *.onnx lookup of the export directory never sees it.
+    assert sorted(p.name for p in d.glob("*.onnx")) == ["model.onnx"]
+
+
+def test_fp16_rewrite_numbers():
+    """The rewritten graph computes what the fp32 graph does, within fp16 rounding."""
+    ort = pytest.importorskip("onnxruntime")
+    from onnx import helper as h
+
+    rng = np.random.default_rng(1)
+    w = numpy_helper.from_array(rng.normal(size=(4, 3, 3, 3)).astype(np.float32), "W")
+    b = numpy_helper.from_array(rng.normal(size=(1, 4, 1, 1)).astype(np.float32), "b")
+    g = h.make_graph(
+        [
+            h.make_node(
+                "Conv", ["x", "W"], ["c"], name="/model/backbone/Conv", pads=[1] * 4
+            ),
+            h.make_node("Relu", ["c"], ["r"], name="/model/backbone/Relu"),
+            h.make_node("Add", ["r", "b"], ["y"], name="/model/head/Add"),
+        ],
+        "g",
+        [h.make_tensor_value_info("x", TensorProto.FLOAT, [2, 3, 16, 16])],
+        [h.make_tensor_value_info("y", TensorProto.FLOAT, [2, 4, 16, 16])],
+        initializer=[w, b],
+    )
+    m = h.make_model(g, opset_imports=[h.make_opsetid("", 17)])
+    typed, _ = cast_onnx_precision(m, "fp16")
+    x = rng.normal(size=(2, 3, 16, 16)).astype(np.float32)
+    try:
+        want = ort.InferenceSession(m.SerializeToString()).run(None, {"x": x})[0]
+        got = ort.InferenceSession(typed.SerializeToString()).run(None, {"x": x})[0]
+    except Exception as e:  # noqa: BLE001 -- a runtime without fp16 CPU kernels
+        pytest.skip(f"ONNX Runtime cannot run the fp16 graph here: {e}")
+    assert got.dtype == np.float32
+    np.testing.assert_allclose(got, want, rtol=1e-2, atol=1e-2)
+
+
 def test_original_model_untouched():
     g = _graph()
     before = g.SerializeToString()
@@ -187,7 +273,7 @@ def test_original_model_untouched():
 # --------------------------------------------------------------------------------------
 
 
-def _fake_trt(version):
+def _fake_trt(version, layer_names=(), fast_fp16=True):
     """A stub `tensorrt` module: 10.x (weak typing) or 11.x (strong typing only)."""
     v11 = version.startswith("11")
     calls = {"flags": [], "cleared": [], "network_flags": None, "parsed": None}
@@ -205,23 +291,38 @@ def _fake_trt(version):
     trt.LayerType = types.SimpleNamespace(SHAPE="SHAPE", DECONVOLUTION="DECONVOLUTION")
     trt.float32 = "float32"
 
-    class Logger:
+    class Logger:  # like trt.Logger: no .warning (sleap-nn logs through loguru)
         WARNING, INFO = "W", "I"
 
         def __init__(self, *a):
             pass
 
-        def warning(self, *a):
-            pass
-
     class Inp:
         name, shape = "images", (-1, 3, 8, 8)
 
+    class Out:
+        dtype = "float32"
+
+    class Layer:
+        type, num_outputs = "CONV", 1
+
+        def __init__(self, name):
+            self.name = name
+
+        def get_output(self, j):
+            return Out()
+
+        def set_output_type(self, j, t):
+            calls.setdefault("pinned", []).append(self.name)
+
     class Network:
-        num_layers = 0
+        num_layers = len(layer_names)
 
         def get_input(self, i):
             return Inp()
+
+        def get_layer(self, i):
+            return Layer(layer_names[i])
 
     class Config:
         def set_memory_pool_limit(self, *a):
@@ -258,7 +359,7 @@ def _fake_trt(version):
             return b"engine"
 
     if not v11:
-        Builder.platform_has_fast_fp16 = True
+        Builder.platform_has_fast_fp16 = fast_fp16
 
     class OnnxParser:
         num_errors = 0
@@ -270,13 +371,21 @@ def _fake_trt(version):
             calls["parsed"] = data
             return True
 
+        def parse_from_file(self, path):
+            calls["parsed_file"] = path
+            with open(path, "rb") as f:
+                calls["parsed"] = f.read()
+            return True
+
     trt.Logger, trt.Builder, trt.OnnxParser = Logger, Builder, OnnxParser
     return trt, calls
 
 
-def _build(monkeypatch, tmp_path, version, precision, **kw):
-    trt, calls = _fake_trt(version)
+def _build(monkeypatch, tmp_path, version, precision, stub_kw=None, **kw):
+    trt, calls = _fake_trt(version, **(stub_kw or {}))
     monkeypatch.setitem(sys.modules, "tensorrt", trt)
+    # The real GPU's compute capability must not decide a stub test.
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
     onnx.save(_graph(), str(tmp_path / "model.onnx"))
     info = {}
     shape = (1, 3, 8, 8)
@@ -350,6 +459,47 @@ def test_strong_typing_carries_precision_in_the_graph(
     else:  # fp16: the whole graph, as the TensorRT 10 flag
         assert "/model/head/Add" in reduced
     assert info["graph_casts"]["reduced_nodes"] == len(reduced)
+    # The graph TensorRT parsed is saved in the export folder and recorded.
+    assert calls["parsed_file"] == str(
+        tmp_path / "tensorrt_graph" / f"model.{precision}.onnx"
+    )
+    assert info["tensorrt_graph"] == f"tensorrt_graph/model.{precision}.onnx"
+    assert info["graph_casts"]["opset"] == 17
+    assert info["precision_by_scope"]
+
+
+def test_no_fast_fp16_builds_and_records_fp32(monkeypatch, tmp_path):
+    calls, info, _ = _build(
+        monkeypatch, tmp_path, "10.16.1.11", "fp16", stub_kw={"fast_fp16": False}
+    )
+    assert calls["flags"] == []
+    assert info["precision_built"] == "fp32"
+
+
+def test_weak_bf16_scope_matching_no_layer_records_fp32(monkeypatch, tmp_path):
+    """Layers named node_* (dynamo export) carry no scope: the build is fp32, said so."""
+    calls, info, _ = _build(
+        monkeypatch,
+        tmp_path,
+        "10.16.1.11",
+        "bf16",
+        stub_kw={"layer_names": ["node_conv", "node_relu"]},
+        bf16_fp32_outside=BACKBONE_SCOPE,
+    )
+    assert calls["pinned"] == ["node_conv", "node_relu"]
+    assert (
+        info["precision_built"] == "fp32" and "no layer matched" in info["bf16_scope"]
+    )
+    calls, info, _ = _build(
+        monkeypatch,
+        tmp_path,
+        "10.16.1.11",
+        "bf16",
+        stub_kw={"layer_names": ["/model/backbone/conv", "/model/head/conv"]},
+        bf16_fp32_outside=BACKBONE_SCOPE,
+    )
+    assert calls["pinned"] == ["/model/head/conv"]
+    assert info["precision_built"] == "bf16" and info["bf16_fp32_layers"] == 1
 
 
 @pytest.mark.parametrize("precision", ["fp32", "tf32"])

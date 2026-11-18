@@ -10,12 +10,17 @@ reduced type, and the graph's inputs and outputs keep their fp32 types.
 Which nodes run in the reduced type follows the rules sleap-nn's TensorRT 10 builds
 use, so the same ``--precision`` means the same thing on both versions:
 
-- ``scope``: only nodes whose name contains it (e.g. ``"backbone/"``) are converted;
-  ``None`` converts every eligible node.
-- Normalizations, reductions and the elementwise ops of a decomposed norm stay in
-  fp32 (:data:`KEEP_FP32_OPS`; fp16 overflows there first).
-- Transposed convolutions stay in fp32 under bf16 (TensorRT 10 has no bf16 kernel
-  for them).
+- ``scope``: only nodes inside it are converted: the node's name (TorchScript export,
+  ``/model/backbone/...``) or its module path (the dynamo exporter's
+  ``pkg.torch.onnx.name_scopes``) contains it, e.g. ``"backbone/"``; ``None``
+  converts every eligible node.
+- The normalization ops, reductions, ``Pow``, ``Sqrt``, ``Reciprocal``, ``Exp`` and
+  ``Log`` stay in fp32 (:data:`KEEP_FP32_OPS`; fp16 overflows there first). A norm
+  decomposed into elementwise ops keeps only those ops in fp32: its ``Sub`` / ``Add``
+  / ``Div`` / ``Mul`` follow the scope (current exports use ``LayerNormalization``).
+- Transposed convolutions stay in fp32 under bf16 (no bf16 kernel), and so does the
+  node feeding one: TensorRT 11 fuses a bf16 -> fp32 -> bf16 cast pair around an
+  fp32 deconvolution into a bf16 deconvolution, which it cannot build.
 - Nodes whose output type is fixed by an attribute or that carry subgraphs
   (``Cast``, ``Constant``, ``ConstantOfShape``, ``If``, ``Loop`` ...) are never
   converted; neither are integer / boolean tensors or the float inputs that the
@@ -119,10 +124,26 @@ def _convert_initializer(init, low: int) -> None:
 
 def _tensor_types(model) -> Dict[str, int]:
     """Element type of every tensor the graph names (after shape inference)."""
+    import onnx
+
     from onnx import shape_inference
 
+    if model.ByteSize() > 1_500_000_000:
+        # Types need no weights: infer on a copy whose initializers carry no data
+        # (shape inference serializes the model, which protobuf caps at 2 GB).
+        light = onnx.ModelProto()
+        light.CopyFrom(model)
+        for init in light.graph.initializer:
+            init.ClearField("raw_data")
+            for f in ("float_data", "int32_data", "int64_data", "double_data"):
+                init.ClearField(f)
+            del init.external_data[:]
+            init.data_location = 0
+        model_for_types = light
+    else:
+        model_for_types = model
     try:
-        inferred = shape_inference.infer_shapes(model, strict_mode=False)
+        inferred = shape_inference.infer_shapes(model_for_types, strict_mode=False)
     except Exception:  # pragma: no cover - inference is best effort
         inferred = model
     g = inferred.graph
@@ -138,6 +159,28 @@ def _tensor_types(model) -> Dict[str, int]:
                 if attr.name == "value" and attr.HasField("t"):
                     types[node.output[0]] = attr.t.data_type
     return types
+
+
+def _scope_path(node) -> str:
+    """Where a node sits: its name, plus its module path when the exporter recorded one.
+
+    TorchScript exports name nodes by module path (``/model/backbone/.../Conv``); the
+    dynamo exporter names them ``node_*`` and records the path in the node's
+    ``pkg.torch.onnx.name_scopes`` metadata (dotted module names), rendered here as
+    ``/model/backbone/...`` so the same scope string matches both.
+    """
+    import ast
+
+    path = node.name or ""
+    for prop in node.metadata_props:
+        if prop.key == "pkg.torch.onnx.name_scopes":
+            try:
+                scopes = ast.literal_eval(prop.value)
+            except (ValueError, SyntaxError):
+                continue
+            if scopes:
+                path += " /" + str(scopes[-1]).replace(".", "/") + "/"
+    return path
 
 
 def cast_onnx_precision(
@@ -178,7 +221,9 @@ def cast_onnx_precision(
     if precision == "bf16" and keep_fp32_ops is None:
         keep |= KEEP_FP32_OPS_BF16
 
-    model = onnx.ModelProto.FromString(model.SerializeToString())
+    copy = onnx.ModelProto()
+    copy.CopyFrom(model)  # no serialization: works above protobuf's 2 GB limit
+    model = copy
     g = model.graph
     types = _tensor_types(model)
     graph_outputs = {o.name for o in g.output}
@@ -196,7 +241,7 @@ def cast_onnx_precision(
     reduced: Set[int] = set()
     kept_in_scope: Dict[str, int] = defaultdict(int)
     for k, node in enumerate(g.node):
-        if scope is not None and scope not in (node.name or ""):
+        if scope is not None and scope not in _scope_path(node):
             continue
         if node.op_type in NEVER_CONVERT or any(
             a.type in (onnx.AttributeProto.GRAPH, onnx.AttributeProto.GRAPHS)
@@ -214,6 +259,17 @@ def cast_onnx_precision(
             kept_in_scope[node.op_type] += 1
             continue
         reduced.add(k)
+    if precision == "bf16" and "ConvTranspose" in keep:
+        # The node feeding a kept (fp32) transposed convolution stays fp32 as well, so
+        # no bf16 -> fp32 cast sits directly on the deconvolution's input.
+        producer = {t: k for k, node in enumerate(g.node) for t in node.output if t}
+        for node in g.node:
+            if node.op_type != "ConvTranspose" or not node.input:
+                continue
+            k = producer.get(node.input[0])
+            if k is not None and k in reduced:
+                reduced.discard(k)
+                kept_in_scope["input of ConvTranspose"] += 1
     if not reduced:
         raise ValueError(
             f"No node to convert to {precision}"
@@ -288,7 +344,8 @@ def cast_onnx_precision(
     del g.node[:]
     g.node.extend(new_nodes)
     del g.value_info[:]  # stale types; TensorRT re-derives them from the graph
-    onnx.checker.check_model(model)
+    if model.ByteSize() < 2_000_000_000:
+        onnx.checker.check_model(model)  # (larger graphs: checked from their file)
     info = dict(
         precision=precision,
         scope=scope,
