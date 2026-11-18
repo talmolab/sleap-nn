@@ -18,7 +18,7 @@ use, so the same ``--precision`` means the same thing on both versions:
   sentinels that mask absent peaks), and the float values computed from it downstream,
   stay fp32 (ModelOpt AutoCast keeps these from initializer and measured magnitudes).
 - The normalization ops, reductions, ``Pow``, ``Sqrt``, ``Reciprocal``, ``Exp`` and
-  ``Log`` stay in fp32 (:data:`KEEP_FP32_OPS`; fp16 overflows there first). A norm
+  ``Log`` stay in fp32 (:data:`_KEEP_FP32_OPS`; fp16 overflows there first). A norm
   decomposed into elementwise ops keeps only those ops in fp32: its ``Sub`` / ``Add``
   / ``Div`` / ``Mul`` follow the scope (current exports use ``LayerNormalization``).
 - Transposed convolutions stay in fp32 under bf16 (no bf16 kernel), and so does the
@@ -38,7 +38,7 @@ from typing import Dict, Iterable, Optional, Set, Tuple
 import numpy as np
 
 #: Ops computed in fp32 even inside the reduced-precision scope (overflow / accuracy).
-KEEP_FP32_OPS = frozenset(
+_KEEP_FP32_OPS = frozenset(
     {
         "LayerNormalization",
         "GroupNormalization",
@@ -64,11 +64,11 @@ KEEP_FP32_OPS = frozenset(
 )
 
 #: Ops kept in fp32 under bf16 only (no bf16 kernel in TensorRT 10).
-KEEP_FP32_OPS_BF16 = frozenset({"ConvTranspose"})
+_KEEP_FP32_OPS_BF16 = frozenset({"ConvTranspose"})
 
 #: Ops never converted: output type fixed by an attribute, subgraphs, quantization,
 #: random / index generators.
-NEVER_CONVERT = frozenset(
+_NEVER_CONVERT = frozenset(
     {
         "Cast",
         "CastLike",
@@ -94,10 +94,10 @@ NEVER_CONVERT = frozenset(
 
 #: Largest finite fp16 magnitude: a node fed by a constant beyond it stays fp32 under fp16
 #: (e.g. the 1e9 sentinels that mask absent peaks); ModelOpt AutoCast's ``init_max``.
-FP16_MAX = 65504.0
+_FP16_MAX = 65504.0
 
 #: Float inputs whose type the operator definition fixes (never cast).
-FIXED_FLOAT_INPUTS = {"Resize": (1, 2), "Upsample": (1,)}
+_FIXED_FLOAT_INPUTS = {"Resize": (1, 2), "Upsample": (1,)}
 
 
 def _bf16_bits(a: np.ndarray) -> np.ndarray:
@@ -168,6 +168,73 @@ def _tensor_types(model) -> Dict[str, int]:
     return types
 
 
+def _subgraph_outer_reads(graph) -> Set[str]:
+    """Names that the control-flow bodies of ``graph``'s nodes read from outside them."""
+    from onnx import AttributeProto
+
+    def body_reads(body) -> Set[str]:
+        defined = {i.name for i in body.input} | {i.name for i in body.initializer}
+        reads: Set[str] = set()
+        for node in body.node:
+            reads.update(t for t in node.input if t and t not in defined)
+            for a in node.attribute:
+                for sub in _subgraphs(a, AttributeProto):
+                    reads.update(t for t in body_reads(sub) if t not in defined)
+            defined.update(t for t in node.output if t)
+        return reads
+
+    out: Set[str] = set()
+    for node in graph.node:
+        for a in node.attribute:
+            for sub in _subgraphs(a, AttributeProto):
+                out |= body_reads(sub)
+    return out
+
+
+def _subgraphs(attr, AttributeProto) -> list:
+    if attr.type == AttributeProto.GRAPH:
+        return [attr.g]
+    if attr.type == AttributeProto.GRAPHS:
+        return list(attr.graphs)
+    return []
+
+
+def _constant_values(graph, max_elements: int = 1_000_000) -> Dict[str, "np.ndarray"]:
+    """Values of the tensors computed from constants only.
+
+    Initializers, Constant nodes in every attribute form, and nodes whose inputs are
+    all such values, evaluated one node at a time by ONNX's reference evaluator; large
+    or failing nodes are skipped.
+    """
+    from onnx import numpy_helper
+    from onnx.reference import ReferenceEvaluator
+
+    values: Dict[str, np.ndarray] = {}
+    for init in graph.initializer:
+        if int(np.prod(init.dims)) <= max_elements:
+            try:
+                values[init.name] = numpy_helper.to_array(init)
+            except Exception:  # noqa: BLE001 -- e.g. external data not loaded
+                pass
+    for node in graph.node:
+        if any(a.type in (5, 10) for a in node.attribute):  # GRAPH / GRAPHS
+            continue
+        if node.op_type != "Constant" and not (
+            node.input and all((not t) or t in values for t in node.input)
+        ):
+            continue
+        try:
+            feeds = {t: values[t] for t in node.input if t}
+            outs = ReferenceEvaluator(node).run(None, feeds)
+        except Exception:  # noqa: BLE001 -- ops the reference cannot run: unknown
+            continue
+        for name, v in zip(node.output, outs):
+            v = np.asarray(v)
+            if name and v.size <= max_elements:
+                values[name] = v
+    return values
+
+
 def _scope_path(node) -> str:
     """Where a node sits: its name, plus its module path when the exporter recorded one.
 
@@ -202,8 +269,8 @@ def cast_onnx_precision(
         model: An ``onnx.ModelProto`` with an fp32 graph (not modified).
         precision: ``"fp16"`` or ``"bf16"``.
         scope: Convert only nodes whose name contains this string; ``None`` for all.
-        keep_fp32_ops: Op types kept in fp32 (default :data:`KEEP_FP32_OPS`, plus
-            :data:`KEEP_FP32_OPS_BF16` for bf16).
+        keep_fp32_ops: Op types kept in fp32 (default :data:`_KEEP_FP32_OPS`, plus
+            :data:`_KEEP_FP32_OPS_BF16` for bf16).
 
     Returns:
         ``(new_model, info)``: the rewritten ``ModelProto`` (graph inputs and outputs
@@ -224,9 +291,9 @@ def cast_onnx_precision(
         )
     low = TensorProto.FLOAT16 if precision == "fp16" else TensorProto.BFLOAT16
     FLOAT = TensorProto.FLOAT
-    keep = set(KEEP_FP32_OPS if keep_fp32_ops is None else keep_fp32_ops)
+    keep = set(_KEEP_FP32_OPS if keep_fp32_ops is None else keep_fp32_ops)
     if precision == "bf16" and keep_fp32_ops is None:
-        keep |= KEEP_FP32_OPS_BF16
+        keep |= _KEEP_FP32_OPS_BF16
 
     copy = onnx.ModelProto()
     copy.CopyFrom(model)  # no serialization: works above protobuf's 2 GB limit
@@ -237,31 +304,33 @@ def cast_onnx_precision(
     inits = {i.name: i for i in g.initializer}
 
     def float_in_slots(node) -> Set[int]:
-        fixed = FIXED_FLOAT_INPUTS.get(node.op_type, ())
+        fixed = _FIXED_FLOAT_INPUTS.get(node.op_type, ())
         return {
             i
             for i, t in enumerate(node.input)
             if t and i not in fixed and types.get(t) == FLOAT
         }
 
-    # Constants beyond fp16's range (fp16 only): their consumers stay fp32.
+    # Values beyond fp16's range (fp16 only): the nodes reading them stay fp32. The
+    # graph's constant values are folded (initializers, Constant nodes in every form,
+    # and nodes computed only from constants: an int64 1e9 cast to float, a product
+    # of two in-range constants ...).
     big: Set[str] = set()
     if precision == "fp16":
+        consts = _constant_values(g)
         from onnx import numpy_helper
 
-        def too_big(t) -> bool:
-            if t.data_type != FLOAT:
-                return False
-            a = numpy_helper.to_array(t)
-            a = a[np.isfinite(a)]  # inf / NaN exist in fp16 (NaN fills absent peaks)
-            return bool(a.size) and bool(np.abs(a).max() > FP16_MAX)
-
-        big = {name for name, init in inits.items() if too_big(init)}
-        for node in g.node:
-            if node.op_type in ("Constant", "ConstantOfShape"):
+        for node in g.node:  # a fill value, whatever the (runtime) shape
+            if node.op_type == "ConstantOfShape" and node.output[0] not in consts:
                 for attr in node.attribute:
-                    if attr.name == "value" and attr.HasField("t") and too_big(attr.t):
-                        big.add(node.output[0])
+                    if attr.name == "value" and attr.HasField("t"):
+                        consts[node.output[0]] = numpy_helper.to_array(attr.t)
+        for name, a in consts.items():
+            if types.get(name, FLOAT if a.dtype.kind == "f" else None) != FLOAT:
+                continue
+            a = a[np.isfinite(a)]  # inf / NaN exist in fp16 (NaN fills absent peaks)
+            if a.size and float(np.abs(a).max()) > _FP16_MAX:
+                big.add(name)
         # Values built from such a constant can stay that large downstream (e.g. a
         # mask times 1e9, then a max over it): follow them through the float ops.
         if big:
@@ -269,28 +338,39 @@ def cast_onnx_precision(
                 if any(t in big for t in node.input):
                     big.update(t for t in node.output if t and types.get(t) == FLOAT)
 
+    # Tensors that control-flow bodies (If / Loop / Scan) read from this graph: they
+    # keep an fp32 copy, and an initializer they read is never converted.
+    sub_reads = _subgraph_outer_reads(g)
+
     # 1. Which nodes run in the reduced type.
     reduced: Set[int] = set()
     kept_in_scope: Dict[str, int] = defaultdict(int)
     for k, node in enumerate(g.node):
         if scope is not None and scope not in _scope_path(node):
             continue
-        if node.op_type in NEVER_CONVERT or any(
+        if node.op_type in _NEVER_CONVERT or any(
             a.type in (onnx.AttributeProto.GRAPH, onnx.AttributeProto.GRAPHS)
             for a in node.attribute
         ):
             continue
         out_types = [types.get(t) for t in node.output if t]
-        if not out_types or any(t is None for t in out_types):
-            continue  # unknown output type: leave it alone
+        unknown = (
+            not out_types
+            or any(t is None for t in out_types)
+            or any(t and t not in types for t in node.input)
+        )
+        if unknown:
+            # Shape inference could not type it (a custom-domain op, a plugin ...):
+            # it stays fp32, and so may everything it feeds; counted, never silent.
+            kept_in_scope["type unknown"] += 1
+            continue
         if FLOAT not in out_types:
             continue
-        if any(t and t not in types for t in node.input):
-            continue  # an input of unknown type could not be cast consistently
         if node.op_type in keep:
             kept_in_scope[node.op_type] += 1
             continue
-        if big and any(t in big for t in node.input):
+        if big and any(t in big for t in list(node.input) + list(node.output)):
+            # reads, or itself computes, a value beyond fp16's range
             kept_in_scope["constant beyond fp16 range"] += 1
             continue
         reduced.add(k)
@@ -312,15 +392,18 @@ def cast_onnx_precision(
             + ": check the scope against the graph's node names."
         )
 
-    # Consumers of each tensor: (node index, input slot).
+    # Consumers of each tensor: (node index, input slot); (-1, -1) = a control-flow
+    # body reads it (always in fp32).
     consumers: Dict[str, list] = defaultdict(list)
     for k, node in enumerate(g.node):
         for i, t in enumerate(node.input):
             if t:
                 consumers[t].append((k, i))
+    for t in sub_reads:
+        consumers[t].append((-1, -1))
 
     def reads_low(k: int, i: int) -> bool:
-        return k in reduced and i in float_in_slots(g.node[k])
+        return k >= 0 and k in reduced and i in float_in_slots(g.node[k])
 
     # 2. Initializers whose every use is a reduced-type slot are converted in place.
     converted_inits = 0
@@ -384,6 +467,7 @@ def cast_onnx_precision(
     info = dict(
         precision=precision,
         scope=scope,
+        unknown_type_nodes=kept_in_scope.get("type unknown", 0),
         reduced_nodes=len(reduced),
         fp32_nodes_in_scope=dict(sorted(kept_in_scope.items())),
         casts_inserted=casts,

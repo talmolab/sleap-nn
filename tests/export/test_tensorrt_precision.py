@@ -48,8 +48,8 @@ def _export(monkeypatch, ckpt, tmp_path, *extra, fill=None):
 
     def fake_export_to_tensorrt(model, save_path, **kw):
         seen.update(kw)
-        if fill and kw.get("build_info") is not None:
-            kw["build_info"].update(fill)
+        if fill and kw.get("_build_info") is not None:
+            kw["_build_info"].update(fill)
         open(save_path, "wb").close()
         return save_path
 
@@ -71,12 +71,12 @@ def test_bf16_scope_follows_the_graph(
     ckpt = minimal_instance_centered_instance_ckpt
     result, seen, _ = _export(monkeypatch, ckpt, tmp_path, "--precision", "bf16")
     assert result.exit_code == 0, result.output
-    assert seen["bf16_fp32_outside"] == BACKBONE_SCOPE
+    assert seen["_bf16_fp32_outside"] == BACKBONE_SCOPE
     result, seen, _ = _export(
         monkeypatch, ckpt, tmp_path, "--precision", "bf16", "--network-only"
     )
     assert result.exit_code == 0, result.output
-    assert seen["bf16_fp32_outside"] is None
+    assert seen["_bf16_fp32_outside"] is None
 
 
 def test_metadata_records_the_precision_built(
@@ -192,27 +192,48 @@ def test_reduced_precision_engines_build(
     if strong:
         graph = out / meta["tensorrt_graph"]
         assert graph.exists() and graph.parent.name == "tensorrt_graph"
-    assert meta["precision"] in (precision, "fp32")  # fp32: no fast fp16 on 10.x
+    assert meta["precision"] == precision  # a silent fp32 build is a failure
 
 
-def test_multi_class_bottomup_falls_back_to_fp32_with_strong_typing(monkeypatch):
+@pytest.mark.parametrize(
+    "version, extra, want, warned",
+    [
+        ("11.5.0.63", [], "fp32", True),
+        ("11.5.0.63", ["--force-precision"], "fp16", True),
+        ("10.16.1.11", [], "fp16", True),
+    ],
+)
+def test_multi_class_bottomup_precision_through_the_cli(
+    monkeypatch,
+    minimal_instance_multi_class_bottomup_ckpt,
+    tmp_path,
+    version,
+    extra,
+    want,
+    warned,
+):
+    """The real export_to_tensorrt on a stub TensorRT: multi-class bottom-up builds fp32
+    on the strongly typed path unless forced; TensorRT 10 flags build as asked, warned.
+    """
+    pytest.importorskip("onnx")
     import sys
-    import types
 
-    from sleap_nn.export.cli import _strong_typing_precision
+    from .test_onnx_precision import _fake_trt
 
-    v11 = types.ModuleType("tensorrt")
-    v11.BuilderFlag = types.SimpleNamespace(TF32=1)  # no FP16 / BF16: TensorRT 11
-    v10 = types.ModuleType("tensorrt")
-    v10.BuilderFlag = types.SimpleNamespace(TF32=1, FP16=2, BF16=3)
-    info = {}
-    monkeypatch.setitem(sys.modules, "tensorrt", v11)
-    assert (
-        _strong_typing_precision("multi_class_bottomup", "fp16", False, info) == "fp32"
+    trt, calls = _fake_trt(version)
+    monkeypatch.setitem(sys.modules, "tensorrt", trt)
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+    from sleap_nn.export.cli import export
+
+    out = tmp_path / "x"
+    result = CliRunner().invoke(
+        export,
+        [str(minimal_instance_multi_class_bottomup_ckpt), "-o", str(out)]
+        + ["--format", "tensorrt", "--precision", "fp16", "--device", "cpu", *extra],
     )
-    assert info["precision_requested"] == "fp16" and "precision_fallback" in info
-    assert _strong_typing_precision("bottomup", "fp16", False, {}) == "fp16"
-    assert _strong_typing_precision("multi_class_bottomup", "fp32", False, {}) == "fp32"
-    monkeypatch.setitem(sys.modules, "tensorrt", v10)
-    assert _strong_typing_precision("multi_class_bottomup", "bf16", False, {}) == "bf16"
-    assert _strong_typing_precision("multi_class_bottomup", "bf16", True, {}) == "fp32"
+    assert result.exit_code == 0, result.output + str(result.exception)
+    meta = json.loads((out / "model.trt.metadata.json").read_text())
+    assert meta["precision"] == want
+    assert ("does not reproduce its fp32 graph" in result.output) == warned
+    if want == "fp32":
+        assert meta["precision_requested"] == "fp16" and "precision_fallback" in meta

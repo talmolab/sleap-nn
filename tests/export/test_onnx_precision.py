@@ -251,6 +251,15 @@ def test_fp16_rewrite_numbers():
     )
     m = h.make_model(g, opset_imports=[h.make_opsetid("", 17)])
     typed, _ = cast_onnx_precision(m, "fp16")
+    # The graph itself is fp16 (a do-nothing rewrite fails here: ONNX Runtime on the
+    # CPU may compute fp16 nodes in fp32, so numbers alone cannot show it).
+    onnx.checker.check_model(typed, full_check=True)
+    inferred = onnx.shape_inference.infer_shapes(typed, strict_mode=True)
+    vtypes = {v.name: v.type.tensor_type.elem_type for v in inferred.graph.value_info}
+    conv = next(n for n in typed.graph.node if n.op_type == "Conv")
+    assert vtypes[conv.output[0]] == TensorProto.FLOAT16
+    inits = {i.name: i.data_type for i in typed.graph.initializer}
+    assert inits["W"] == inits["b"] == TensorProto.FLOAT16
     x = rng.normal(size=(2, 3, 16, 16)).astype(np.float32)
     try:
         want = ort.InferenceSession(m.SerializeToString()).run(None, {"x": x})[0]
@@ -401,7 +410,7 @@ def _build(monkeypatch, tmp_path, version, precision, stub_kw=None, **kw):
         1 << 20,
         False,
         None,
-        build_info=info,
+        _build_info=info,
         **kw,
     )
     parsed = onnx.load_from_string(calls["parsed"])
@@ -439,7 +448,7 @@ def test_strong_typing_carries_precision_in_the_graph(
         tmp_path,
         version,
         precision,
-        bf16_fp32_outside=BACKBONE_SCOPE,
+        _bf16_fp32_outside=BACKBONE_SCOPE,
         **kw,
     )
     assert calls["flags"] == []  # no precision flag (none exists on 11)
@@ -484,7 +493,7 @@ def test_weak_bf16_scope_matching_no_layer_records_fp32(monkeypatch, tmp_path):
         "10.16.1.11",
         "bf16",
         stub_kw={"layer_names": ["node_conv", "node_relu"]},
-        bf16_fp32_outside=BACKBONE_SCOPE,
+        _bf16_fp32_outside=BACKBONE_SCOPE,
     )
     assert calls["pinned"] == ["node_conv", "node_relu"]
     assert (
@@ -496,7 +505,7 @@ def test_weak_bf16_scope_matching_no_layer_records_fp32(monkeypatch, tmp_path):
         "10.16.1.11",
         "bf16",
         stub_kw={"layer_names": ["/model/backbone/conv", "/model/head/conv"]},
-        bf16_fp32_outside=BACKBONE_SCOPE,
+        _bf16_fp32_outside=BACKBONE_SCOPE,
     )
     assert calls["pinned"] == ["/model/head/conv"]
     assert info["precision_built"] == "bf16" and info["bf16_fp32_layers"] == 1
@@ -525,7 +534,8 @@ def test_backend_names_the_building_version(tmp_path):
     msg = _load_failure_message(eng, "11.5.0.63")
     assert "built with TensorRT 10.16.1.11, and this is TensorRT 11.5.0.63" in msg
     msg = _load_failure_message(eng, "10.16.1.11")
-    assert "(built with TensorRT 10.16.1.11)" in msg
+    assert "built with the same version, 10.16.1.11" in msg
+    assert "not enough free GPU memory" in msg and "GPU model" in msg
 
 
 def test_fp16_keeps_nodes_fed_by_constants_beyond_its_range():
@@ -568,3 +578,182 @@ def test_fp16_keeps_nodes_fed_by_constants_beyond_its_range():
     # bf16 has fp32's range: the same nodes are converted.
     _, info = cast_onnx_precision(m, "bf16")
     assert "constant beyond fp16 range" not in info["fp32_nodes_in_scope"]
+
+
+def _tiny(nodes, inits, out_shape=(4,), outputs=("y",), inp=("x", (4,))):
+    from onnx import helper as h
+
+    g = h.make_graph(
+        nodes,
+        "g",
+        [h.make_tensor_value_info(inp[0], TensorProto.FLOAT, list(inp[1]))],
+        [
+            h.make_tensor_value_info(o, TensorProto.FLOAT, list(out_shape))
+            for o in outputs
+        ],
+        initializer=inits,
+    )
+    return h.make_model(g, opset_imports=[h.make_opsetid("", 17)])
+
+
+def test_control_flow_bodies_read_fp32():
+    """Tensors an If body reads from outside keep fp32; such initializers stay fp32."""
+    ort = pytest.importorskip("onnxruntime")
+    from onnx import helper as h
+
+    w = numpy_helper.from_array(np.full(4, 2.0, np.float32), "w")
+    cond = numpy_helper.from_array(np.array(True), "cond")
+    then = h.make_graph(
+        [h.make_node("Mul", ["r", "w"], ["t_out"], name="then/Mul")],
+        "then",
+        [],
+        [h.make_tensor_value_info("t_out", TensorProto.FLOAT, [4])],
+    )
+    other = h.make_graph(
+        [h.make_node("Identity", ["r"], ["e_out"], name="else/Id")],
+        "else",
+        [],
+        [h.make_tensor_value_info("e_out", TensorProto.FLOAT, [4])],
+    )
+    m = _tiny(
+        [
+            h.make_node("Mul", ["x", "w"], ["m"], name="/backbone/Mul"),
+            h.make_node("Relu", ["m"], ["r"], name="/backbone/Relu"),
+            h.make_node(
+                "If", ["cond"], ["y"], name="/if", then_branch=then, else_branch=other
+            ),
+        ],
+        [w, cond],
+    )
+    typed, info = cast_onnx_precision(m, "fp16")
+    onnx.checker.check_model(typed, full_check=True)
+    inits = {i.name: i.data_type for i in typed.graph.initializer}
+    assert inits["w"] == TensorProto.FLOAT  # also read inside the If body
+    produced = {o for n in typed.graph.node for o in n.output}
+    assert "r" in produced  # the fp32 copy the body reads
+    x = np.arange(4, dtype=np.float32)
+    got = ort.InferenceSession(typed.SerializeToString()).run(None, {"x": x})[0]
+    np.testing.assert_allclose(got, np.maximum(x * 2, 0) * 2, rtol=1e-3)
+
+
+def test_initializer_with_reduced_and_fp32_readers_and_output_read_inside():
+    ort = pytest.importorskip("onnxruntime")
+    from onnx import helper as h
+
+    w = numpy_helper.from_array(np.full(4, 2.0, np.float32), "w")
+    m = _tiny(
+        [
+            h.make_node("Mul", ["x", "w"], ["y"], name="/backbone/Mul"),  # graph output
+            h.make_node("Relu", ["y"], ["r"], name="/backbone/Relu"),  # reads it too
+            h.make_node("ReduceSum", ["r"], ["s"], name="/backbone/Sum", keepdims=1),
+            h.make_node("Pow", ["s", "w"], ["z"], name="/head/Pow"),  # w, fp32 reader
+        ],
+        [w],
+        outputs=("y", "z"),
+    )
+    typed, info = cast_onnx_precision(m, "fp16")
+    onnx.checker.check_model(typed, full_check=True)
+    inits = {i.name: i.data_type for i in typed.graph.initializer}
+    assert inits["w"] == TensorProto.FLOAT  # read by a reduced and an fp32 node
+    assert [o.type.tensor_type.elem_type for o in typed.graph.output] == [
+        TensorProto.FLOAT
+    ] * 2
+    x = np.arange(4, dtype=np.float32)
+    y, z = ort.InferenceSession(typed.SerializeToString()).run(None, {"x": x})
+    np.testing.assert_allclose(y, x * 2, rtol=1e-3)
+    np.testing.assert_allclose(z, np.full(4, (x * 2).sum() ** 2), rtol=1e-3)
+
+
+def test_untyped_nodes_are_counted():
+    from onnx import helper as h
+
+    m = _tiny(
+        [
+            h.make_node("Relu", ["x"], ["a"], name="/backbone/Relu"),
+            h.make_node(
+                "Plugin", ["a"], ["b"], name="/backbone/Plugin", domain="custom"
+            ),
+            h.make_node("Relu", ["b"], ["y"], name="/backbone/Relu2"),
+        ],
+        [],
+    )
+    m.opset_import.append(h.make_opsetid("custom", 1))
+    _, info = cast_onnx_precision(m, "fp16")
+    assert info["unknown_type_nodes"] >= 1
+    assert info["fp32_nodes_in_scope"]["type unknown"] == info["unknown_type_nodes"]
+
+
+@pytest.mark.parametrize("case", ["value_float", "int_cast", "product"])
+def test_fp16_range_rule_cases(case):
+    """Out-of-range values written or computed in other ways stay fp32 too."""
+    from onnx import helper as h
+
+    if case == "value_float":
+        nodes = [h.make_node("Constant", [], ["k"], value_float=1e9)]
+    elif case == "int_cast":
+        nodes = [
+            h.make_node("Constant", [], ["i"], value_int=10**9),
+            h.make_node("Cast", ["i"], ["k"], to=TensorProto.FLOAT),
+        ]
+    else:
+        nodes = [
+            h.make_node("Constant", [], ["a"], value_float=1e5),
+            h.make_node("Constant", [], ["b"], value_float=1e5),
+            h.make_node("Mul", ["a", "b"], ["k"], name="/c/Mul"),
+        ]
+    nodes += [
+        h.make_node("Relu", ["x"], ["r"], name="/backbone/Relu"),
+        h.make_node("Add", ["r", "k"], ["y"], name="/peaks/Add"),
+    ]
+    typed, info = cast_onnx_precision(_tiny(nodes, []), "fp16")
+    by_name = {n.name: n for n in typed.graph.node if n.name}
+    assert by_name["/backbone/Relu"].output[0].endswith("__fp16")
+    assert not by_name["/peaks/Add"].output[0].endswith("__fp16")
+    if case == "product":
+        assert not by_name["/c/Mul"].output[0].endswith("__fp16")
+
+
+def test_large_graph_save_branch(tmp_path, monkeypatch):
+    """Above the size limit the rewritten graph keeps its weights in a .data file."""
+    import sleap_nn.export.exporters.tensorrt_exporter as te
+
+    monkeypatch.setattr(te, "_EXTERNAL_DATA_BYTES", 0)
+    from onnx import helper as h
+
+    d = tmp_path / "exp"
+    d.mkdir()
+    w = numpy_helper.from_array(np.ones((64, 3, 3, 3), np.float32), "W")  # > 1 kB
+    g = h.make_graph(
+        [
+            h.make_node("Conv", ["x", "W"], ["c"], name="/backbone/Conv", pads=[1] * 4),
+            h.make_node("Relu", ["c"], ["y"], name="/backbone/Relu"),
+        ],
+        "g",
+        [h.make_tensor_value_info("x", TensorProto.FLOAT, [1, 3, 8, 8])],
+        [h.make_tensor_value_info("y", TensorProto.FLOAT, [1, 64, 8, 8])],
+        initializer=[w],
+    )
+    onnx.save(
+        h.make_model(g, opset_imports=[h.make_opsetid("", 17)]), str(d / "model.onnx")
+    )
+    out, info = te._write_typed_graph(d / "model.onnx", "fp16", None)
+    assert (out.parent / (out.name + ".data")).exists()
+    assert info["graph_validity"] == "valid ONNX (full check)"
+    onnx.checker.check_model(onnx.load(str(out)), full_check=True)
+    out, info = te._write_typed_graph(d / "model.onnx", "bf16", None)
+    assert info["graph_validity"].startswith("for TensorRT only")
+
+
+def test_tensorrt_version_decides_the_path():
+    from sleap_nn.export.exporters.tensorrt_exporter import _uses_strong_typing
+
+    assert _uses_strong_typing(_fake_trt("11.5.0.63")[0]) is True
+    assert _uses_strong_typing(_fake_trt("10.16.1.11")[0]) is False
+    with pytest.raises(RuntimeError, match="older than the supported minimum"):
+        _uses_strong_typing(_fake_trt("10.12.0")[0])
+    with pytest.raises(RuntimeError, match="older than the supported minimum"):
+        _uses_strong_typing(_fake_trt("8.6.1")[0])
+    odd = _fake_trt("11.0.0")[0]
+    odd.BuilderFlag.FP16, odd.BuilderFlag.BF16 = "FP16", "BF16"
+    with pytest.raises(RuntimeError, match="do not match its version"):
+        _uses_strong_typing(odd)

@@ -256,12 +256,15 @@ def _load_failure_message(engine_path: Path, trt_version: str) -> str:
             f"the TensorRT version that built it. {rebuild}"
         )
     return (
-        f"Failed to load TensorRT engine {engine_path} with TensorRT {trt_version}. "
-        "An engine runs only on the TensorRT version and GPU that built it"
+        f"Failed to load TensorRT engine {engine_path} with TensorRT {trt_version}"
         + (
-            f" (built with TensorRT {built_with})."
+            f" (built with the same version, {built_with})."
             if built_with
             else " (its metadata does not name the building version)."
         )
-        + f" {rebuild}"
+        + " Possible causes: not enough free GPU memory to load it; a GPU model other "
+        "than the one it was built on (engines are tied to the GPU architecture); a "
+        "truncated or corrupted file"
+        + ("" if built_with else "; another TensorRT version")
+        + f". {rebuild}"
     )
