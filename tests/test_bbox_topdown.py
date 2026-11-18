@@ -1036,6 +1036,39 @@ def test_predict_runtime_reaches_every_export_directory(
     assert "TensorRT model not found" in str(result.exception) + result.output
 
 
+def test_lone_exported_detector_takes_the_thresholds(
+    trained_pair, minimal_instance, tmp_path
+):
+    """A lone exported box detector honours --peak_threshold / --bbox_nms_iou (#857)."""
+    pytest.importorskip("onnxruntime")
+    from click.testing import CliRunner
+
+    from sleap_nn.cli import cli
+    from sleap_nn.inference.predictor import Predictor
+
+    det = _export(trained_pair["det"], tmp_path / "det")
+    p = Predictor.from_export_dir(
+        det, runtime="onnx", device="cpu", peak_conf_threshold=0.5, bbox_nms_iou=0.123
+    )
+    assert p.layer.decoder.iou_threshold == pytest.approx(0.123)
+    assert p.layer.decoder.score_threshold == pytest.approx(0.5)
+
+    def run(*extra):
+        out = tmp_path / f"p{len(extra)}.slp"
+        result = CliRunner().invoke(
+            cli,
+            ["predict", "-i", str(minimal_instance), "-m", det.as_posix()]
+            + ["--device", "cpu", "-o", str(out), *extra],
+        )
+        assert result.exit_code == 0, result.output
+        return [b.score for lf in sio.load_slp(out) for b in lf.bboxes]
+
+    loose = run("--peak_threshold", "0.0")
+    strict = run("--peak_threshold", "0.999", "--bbox_nms_iou", "0.5")
+    assert all(s >= 0.999 for s in strict)
+    assert len(strict) <= len(loose)
+
+
 def test_lone_network_only_export_runs_as_its_checkpoint(
     trained_pair, minimal_instance, tmp_path
 ):

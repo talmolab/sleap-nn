@@ -634,6 +634,13 @@ def _build_predictor(
         build_kwargs["emit_centroid"] = emit_centroid
         if max_instances is not None:
             build_kwargs["max_instances"] = max_instances
+        if _is_box_detector_export(export_dir):
+            # A lone exported box detector decodes on the host, like the same
+            # export next to a pose model: the score and NMS thresholds apply.
+            if peak_threshold is not None:
+                build_kwargs["peak_conf_threshold"] = peak_threshold
+            if bbox_nms_iou is not None:
+                build_kwargs["bbox_nms_iou"] = bbox_nms_iou
         predictor = Predictor.from_export_dir(export_dir, **build_kwargs)
 
     part_stream = None
