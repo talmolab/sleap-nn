@@ -202,11 +202,13 @@ letterboxing, box decoding, fixed or box-scaled crops, peak finding and refineme
 the part stage's crops from the body keypoints -- with only the forward passes on ONNX
 Runtime or TensorRT, so exported and checkpoint predictions differ only by the runtime's
 numerics (with `--input-dtype float32` the graphs receive exactly the checkpoint path's
-inputs). With several `--model_paths`, and for `--part_model`, a directory that holds
-both `best.ckpt` and an export (exported into the checkpoint's own directory) loads
-the checkpoint, as before exports could stand in for checkpoints. A single
-`--model_paths` directory that holds an export still takes the exported route (and
-`--stream-to-file` refuses it), whatever else it holds. `--runtime` picks the runtime for
+inputs). A directory that holds both `best.ckpt` and an export (exported into the
+checkpoint's own directory) loads the checkpoint wherever model directories go
+through the checkpoint loader: several `--model_paths` (with or without
+`--stream-to-file`), a `--part_model` directory, and the Python API with one or more
+paths (`predict(model_paths=[d])`, `open_stream`, `Predictor.from_model_paths([d])`).
+Only a lone `--model_paths` on the command line takes the exported route for such a
+directory (and `--stream-to-file` with one directory refuses it). `--runtime` picks the runtime for
 every export directory (`auto` prefers `model.trt`), on every route (several
 `--model_paths`, `--part_model`, `--stream-to-file`); the predictions' provenance
 (`exported_models`) records the runtime, and for an engine its precision, of each
