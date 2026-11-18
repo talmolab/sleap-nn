@@ -153,9 +153,15 @@ def test_stream_matches_predict_with_a_box_detector(
     assert any(len(p) and np.isfinite(p.boxes).all() for p in got)  # boxes reported
 
 
-def _kw(centroid, centered, part=False):
+def _kw(centroid, centered, part=False, few=True):
     ckpts = _ckpts(centroid, centered)
     kw = dict(model_paths=ckpts, device="cpu", peak_threshold=0.0)
+    if few:
+        # At most two animals a frame. With no centroid threshold every local
+        # maximum is an animal, and each push then runs the pose and part models on
+        # a crop per maximum: the slowest tests in the suite (~60 s each in CI).
+        # What these tests check does not depend on how many animals there are.
+        kw.update(centroid_threshold=0.05, max_instances=2)
     if part:
         kw.update(
             part_model_paths=[ckpts[1]],
@@ -182,6 +188,7 @@ def test_stream_channels_layouts_and_bad_input(
         assert stream.push(grey).points.shape[1:] == (2, 2)
     with open_stream(**kw) as rgb_s, open_stream(**kw, channel_order="bgr") as bgr_s:
         a = rgb_s.push(rgb)
+        assert len(a) >= 1  # the layouts are compared on real points
         bgr = np.ascontiguousarray(rgb[..., ::-1])  # the same frame, BGR
         np.testing.assert_array_equal(a.points, bgr_s.push(bgr).points)
         tensor_bgr = torch.from_numpy(bgr)
@@ -305,6 +312,7 @@ def test_failed_push_leaves_the_stream_as_it_was(
     other = np.roll(frame, 5, axis=0)
     ref = open_stream(**kw)
     want = [ref.push(f) for f in (frame, other, frame)]
+    assert all(len(w) >= 1 for w in want)  # the part stage runs on every frame
 
     stream = open_stream(**kw, keep=True)
     stream.push(frame)
@@ -347,7 +355,11 @@ def test_warmup_reaches_the_pose_network(
         return real(self, crops, *a, **k)
 
     monkeypatch.setattr(CenteredInstanceLayer, "predict", counted)
-    kw = _kw(minimal_instance_centroid_ckpt, minimal_instance_centered_instance_ckpt)
+    kw = _kw(
+        minimal_instance_centroid_ckpt,
+        minimal_instance_centered_instance_ckpt,
+        few=False,
+    )
     frame = _frames(minimal_instance)[0]
     open_stream(**kw)
     assert sizes == []
@@ -377,6 +389,7 @@ def test_failure_after_the_part_stage_leaves_the_stream_as_it_was(
     other = np.roll(frame, 5, axis=0)
     ref = open_stream(**kw)
     want = [ref.push(f) for f in (frame, other, frame)]
+    assert all(len(w) >= 1 for w in want)  # the part stage runs on every frame
     stream = open_stream(**kw, keep=True)
     stream.push(frame)
     before = _state(stream)
