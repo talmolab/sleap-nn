@@ -537,6 +537,11 @@ def test_part_streaming_matches_two_pass_without_floor(
         model_paths=ckpts,
         device="cpu",
         peak_threshold=0.0,
+        # At most two animals a frame: with no centroid threshold every local
+        # maximum is an animal and each predict runs the part model on a crop per
+        # maximum (~40 s on mac). The comparison does not depend on the count.
+        centroid_threshold=0.05,
+        max_instances=2,
         part_model_paths=[ckpts[1]],
         part_crop_rule=RULE,
         part_peak_threshold=0.0,
@@ -546,6 +551,7 @@ def test_part_streaming_matches_two_pass_without_floor(
     streamed = predict(str(minimal_instance), part_streaming=True, **kw)
     a = np.stack([i.numpy() for lf in two_pass for i in lf.predicted_instances])
     b = np.stack([i.numpy() for lf in streamed for i in lf.predicted_instances])
+    assert len(a) >= 1  # compared on real part points
     np.testing.assert_allclose(a, b, rtol=1e-5, atol=1e-4)
     assert streamed.skeletons[0].node_names == ["A", "B", "part/A", "part/B"]
     prov = streamed.provenance["part_stage"]
