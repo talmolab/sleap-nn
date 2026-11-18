@@ -476,6 +476,35 @@ def test_bbox_detr_train_predict_eval(config, minimal_instance, tmp_path):
     u8_pred = Predictor.from_export_dir(u8, runtime="onnx", device="cpu")
     assert u8_pred.layer.input_dtype == "uint8"
 
+    # A bbox_detr graph is exported at a static height / width: its proposals and
+    # decoder grid are fixed at trace time (this backbone has no fixed-size position
+    # encoding, so the size would otherwise come out dynamic).
+    import json
+
+    import onnx
+
+    def hw(d):
+        dims = (
+            onnx.load(str(d / "model.onnx")).graph.input[0].type.tensor_type.shape.dim
+        )
+        return dims[2].dim_value, dims[3].dim_value
+
+    assert hw(tmp_path / "exported") == (128, 128)
+    # An export at another size records that size for the host's letterbox / squash
+    # and predicts from the folder (it used to keep the training size: a mismatch).
+    small = tmp_path / "exported_96"
+    result = CliRunner().invoke(
+        export,
+        [str(run_dir), "-o", str(small), "--input-height", "96", "--input-width", "96"],
+    )
+    assert result.exit_code == 0, result.output
+    meta = json.loads((small / "export_metadata.json").read_text())
+    assert (meta["max_height"], meta["max_width"]) == (96, 96)
+    assert hw(small) == (96, 96)
+    small_pred = Predictor.from_export_dir(small, runtime="onnx", device="cpu")
+    assert small_pred.layer.preprocess_config.max_height == 96
+    small_pred.predict(minimal_instance.as_posix())
+
 
 def _other_skeleton_labels(minimal_instance, tmp_path):
     """A copy of ``minimal_instance`` whose skeleton has different node names."""

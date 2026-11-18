@@ -40,11 +40,16 @@ def is_network_export(path: Union[str, Path]) -> bool:
 
     That is a directory with ``export_metadata.json`` and ``model.onnx`` or
     ``model.trt`` whose metadata says ``network_only`` (``--network-only``) or whose
-    model type is a box detector (detectors always export their network only).
+    model type is a box detector (detectors always export their network only). A
+    directory that also holds ``best.ckpt`` (an export written next to its
+    checkpoint) is a checkpoint directory: the checkpoint wins, as it did before
+    exports could stand in for checkpoints.
     """
     p = Path(path)
     meta = p / "export_metadata.json"
     if not (p.is_dir() and meta.exists()):
+        return False
+    if (p / "best.ckpt").exists():
         return False
     if not ((p / "model.onnx").exists() or (p / "model.trt").exists()):
         return False
@@ -52,6 +57,30 @@ def is_network_export(path: Union[str, Path]) -> bool:
     return bool(data.get("network_only")) or data.get("model_type") in (
         _NETWORK_ONLY_TYPES
     )
+
+
+def _check_config_hash(export_dir: Path, meta: dict) -> None:
+    """Warn when the training config next to an export is not the exported one.
+
+    The pipeline around an exported network (crop size, scale, skeleton, decoder)
+    is rebuilt from ``training_config.yaml``; an edited or swapped file would
+    silently change it. ``export_metadata.json`` records the copy's sha256.
+    """
+    import hashlib
+
+    from loguru import logger
+
+    want = meta.get("training_config_hash")
+    cfg = export_dir / "training_config.yaml"
+    if not want or not cfg.exists():
+        return
+    got = hashlib.sha256(cfg.read_bytes()).hexdigest()
+    if got != want:
+        logger.warning(
+            f"{cfg} differs from the config exported with this graph "
+            "(training_config_hash in export_metadata.json): the crop size, scale, "
+            "skeleton and decoder are rebuilt from it. Re-export, or restore the file."
+        )
 
 
 class ExportedNetwork(nn.Module):
@@ -98,6 +127,13 @@ class ExportedNetwork(nn.Module):
                 f"{self.export_dir}: a TensorRT engine runs on CUDA only (device "
                 f"{device!r}); use the ONNX runtime."
             )
+        if self.runtime == "tensorrt" and str(device) not in ("cuda", "auto"):
+            raise ValueError(
+                f"{self.export_dir}: a TensorRT engine runs on the current CUDA "
+                f"device only (device {device!r}). Pick the card with "
+                "CUDA_VISIBLE_DEVICES and pass --device cuda, or use the ONNX runtime."
+            )
+        _check_config_hash(self.export_dir, meta)
         self.backend = _build_export_backend(self.runtime, path, device)
         self.out_device = torch.device("cuda" if str(device) == "cuda" else str(device))
 

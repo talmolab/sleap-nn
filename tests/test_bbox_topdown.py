@@ -990,3 +990,102 @@ def test_network_only_refusals(trained_pair, tmp_path):
             export_runtime="onnx",
             node_filter=["A"],
         )
+
+
+def test_predict_runtime_reaches_every_export_directory(
+    trained_pair, minimal_instance, tmp_path
+):
+    """`--runtime` applies to export directories among several --model_paths (#857).
+
+    The exports hold ONNX graphs only: `--runtime onnx` predicts, and `--runtime
+    tensorrt` must fail on the missing engine instead of silently running "auto".
+    """
+    pytest.importorskip("onnxruntime")
+    from pathlib import Path
+
+    from click.testing import CliRunner
+
+    from sleap_nn.cli import cli
+
+    det = _export(trained_pair["det"], tmp_path / "det")
+    ci = _export(trained_pair["ci_bbox"], tmp_path / "ci", "--network-only")
+    base = [
+        "predict",
+        "-i",
+        str(minimal_instance),
+        "-m",
+        det.as_posix(),
+        "-m",
+        ci.as_posix(),
+        "--device",
+        "cpu",
+    ]
+    out = tmp_path / "p.slp"
+    result = CliRunner().invoke(cli, base + ["-o", str(out), "--runtime", "onnx"])
+    assert result.exit_code == 0, result.output
+    labels = sio.load_slp(out)
+    assert len(labels.labeled_frames) >= 1
+    # The provenance names the runtime each exported graph ran on.
+    ran = labels.provenance["exported_models"]
+    assert sorted(Path(e["file"]).parent.name for e in ran) == ["ci", "det"]
+    assert {e["runtime"] for e in ran} == {"onnx"}
+    result = CliRunner().invoke(
+        cli, base + ["-o", str(tmp_path / "q.slp"), "--runtime", "tensorrt"]
+    )
+    assert result.exit_code != 0
+    assert "TensorRT model not found" in str(result.exception) + result.output
+
+
+def test_lone_exported_detector_takes_the_thresholds(
+    trained_pair, minimal_instance, tmp_path
+):
+    """A lone exported box detector honours --peak_threshold / --bbox_nms_iou (#857)."""
+    pytest.importorskip("onnxruntime")
+    from click.testing import CliRunner
+
+    from sleap_nn.cli import cli
+    from sleap_nn.inference.predictor import Predictor
+
+    det = _export(trained_pair["det"], tmp_path / "det")
+    p = Predictor.from_export_dir(
+        det, runtime="onnx", device="cpu", peak_conf_threshold=0.5, bbox_nms_iou=0.123
+    )
+    assert p.layer.decoder.iou_threshold == pytest.approx(0.123)
+    assert p.layer.decoder.score_threshold == pytest.approx(0.5)
+
+    def run(*extra):
+        out = tmp_path / f"p{len(extra)}.slp"
+        result = CliRunner().invoke(
+            cli,
+            ["predict", "-i", str(minimal_instance), "-m", det.as_posix()]
+            + ["--device", "cpu", "-o", str(out), *extra],
+        )
+        assert result.exit_code == 0, result.output
+        return [b.score for lf in sio.load_slp(out) for b in lf.bboxes]
+
+    loose = run("--peak_threshold", "0.0")
+    strict = run("--peak_threshold", "0.999", "--bbox_nms_iou", "0.5")
+    assert all(s >= 0.999 for s in strict)
+    assert len(strict) <= len(loose)
+
+
+def test_lone_network_only_export_runs_as_its_checkpoint(
+    trained_pair, minimal_instance, tmp_path
+):
+    """A lone --network-only crop export takes its checkpoint's route (#857)."""
+    pytest.importorskip("onnxruntime")
+    from click.testing import CliRunner
+
+    from sleap_nn.cli import cli
+
+    ci = _export(trained_pair["ci_bbox"], tmp_path / "ci", "--network-only")
+    outs = {}
+    for name, path in (("export", ci), ("checkpoint", trained_pair["ci_bbox"])):
+        result = CliRunner().invoke(
+            cli,
+            ["predict", "-i", str(minimal_instance), "-m", path.as_posix()]
+            + ["--device", "cpu", "-o", str(tmp_path / f"{name}.slp")],
+        )
+        outs[name] = (result.exit_code, type(result.exception).__name__)
+    # Same outcome as the checkpoint alone, not the fused-export route's error.
+    assert outs["export"] == outs["checkpoint"], outs

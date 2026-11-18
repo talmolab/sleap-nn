@@ -2480,6 +2480,24 @@ def _run_embeddings(
     return out
 
 
+def _is_crop_network_export(path: str) -> bool:
+    """A ``--network-only`` crop-model export (not a box detector).
+
+    It stands in for its checkpoint, so alone (or with ``--boxes``) it takes the
+    checkpoint route, where it fails or runs exactly as the checkpoint would.
+    """
+    from sleap_nn.inference.exported_network import is_network_export
+
+    return is_network_export(path) and not _is_box_detector_dir(path)
+
+
+def _is_box_detector_dir(path: str) -> bool:
+    """Whether ``path`` is an export directory holding a box detector."""
+    from sleap_nn.inference.run import _is_box_detector_export
+
+    return _is_box_detector_export(path)
+
+
 def _is_export_dir(path: str) -> bool:
     """True if ``path`` is a directory holding an exported ONNX/TRT model.
 
@@ -2870,7 +2888,12 @@ def _run_in_memory_new_flow(
     # runtime. Multiple paths are always trained checkpoints (top-down).
     _mps = kwargs["model_paths"]
     export_dir = (
-        _mps[0] if _mps and len(_mps) == 1 and _is_export_dir(_mps[0]) else None
+        _mps[0]
+        if _mps
+        and len(_mps) == 1
+        and _is_export_dir(_mps[0])
+        and not _is_crop_network_export(_mps[0])
+        else None
     )
 
     predict_kwargs: dict = {
@@ -2910,6 +2933,9 @@ def _run_in_memory_new_flow(
         "bbox_nms_iou": kwargs.get("bbox_nms_iou"),
         "flip_test": kwargs.get("flip_test", False),
         "frames_on_gpu": kwargs.get("frames_on_gpu", False),
+        # Every route: export directories among several --model_paths (network-only
+        # exports, box detectors) and a --part_model export run on this runtime.
+        "runtime": (kwargs.get("runtime") or "auto").lower(),
         "boxes": kwargs.get("boxes"),
         "box_score_threshold": kwargs.get("box_score_threshold") or 0.0,
         **_node_filter_kwargs(kwargs),
@@ -3007,6 +3033,17 @@ def _run_in_memory_new_flow(
         predict_kwargs["model_paths"] = None
         predict_kwargs["export_dir"] = export_dir
         predict_kwargs["runtime"] = (kwargs.get("runtime") or "auto").lower()
+        keep_threshold = False
+        _ctx = click.get_current_context(silent=True)
+        if _ctx is not None and "peak_threshold" in _ctx.params:
+            from click.core import ParameterSource
+
+            # A lone exported box detector decodes on the host: a --peak_threshold
+            # given on the command line is its score threshold, as next to a pose
+            # model (`--bbox_nms_iou` is forwarded as well).
+            keep_threshold = _ctx.get_parameter_source(
+                "peak_threshold"
+            ) == ParameterSource.COMMANDLINE and _is_box_detector_dir(export_dir)
         for _k in (
             "peak_threshold",
             "centroid_threshold",
@@ -3028,6 +3065,8 @@ def _run_in_memory_new_flow(
             "preprocess_config",
             "centroid_only",
         ):
+            if _k == "peak_threshold" and keep_threshold:
+                continue
             predict_kwargs.pop(_k, None)
 
     # `-o` naming a file the input reads its frames from (e.g. the input .pkg.slp)
@@ -3467,6 +3506,10 @@ def _run_stream_to_file(
     filter_config = _build_filter_config(kwargs)
     if filter_config is not None:
         factory_kwargs["filter_config"] = filter_config
+    runtime = (kwargs.get("runtime") or "auto").lower()
+    if runtime != "auto":
+        # Export directories among --model_paths run on this runtime.
+        factory_kwargs["export_runtime"] = runtime
 
     predictor = Predictor.from_model_paths(kwargs["model_paths"], **factory_kwargs)
 

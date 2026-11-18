@@ -634,6 +634,13 @@ def _build_predictor(
         build_kwargs["emit_centroid"] = emit_centroid
         if max_instances is not None:
             build_kwargs["max_instances"] = max_instances
+        if _is_box_detector_export(export_dir):
+            # A lone exported box detector decodes on the host, like the same
+            # export next to a pose model: the score and NMS thresholds apply.
+            if peak_threshold is not None:
+                build_kwargs["peak_conf_threshold"] = peak_threshold
+            if bbox_nms_iou is not None:
+                build_kwargs["bbox_nms_iou"] = bbox_nms_iou
         predictor = Predictor.from_export_dir(export_dir, **build_kwargs)
 
     part_stream = None
@@ -1324,3 +1331,17 @@ def open_stream(
     if frame_shape is not None:
         stream._warmup(frame_shape)
     return stream
+
+
+def _is_box_detector_export(export_dir) -> bool:
+    """Whether ``export_dir`` holds an exported box detector (decoded on the host)."""
+    import json
+    from pathlib import Path
+
+    from sleap_nn.inference.exported_network import _NETWORK_ONLY_TYPES
+
+    meta = Path(export_dir) / "export_metadata.json"
+    try:
+        return json.loads(meta.read_text()).get("model_type") in _NETWORK_ONLY_TYPES
+    except (OSError, ValueError):
+        return False
