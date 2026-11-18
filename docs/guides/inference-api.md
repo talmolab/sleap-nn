@@ -564,8 +564,21 @@ zero rows.
   `stream.reset()`, which also starts a new video (frame counter, the part stage's
   running crop size). A `push` that raises leaves the stream as it was.
 - **Warm-up.** With `frame_shape=`, `open_stream` runs every network on dummy
-  data first (the first stage, the pose model on 1-4 crops, the part model);
-  without it there is no warm-up and the first frames are slower.
+  data first (the first stage, then the pose and part models on 1-4 crops, fed
+  as a real frame feeds them: boxes on the device the first stage returns them
+  on, the frame on the card with `frames_on_gpu`); without it there is no
+  warm-up and the first frames are slower. Even after it, the first real frame
+  with animals takes a little longer than the rest (about 1.5 ms more with
+  TensorRT engines and frames on the GPU), because some steps only run when
+  something is found. If that matters, push a few real frames and call
+  `stream.reset()` before going live. With `keep=True` those frames stay in
+  `stream.labels()` / `stream.save()` as a video of their own (the live frames
+  follow as the next one) and `stream.last_latency_ms` keeps its value until
+  the next push; open the stream with `keep=False` for priming, or drop the
+  first video from the labels. Setting the environment variable
+  `CUDA_MODULE_LOADING=EAGER` before importing torch removes about 0.6 ms of it,
+  but it applies to the whole process: on one card it added about 2.7 s to
+  start-up and 1.1 GB of card memory.
 - **No tracker.** Instances come in detection order; identities are not kept across
   frames. Run a tracker on the results yourself.
 - **Keeping results.** `keep=True` keeps every frame's outputs (on the CPU) for

@@ -153,9 +153,15 @@ def test_stream_matches_predict_with_a_box_detector(
     assert any(len(p) and np.isfinite(p.boxes).all() for p in got)  # boxes reported
 
 
-def _kw(centroid, centered, part=False):
+def _kw(centroid, centered, part=False, few=True):
     ckpts = _ckpts(centroid, centered)
     kw = dict(model_paths=ckpts, device="cpu", peak_threshold=0.0)
+    if few:
+        # At most two animals a frame. With no centroid threshold every local
+        # maximum is an animal, and each push then runs the pose and part models on
+        # a crop per maximum: the slowest tests in the suite (~60 s each in CI).
+        # What these tests check does not depend on how many animals there are.
+        kw.update(centroid_threshold=0.05, max_instances=2)
     if part:
         kw.update(
             part_model_paths=[ckpts[1]],
@@ -182,6 +188,7 @@ def test_stream_channels_layouts_and_bad_input(
         assert stream.push(grey).points.shape[1:] == (2, 2)
     with open_stream(**kw) as rgb_s, open_stream(**kw, channel_order="bgr") as bgr_s:
         a = rgb_s.push(rgb)
+        assert len(a) >= 1  # the layouts are compared on real points
         bgr = np.ascontiguousarray(rgb[..., ::-1])  # the same frame, BGR
         np.testing.assert_array_equal(a.points, bgr_s.push(bgr).points)
         tensor_bgr = torch.from_numpy(bgr)
@@ -305,6 +312,7 @@ def test_failed_push_leaves_the_stream_as_it_was(
     other = np.roll(frame, 5, axis=0)
     ref = open_stream(**kw)
     want = [ref.push(f) for f in (frame, other, frame)]
+    assert all(len(w) >= 1 for w in want)  # the part stage runs on every frame
 
     stream = open_stream(**kw, keep=True)
     stream.push(frame)
@@ -347,7 +355,11 @@ def test_warmup_reaches_the_pose_network(
         return real(self, crops, *a, **k)
 
     monkeypatch.setattr(CenteredInstanceLayer, "predict", counted)
-    kw = _kw(minimal_instance_centroid_ckpt, minimal_instance_centered_instance_ckpt)
+    kw = _kw(
+        minimal_instance_centroid_ckpt,
+        minimal_instance_centered_instance_ckpt,
+        few=False,
+    )
     frame = _frames(minimal_instance)[0]
     open_stream(**kw)
     assert sizes == []
@@ -377,6 +389,7 @@ def test_failure_after_the_part_stage_leaves_the_stream_as_it_was(
     other = np.roll(frame, 5, axis=0)
     ref = open_stream(**kw)
     want = [ref.push(f) for f in (frame, other, frame)]
+    assert all(len(w) >= 1 for w in want)  # the part stage runs on every frame
     stream = open_stream(**kw, keep=True)
     stream.push(frame)
     before = _state(stream)
@@ -425,3 +438,81 @@ def test_public_surface(
     with pytest.raises(AttributeError):
         stream.channel_order = "bgr"
     assert stream.keep is False and stream.channel_order == "rgb"
+
+
+_CUDA = pytest.mark.skipif(not torch.cuda.is_available(), reason="needs a CUDA device")
+
+
+@pytest.mark.parametrize("device", ["cpu", pytest.param("cuda", marks=_CUDA)])
+def test_warmup_boxes_on_the_device_real_boxes_reach(
+    shifted_video,
+    detector_pair,
+    minimal_instance_centered_instance_ckpt,
+    monkeypatch,
+    device,
+):
+    """The warm-up feeds the pose and part models as a real frame does.
+
+    A real frame's boxes come from the first stage on its device (the card, for a
+    CUDA detector) and the crop windows are computed there; with a part stage and
+    ``frames_on_gpu`` the frame is uploaded once and the part model cuts its crops
+    from that card copy. If the warm-up handed its dummy boxes or frame over on
+    the host, the first real frame would load those GPU operations' code (CUDA
+    lazy module loading) and be the slow one (seen with TensorRT engines and
+    frames on the GPU: 28 ms instead of 11). On the CPU everything is on the
+    host; the CUDA case fails when the warm-up's dummy boxes or the part model's
+    dummy frame stay on the host.
+    """
+    from sleap_nn.inference.layers.bbox import BBoxStageLayer
+    from sleap_nn.inference.layers.topdown import TopDownLayer
+    from sleap_nn.inference.run import open_stream
+
+    given, real, frames_in = [], [], []
+    orig = BBoxStageLayer.predict
+    orig_td = TopDownLayer.predict
+
+    def spy(self, image, *a, boxes=None, **k):
+        out = orig(self, image, *a, boxes=boxes, **k)
+        if getattr(self, "use_given_boxes", False):
+            given.append(torch.as_tensor(boxes).device.type)
+        elif isinstance(out.pred_centroids, torch.Tensor):
+            if float(torch.as_tensor(image).abs().max()) == 0:
+                # an empty frame: a trained detector finds nothing there (this
+                # tiny one does), so only the given-box warm-up reaches stage 2
+                out.pred_centroids = torch.full_like(out.pred_centroids, float("nan"))
+            else:
+                real.append(out.pred_centroids.device.type)
+        return out
+
+    def spy_td(self, image, *a, frame_boxes=None, **k):
+        # (layer, device of the frame) for calls that cut at least one crop
+        if frame_boxes is not None and bool(torch.isfinite(frame_boxes).all(-1).any()):
+            dev = image.device.type if isinstance(image, torch.Tensor) else "cpu"
+            frames_in.append((id(self), dev))
+        return orig_td(self, image, *a, frame_boxes=frame_boxes, **k)
+
+    monkeypatch.setattr(BBoxStageLayer, "predict", spy)
+    monkeypatch.setattr(TopDownLayer, "predict", spy_td)
+    frames = _video_frames(shifted_video)
+    kw = dict(
+        model_paths=[detector_pair["det"], detector_pair["ci_bbox"]],
+        device=device,
+        peak_threshold=0.0,
+        bbox_nms_iou=0.7,
+        part_model_paths=[str(minimal_instance_centered_instance_ckpt)],
+        part_crop_rule=RULE,
+        part_peak_threshold=0.0,
+        part_prefix="part/",
+        frames_on_gpu=device == "cuda",  # the real-time settings
+    )
+    with open_stream(**kw, frame_shape=frames[0].shape) as stream:
+        part_id = id(stream._predictor.part_stage.layer)
+        warm, warm_part = set(given), {d for i, d in frames_in if i == part_id}
+        real.clear()
+        frames_in.clear()
+        for f in frames:
+            stream.push(f)
+        real_part = {d for i, d in frames_in if i == part_id}
+    assert warm and real and warm_part and real_part
+    assert set(real) <= warm, (set(real), warm)  # pose boxes
+    assert real_part <= warm_part, (real_part, warm_part)  # the part model's frame
