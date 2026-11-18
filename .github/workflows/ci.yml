@@ -329,6 +329,11 @@ jobs:
               tests/inference/test_factory_export.py \
               tests/inference/ops/test_onnx_export.py \
               tests/inference/test_part_streaming_fixes.py \
+              tests/test_bbox_topdown.py::test_network_only_exports_in_checkpoint_pipeline \
+              tests/test_bbox_topdown.py::test_network_only_refusals \
+              tests/test_bbox_topdown.py::test_predict_runtime_reaches_every_export_directory \
+              tests/test_bbox_topdown.py::test_lone_network_only_export_runs_as_its_checkpoint \
+              tests/test_bbox_detr_training.py::test_bbox_detr_train_predict_eval \
               -v --durations=10 --cov=sleap_nn --cov-report=xml
 
       - name: Assert the tests left no stray files in the checkout

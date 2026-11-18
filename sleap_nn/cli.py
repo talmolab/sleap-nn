@@ -1343,13 +1343,25 @@ def _check_part_stage_flags(kwargs: dict, stream_to_file) -> None:
         )
     if not kwargs.get("part_crop_rule"):
         raise click.UsageError("--part_model needs --part_crop_rule.")
-    from sleap_nn.inference.exported_network import is_network_export
+    from pathlib import Path
+
+    from sleap_nn.inference.exported_network import _holds_network_export
 
     mps = kwargs.get("model_paths") or []
-    if not mps or any(
-        _is_export_dir(m) and not is_network_export(m)
-        for m in mps + [kwargs["part_model"]]
-    ):
+    # Directories loaded by the checkpoint loader (several -m, and the part model)
+    # load best.ckpt when they hold one: they count as checkpoint directories here.
+    # A single -m keeps its own route (an export directory goes to the exported
+    # route whatever else it holds), so the check there is unchanged.
+    loaded = set(mps if len(mps) > 1 else []) | {kwargs["part_model"]}
+
+    def refused(m):
+        if not _is_export_dir(m):
+            return False
+        if m in loaded and (Path(m) / "best.ckpt").exists():
+            return False
+        return not _holds_network_export(m)
+
+    if not mps or any(refused(m) for m in mps + [kwargs["part_model"]]):
         raise click.UsageError(
             "--part_model needs checkpoint pose models (-m) or network-only "
             "exports (`sleap-nn export --network-only`), not fused exported "
@@ -2480,6 +2492,24 @@ def _run_embeddings(
     return out
 
 
+def _is_crop_network_export(path: str) -> bool:
+    """A ``--network-only`` crop-model export (not a box detector).
+
+    It stands in for its checkpoint, so alone (or with ``--boxes``) it takes the
+    checkpoint route, where it fails or runs exactly as the checkpoint would.
+    """
+    from sleap_nn.inference.exported_network import is_network_export
+
+    return is_network_export(path) and not _is_box_detector_dir(path)
+
+
+def _is_box_detector_dir(path: str) -> bool:
+    """Whether ``path`` is an export directory holding a box detector."""
+    from sleap_nn.inference.run import _is_box_detector_export
+
+    return _is_box_detector_export(path)
+
+
 def _is_export_dir(path: str) -> bool:
     """True if ``path`` is a directory holding an exported ONNX/TRT model.
 
@@ -2870,7 +2900,12 @@ def _run_in_memory_new_flow(
     # runtime. Multiple paths are always trained checkpoints (top-down).
     _mps = kwargs["model_paths"]
     export_dir = (
-        _mps[0] if _mps and len(_mps) == 1 and _is_export_dir(_mps[0]) else None
+        _mps[0]
+        if _mps
+        and len(_mps) == 1
+        and _is_export_dir(_mps[0])
+        and not _is_crop_network_export(_mps[0])
+        else None
     )
 
     predict_kwargs: dict = {
@@ -2910,6 +2945,9 @@ def _run_in_memory_new_flow(
         "bbox_nms_iou": kwargs.get("bbox_nms_iou"),
         "flip_test": kwargs.get("flip_test", False),
         "frames_on_gpu": kwargs.get("frames_on_gpu", False),
+        # Every route: export directories among several --model_paths (network-only
+        # exports, box detectors) and a --part_model export run on this runtime.
+        "runtime": (kwargs.get("runtime") or "auto").lower(),
         "boxes": kwargs.get("boxes"),
         "box_score_threshold": kwargs.get("box_score_threshold") or 0.0,
         **_node_filter_kwargs(kwargs),
@@ -3467,6 +3505,10 @@ def _run_stream_to_file(
     filter_config = _build_filter_config(kwargs)
     if filter_config is not None:
         factory_kwargs["filter_config"] = filter_config
+    runtime = (kwargs.get("runtime") or "auto").lower()
+    if runtime != "auto":
+        # Export directories among --model_paths run on this runtime.
+        factory_kwargs["export_runtime"] = runtime
 
     predictor = Predictor.from_model_paths(kwargs["model_paths"], **factory_kwargs)
 

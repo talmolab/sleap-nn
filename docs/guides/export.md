@@ -202,11 +202,34 @@ letterboxing, box decoding, fixed or box-scaled crops, peak finding and refineme
 the part stage's crops from the body keypoints -- with only the forward passes on ONNX
 Runtime or TensorRT, so exported and checkpoint predictions differ only by the runtime's
 numerics (with `--input-dtype float32` the graphs receive exactly the checkpoint path's
-inputs). `--runtime` picks the runtime for every export directory (`auto` prefers
-`model.trt`). Node filters are baked in at export (`--nodes` / `--node-prefix` /
-`--strip-prefix`); `--node_prefix` at prediction time is refused for an exported
-network. `--max-batch-size` is a TensorRT engine's batch limit: larger crop batches
-run in chunks of it.
+inputs). A directory that holds both `best.ckpt` and an export (exported into the
+checkpoint's own directory) loads the checkpoint wherever model directories go
+through the checkpoint loader, as before #857: several `--model_paths` (with or
+without `--stream-to-file`), a `--part_model` directory, and the Python API with one
+or more paths (`predict(model_paths=[d])`, `open_stream`,
+`Predictor.from_model_paths([d])`); a `--network-only` export (new in #857) follows the
+same rule. A lone `--model_paths` on the command line takes the exported route for such
+a directory, as it always has (and `--stream-to-file` with one directory refuses it).
+New, accepted where it was refused before #857: such a directory listed among several
+`--model_paths` together with `--part_model` runs its checkpoint (before #857 the
+`--part_model` check refused it; after #857 it ran a detector export and refused a fused
+export). `--runtime` picks the runtime for
+every export directory (`auto` prefers `model.trt`), on every route (several
+`--model_paths`, `--part_model`, `--stream-to-file`); the predictions' provenance
+(`exported_models`) records the runtime, and for an engine its precision, of each
+exported graph that ran (a part model's tagged `stage: part`). A `--network-only` crop export passed alone (or with `--boxes`)
+runs exactly as its checkpoint would there. Node filters are baked in at export (`--nodes` /
+`--node-prefix` / `--strip-prefix`); `--node_prefix` at prediction time is refused for
+an exported network. `--max-batch-size` is a TensorRT engine's batch limit: larger
+crop batches run in chunks of it. A TensorRT engine runs on the current CUDA device:
+pick the card with `CUDA_VISIBLE_DEVICES` and pass `--device cuda`. A box detector
+exported at another size (`--input-height` / `--input-width`, default the training
+size) has that size written to the export's metadata and copied training config; a
+`bbox_detr` graph is exported at that fixed height and width (CenterNet and SSD graphs
+keep a dynamic size). A `--network-only` graph is traced and profiled at the size the
+pipeline feeds it (the trained crop size times the trained scale in whole pixels,
+padded to the backbone's stride), so `--input-scale`, `--crop-size`, `--input-height` and
+`--input-width` are refused with `--network-only`.
 
 ### Multi-Class
 

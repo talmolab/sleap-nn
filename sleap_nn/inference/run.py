@@ -1324,3 +1324,17 @@ def open_stream(
     if frame_shape is not None:
         stream._warmup(frame_shape)
     return stream
+
+
+def _is_box_detector_export(export_dir) -> bool:
+    """Whether ``export_dir`` holds an exported box detector (decoded on the host)."""
+    import json
+    from pathlib import Path
+
+    from sleap_nn.inference.exported_network import _NETWORK_ONLY_TYPES
+
+    meta = Path(export_dir) / "export_metadata.json"
+    try:
+        return json.loads(meta.read_text()).get("model_type") in _NETWORK_ONLY_TYPES
+    except (OSError, ValueError):
+        return False
