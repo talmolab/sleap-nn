@@ -363,12 +363,16 @@ class LightningModel(L.LightningModule):
                 # Strict by default on this route, as before `init_from` existed:
                 # a tensor that does not fit raises unless `init_from.strict` is
                 # false (then matching tensors load and the rest are reported).
+                strict = self._init_from_option("strict", True)
                 self.transfer_reports.append(
                     init_from_checkpoint(
                         self,
                         self.pretrained_backbone_weights,
                         include=["backbone"],
-                        strict=self._init_from_option("strict", True),
+                        strict=strict,
+                        # Strict: a positional table of another size raises, as
+                        # before; lenient: it is resized like `init_from.path` does.
+                        interpolate_pos_embed=not strict,
                     )
                 )
 
@@ -396,13 +400,15 @@ class LightningModel(L.LightningModule):
                 # `init_from.remap_nodes: true` they are copied by node name
                 # (source skeleton from the checkpoint / its training_config.yaml),
                 # and `init_from.strict: false` skips what does not fit.
+                strict = self._init_from_option("strict", True)
                 self.transfer_reports.append(
                     init_from_checkpoint(
                         self,
                         self.pretrained_head_weights,
                         include=["head"],
-                        strict=self._init_from_option("strict", True),
+                        strict=strict,
                         remap_nodes=self._init_from_option("remap_nodes", False),
+                        interpolate_pos_embed=not strict,
                     )
                 )
 
@@ -524,9 +530,16 @@ class LightningModel(L.LightningModule):
         if init_from is not None and OmegaConf.select(
             config, "trainer_config.resume_ckpt_path", default=None
         ):
-            # The resumed checkpoint overwrites every weight anyway.
-            logger.info("Resuming: skipping model_config.init_from.")
-            init_from = None
+            # The resumed checkpoint overwrites every weight anyway, so `path` and
+            # `reinit` are skipped. `strict` and `remap_nodes` stay: they tell the
+            # `.ckpt` forms of `pretrained_*_weights`, which still load first, how
+            # to load (a run that needed them to start would fail to resume).
+            logger.info("Resuming: skipping model_config.init_from.path / reinit.")
+            init_from = {
+                k: v
+                for k, v in OmegaConf.to_container(init_from).items()
+                if k not in ("path", "reinit")
+            }
 
         lightning_model = lightning_models[model_type](
             model_type=model_type,

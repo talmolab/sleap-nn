@@ -15,8 +15,8 @@ whose architecture differs in places (``model_config.init_from``):
 * Learned positional embeddings on a different token grid are resized
   (bicubic), keeping prefix (CLS / register) tokens.
 * Anything else that does not fit is skipped (the target keeps its init) and
-  reported -- never a silent ``strict=False`` and never a crash on a shape
-  mismatch.
+  reported -- never a silent ``strict=False``. With ``strict=True`` (the default
+  of the ``.ckpt`` forms of ``pretrained_*_weights``) a skipped tensor raises.
 
 It also holds the module selectors shared by re-initialization and freezing
 (``"head"``, ``"encoder"``, ``"blocks[-2:]"``, globs on parameter names, ...).
@@ -721,11 +721,17 @@ def init_from_checkpoint(
     )
     report.log()
     if strict and report.skipped:
+        head_hint = ""
+        if not remap_nodes and any("head_layers." in k for k in report.skipped):
+            head_hint = (
+                "If the skeletons differ, set model_config.init_from.remap_nodes: "
+                "true to copy the head's channels by node name. "
+            )
         message = (
             f"strict=True but {len(report.skipped)} tensor(s) of {path} do not fit "
-            f"the model and were skipped: {list(report.skipped)[:5]}. Set "
-            "model_config.init_from.strict: false to load the tensors that fit and "
-            "leave the rest at their init."
+            f"the model and were skipped: {list(report.skipped)[:5]}. {head_hint}"
+            "Set model_config.init_from.strict: false to load the tensors that fit "
+            "and leave the rest at their init."
         )
         logger.error(message)
         raise ValueError(message)

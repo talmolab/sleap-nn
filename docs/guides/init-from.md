@@ -15,8 +15,9 @@ Use it to:
 
 For continuing an interrupted run (same model, optimizer state included), use
 `trainer_config.resume_ckpt_path` instead; see
-[Resuming & Fine-Tuning](resume-finetune.md). `init_from` is ignored when
-`resume_ckpt_path` is set.
+[Resuming & Fine-Tuning](resume-finetune.md). `init_from.path` and
+`init_from.reinit` are ignored when `resume_ckpt_path` is set; `strict` and
+`remap_nodes` still tell the `.ckpt` forms of `pretrained_*_weights` how to load.
 
 ---
 

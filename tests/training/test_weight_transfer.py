@@ -682,3 +682,33 @@ def test_train_with_init_from_and_freeze_schedule(
     saved_cfg = OmegaConf.load(run / "training_config.yaml")
     assert saved_cfg.model_config.init_from.path == str(ckpt)
     assert saved_cfg.trainer_config.freeze_schedule.unfreeze_at_step == 1
+
+
+def test_resume_keeps_the_old_keys_loading_options(
+    minimal_instance_centered_instance_ckpt,
+):
+    """A resumed run still loads `pretrained_head_weights` the way it started.
+
+    On resume `init_from.path` / `reinit` are skipped, but `remap_nodes` and
+    `strict` keep telling the old keys how to load: a grown skeleton that needed
+    `remap_nodes: true` to start must not fail to resume.
+    """
+    ckpt = minimal_instance_centered_instance_ckpt
+    best = str(Path(ckpt) / "best.ckpt")
+    cfg = _ci_config(ckpt, part_names=["B", "A", "C"])
+    cfg.model_config.pretrained_head_weights = best
+    cfg.model_config.init_from = {"remap_nodes": True, "path": best}
+    cfg.trainer_config.resume_ckpt_path = best
+    model = LightningModel.get_lightning_model_from_config(cfg)
+    assert len(model.transfer_reports) == 1  # the head; no `path` load
+    assert torch.equal(model.state_dict()[HEAD_W][1], _source_sd(ckpt)[HEAD_W][0])
+
+
+def test_strict_error_suggests_remap_nodes_for_a_head(
+    minimal_instance_centered_instance_ckpt,
+):
+    ckpt = minimal_instance_centered_instance_ckpt
+    cfg = _ci_config(ckpt, part_names=["B", "A", "C"])
+    cfg.model_config.pretrained_head_weights = str(Path(ckpt) / "best.ckpt")
+    with pytest.raises(ValueError, match="remap_nodes: true"):
+        LightningModel.get_lightning_model_from_config(cfg)
