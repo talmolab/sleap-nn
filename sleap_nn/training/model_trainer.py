@@ -3803,7 +3803,11 @@ class ModelTrainer:
             def first_frames(labels_list, n):
                 subsets = []
                 for labels in labels_list:
-                    inds = [i for i, lf in enumerate(labels) if lf.has_user_instances]
+                    # Frames with a training target for this model type: boxes for
+                    # the box detectors, whose files can hold no pose instance.
+                    inds = [
+                        i for i, lf in enumerate(labels) if self._is_training_frame(lf)
+                    ]
                     subsets.append(
                         labels.extract(
                             (inds or list(range(len(labels))))[:n], copy=False
