@@ -112,8 +112,8 @@ sleap-nn predict -i video.mp4 -m models/centroid/ -m models/centered_instance/ \
 - **CUDA only.** On CPU and MPS the models run in fp32 as without the option,
   and a warning says so (on MPS the half-precision kernels exist but tensor
   cores don't, so there would be no speedup).
-- **Results differ slightly from fp32.** See the measurements below; check
-  the accuracy on your own data before relying on it.
+- **Results differ slightly from fp32.** See the note below; check the
+  accuracy on your own data before relying on it.
 - **It needs a large enough batch.** On the A40 above, fp16 ran the
   single-instance UNet at 0.65× the fp32 speed at batch size 1 and 1.5× at
   batch size 16: at small batches the tensor cores aren't saturated.
@@ -128,21 +128,9 @@ sleap-nn predict -i video.mp4 -m models/centroid/ -m models/centered_instance/ \
   refused for tracking-only runs, `--mask_backend` and `embedding` (re-ID)
   models, and `track` does not have it.
 
-Two top-down pairs on an NVIDIA A100 (PCIe 40 GB), batch size 16, both with
-`--upload_batches --memory_format channels_last`, timed without model loading:
-
-| Pair | Frames | fp32 | fp16 | Speed-up |
-|---|---:|---:|---:|---:|
-| Large UNets (650M + 780M parameters), 5 animals, 1024×1280 | 3,600 | 140 s | 74 s | 1.9× |
-| Small centroid model + large centered-instance model, 2 animals, 1024×1280 | 9,000 | 50.5 s | 32.7 s | 1.5× |
-
-Against hand labels (100 + 642 held-out animals, 400 + 602 training animals)
-fp16 read the same animals correctly as fp32 within one animal per set, and
-the median node error moved by at most 0.015 px. On the videos, the median
-node moved 0.002 px; of the readings that moved more than 5 px (about 0.4% of
-instances), fp16's fitted their neighbouring frames better at least as often
-as fp32's. On the fixture models the confidence maps differ from fp32 by up
-to ~4e-3 and the keypoints by at most 0.001 px.
+On the fixture models the confidence maps differ from fp32 by up
+to ~4e-3 and the keypoints by at most 0.001 px. Always check your own
+checkpoint before relying on reduced precision.
 
 | Reason to enable | Reason to skip |
 |---|---|
