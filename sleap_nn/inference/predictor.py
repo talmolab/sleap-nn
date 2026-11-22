@@ -1286,6 +1286,17 @@ def _set_autocast_precision(layer: Any, precision: str) -> List[TorchBackend]:
             f"precision must be '32', 'bf16' or 'fp16'; got {precision!r}."
         )
     dtype = _AUTOCAST_DTYPES[precision]
+    for backend in _reachable_torch_backends(layer):
+        backend.autocast_dtype = dtype
+        found.append(backend)
+    return found
+
+
+def _reachable_torch_backends(layer: Any) -> List[TorchBackend]:
+    """Every ``TorchBackend`` reachable from ``layer`` (see ``_set_autocast_precision``)."""
+    from sleap_nn.inference.layers.backends.torch_backend import TorchBackend
+
+    found: List[TorchBackend] = []
     seen: set = set()
     stack = [layer]
     while stack:
@@ -1294,7 +1305,6 @@ def _set_autocast_precision(layer: Any, precision: str) -> List[TorchBackend]:
             continue
         seen.add(id(obj))
         if isinstance(obj, TorchBackend):
-            obj.autocast_dtype = dtype
             found.append(obj)
             continue
         if isinstance(obj, (list, tuple)):
@@ -1306,6 +1316,24 @@ def _set_autocast_precision(layer: Any, precision: str) -> List[TorchBackend]:
         ):
             stack.extend(vars(obj).values())
     return found
+
+
+def _autocast_precision_used(*layers: Any) -> Optional[str]:
+    """``"bf16"`` / ``"fp16"`` if a CUDA model of ``layers`` runs under autocast.
+
+    ``None`` for fp32 (the default) and off CUDA, where autocast is not applied,
+    so a default run's provenance has no such key.
+    """
+    names = {v: k for k, v in _AUTOCAST_DTYPES.items()}
+    used = set()
+    for layer in layers:
+        if layer is None:
+            continue
+        for backend in _reachable_torch_backends(layer):
+            dtype = getattr(backend, "autocast_dtype", None)
+            if dtype is not None and "cuda" in str(getattr(backend, "device", "")):
+                used.add(names.get(dtype, str(dtype)))
+    return ",".join(sorted(used)) or None
 
 
 def _warn_precision_scope(
@@ -2081,6 +2109,17 @@ class Predictor:
         if exported:
             # Which runtime and precision each exported graph actually ran.
             provenance["exported_models"] = exported
+        try:
+            part = getattr(self.part_stage, "part_predictor", None)
+            autocast = _autocast_precision_used(
+                self.layer, part.layer if part is not None else None
+            )
+        except Exception:  # noqa: BLE001 -- provenance must never fail a run
+            autocast = None
+        if autocast is not None:
+            # `precision="bf16"` / `"fp16"` on CUDA: the checkpoint models ran
+            # under autocast (no key for fp32, the default).
+            provenance["autocast_precision"] = autocast
         _add_part_exports(provenance, part_exported)  # a streaming --part_model
         return provenance
 

@@ -4060,15 +4060,20 @@ def _common_inference_options(f):
         ),
         click.option(
             "--precision",
-            type=click.Choice(["32", "bf16", "fp16"]),
+            type=click.Choice(["32", "fp32", "bf16", "fp16"], case_sensitive=False),
             default="32",
             show_default=True,
-            help="Precision of the models' forward pass. `32` is strict fp32. "
-            "`bf16` and `fp16` run every model under torch.autocast on a CUDA "
-            "device (weights and outputs stay fp32): faster on tensor-core GPUs "
-            "at batch sizes of about 8 and up, can be slower at batch size 1, and "
-            "results differ slightly from fp32. `bf16` needs an Ampere or newer "
-            "NVIDIA GPU. No effect on CPU / MPS (a warning says so). `predict` "
+            callback=lambda _ctx, _param, value: (
+                "32" if str(value).lower() in ("32", "fp32") else str(value).lower()
+            ),
+            help="Precision of the models' forward pass. `32` (or `fp32`) is "
+            "strict fp32. `bf16` and `fp16` run every model under torch.autocast "
+            "on a CUDA device (weights and outputs stay fp32): faster on "
+            "tensor-core GPUs (about 1.5x for UNet models at batch size 4 on an "
+            "A100), can be slower at batch size 1, and results differ slightly "
+            "from fp32. `bf16` is fast on Ampere or newer NVIDIA GPUs (older ones "
+            "emulate it slowly). No effect on CPU / MPS (a warning says so). "
+            "The output file records it (`autocast_precision`). `predict` "
             "with trained checkpoints only: an exported model keeps the precision "
             "it was exported with.",
         ),

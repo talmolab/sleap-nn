@@ -348,3 +348,26 @@ def test_from_model_paths_rejects_unknown_precision():
         pytest.skip("checkpoint fixture not present")
     with pytest.raises(ValueError, match="precision"):
         Predictor.from_model_paths([str(SINGLE_CKPT)], device="cpu", precision="16")
+
+
+def test_autocast_precision_is_recorded_only_when_used():
+    """Provenance names the autocast dtype of CUDA models, nothing for fp32/CPU."""
+    import torch
+
+    from sleap_nn.inference.layers.backends.torch_backend import TorchBackend
+    from sleap_nn.inference.predictor import _autocast_precision_used
+
+    def backend(dtype, device):
+        b = object.__new__(TorchBackend)
+        b.autocast_dtype, b.device = dtype, device
+        return b
+
+    assert _autocast_precision_used(None) is None
+    assert _autocast_precision_used([backend(None, "cuda:0")]) is None
+    assert _autocast_precision_used([backend(torch.bfloat16, "cpu")]) is None
+    cuda_bf16 = [backend(torch.bfloat16, "cuda:0")]
+    assert _autocast_precision_used(cuda_bf16) == "bf16"
+    assert (
+        _autocast_precision_used(cuda_bf16, [backend(torch.float16, "cuda")])
+        == "bf16,fp16"
+    )

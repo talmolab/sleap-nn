@@ -459,6 +459,9 @@ def test_precision_flag_reaches_predict():
         (["--precision", "32"], "32"),
         (["--precision", "bf16"], "bf16"),
         (["--precision", "fp16"], "fp16"),
+        (["--precision", "fp32"], "32"),
+        (["--precision", "FP16"], "fp16"),
+        (["--precision", "BF16"], "bf16"),
     ):
         with patch(
             "sleap_nn.inference.run.predict",
@@ -512,8 +515,8 @@ def test_precision_flag_reaches_stream_to_file_predictor(tmp_path):
 
 
 def test_precision_flag_rejects_unknown_value():
-    """Only ``32`` / ``bf16`` / ``fp16`` are accepted."""
-    for value in ("16", "fp32", "half"):
+    """Only ``32`` (or ``fp32``) / ``bf16`` / ``fp16`` are accepted."""
+    for value in ("16", "tf32", "half"):
         with patch(
             "sleap_nn.inference.run.predict", return_value=MagicMock()
         ) as mock_predict:

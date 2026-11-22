@@ -24,7 +24,7 @@ repository. Time your own setup (see [When to re-benchmark](#when-to-re-benchmar
     - **`--batch_size 4`** is a good starting point; raise to 8 / 16 if
       VRAM allows.
     - **FP16** (`--precision fp16`) delivers the biggest single-flag win
-      (~1.5× on UNets) at batch sizes of about 8 and up. Results differ
+      (~1.5× on UNets at the default batch size of 4). Results differ
       slightly from fp32 (see
       [Reduced precision](#reduced-precision-precision)).
     - **`torch.compile`** adds another ~1.2-1.3×, but pays a 0.5-3 s
@@ -58,8 +58,9 @@ Forward-pass latency measured on the A40 at `batch_size=4`,
 Headline observations:
 
 - **FP16 wins across the board on UNet-based heads** — 1.43× to 1.55× on
-  the three core model types. Zero-cost speedup; turn it on by default
-  on CUDA.
+  the three core model types at batch size 4. Results differ slightly
+  from fp32, so check them on your own model first (see
+  [Reduced precision](#reduced-precision-precision)).
 - **`torch.compile` is consistently positive but adds a one-time
   compilation cost** (0.5–3 s per model). Long videos amortize that
   easily; short clips don't.
@@ -130,11 +131,15 @@ sleap-nn predict -i video.mp4 -m models/centroid/ -m models/centered_instance/ \
 
 On the fixture models the confidence maps differ from fp32 by up
 to ~4e-3 and the keypoints by at most 0.001 px. Always check your own
-checkpoint before relying on reduced precision.
+checkpoint before relying on reduced precision. A run with `bf16` or
+`fp16` on CUDA records it in the output file's provenance
+(`autocast_precision`); fp32 runs have no such key. ViT backbones have
+not been checked in fp16 (`sleap-nn export` warns about fp16 for them);
+prefer `bf16` there.
 
 | Reason to enable | Reason to skip |
 |---|---|
-| Long videos on CUDA at batch sizes of about 8 and up | CPU / Mac (MPS): no effect |
+| Long videos on CUDA at batch size 4 and up | CPU / Mac (MPS): no effect |
 | VRAM-constrained: half-precision activations take half the memory | Results must match earlier fp32 runs |
 | | Small batches (it can be slower at batch size 1) |
 
