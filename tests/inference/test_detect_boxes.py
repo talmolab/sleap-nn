@@ -617,3 +617,19 @@ def test_cli_detect_boxes_save_options(tmp_path):
         assert res.exit_code == 0, res.output
         kw = run.call_args.kwargs
         assert kw["slp_version"] == "auto" and kw["compression"] == "lzf"
+
+
+@pytest.mark.parametrize("given", [None, "auto", "v3"])
+def test_detector_file_is_pinned_to_v3_when_sleap_io_has_slp_version(
+    monkeypatch, given
+):
+    """A sleap-io with its own layout option always gets ``slp_version="v3"``.
+
+    Its ``"auto"`` could resolve to the old layout and drop the boxes' scores.
+    """
+    import sleap_nn.inference.save_options as so
+    from sleap_nn.inference.detect_boxes import _detector_save_kwargs
+
+    params = so._save_slp_parameters() | {"slp_version"}
+    monkeypatch.setattr(so, "_save_slp_parameters", lambda: params)
+    assert _detector_save_kwargs(slp_version=given)["slp_version"] == "v3"

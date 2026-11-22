@@ -832,6 +832,13 @@ def _detector_save_kwargs(
             "score as box metadata, which only the SLP 3.0 layout stores. Use "
             "'v3' or 'auto', or leave slp_version unset."
         )
+    from sleap_nn.inference.save_options import _save_slp_parameters
+
+    if "slp_version" in _save_slp_parameters():
+        # This file is always SLP 3.0: unset or "auto" (which a sleap-io with its
+        # own layout option could resolve to the old layout, dropping the box
+        # scores) is written as "v3".
+        opts["slp_version"] = "v3"
     return slp_save_kwargs(**opts, embeds_frames=embeds_frames)
 
 
