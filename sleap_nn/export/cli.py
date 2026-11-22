@@ -123,7 +123,9 @@ CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"]}
     type=float,
     default=0.2,
     show_default=True,
-    help="Minimum confidence threshold for peak detection (baked into ONNX graph).",
+    help="Minimum confidence for a peak. Pose and centroid models: baked into the "
+    "exported graph. Box detectors (bbox_*): the score threshold, stored in "
+    "export_metadata.json and applied on the host when the export is run.",
 )
 @click.option(
     "--workspace-size-gb",

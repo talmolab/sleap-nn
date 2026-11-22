@@ -92,7 +92,7 @@ sleap-nn export MODEL_PATH [options]
 | `--nodes` | Export only these confmap nodes (`single_instance` / `centered_instance`, alone or in a top-down bundle); repeat or comma-separate | `TEXT` | all nodes |
 | `--node-prefix` | Export only the nodes whose name starts with the prefix | `TEXT` | `None` |
 | `--strip-prefix` | Name the `--node-prefix` nodes without the prefix in the exported metadata and `training_config` | Flag | `false` |
-| `--peak-threshold` | Peak confidence threshold baked into the graph | `FLOAT` | `0.2` |
+| `--peak-threshold` | Peak confidence threshold: baked into the graph for pose and centroid models; for box detectors the score threshold, stored in `export_metadata.json` and applied on the host | `FLOAT` | `0.2` |
 | `--crop-size` | Crop size for crop-input models (required for `embedding` when the config has none) | `INT` | from config |
 | `--device` | Device used for export | `TEXT` | `cpu` |
 
