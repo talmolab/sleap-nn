@@ -220,13 +220,13 @@ def test_val_file_names_and_nodes():
     a, b = _file(["a/x", "a/y"]), _file(["b/x", "b/y", "b/z"])
     cfg = {
         "data_config": {
-            "val_labels_path": ["/d/hcm-2025.val.pkg.slp", "/d/other.slp"],
+            "val_labels_path": ["/d/lab-a.val.pkg.slp", "/d/other.slp"],
             "val_names": None,
         },
         "trainer_config": {"eval": {"enabled": True, "file_nodes": None}},
     }
     t = _trainer_stub(cfg, [a, b])
-    assert t._val_file_names() == ["hcm-2025.val", "other"]
+    assert t._val_file_names() == ["lab-a.val", "other"]
     files = t._val_files()
     assert [f.node_names for f in files] == [["a/x", "a/y"], ["b/x", "b/y", "b/z"]]
     assert files[1].videos == list(b.videos)

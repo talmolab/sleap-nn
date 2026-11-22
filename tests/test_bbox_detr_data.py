@@ -1,4 +1,4 @@
-"""bbox_detr data for M3: categories, multi-file mixing, reduced-size JPEG decoding.
+"""bbox_detr data: categories, multi-file mixing, reduced-size JPEG decoding.
 
 Covers the person-only ground truth of multi-category box files (Objects365 /
 Open Images / CrowdHuman store faces, heads, crowds and ignore regions as other

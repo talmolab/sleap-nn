@@ -331,7 +331,7 @@ def test_resolution_rule_mouse_and_large_arena():
     res = recommend_detr_resolution(1024, 1280, 99, 193)
     assert (res.max_width, res.max_height) == (640, 512)
     assert res.small_tokens >= 3 and res.median_tokens >= 4 and not res.needs_tiling
-    # mosaic-harvard: 3934 x 3490 frames, p5 87 px: needs ~2170 px, capped at 1280.
+    # A large arena: 3934 x 3490 frames, p5 87 px: needs ~2170 px, capped at 1280.
     big = recommend_detr_resolution(3490, 3934, 87, 169)
     assert big.needs_tiling and big.max_side == 1280 and big.small_tokens < 3
     assert "capped at 1280" in big.reason
@@ -381,7 +381,7 @@ def test_detr_param_estimates():
 
 
 def test_detr_memory_estimate():
-    """Calibrated on M2 (RF-DETR-M, batch 4, 576 px: 4.7 GB measured)."""
+    """Calibrated on one measured run (RF-DETR-M, batch 4, 576 px: 4.7 GB)."""
     from sleap_nn.config_generator.analyzer import analyze_slp
 
     stats = analyze_slp(FIXTURE_SLP)

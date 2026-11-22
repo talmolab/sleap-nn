@@ -788,7 +788,7 @@ def match_detections(
         "category": category,
         "det_thr": score_threshold,
         "min_iou": min_iou,
-        "rule": "Hungarian on IoU per image, pairs kept if IoU > min_iou (D4)",
+        "rule": "Hungarian on IoU per image, pairs kept if IoU > min_iou",
         "gt_boxes": "linked person box, else keypoint extent; non-crowd keypoint-less "
         "person boxes are matching targets but not counted",
         "frames": len(frames),
