@@ -412,10 +412,11 @@ class LRSchedulerConfig:
     cosine_annealing_warmup > linear_warmup_linear_decay > multi_step_lr >
     step_lr > reduce_lr_on_plateau. ``reduce_lr_on_plateau`` is populated by
     default, so setting any other scheduler replaces it (they never stack).
-    Choosing a fixed-length schedule (``cosine_annealing_warmup``,
-    ``linear_warmup_linear_decay`` or ``multi_step_lr``) also turns early stopping
-    off unless ``early_stopping.stop_training_on_plateau`` is set explicitly, and
-    training saves the config with ``reduce_lr_on_plateau: null``.
+    With a fixed-length schedule (``cosine_annealing_warmup``,
+    ``linear_warmup_linear_decay`` or ``multi_step_lr``) training saves the config
+    with ``reduce_lr_on_plateau: null``. Early stopping stays on unless
+    ``early_stopping.stop_training_on_plateau`` is ``false``, so it can end a run
+    before such a schedule has finished.
 
     Attributes:
         step_lr: Configuration for StepLR scheduler.
@@ -473,14 +474,14 @@ class EarlyStoppingConfig:
     """Configuration for early_stopping.
 
     Attributes:
-        stop_training_on_plateau: (bool) True if early stopping should be enabled. `None` = on, except with a fixed-length LR schedule (`lr_scheduler.cosine_annealing_warmup`, `linear_warmup_linear_decay` or `multi_step_lr`), whose decay would be cut short by it; there it is off. Training writes the resolved value into the saved `training_config.yaml`. *Default*: `None`.
+        stop_training_on_plateau: (bool) True if early stopping should be enabled, under every LR schedule. `None` is read as `True`. With a fixed-length LR schedule (`lr_scheduler.cosine_annealing_warmup`, `linear_warmup_linear_decay` or `multi_step_lr`) early stopping can end the run before the schedule has finished; set `False` to run the whole schedule. *Default*: `True`.
         min_delta: (float) Minimum change in the monitored quantity to qualify as an improvement, i.e. an absolute change of less than or equal to min_delta, will count as no improvement. *Default*: `1e-8`.
         patience: (int) Number of checks with no improvement after which training will be stopped. Under the default configuration, one check happens after every training epoch. For the ``embedding`` model type, which selects on a retrieval metric measured every ``eval.frequency`` epochs, one check happens per evaluation, so patience counts evaluations. *Default*: `10`.
     """
 
     min_delta: float = field(default=1e-8, validator=validators.ge(0))
     patience: int = field(default=10, validator=validators.ge(0))
-    stop_training_on_plateau: Optional[bool] = None
+    stop_training_on_plateau: Optional[bool] = True
 
 
 @define

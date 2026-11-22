@@ -267,11 +267,11 @@ ratios hold for the whole run.
 
 **Fixed-length schedules and early stopping.** `cosine_annealing_warmup`,
 `linear_warmup_linear_decay` and `multi_step_lr` are planned around the run
-length. Choosing one turns early stopping off unless
-`early_stopping.stop_training_on_plateau` is set explicitly, and the saved config
-shows `reduce_lr_on_plateau: null` (it never ran alongside another schedule). An
-explicit `stop_training_on_plateau: true` is kept, with a warning that it can cut
-the decay short.
+length. With one, the saved config shows `reduce_lr_on_plateau: null` (it never
+ran alongside another schedule). Early stopping stays on, as under every
+schedule, and training warns that it can end the run before the schedule has
+finished: set `early_stopping.stop_training_on_plateau: false` to run the whole
+schedule.
 
 ---
 
@@ -280,7 +280,7 @@ the decay short.
 ```yaml
 trainer_config:
   early_stopping:
-    stop_training_on_plateau: null  # null = on, off with a fixed-length LR schedule
+    stop_training_on_plateau: true  # On under every LR schedule; false turns it off
     patience: 10        # Epochs without improvement (eval/* metrics: evaluations)
     min_delta: 1e-8     # Minimum improvement
 ```
@@ -749,7 +749,7 @@ five `null`) = constant learning rate.
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `stop_training_on_plateau` | bool | `null` | Enable early stopping (`null` = on, except with a fixed-length LR schedule: `cosine_annealing_warmup`, `linear_warmup_linear_decay`, `multi_step_lr`) |
+| `stop_training_on_plateau` | bool | `true` | Enable early stopping, under every LR schedule (`null` is read as `true`). With a fixed-length LR schedule (`cosine_annealing_warmup`, `linear_warmup_linear_decay`, `multi_step_lr`) it can end the run before the schedule has finished; set `false` to run the whole schedule |
 | `patience` | int | `10` | Epochs without improvement. For `embedding`, and for `bbox_*` models with `eval.enabled` (which select on `eval/val/bbox_mAP`), evaluations without improvement (one check every `eval.frequency` epochs) |
 | `min_delta` | float | `1e-8` | Minimum improvement |
 

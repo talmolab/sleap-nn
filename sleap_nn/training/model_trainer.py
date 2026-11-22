@@ -2362,31 +2362,27 @@ class ModelTrainer:
     def _setup_schedule_defaults(self):
         """Resolve the early-stopping and plateau defaults against the LR schedule.
 
-        A fixed-length schedule (`FIXED_LENGTH_LR_SCHEDULES`) is planned around
-        the run length, so early stopping left unset (``None``) resolves to off
-        and the default ``reduce_lr_on_plateau`` (never combined with another
-        schedule) is nulled. Otherwise unset early stopping resolves to on, as
-        before. An explicit ``true`` with a fixed schedule is kept, with a warning.
-        The resolved values are written into the config, so the saved
-        ``training_config.yaml`` shows what ran.
+        Early stopping is on under every schedule unless the config turns it off
+        (``None`` is read as on). A fixed-length schedule
+        (`FIXED_LENGTH_LR_SCHEDULES`) is planned around the run length, so early
+        stopping on with one gets a warning that it can end the run first, and
+        the default ``reduce_lr_on_plateau`` (never combined with another
+        schedule) is nulled. The resolved values are written into the config, so
+        the saved ``training_config.yaml`` shows what ran.
         """
         trainer_config = self.config.trainer_config
         fixed = fixed_length_lr_schedule(trainer_config.lr_scheduler)
         es = trainer_config.early_stopping
         if es.stop_training_on_plateau is None:
-            es.stop_training_on_plateau = fixed is None
-            if fixed is not None:
-                logger.info(
-                    f"lr_scheduler.{fixed} runs a fixed-length schedule, so early "
-                    "stopping is off (set early_stopping.stop_training_on_plateau: "
-                    "true to keep it)."
-                )
-        elif es.stop_training_on_plateau and fixed is not None:
-            # Explicit: keep it, but a plateau stop can cut the decay short.
+            es.stop_training_on_plateau = True
+        if es.stop_training_on_plateau and fixed is not None:
+            # A plateau stop can cut the decay short.
             logger.warning(
                 f"lr_scheduler.{fixed} runs a fixed-length schedule but "
                 "early_stopping.stop_training_on_plateau is true (patience="
-                f"{es.patience}); training may stop before the schedule ends."
+                f"{es.patience}); training may stop before the schedule ends. Set "
+                "early_stopping.stop_training_on_plateau: false to run the whole "
+                "schedule."
             )
         if (
             fixed is not None

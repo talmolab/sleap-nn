@@ -3313,15 +3313,36 @@ _PLATEAU = {"reduce_lr_on_plateau": {"patience": 5}}
         {"multi_step_lr": {"milestones": [3]}},
     ],
 )
-def test_fixed_schedule_turns_off_unset_early_stopping_and_plateau(fixed):
+def test_fixed_schedule_keeps_unset_early_stopping_on_and_nulls_plateau(fixed, caplog):
+    """Early stopping left unset is on under a fixed-length schedule too, warned."""
     from types import SimpleNamespace
 
     holder = SimpleNamespace(config=_schedule_cfg({**_PLATEAU, **fixed}))
     ModelTrainer._setup_schedule_defaults(holder)
     tc = holder.config.trainer_config
-    assert tc.early_stopping.stop_training_on_plateau is False
+    assert tc.early_stopping.stop_training_on_plateau is True
+    assert "may stop before the schedule ends" in caplog.text
     assert tc.lr_scheduler.reduce_lr_on_plateau is None
     assert tc.lr_scheduler[next(iter(fixed))] is not None
+
+
+def test_early_stopping_default_is_on_under_every_schedule():
+    """The config default is on; a fixed-length schedule does not turn it off."""
+    from types import SimpleNamespace
+
+    from sleap_nn.config.trainer_config import EarlyStoppingConfig, TrainerConfig
+
+    assert EarlyStoppingConfig().stop_training_on_plateau is True
+    cfg = OmegaConf.create(
+        {
+            "trainer_config": OmegaConf.to_container(
+                OmegaConf.structured(TrainerConfig())
+            )
+        }
+    )
+    cfg.trainer_config.lr_scheduler = {"cosine_annealing_warmup": {"warmup_epochs": 1}}
+    ModelTrainer._setup_schedule_defaults(SimpleNamespace(config=cfg))
+    assert cfg.trainer_config.early_stopping.stop_training_on_plateau is True
 
 
 @pytest.mark.parametrize(
