@@ -554,3 +554,53 @@ def test_post_train_file_nodes_and_gt_on_those_nodes():
     np.testing.assert_array_equal(
         out[0].instances[0].numpy(), [[2.0, 2], [3, 3], [1, 1]]
     )
+
+
+# ------------------------------------------------------------------- dry run
+
+
+def _two_val_file_config(tmp_path, pytestconfig):
+    """A tiny warp config with two named validation files, one batch for both."""
+    from tests.data.test_topdown_warp import _two_file_warp_config
+
+    cfg, _ = _two_file_warp_config(tmp_path, pytestconfig)
+    cfg.data_config.val_names = ["big", "small"]
+    # A dry run takes one validation batch: make it hold both files' samples.
+    cfg.trainer_config.val_data_loader.batch_size = 4
+    cfg.trainer_config.eval = {
+        "enabled": True,
+        "frequency": 1,
+        "file_nodes": {"small": ["A", "B"]},
+    }
+    return cfg
+
+
+def test_dry_run_with_per_file_validation(tmp_path, pytestconfig):
+    """A dry run's validation batch goes through the per-file loss of every file
+    it holds, under the files' configured names, and nothing is written."""
+    from tests.utils.dry_run import dry_run
+
+    cfg = _two_val_file_config(tmp_path, pytestconfig)
+    cfg.trainer_config.model_ckpt.monitor = "val/macro/loss"
+    trainer = dry_run(cfg, tmp_path)
+    assert trainer.lightning_model.val_file_names == ["big", "small"]
+    metrics = trainer.trainer.callback_metrics
+    assert {"val/big/loss", "val/small/loss", "val/macro/loss"} <= set(metrics)
+    assert metrics["val/macro/loss"] == pytest.approx(
+        (metrics["val/big/loss"] + metrics["val/small/loss"]) / 2
+    )
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="A dry run builds no callbacks, so settings that are only checked "
+    "while a real run builds them (`trainer_config.eval.file_nodes`, a per-file "
+    "`model_ckpt.monitor`) are not checked by it.",
+)
+def test_dry_run_rejects_file_nodes_of_an_unknown_file(tmp_path, pytestconfig):
+    from tests.utils.dry_run import dry_run
+
+    cfg = _two_val_file_config(tmp_path, pytestconfig)
+    cfg.trainer_config.eval.file_nodes = {"nope": ["A"]}
+    with pytest.raises(ValueError, match="unknown validation files"):
+        dry_run(cfg, tmp_path)
