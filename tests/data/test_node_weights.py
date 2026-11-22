@@ -1,5 +1,7 @@
 """Tests for per-node loss weights in the data pipeline."""
 
+import copy
+
 import numpy as np
 import pytest
 import sleap_io as sio
@@ -12,6 +14,7 @@ from sleap_nn.data.augmentation import (
 )
 from sleap_nn.data.bboxes import instance_crop_bbox
 from sleap_nn.data.custom_datasets import (
+    get_train_val_datasets,
     BottomUpDataset,
     BottomUpMultiClassDataset,
     CenteredInstanceDataset,
@@ -568,71 +571,129 @@ def test_multiclass_track_lookup_stays_aligned(minimal_instance):
     assert peaks[0] == 0 and peaks[1] > 0.9
 
 
-def test_mask_naming_no_node_in_any_file_raises(minimal_instance):
-    """Renamed nodes with stale provenance entries: an error, not a silent no-op."""
+STALE = ["renamed/A", "renamed/B"]
+_CM = {"part_names": ["A", "B"], "sigma": 1.5, "output_stride": 2}
+_HEADS = {
+    "single_instance": {"confmaps": _CM},
+    "bottomup": {
+        "confmaps": dict(_CM, loss_weight=1.0),
+        "pafs": {
+            "edges": [["A", "B"]],
+            "sigma": 4,
+            "output_stride": 4,
+            "loss_weight": 1.0,
+        },
+    },
+    "centroid": {"confmaps": {"anchor_part": "A", "sigma": 1.5, "output_stride": 2}},
+}
+
+
+def _train_cfg(config, head=None, fw="torch_dataset", tmp_path=None):
+    """The test config with one head (``None``: its centered-instance head)."""
+    cfg = copy.deepcopy(config)
+    cfg.data_config.data_pipeline_fw = fw
+    if fw == "torch_dataset_cache_img_disk":
+        cfg.data_config.cache_img_path = str(tmp_path / "cache")
+    if head is not None:
+        for k in list(cfg.model_config.head_configs.keys()):
+            cfg.model_config.head_configs[k] = None
+        cfg.model_config.head_configs[head] = _HEADS[head]
+    return cfg
+
+
+@pytest.mark.parametrize("head", [None, "single_instance", "bottomup"])
+@pytest.mark.parametrize(
+    "fw",
+    ["torch_dataset", "torch_dataset_cache_img_memory", "torch_dataset_cache_img_disk"],
+)
+def test_stale_mask_stops_training_before_caching(
+    config, minimal_instance, head, fw, tmp_path, monkeypatch
+):
+    """Renamed nodes with stale provenance entries: an error, before any caching."""
+    from sleap_nn.data import custom_datasets as cd
+
+    filled = []
+    monkeypatch.setattr(
+        cd.BaseDataset, "_fill_cache", lambda self, *a, **k: filled.append(1)
+    )
+    cfg = _train_cfg(config, head, fw, tmp_path)
+    with pytest.raises(ValueError, match="train on nothing"):
+        get_train_val_datasets(
+            [_labels(minimal_instance, labeled_nodes=STALE)],
+            [_labels(minimal_instance)],
+            cfg,
+        )
+    assert not filled
+    # Every file empty or stale: also nothing to train.
+    with pytest.raises(ValueError, match="train on nothing"):
+        get_train_val_datasets(
+            [
+                _labels(minimal_instance, labeled_nodes=STALE),
+                _labels(minimal_instance, labeled_nodes=[]),
+            ],
+            [_labels(minimal_instance)],
+            cfg,
+        )
+
+
+@pytest.mark.parametrize(
+    "case", ["working_file", "plain_file", "mask_off", "distill_no_mask", "val_only"]
+)
+def test_mask_check_leaves_trainable_configs_alone(config, minimal_instance, case):
+    """One working file, a file without the key, the mask off, distillation that
+    ignores the mask, or a stale validation file: training builds as before."""
+    cfg = _train_cfg(config)
+    train = [_labels(minimal_instance, labeled_nodes=STALE)]
+    val = [_labels(minimal_instance)]
+    if case == "working_file":
+        train.append(_labels(minimal_instance, labeled_nodes=["A"]))
+    elif case == "plain_file":
+        train.append(_labels(minimal_instance))
+    elif case == "mask_off":
+        cfg.data_config.node_loss_mask = False
+    elif case == "distill_no_mask":
+        cfg.trainer_config.distillation = {
+            "teacher": "x",
+            "mask_unlabeled_nodes": False,
+        }
+    elif case == "val_only":
+        train, val = val, train
+    get_train_val_datasets(train, val, cfg)
+
+
+def test_mask_check_with_distillation_on_the_mask_raises(config, minimal_instance):
+    cfg = _train_cfg(config)
+    cfg.trainer_config.distillation = {"teacher": "x"}
+    with pytest.raises(ValueError, match="train on nothing"):
+        get_train_val_datasets(
+            [_labels(minimal_instance, labeled_nodes=STALE)],
+            [_labels(minimal_instance)],
+            cfg,
+        )
+
+
+def test_mask_check_skips_model_types_that_do_not_apply_the_mask(minimal_instance):
+    """Centroid, multi-class, segmentation and tiled models never applied the mask."""
     from sleap_nn.data.custom_datasets import _check_train_node_mask
 
-    cfg = OmegaConf.create({"trainer_config": {}})
-    renamed = ["renamed/A", "renamed/B"]
-    stale = _labels(minimal_instance, labeled_nodes=renamed)
-    with pytest.raises(ValueError, match="train on nothing"):
-        _check_train_node_mask(_ci_dataset(stale), [stale], cfg)
-    for ds in _frame_datasets(stale):
-        with pytest.raises(ValueError, match="train on nothing"):
-            _check_train_node_mask(ds, [stale], cfg)
-    empty = _labels(minimal_instance, labeled_nodes=[])
-    with pytest.raises(ValueError, match="train on nothing"):
-        _check_train_node_mask(_ci_dataset(empty), [empty], cfg)
-    # One file with a working mask is enough; the other file only warns.
-    ok = _labels(minimal_instance, labeled_nodes=["A"])
-    head = DictConfig({"sigma": 1.5, "output_stride": 2, "anchor_part": None})
-    pool = CenteredInstanceDataset(
-        max_stride=8,
-        scale=1.0,
-        confmap_head_config=head,
-        crop_size=160,
-        labels=[stale, ok],
+    stale = [_labels(minimal_instance, labeled_nodes=STALE)]
+    kwargs = dict(
+        node_loss_mask=True, unlabeled_points="absent", supervise_occluded=True
     )
-    _check_train_node_mask(pool, [stale, ok], cfg)
-    # A file without the key trains every node, so a pool with one is fine.
-    plain = _labels(minimal_instance)
-    pool = CenteredInstanceDataset(
-        max_stride=8,
-        scale=1.0,
-        confmap_head_config=head,
-        crop_size=160,
-        labels=[plain, stale],
-    )
-    _check_train_node_mask(pool, [plain, stale], cfg)
-    # With the mask switched off nothing is weighted, so nothing is checked.
-    off = _ci_dataset(stale, node_loss_mask=False)
-    _check_train_node_mask(off, [stale], cfg)
-    # Distillation that ignores the mask trains every node on the teacher's maps.
-    distill = OmegaConf.create(
-        {"trainer_config": {"distillation": {"mask_unlabeled_nodes": False}}}
-    )
-    _check_train_node_mask(_ci_dataset(stale), [stale], distill)
-    masked = OmegaConf.create(
-        {"trainer_config": {"distillation": {"mask_unlabeled_nodes": True}}}
-    )
-    with pytest.raises(ValueError, match="train on nothing"):
-        _check_train_node_mask(_ci_dataset(stale), [stale], masked)
-
-
-def test_mask_check_skips_datasets_that_do_not_apply_the_mask(minimal_instance):
-    """Subclasses with their own sample format never applied the mask: unchanged."""
-    from sleap_nn.data.custom_datasets import (
-        CenteredInstanceSegmentationDataset,
-        TopDownCenteredInstanceMultiClassDataset,
-        _check_train_node_mask,
-    )
-
-    cfg = OmegaConf.create({"trainer_config": {}})
-    stale = _labels(minimal_instance, labeled_nodes=["renamed/A", "renamed/B"])
-    for cls in (
-        TopDownCenteredInstanceMultiClassDataset,
-        CenteredInstanceSegmentationDataset,
+    cfg = OmegaConf.create({"trainer_config": {}, "data_config": {"preprocessing": {}}})
+    for model_type in (
+        "centroid",
+        "multi_class_topdown",
+        "multi_class_bottomup",
+        "centered_instance_segmentation",
     ):
-        ds = cls.__new__(cls)
-        ds.file_node_weights = [np.zeros(2, dtype=np.float32)]
-        _check_train_node_mask(ds, [stale], cfg)
+        _check_train_node_mask(model_type, stale, cfg, kwargs)
+    tiled = OmegaConf.create(
+        {
+            "trainer_config": {},
+            "data_config": {"preprocessing": {"tiling": {"enabled": True}}},
+        }
+    )
+    _check_train_node_mask("single_instance", stale, tiled, kwargs)
+    with pytest.raises(ValueError, match="train on nothing"):
+        _check_train_node_mask("single_instance", stale, cfg, kwargs)

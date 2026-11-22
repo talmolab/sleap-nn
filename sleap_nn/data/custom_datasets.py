@@ -7621,6 +7621,7 @@ def get_train_val_datasets(
             "model with preprocessing.crop_pipeline='warp' (the crop path that cuts "
             "the teacher's crop); use teacher_input_scale otherwise."
         )
+    _check_train_node_mask(model_type, train_labels, config, node_weight_kwargs)
 
     # Gate the lossy disk cache for the embedding (appearance / re-ID) model (SPEC §5.1):
     # `torch_dataset_cache_img_disk` writes source frames as JPEG, which silently
@@ -8724,29 +8725,36 @@ def get_train_val_datasets(
                 if video.is_open:
                     video.close()
 
-    _check_train_node_mask(train_dataset, train_labels, config)
     return train_dataset, val_dataset
 
 
 def _check_train_node_mask(
-    train_dataset: Dataset, train_labels: List[sio.Labels], config: DictConfig
+    model_type: str,
+    train_labels: List[sio.Labels],
+    config: DictConfig,
+    node_weight_kwargs: Dict[str, Any],
 ) -> None:
     """Stop when the files' node masks leave every node of the training set unweighted.
 
-    Only the datasets whose samples carry the per-node weights are checked
-    (single-instance, centered-instance and bottom-up; their subclasses with their
-    own sample format do not apply the mask). Distillation with
-    ``mask_unlabeled_nodes: false`` trains every node on the teacher's maps
-    whatever the mask says, so it is not checked either.
+    Runs before any dataset is built (and before image caches are filled). Only the
+    model types whose datasets apply the mask are checked: single-instance
+    (untiled), centered-instance (the warp crop path checks in its own dataset) and
+    bottom-up. Distillation with ``mask_unlabeled_nodes: false`` trains every node on
+    the teacher's maps whatever the mask says, so it is not checked either.
     """
-    if type(train_dataset) not in (
-        SingleInstanceDataset,
-        CenteredInstanceDataset,
-        BottomUpDataset,
+    if model_type not in ("single_instance", "centered_instance", "bottomup"):
+        return
+    if (
+        OmegaConf.select(
+            config, "data_config.preprocessing.crop_pipeline", default="legacy"
+        )
+        == "warp"
     ):
         return
-    file_weights = getattr(train_dataset, "file_node_weights", None)
-    if file_weights is None:
+    tiling = OmegaConf.select(config, "data_config.preprocessing.tiling", default=None)
+    if model_type == "single_instance" and tiling is not None and tiling.enabled:
+        return
+    if not node_weights_active(train_labels, **node_weight_kwargs):
         return
     if OmegaConf.select(
         config, "trainer_config.distillation", default=None
@@ -8754,6 +8762,10 @@ def _check_train_node_mask(
         config, "trainer_config.distillation.mask_unlabeled_nodes", default=True
     ):
         return
+    file_weights = [
+        get_labeled_nodes_weights(x) if x is not None and x.skeletons else None
+        for x in train_labels
+    ]
     check_some_node_weighted(file_weights, train_labels)
 
 

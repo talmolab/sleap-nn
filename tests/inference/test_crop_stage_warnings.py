@@ -56,15 +56,31 @@ def test_padding_difference_is_quantified(caplog):
     _check_crop_stage(_assets(0.0, 4.0), ["bbox_detr", "centered_instance"])
     (msg,) = _warnings(caplog)
     assert "about 8 px shorter" in msg
-    # User-drawn boxes are never padded: no size is claimed then.
-    for source in ("bboxes", "auto"):
-        caplog.clear()
-        _check_crop_stage(
-            _assets(9.0, 0.0, det_source=source, crop_source=source),
-            ["bbox_detr", "centered_instance"],
-        )
-        (msg,) = _warnings(caplog)
-        assert "px" not in msg and "user-drawn" in msg
+    # Boxes resolved per file: no size is claimed then.
+    caplog.clear()
+    _check_crop_stage(
+        _assets(9.0, 0.0, det_source="auto", crop_source="auto"),
+        ["bbox_detr", "centered_instance"],
+    )
+    (msg,) = _warnings(caplog)
+    assert "px" not in msg and "user-drawn" in msg
+    # User-drawn boxes on both sides are never padded: nothing differs.
+    caplog.clear()
+    _check_crop_stage(
+        _assets(9.0, 0.0, det_source="bboxes", crop_source="bboxes"),
+        ["bbox_detr", "centered_instance"],
+    )
+    assert not _warnings(caplog)
+
+
+def test_crop_model_trained_on_detector_boxes_does_not_warn(caplog):
+    """A warp-path crop model trained on the detector's own boxes shares them."""
+    assets = _assets(9.0, 0.0, det_source="instances", crop_source="bboxes")
+    assets.confmap_config.data_config.preprocessing.crop_pipeline = "warp"
+    assets.confmap_config.data_config.preprocessing.crop_bbox_source = "detector"
+    caplog.clear()
+    _check_crop_stage(assets, ["bbox_detr", "centered_instance"])
+    assert not _warnings(caplog)
 
 
 @pytest.mark.parametrize("padding", [0.0, 5.0])

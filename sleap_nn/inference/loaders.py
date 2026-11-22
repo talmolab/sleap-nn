@@ -1997,11 +1997,27 @@ def _check_crop_stage(assets: LoadedAssets, model_types: List[str]) -> None:
     det_cfg = detector.bottomup_config
     if det_cfg is None:
         return
+    # A crop model trained on a detector's own boxes (warp path) shares its boxes.
+    trained_on_detector = (
+        OmegaConf.select(crop_cfg, "data_config.preprocessing.crop_pipeline") == "warp"
+        and OmegaConf.select(crop_cfg, "data_config.preprocessing.crop_bbox_source")
+        == "detector"
+    )
+    sources = [
+        OmegaConf.select(c, "data_config.bbox_source", default="auto") or "auto"
+        for c in (det_cfg, crop_cfg)
+    ]
     for key, default in (("bbox_source", "auto"), ("bbox_padding", 0.0)):
+        if trained_on_detector:
+            break
         det_val = OmegaConf.select(det_cfg, f"data_config.{key}", default=default)
         crop_val = OmegaConf.select(crop_cfg, f"data_config.{key}", default=default)
         if key == "bbox_source" and "auto" in (det_val, crop_val):
             continue  # resolved per labels file; only explicit values compare
+        if key == "bbox_padding":
+            if sources == ["bboxes", "bboxes"]:
+                continue  # padding is never added to user-drawn boxes
+            det_val, crop_val = (float(v or 0.0) for v in (det_val, crop_val))
         if spec is not None and det_val != crop_val:
             if key == "bbox_padding":
                 detail = _padding_difference_detail(
