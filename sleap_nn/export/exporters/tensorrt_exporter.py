@@ -212,7 +212,7 @@ def export_to_tensorrt(
     _build_info: Optional[dict] = None,
     strongly_typed: bool = False,
     force_precision: bool = False,
-    fp32_islands: Optional[str] = None,
+    fp32_islands: Optional[str] = "auto",
 ) -> Path:
     """Export a PyTorch model to TensorRT format.
 
@@ -258,14 +258,19 @@ def export_to_tensorrt(
             (:func:`~sleap_nn.export.exporters.onnx_precision.cast_onnx_precision`),
             the way TensorRT 11 builds always. Default off: TensorRT 10 builds
             use the builder flags as before. Ignored by the ``"jit"`` method.
-        fp32_islands: Opt-in recipe for ``precision="fp16"`` on the strongly typed
-            path (TensorRT 11, or ``strongly_typed`` on 10): ``"attention_logits"``
-            keeps every attention block's logits product (Q.K^T, found by structure:
+        fp32_islands: Recipe for ``precision="fp16"`` on the strongly typed path
+            (TensorRT 11, or ``strongly_typed`` on 10): ``"attention_logits"`` keeps
+            every attention block's logits product (Q.K^T, found by structure:
             :func:`~sleap_nn.export.exporters.onnx_precision._find_attention_logits`)
             in fp32, so TensorRT accumulates it in fp32; everything else is the
             usual fp16 rewrite. With ``_bf16_fp32_outside`` (graphs with coordinates)
             the fp16 runs only inside that scope, as bf16 does. Recorded as
-            ``fp32_islands`` in the build info. ``None`` (default): plain fp16.
+            ``fp32_islands`` in the build info. ``"auto"`` (default): that recipe for
+            an fp16 ONNX-method build of a model with a plain-ViT backbone
+            (:func:`has_plain_vit`), whose plain fp16 engines are wrong (TensorRT's
+            fp16 kernels accumulate Q.K^T in fp16); on TensorRT 10 such a build is
+            then strongly typed. Any other build is unchanged. ``None``: plain fp16
+            (as before for ViTs).
 
     Returns:
         Path to the exported TensorRT engine.
@@ -284,6 +289,9 @@ def export_to_tensorrt(
         )
     precision = str(precision).lower()
     info = _build_info if _build_info is not None else {}
+    auto_islands = fp32_islands == "auto"
+    if auto_islands:
+        fp32_islands = None  # decided below, once the precision is final
     if fp32_islands is not None:
         _check_fp32_islands(fp32_islands, precision, method, strongly_typed, trt)
     if precision in ("fp16", "bf16") and isinstance(model, _reduced_precision_fails()):
@@ -309,6 +317,26 @@ def export_to_tensorrt(
         else:
             msg = f"Warning: {what}; check the engine against fp32 on your data."
             _warn_once(msg)
+    if (
+        auto_islands
+        and precision == "fp16"
+        and method == "onnx"
+        and has_plain_vit(model)
+    ):
+        fp32_islands = "attention_logits"
+        info["fp32_islands_mode"] = "auto (plain-ViT backbone)"
+        typed = ""
+        if not (bool(strongly_typed) or _uses_strong_typing(trt)):
+            strongly_typed = True  # TensorRT 10's flags cannot keep a product fp32
+            typed = ", strongly typed"
+        _warn_once(
+            "Note: fp16 engine of a plain-ViT backbone: each attention logits product "
+            f"(Q.K^T) is kept in fp32{typed} (plain fp16 accumulates it in fp16, which "
+            "moves keypoints and loses boxes). --no-fp32-attention-logits "
+            "(fp32_islands=None) builds plain fp16."
+        )
+    elif fp32_islands is not None:
+        info["fp32_islands_mode"] = "requested"
 
     save_path = Path(save_path)
     if not save_path.suffix:
@@ -832,6 +860,23 @@ def _export_tensorrt_onnx(
         print(f"  Engine size: {os.path.getsize(engine_path) / 1e6:.2f} MB")
 
     return engine_path
+
+
+def has_plain_vit(model: nn.Module) -> bool:
+    """Whether ``model`` contains a plain (isotropic, single-stride) ViT backbone.
+
+    A :class:`~sleap_nn.architectures.pretrained.PretrainedBackbone` whose encoder is
+    a plain ViT (DINOv2 / v3, CLIP, SigLIP, MAE ...; its ``isotropic`` attribute), or
+    the windowed DINOv2 backbone of ``bbox_detr`` models.
+    """
+    from sleap_nn.architectures.detr.dinov2_windowed import WindowedDinov2Backbone
+    from sleap_nn.architectures.pretrained import PretrainedBackbone
+
+    return any(
+        isinstance(m, WindowedDinov2Backbone)
+        or (isinstance(m, PretrainedBackbone) and bool(getattr(m, "isotropic", False)))
+        for m in model.modules()
+    )
 
 
 def _hold_fp32_beyond_fp16_range(network, onnx_path: Path, trt) -> int:

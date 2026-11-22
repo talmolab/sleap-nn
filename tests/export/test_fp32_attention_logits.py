@@ -291,7 +291,7 @@ def test_vit_warning_names_the_remedy_and_waits_for_the_build(capsys):
     )
     _warn_fp16_vit_pose(vit, "centered_instance", "pretrained", "tensorrt", "fp16")
     out = capsys.readouterr().out
-    assert "--fp32-attention-logits" in out and "tested on DINOv3 only" in out
+    assert "--no-fp32-attention-logits" in out and "other ViTs not tested" in out
     shown = []
     held = [lambda: shown.append(1)]
     applied = _islands_record(
@@ -601,3 +601,124 @@ def test_cli_without_tensorrt_says_so(
         ],
     )
     assert result.exit_code != 0 and "TensorRT is not installed" in result.output
+
+
+def _plain_vit():
+    """A module tree holding a plain-ViT backbone (built without weights)."""
+    from sleap_nn.architectures.pretrained import PretrainedBackbone
+
+    vit = PretrainedBackbone.__new__(PretrainedBackbone)
+    torch.nn.Module.__init__(vit)
+    vit.isotropic = True
+    model = torch.nn.Module()
+    model.backbone = vit
+    model.w = torch.nn.Parameter(torch.zeros(1))
+    return model
+
+
+def test_has_plain_vit():
+    from sleap_nn.architectures.detr.dinov2_windowed import WindowedDinov2Backbone
+    from sleap_nn.export.exporters.tensorrt_exporter import has_plain_vit
+
+    assert has_plain_vit(_plain_vit())
+    hierarchical = _plain_vit()
+    hierarchical.backbone.isotropic = False  # a ConvNeXt / Swin encoder
+    assert not has_plain_vit(hierarchical)
+    assert not has_plain_vit(torch.nn.Conv2d(1, 1, 1))
+    windowed = WindowedDinov2Backbone.__new__(WindowedDinov2Backbone)
+    torch.nn.Module.__init__(windowed)
+    holder = torch.nn.Module()
+    holder.enc = windowed
+    assert has_plain_vit(holder)
+
+
+@pytest.mark.parametrize(
+    "version, vit, precision, method, islands, want, want_strong",
+    [
+        # The default ("auto"): fp16 of a plain ViT keeps the logits fp32, strongly
+        # typed on TensorRT 10 (its builder flags cannot), as built on 11.
+        ("10.16.1.11", True, "fp16", "onnx", "auto", "attention_logits", True),
+        ("11.5.0.63", True, "fp16", "onnx", "auto", "attention_logits", False),
+        # Unchanged: other models, other precisions, the JIT method, the opt-out.
+        ("10.16.1.11", False, "fp16", "onnx", "auto", None, False),
+        ("10.16.1.11", True, "bf16", "onnx", "auto", None, False),
+        ("10.16.1.11", True, "fp32", "onnx", "auto", None, False),
+        ("10.16.1.11", True, "fp16", "jit", "auto", None, False),
+        ("10.16.1.11", True, "fp16", "onnx", None, None, False),
+        ("11.5.0.63", True, "fp16", "onnx", None, None, False),
+    ],
+)
+def test_vit_fp16_default_keeps_the_attention_logits_fp32(
+    monkeypatch, capsys, version, vit, precision, method, islands, want, want_strong
+):
+    import sleap_nn.export.exporters.tensorrt_exporter as te
+
+    seen = {}
+
+    def fake_onnx_build(*a, fp32_islands=None, strongly_typed=False, **kw):
+        seen.update(fp32_islands=fp32_islands, strongly_typed=strongly_typed)
+        return a[1]
+
+    def fake_jit_build(*a, **kw):
+        seen.update(fp32_islands=None, strongly_typed=False)
+        return a[1]
+
+    monkeypatch.setitem(sys.modules, "tensorrt", _fake_trt(version)[0])
+    monkeypatch.setattr(te, "_export_tensorrt_onnx", fake_onnx_build)
+    monkeypatch.setattr(te, "_export_tensorrt_jit", fake_jit_build)
+    monkeypatch.setattr(te, "_WARNED", set())
+    model = _plain_vit() if vit else torch.nn.Conv2d(3, 1, 1)
+    info = {}
+    te.export_to_tensorrt(
+        model,
+        "model.trt",
+        input_shape=(1, 3, 8, 8),
+        precision=precision,
+        method=method,
+        verbose=False,
+        _build_info=info,
+        fp32_islands=islands,
+    )
+    assert seen == {"fp32_islands": want, "strongly_typed": want_strong}
+    out = capsys.readouterr().out
+    if want:
+        assert info["fp32_islands_mode"].startswith("auto")
+        assert "--no-fp32-attention-logits" in out
+    else:
+        assert "fp32_islands_mode" not in info and "plain-ViT" not in out
+
+
+@pytest.mark.parametrize(
+    "extra, want",
+    [
+        ([], "auto"),
+        (["--fp32-attention-logits", "--strongly-typed"], "attention_logits"),
+        (["--no-fp32-attention-logits"], None),
+    ],
+)
+def test_cli_passes_the_attention_logits_choice(
+    monkeypatch, minimal_instance_centered_instance_ckpt, tmp_path, extra, want
+):
+    import importlib.machinery
+
+    import sleap_nn.export.exporters as exporters
+    from sleap_nn.export.cli import export
+
+    trt10 = _fake_trt("10.16.1.11")[0]
+    trt10.__spec__ = importlib.machinery.ModuleSpec("tensorrt", None)
+    monkeypatch.setitem(sys.modules, "tensorrt", trt10)
+    seen = {}
+
+    def fake_export_to_tensorrt(model, save_path, **kw):
+        seen.update(kw)
+        open(save_path, "wb").close()
+        return save_path
+
+    monkeypatch.setattr(exporters, "export_to_tensorrt", fake_export_to_tensorrt)
+    result = CliRunner().invoke(
+        export,
+        [str(minimal_instance_centered_instance_ckpt), "-o", str(tmp_path / "x")]
+        + ["--format", "tensorrt", *extra],
+    )
+    assert result.exit_code == 0, result.output + str(result.exception)
+    assert seen["fp32_islands"] == want

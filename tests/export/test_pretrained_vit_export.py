@@ -250,3 +250,13 @@ def test_explicit_static_hw_does_not_blame_rope(tmp_path):
         logger.remove(handler)
     text = "".join(messages)
     assert "static_hw=True" in text and "rotary" not in text
+
+
+@pytest.mark.parametrize("kind", ["dinov2_with_registers", "clip"])
+def test_plain_vit_backbones_get_fp32_attention_logits_by_default(tmp_path, kind):
+    """A real plain-ViT model is recognized, so its fp16 TensorRT default keeps the
+    attention logits in fp32."""
+    from sleap_nn.export.exporters.tensorrt_exporter import has_plain_vit
+
+    model = _caseC_model(_tiny_vit_dir(tmp_path, kind))
+    assert has_plain_vit(_ConfmapsWrapper(model))
