@@ -151,10 +151,56 @@ def instance_points(inst: sio.Instance, supervise_occluded: bool = True) -> np.n
     have coordinates (occluded estimates, COCO ``v=1``; sleap-io >= 0.10) keep
     them; otherwise they are NaN like any other hidden node. Unlabeled nodes and
     nodes without a location are always NaN. Files without occluded estimates
-    (every pre-SLP-3.0 file: sleap-io clears hidden points' coordinates on read)
-    give exactly ``inst.numpy()``.
+    (every pre-SLP-3.0 file: hidden points' coordinates are cleared on read, by
+    sleap-io < 0.10 or by :func:`clear_legacy_hidden_points` for training) give
+    exactly ``inst.numpy()``.
     """
     return inst.numpy(invisible_as_nan=not supervise_occluded)
+
+
+#: First SLP ``format_id`` whose files can mark a point as labeled but not visible
+#: with a real estimated location (an occluded estimate).
+_OCCLUDED_ESTIMATE_FORMAT_ID = 3.0
+
+
+def clear_legacy_hidden_points(labels: Optional[sio.Labels]) -> int:
+    """Clear the stored coordinates of hidden points in labels read from an old file.
+
+    Files older than SLP format 3.0 cannot mark a point as an occluded estimate: a
+    hidden point's coordinates there are whatever was left behind when the node was
+    hidden (the SLEAP GUI keeps the last position), not an estimate. sleap-io < 0.10
+    cleared them on load. A sleap-io that loads old files unchanged reads them as
+    occluded estimates instead, which training would supervise and which would keep
+    an instance whose nodes are all hidden. This restores the old reading for
+    training, in place, only for labels that sleap-io reports as loaded from a file
+    older than format 3.0; labels from a format 3.0 file, or built in memory, are
+    left alone.
+
+    Args:
+        labels: Labels as loaded (before any split, which drops the source format).
+
+    Returns:
+        The number of points whose coordinates were cleared.
+    """
+    source = getattr(labels, "_source_format_id", None) if labels is not None else None
+    if source is None or float(source) >= _OCCLUDED_ESTIMATE_FORMAT_ID:
+        return 0
+    cleared = 0
+    for lf in labels.labeled_frames:
+        for inst in lf.instances:
+            pts = inst.points
+            hidden = ~np.asarray(pts["visible"], dtype=bool)
+            stale = hidden & np.isfinite(np.asarray(pts["xy"])).all(axis=-1)
+            if stale.any():
+                pts["xy"][stale] = np.nan
+                cleared += int(stale.sum())
+    if cleared:
+        logger.info(
+            f"Cleared the stored coordinates of {cleared} hidden point(s) of labels "
+            f"read from an SLP file older than format {_OCCLUDED_ESTIMATE_FORMAT_ID:g} "
+            "(such files cannot mark occluded estimates)."
+        )
+    return cleared
 
 
 def located_points(inst: sio.Instance) -> np.ndarray:

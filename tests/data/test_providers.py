@@ -696,3 +696,58 @@ def test_labels_reader_frames_out_of_range_warns(minimal_instance):
     assert len(messages) == 1
     assert "out of range" in messages[0]
     assert "[5, 6]" in messages[0]
+
+
+def test_clear_legacy_hidden_points(minimal_instance):
+    """Hidden points' stored coordinates are stale in pre-3.0 files: cleared for
+    training; format 3.0 files and in-memory labels keep their occluded estimates."""
+    from types import SimpleNamespace
+
+    from sleap_nn.data.providers import clear_legacy_hidden_points, instance_points
+
+    def make(source_format_id):
+        labels = sio.load_slp(minimal_instance)
+        inst0, inst1 = labels[0].instances[:2]
+        inst1.points["visible"][:] = False  # all hidden, coordinates kept
+        inst0.points["visible"][0] = False  # one hidden node, coordinates kept
+        # Only `labeled_frames` and the reported source format are read.
+        return SimpleNamespace(
+            labeled_frames=labels.labeled_frames, _source_format_id=source_format_id
+        ), (inst0, inst1)
+
+    old, (inst0, inst1) = make(1.4)
+    assert np.isfinite(inst1.points["xy"]).all()
+    assert clear_legacy_hidden_points(old) == 3
+    assert np.isnan(inst1.points["xy"]).all()
+    assert (
+        np.isnan(inst0.points["xy"][0]).all()
+        and np.isfinite(inst0.points["xy"][1]).all()
+    )
+    assert np.isnan(instance_points(inst0, supervise_occluded=True)[0]).all()
+    assert clear_legacy_hidden_points(old) == 0  # idempotent
+
+    for source in (3.0, None):
+        new, (inst0, inst1) = make(source)
+        assert clear_legacy_hidden_points(new) == 0
+        assert np.isfinite(inst1.points["xy"]).all()
+        assert np.isfinite(instance_points(inst0, supervise_occluded=True)).all()
+
+
+def test_model_trainer_clears_legacy_hidden_points_before_splitting(monkeypatch):
+    """The trainer applies the clean-up to every loaded file before its split."""
+    from sleap_nn.training import model_trainer as mt
+
+    seen = []
+    monkeypatch.setattr(mt, "clear_legacy_hidden_points", lambda lb: seen.append(lb))
+    trainer = mt.ModelTrainer.__new__(mt.ModelTrainer)
+    trainer.model_type = "bbox_detr"  # reaches the next step without a skeleton
+    sentinel = RuntimeError("stop after the clean-up")
+
+    def stop(*args, **kwargs):
+        raise sentinel
+
+    monkeypatch.setattr(mt.ModelTrainer, "_apply_centroids_from_masks", stop)
+    a, b, c = object(), object(), object()
+    with pytest.raises(RuntimeError, match="stop after the clean-up"):
+        trainer._setup_train_val_labels([a, b], [c])
+    assert seen == [a, b, c]
