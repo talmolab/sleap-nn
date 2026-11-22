@@ -447,17 +447,21 @@ trainer_config:
     gallery: true             # Prediction gallery (default on with use_wandb)
 ```
 
-With `use_wandb: true`, box detectors (`bbox_*`) and centered-instance models log a
-**prediction gallery** at the end of every validation epoch, independent of
+With `use_wandb: true`, box detectors (`bbox_*`), centered-instance models and bottom-up
+models (`bottomup`, `multi_class_bottomup`) log a **prediction gallery** at the end of every validation epoch, independent of
 `visualize_preds_during_training`:
 
 - `viz/gallery/val`: a fixed panel of up to `gallery_size` validation samples, chosen once
   per run and stratified by validation file (a seeded "typical" draw plus each file's
-  hardest samples: most animals / smallest box for detectors, smallest animal for pose).
+  hardest samples: most animals / smallest box for detectors, smallest animal for
+  top-down pose, most animals for bottom-up pose).
   The same samples are logged every time, so the W&B step slider shows them improving.
   Detectors use native W&B boxes (toggle ground truth / predictions, filter by score);
   pose crops are drawn with each file's own nodes and skeleton edges, with the median
-  error in the caption.
+  error in the caption. Bottom-up models show whole frames (downscaled to 640 px on the
+  long side): each predicted animal in its own color over the ground truth (thin green
+  skeleton, hollow green circles), drawn with sleap-io's renderer, with the ground-truth
+  and predicted animal counts and the median error of the paired animals in the caption.
 - `viz/gallery/train`: the first samples of the first training batch after each
   validation, as the model received them (augmented), with their targets.
 - `viz/gallery/seconds`, `viz/gallery/bytes`: time of the event, JPEG bytes so far.

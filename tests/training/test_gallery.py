@@ -417,3 +417,96 @@ def test_gallery_bbox_detr_training(config, tmp_path):
     assert len(cb.event_seconds) == cfg.trainer_config.max_epochs
     val, train = _logged_media(tmp_path / "det")
     assert val and train
+
+
+# --------------------------------------------------------------------------- #
+# Bottom-up models (whole frames, grouped animals)
+# --------------------------------------------------------------------------- #
+def test_draw_instances_without_opencv(monkeypatch):
+    monkeypatch.setattr(gallery, "cv2", None)  # drawn with sleap-io's renderer
+    img = np.zeros((100, 200, 3), dtype=np.uint8)
+    gt = np.array([[[20.0, 20.0], [60.0, 20.0]], [[120.0, 70.0], [np.nan, np.nan]]])
+    pred = gt[:1] + 2.0
+    # Training targets: the ground truth, each animal in its own color.
+    targets = gallery.draw_instances(img, [(0, 1)], gt=gt)
+    assert targets.shape == (100, 200, 3) and targets.dtype == np.uint8
+    assert targets[20, 40].any() and targets[70, 120].any()  # edge and lone node
+    assert not img.any()  # input not modified
+    # Predictions over the ground truth (green rings), downscaled to the long side.
+    drawn = gallery.draw_instances(img, [(0, 1)], gt=gt, pred=pred, long_side=100)
+    assert drawn.shape == (50, 100, 3)
+    ring = drawn[35 - 2 : 35 + 3, 60 - 2 : 60 + 3]  # GT node (120, 70) at x0.5
+    assert (ring[..., 1] > ring[..., 0]).any()
+    # No animals at all (an untrained model): just the frame.
+    empty = gallery.draw_instances(img, [], gt=None, pred=np.zeros((0, 2, 2)))
+    assert empty.shape == (100, 200, 3) and not empty.any()
+
+
+def test_instance_error_and_count_hardness():
+    gt = np.array([[[0.0, 0.0], [10.0, 0.0]], [[100.0, 100.0], [110.0, 100.0]]])
+    pred = np.array([[[103.0, 104.0], [110.0, 100.0]], [[1.0, 0.0], [np.nan, 0.0]]])
+    # Pairs: gt1-pred0 (errors 5, 0) and gt0-pred1 (error 1; one node missing).
+    assert gallery.instance_error(gt, pred) == 1.0
+    assert gallery.instance_error(gt, pred, nodes=[1]) == 0.0
+    assert np.isnan(gallery.instance_error(gt, np.zeros((0, 2, 2))))
+    assert np.isnan(gallery.instance_error(np.zeros((0, 2, 2)), pred))
+    h = gallery.instance_count_hardness([1, 3, 2, 0])
+    assert list(np.argsort(-h, kind="stable")) == [1, 2, 0, 3]
+    assert h[0] == -np.inf and h[3] == -np.inf
+
+
+def test_predict_instances_bottomup(minimal_instance_bottomup_ckpt):
+    from sleap_nn.training.lightning_modules import LightningModel
+
+    cfg = OmegaConf.load(f"{minimal_instance_bottomup_ckpt}/training_config.yaml")
+    module = LightningModel.get_lightning_model_from_config(cfg).eval()
+    frames = torch.randint(0, 255, (2, 1, 1, 64, 64), dtype=torch.uint8)
+    out = gallery.predict_instances(module, frames)
+    k = len(cfg.model_config.head_configs.bottomup.confmaps.part_names)
+    assert len(out) == 2
+    for pts, vals in out:
+        assert pts.ndim == 3 and pts.shape[1:] == (k, 2) and vals.shape == pts.shape[:2]
+
+
+def _bottomup_config(config, tmp_path, run_name):
+    cfg = config.copy()
+    head = cfg.model_config.head_configs.centered_instance
+    OmegaConf.update(cfg, "model_config.head_configs.bottomup", head)
+    del cfg.model_config.head_configs.bottomup["confmaps"].anchor_part
+    del cfg.model_config.head_configs.centered_instance
+    cfg.model_config.head_configs.bottomup["pafs"] = {
+        "edges": [("A", "B")],
+        "sigma": 4,
+        "output_stride": 4,
+        "loss_weight": 1.0,
+    }
+    OmegaConf.update(cfg, "trainer_config.trainer_accelerator", "cpu")
+    OmegaConf.update(cfg, "trainer_config.use_wandb", True)
+    OmegaConf.update(cfg, "trainer_config.save_ckpt", True)
+    OmegaConf.update(cfg, "trainer_config.ckpt_dir", str(tmp_path))
+    OmegaConf.update(cfg, "trainer_config.run_name", run_name)
+    OmegaConf.update(cfg, "trainer_config.wandb.delete_local_logs", False)
+    OmegaConf.update(cfg, "trainer_config.visualize_preds_during_training", False)
+    return cfg
+
+
+def test_gallery_bottomup_training(config, tmp_path):
+    from sleap_nn.training.model_trainer import ModelTrainer
+
+    cfg = _bottomup_config(config, tmp_path, "bu")
+    model_trainer = ModelTrainer.get_model_trainer_from_config(cfg)
+    model_trainer.train()
+    cb = _gallery_callback(model_trainer)
+    assert cb.enabled and cb.kind == "instances"
+    assert len(cb.event_seconds) == cfg.trainer_config.max_epochs
+    assert cb._panel and all(p["gt"].shape[1:] == (2, 2) for p in cb._panel)
+    val, train = _logged_media(tmp_path / "bu")
+    assert val and train
+    # Without W&B there is no gallery (and nothing of it runs).
+    cfg = _bottomup_config(config, tmp_path, "bu_off")
+    OmegaConf.update(cfg, "trainer_config.use_wandb", False)
+    model_trainer = ModelTrainer.get_model_trainer_from_config(cfg)
+    assert model_trainer._gallery_callback() is None
+    model_trainer.model_type = "multi_class_bottomup"
+    OmegaConf.update(model_trainer.config, "trainer_config.use_wandb", True)
+    assert model_trainer._gallery_callback().kind == "instances"
