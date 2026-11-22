@@ -111,6 +111,7 @@ from sleap_nn.training.callbacks import (
     BBoxEvaluationCallback,
     TilingEpochCallback,
     AugmentationStageCallback,
+    BalancedSamplerResume,
     EncoderFreezeSchedule,
     EmbeddingEvaluationCallback,
     EvalCadenceEarlyStopping,
@@ -3516,6 +3517,15 @@ class ModelTrainer:
         )
         if throughput_every:
             callbacks.append(ThroughputMonitor(log_every_n_steps=throughput_every))
+        if (
+            OmegaConf.select(
+                self.config, "trainer_config.balanced_sampler", default=None
+            )
+            is not None
+        ):
+            # Lightning restores the sampler's position only from a mid-epoch
+            # checkpoint; this covers `last.ckpt` / `best.ckpt` too.
+            callbacks.append(BalancedSamplerResume())
         freeze_cfg = OmegaConf.select(
             self.config, "trainer_config.freeze_schedule", default=None
         )

@@ -1753,7 +1753,9 @@ class BalancedDataLoader(DataLoader):
     It counts the batches it hands to the training loop (in the main process, so
     worker prefetching does not count) into the sampler's ``position``, and
     exposes ``state_dict`` / ``load_state_dict``, which Lightning stores in and
-    restores from the checkpoint's fit-loop state. Every rank resumes rank 0's
+    restores from the checkpoint's fit-loop state (from a mid-epoch checkpoint
+    only; :class:`~sleap_nn.training.callbacks.BalancedSamplerResume` restores it
+    from an end-of-epoch one such as ``last.ckpt``). Every rank resumes rank 0's
     position (ranks deliver the same number of batches) in its own stream. A
     checkpoint saved mid-epoch can be one batch ahead (Lightning fetches one batch
     in advance), so at most one batch is skipped on resume.
