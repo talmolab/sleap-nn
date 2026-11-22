@@ -126,6 +126,7 @@ nav:
     - Example Notebooks: tutorials/notebooks.md
   - Guides:
     - Overview: guides/overview.md
+    - Upgrading from 0.3: guides/upgrading-0.4.md
     - Training:
       - Overview: guides/training/overview.md
       - Training Guide: guides/training-guide.md
@@ -153,6 +154,7 @@ nav:
       - Semantic Segmentation: guides/semantic-segmentation.md
       - Bounding-Box Detection: guides/bbox-detection.md
       - Top-Down with a Box Detector: guides/bbox-topdown.md
+      - Part Stage: guides/part-stage.md
       - SAM-Prompted Segmentation: guides/sam-inference-segmentation.md
       - Performance: guides/inference-performance.md
     - Evaluation:

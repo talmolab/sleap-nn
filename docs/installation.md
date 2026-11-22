@@ -126,6 +126,50 @@ SLEAP-NN uses [**uv**](https://docs.astral.sh/uv/) for installation and environm
 
 ---
 
+## Optional Extras
+
+Some features need packages the default install leaves out. Add them as extras:
+
+```bash
+uv tool install "sleap-nn[backbones]" --torch-backend auto   # uv
+pip install "sleap-nn[backbones]"                             # pip
+```
+
+| Extra | Needed for |
+|-------|------------|
+| `backbones` | Pretrained Hugging Face / timm backbones, including every ViT backbone (DINOv2, DINOv3, ...) and the `bbox_detr` box detector |
+| `export` / `export-gpu` | ONNX export and ONNX Runtime (CPU / GPU) |
+| `tensorrt` | TensorRT engines (Linux and Windows) |
+| `coco` | `pycocotools`, only to cross-check the built-in COCO evaluator |
+| `sam` / `sam3` | SAM-prompted segmentation |
+
+## Which PyTorch Build You Get
+
+- **`uv tool install ... --torch-backend auto`** picks the PyTorch build that fits the
+  GPU and driver uv detects; `--torch-backend cu130`, `cu128` or `cpu` chooses one.
+- **From source**, `uv sync` installs the CUDA 13.0 build on Linux and Windows x86-64
+  (and the MPS build on macOS). This is the build sleap-nn is developed and tested
+  with. See [From Source](#from-source) for other builds.
+- **pip** installs whatever PyTorch build pip resolves from the indexes it is given.
+  That may not be the CUDA version your driver supports. Run `sleap-nn system` to see
+  which build you have, and use one of the index URLs in [pip](#pip) to choose.
+
+## Pretrained Weights
+
+Pretrained backbones are not shipped with sleap-nn. They are downloaded on first use
+and cached: Hugging Face Hub models (DINOv2, DINOv3, ConvNeXtV2, ...) under
+`~/.cache/huggingface`, and the ImageNet weights of the ConvNeXt and Swin backbones
+through torchvision. Each set of weights comes under its publisher's own terms, which
+apply to your trained models too. In particular, the DINOv3 weights, which the config
+generator's default `bbox_detr` preset and the ViT sample configs use, are under Meta's
+DINOv3 License, not an open-source licence. RF-DETR checkpoints imported with
+`sleap-nn import-rfdetr` are Apache-2.0; RF-DETR's PML-licensed models are refused.
+The licence of each tested backbone is listed in
+[Pretrained Backbones](guides/pretrained-backbones.md#tested-model-families); read
+the model card before you redistribute a model trained from it.
+
+---
+
 ## Updating
 
 
