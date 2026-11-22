@@ -428,3 +428,235 @@ def test_track_rejects_memory_format():
     assert result.exit_code != 0
     assert "memory_format" in result.output
     assert not mock_run.called
+
+
+# ── `--precision {32,bf16,fp16}` ─────────────────────────────────────────────
+
+
+def _flat(result) -> str:
+    """ANSI-stripped, whitespace-collapsed CLI output (rich-click wraps by width)."""
+    import re
+
+    text = re.sub(r"\x1b\[[0-9;]*m", "", result.output).replace("│", " ")
+    return " ".join(text.split())
+
+
+def _exported_dir(tmp_path, name: str, with_ckpt: bool = False) -> str:
+    """A directory that looks like an exported model (``model.onnx`` inside)."""
+    d = tmp_path / name
+    d.mkdir()
+    (d / "model.onnx").write_bytes(b"")
+    if with_ckpt:
+        (d / "best.ckpt").write_bytes(b"")
+    return str(d)
+
+
+def test_precision_flag_reaches_predict():
+    """``--precision`` is passed on to ``run.predict`` ("32" by default)."""
+    runner = CliRunner()
+    for args, expected in (
+        ([], "32"),
+        (["--precision", "32"], "32"),
+        (["--precision", "bf16"], "bf16"),
+        (["--precision", "fp16"], "fp16"),
+    ):
+        with patch(
+            "sleap_nn.inference.run.predict",
+            return_value=MagicMock(),
+        ) as mock_predict:
+            result = runner.invoke(
+                cli,
+                [
+                    "predict",
+                    "--data_path",
+                    "/fake/path.mp4",
+                    "--model_paths",
+                    "/fake/model",
+                ]
+                + args,
+            )
+        assert result.exit_code == 0, result.output
+        assert mock_predict.call_args.kwargs["precision"] == expected
+
+
+def test_precision_flag_reaches_stream_to_file_predictor(tmp_path):
+    """On the ``--stream-to-file`` route the predictor is built with it."""
+    out = tmp_path / "out.slp"
+    runner = CliRunner()
+    for args, expected in (([], "32"), (["--precision", "fp16"], "fp16")):
+        stub_predictor = MagicMock()
+        stub_predictor.predict_to_file.return_value = str(out)
+        with (
+            patch(
+                "sleap_nn.inference.predictor.Predictor.from_model_paths",
+                return_value=stub_predictor,
+            ) as mock_factory,
+            patch("sleap_nn.inference.providers.VideoProvider"),
+        ):
+            result = runner.invoke(
+                cli,
+                [
+                    "predict",
+                    "--data_path",
+                    "/fake/path.mp4",
+                    "--model_paths",
+                    "/fake/model",
+                    "--stream-to-file",
+                    str(out),
+                ]
+                + args,
+            )
+        assert result.exit_code == 0, result.output
+        assert mock_factory.call_args.kwargs["precision"] == expected
+        assert stub_predictor.predict_to_file.called
+
+
+def test_precision_flag_rejects_unknown_value():
+    """Only ``32`` / ``bf16`` / ``fp16`` are accepted."""
+    for value in ("16", "fp32", "half"):
+        with patch(
+            "sleap_nn.inference.run.predict", return_value=MagicMock()
+        ) as mock_predict:
+            result = CliRunner().invoke(
+                cli,
+                [
+                    "predict",
+                    "--data_path",
+                    "/fake/path.mp4",
+                    "--model_paths",
+                    "/fake/model",
+                    "--precision",
+                    value,
+                ],
+            )
+        assert result.exit_code != 0
+        assert "precision" in result.output
+        assert not mock_predict.called
+
+
+def test_track_rejects_precision():
+    """`--precision` is a `predict` (new flow) flag; legacy `track` refuses it."""
+    runner = CliRunner()
+    with patch(
+        "sleap_nn.legacy_predict.run_inference", return_value=MagicMock()
+    ) as mock_run:
+        result = runner.invoke(
+            cli,
+            [
+                "track",
+                "--data_path",
+                "/fake/path.mp4",
+                "--model_paths",
+                "/fake/model",
+                "--precision",
+                "fp16",
+            ],
+        )
+    assert result.exit_code != 0
+    assert "precision" in result.output
+    assert not mock_run.called
+
+
+def test_precision_refused_when_every_model_is_exported(tmp_path):
+    """No trained checkpoint to run under it: refused before anything loads.
+
+    A single ``-m`` export directory takes the exported route whatever else it
+    holds; an exported pose model with an exported ``--part_model`` likewise has
+    no checkpoint.
+    """
+    one = _exported_dir(tmp_path, "one")
+    two = _exported_dir(tmp_path, "two")
+    with_ckpt = _exported_dir(tmp_path, "with_ckpt", with_ckpt=True)
+    rule = tmp_path / "rule.json"
+    rule.write_text("{}")
+    for models in (
+        ["-m", one],
+        ["-m", with_ckpt],
+        ["-m", one, "-m", two],
+        ["-m", one, "--part_model", two, "--part_crop_rule", str(rule)],
+    ):
+        with (
+            patch(
+                "sleap_nn.inference.run.predict", return_value=MagicMock()
+            ) as mock_predict,
+            patch(
+                "sleap_nn.inference.predictor.Predictor.from_model_paths"
+            ) as mock_factory,
+        ):
+            result = CliRunner().invoke(
+                cli,
+                ["predict", "-i", "/fake/path.mp4", "--precision", "fp16"] + models,
+            )
+        assert result.exit_code != 0, models
+        flat = _flat(result)
+        assert "--precision fp16 applies to trained checkpoints only" in flat
+        assert "keeps the precision it was exported with" in flat
+        assert not mock_predict.called and not mock_factory.called
+
+
+def test_precision_accepted_when_a_checkpoint_runs_under_it(tmp_path):
+    """Checkpoints among exported directories run under it; ``32`` is always fine.
+
+    Among several ``-m`` (and for ``--part_model``) a directory that holds
+    ``best.ckpt`` is loaded as that checkpoint.
+    """
+    one = _exported_dir(tmp_path, "one")
+    ckpt_a = _exported_dir(tmp_path, "ckpt_a", with_ckpt=True)
+    ckpt_b = _exported_dir(tmp_path, "ckpt_b", with_ckpt=True)
+    for args, expected in (
+        (["-m", one, "-m", "/fake/checkpoint", "--precision", "bf16"], "bf16"),
+        (["-m", ckpt_a, "-m", ckpt_b, "--precision", "fp16"], "fp16"),
+        (["-m", one, "--precision", "32"], "32"),
+        (["-m", one], "32"),
+    ):
+        with patch(
+            "sleap_nn.inference.run.predict", return_value=MagicMock()
+        ) as mock_predict:
+            result = CliRunner().invoke(cli, ["predict", "-i", "/fake/path.mp4"] + args)
+        assert result.exit_code == 0, result.output
+        assert mock_predict.call_args.kwargs["precision"] == expected
+
+
+def test_precision_refused_on_routes_that_load_no_checkpoint():
+    """Tracking-only, SAM masks and the embedding route refuse it by name."""
+    reid = "not supported with an `embedding` (re-ID) model"
+    for args, has_embedding_model, expected in (
+        (
+            ["-i", "/fake/labels.slp", "--tracking"],
+            False,
+            "a tracking-only run loads no model",
+        ),
+        (
+            ["-i", "/fake/labels.slp", "--mask_backend", "sam"],
+            False,
+            "not supported with --mask_backend",
+        ),
+        # A lone embedding model, and one fused with a detection model.
+        (
+            ["-i", "/fake/labels.slp", "-m", "/fake/reid", "--save_embeddings", "slp"],
+            True,
+            reid,
+        ),
+        (
+            ["-i", "/fake/video.mp4", "-m", "/fake/centroid", "-m", "/fake/reid"]
+            + ["--tracking"],
+            True,
+            reid,
+        ),
+    ):
+        with (
+            patch(
+                "sleap_nn.inference.run.predict", return_value=MagicMock()
+            ) as mock_predict,
+            patch("sleap_nn.inference.predictor.Predictor.retrack") as mock_retrack,
+            patch(
+                "sleap_nn.inference.embedding.predict_embeddings_to_slp"
+            ) as mock_embed,
+            patch(
+                "sleap_nn.cli._has_embedding_model", return_value=has_embedding_model
+            ),
+        ):
+            result = CliRunner().invoke(cli, ["predict", "--precision", "bf16"] + args)
+        assert result.exit_code != 0, args
+        assert expected in _flat(result), _flat(result)
+        assert not (mock_predict.called or mock_retrack.called or mock_embed.called)

@@ -23,10 +23,12 @@ repository. Time your own setup (see [When to re-benchmark](#when-to-re-benchmar
     - **`--device cuda`** — the only flag that matters for large videos.
     - **`--batch_size 4`** is a good starting point; raise to 8 / 16 if
       VRAM allows.
-    - **FP16** delivers the biggest single-flag win (~1.5× on UNets).
-      It has no CLI flag yet; turn it on from Python (see [FP16](#fp16)).
+    - **FP16** (`--precision fp16`) delivers the biggest single-flag win
+      (~1.5× on UNets) at batch sizes of about 8 and up. Results differ
+      slightly from fp32 (see
+      [Reduced precision](#reduced-precision-precision)).
     - **`torch.compile`** adds another ~1.2-1.3×, but pays a 0.5-3 s
-      compile cost — only worth it on long videos. Also Python-only (see
+      compile cost — only worth it on long videos. Python-only (see
       [`torch.compile`](#torchcompile)).
     - **`paf_workers=0`** is the right default. Workers are a net loss
       for typical bottom-up workloads at fixture-checkpoint scale.
@@ -92,27 +94,82 @@ inference.
 
 ## Per-flag deep dive
 
-### FP16
+### Reduced precision (`precision`)
 
-Enable **CUDA-only**; on MPS the kernels exist but tensor cores don't,
-so there's no speedup (and we warn).
+`sleap-nn predict --precision fp16` or `--precision bf16` (or
+`precision="fp16"` on `Predictor.from_model_paths` /
+`sleap_nn.inference.predict`) runs the forward pass of every model in the
+composition (both models of a top-down pair, a part model, ...) under
+`torch.autocast` with that dtype. The weights stay fp32 and the outputs are
+cast back to fp32 before peak finding. The default, `32`, is strict fp32.
 
-FP16 and `torch.compile` are fields of each model's `TorchBackend`. A
-top-down predictor has two models (`predictor.layer.centroid_layer` and
-`predictor.layer.centered_instance_layer`), so set them on both stages.
-`torch.compile` is applied only when a backend is **built**, so setting
+```bash
+sleap-nn predict -i video.mp4 -m models/centroid/ -m models/centered_instance/ \
+    --device cuda --batch_size 16 --upload_batches --memory_format channels_last \
+    --precision fp16
+```
+
+- **CUDA only.** On CPU and MPS the models run in fp32 as without the option,
+  and a warning says so (on MPS the half-precision kernels exist but tensor
+  cores don't, so there would be no speedup).
+- **Results differ slightly from fp32.** See the measurements below; check
+  the accuracy on your own data before relying on it.
+- **It needs a large enough batch.** On the A40 above, fp16 ran the
+  single-instance UNet at 0.65× the fp32 speed at batch size 1 and 1.5× at
+  batch size 16: at small batches the tensor cores aren't saturated.
+- **`bf16`** keeps fp32's range with fewer significant bits, and needs an
+  Ampere or newer NVIDIA GPU. It is what a model trained with
+  `trainer_config.precision: bf16-mixed` was validated under.
+- **Trained checkpoints only.** An exported ONNX/TensorRT model keeps the
+  precision it was exported with (`sleap-nn export --precision`), so `predict`
+  refuses `--precision bf16` / `fp16` when no model is a checkpoint. In a
+  pipeline that mixes checkpoints with network-only exports, the checkpoints
+  run under it and a warning says how many models are exported. It is also
+  refused for tracking-only runs, `--mask_backend` and `embedding` (re-ID)
+  models, and `track` does not have it.
+
+Two top-down pairs on an NVIDIA A100 (PCIe 40 GB), batch size 16, both with
+`--upload_batches --memory_format channels_last`, timed without model loading:
+
+| Pair | Frames | fp32 | fp16 | Speed-up |
+|---|---:|---:|---:|---:|
+| Large UNets (650M + 780M parameters), 5 animals, 1024×1280 | 3,600 | 140 s | 74 s | 1.9× |
+| Small centroid model + large centered-instance model, 2 animals, 1024×1280 | 9,000 | 50.5 s | 32.7 s | 1.5× |
+
+Against hand labels (100 + 642 held-out animals, 400 + 602 training animals)
+fp16 read the same animals correctly as fp32 within one animal per set, and
+the median node error moved by at most 0.015 px. On the videos, the median
+node moved 0.002 px; of the readings that moved more than 5 px (about 0.4% of
+instances), fp16's fitted their neighbouring frames better at least as often
+as fp32's. On the fixture models the confidence maps differ from fp32 by up
+to ~4e-3 and the keypoints by at most 0.001 px.
+
+| Reason to enable | Reason to skip |
+|---|---|
+| Long videos on CUDA at batch sizes of about 8 and up | CPU / Mac (MPS): no effect |
+| VRAM-constrained: half-precision activations take half the memory | Results must match earlier fp32 runs |
+| | Small batches (it can be slower at batch size 1) |
+
+### `torch.compile`
+
+Mode: `reduce-overhead` (CUDA-graph capture), `dynamic=False`.
+
+`torch.compile` has no command-line option. It is a field of each model's
+`TorchBackend`, and it is applied only when a backend is **built**, so setting
 `use_compile = True` on an existing backend does nothing; build a new backend
-around the same model instead. This helper does both, for any trained-checkpoint
-model type (a tiled model runs its inner layer's backend, so the helper rebuilds
-that one):
+around the same model instead. A top-down predictor has two models
+(`predictor.layer.centroid_layer` and `predictor.layer.centered_instance_layer`),
+and a tiled model runs its inner layer's backend. This helper rebuilds every
+backend of a trained-checkpoint predictor, keeping its precision and memory
+format:
 
 ```python
 from sleap_nn.inference import Predictor
 from sleap_nn.inference.layers.backends.torch_backend import TorchBackend
 
 
-def use_fast_backends(predictor, fp16=True, compile=True):
-    """Rebuild every model backend of `predictor` with FP16 / torch.compile."""
+def use_compiled_backends(predictor):
+    """Rebuild every model backend of `predictor` with torch.compile."""
     layer = predictor.layer
     stages = [
         getattr(layer, name)
@@ -125,36 +182,18 @@ def use_fast_backends(predictor, fp16=True, compile=True):
         stage.backend = TorchBackend(
             model=old.model,
             device=old.device,
-            use_fp16=fp16,
-            use_compile=compile,
+            use_compile=True,
+            autocast_dtype=old.autocast_dtype,  # set by `precision=`
             memory_format=old.memory_format,
         )
 
 
 predictor = Predictor.from_model_paths(["models/my_model/"], device="cuda")
-use_fast_backends(predictor, fp16=True, compile=False)
+use_compiled_backends(predictor)
 ```
 
 This works for trained checkpoints only (an exported ONNX/TensorRT model has
 no `TorchBackend`).
-
-| Reason to enable | Reason to skip |
-|---|---|
-| Long videos on CUDA where ~1.5× matters | Mac (MPS): no speedup |
-| VRAM-constrained — FP16 also halves activation memory | Tasks with very tight accuracy budgets — FP16 introduces ~4e-3 numerical drift vs FP32 (autocast policy) |
-
-The drift typically doesn't affect keypoint coordinates beyond
-sub-pixel noise. We've seen `max |Δ| ≤ 0.001 px` on every fixture in
-the parity bench, but always benchmark your own checkpoint before
-shipping FP16 to production.
-
-### `torch.compile`
-
-Mode: `reduce-overhead` (CUDA-graph capture), `dynamic=False`.
-
-```python
-use_fast_backends(predictor, fp16=False, compile=True)  # helper from FP16 above
-```
 
 | Reason to enable | Reason to skip |
 |---|---|
@@ -314,8 +353,9 @@ predictor = Predictor.from_model_paths(
     batch_size=8,
     upload_batches=True,
     memory_format="channels_last",  # NVIDIA
+    precision="fp16",  # CUDA
 )
-use_fast_backends(predictor, fp16=True, compile=True)  # helper from FP16 above
+use_compiled_backends(predictor)  # helper from `torch.compile` above
 
 labels = predictor.predict("long_video.mp4")
 labels.save("predictions.slp")

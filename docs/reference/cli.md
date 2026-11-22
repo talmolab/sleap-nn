@@ -335,7 +335,8 @@ overrides, checkpoint paths, `--anchor_part`, `--centroid_only`, the PAF options
 segmentation and box options were baked in at export time or do not exist there:
 they are ignored without a warning. `--max_instances`, `--min_instance_peaks`,
 `--min_line_scores`, `--centroid_output`, `--paf-workers`, the filters and tracking
-still apply. See [Running exported models](../guides/inference-guide.md#running-exported-models-onnxtensorrt).
+still apply. `--precision bf16` / `fp16` is refused: an exported model keeps the
+precision it was exported with. See [Running exported models](../guides/inference-guide.md#running-exported-models-onnxtensorrt).
 
 | Option | Description | Values | Default |
 |--------|-------------|--------|---------|
@@ -343,6 +344,7 @@ still apply. See [Running exported models](../guides/inference-guide.md#running-
 | `--upload_batches` | CUDA: copy each batch to the GPU before resizing/cropping (checkpoints only). See [Performance](../guides/inference-performance.md#batches-on-the-gpu-upload_batches) | Flag | `false` |
 | `--frames_on_gpu` | Top-down pipelines only: move each batch of frames to the GPU before stage 1, so the detector's resize / letterbox and the crops' frame-size match run there instead of on the CPU. Results are not bit-identical to the CPU resize | Flag | `false` |
 | `--memory_format` | Model weight layout; `channels_last` is faster on NVIDIA GPUs (checkpoints only) | `contiguous`, `channels_last` | `contiguous` |
+| `--precision` | CUDA: `bf16` / `fp16` run every model's forward pass under `torch.autocast` (weights and outputs stay fp32); `32` is strict fp32. Results differ slightly from fp32. No effect on CPU / MPS, with a warning. Checkpoints only: refused when every model is exported (an exported model keeps the precision it was exported with). See [Performance](../guides/inference-performance.md#reduced-precision-precision) | `32`, `bf16`, `fp16` | `32` |
 | `--paf-workers` | CPU worker processes for bottom-up PAF grouping (`0` = in-process). `--cpu-workers` is a deprecated alias | `INT` | `0` |
 
 ### Examples
@@ -392,7 +394,7 @@ grouping, filtering and classic-tracker options above, plus `--gui` and
 `--queue_maxsize` (size of the frame-buffer queue, default `32`). It does
 **not** support:
 
-- exported ONNX/TensorRT models (`--runtime`), `--upload_batches`, `--memory_format`, `--paf-workers`, `--stream-to-file`
+- exported ONNX/TensorRT models (`--runtime`), `--upload_batches`, `--memory_format`, `--precision`, `--paf-workers`, `--stream-to-file`
 - `--centroid_peak_threshold`, the `--peak-conf-threshold` alias (use `--peak_threshold`) and `--filter_min_centroid_distance`
 - centroid-only output, segmentation, box detectors and SAM masks
 - the modern MOT trackers (`--tracker` and its options), `--link_tracklets`, `--appearance_weight` / `--euclidean_scale`
