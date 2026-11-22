@@ -519,3 +519,101 @@ def test_cli_detect_boxes(tmp_path):
     assert res.exit_code != 0 and "exists" in res.output
     res = runner.invoke(cli, ["detect-boxes", "-i", str(src)])
     assert res.exit_code != 0 and "exactly one" in res.output
+
+
+def _coco_dets(tmp_path):
+    dets = tmp_path / "dets.json"
+    dets.write_text(
+        json.dumps(
+            [{"image_id": 1, "category_id": 1, "bbox": [9, 9, 24, 41], "score": 0.9}]
+        )
+    )
+    return dets
+
+
+def test_detect_boxes_save_options(tmp_path):
+    """Unset save options pass nothing new; set ones reach ``save_slp``."""
+    from unittest.mock import patch
+
+    labels, _, _ = _labels(tmp_path)
+    src = tmp_path / "train.slp"
+    labels.save(str(src))
+    dets = _coco_dets(tmp_path)
+    real_save = sio.save_slp
+    calls = []
+
+    def _spy(labels, path, **kwargs):
+        calls.append(kwargs)
+        return real_save(labels, path, **kwargs)
+
+    # autospec keeps save_slp's signature, which the option bridge inspects.
+    with patch(
+        "sleap_nn.inference.detect_boxes.sio.save_slp", autospec=True, side_effect=_spy
+    ):
+        detect_boxes(src, tmp_path / "a.slp", detections=dets)
+        _, out = detect_boxes(
+            src,
+            tmp_path / "b.slp",
+            detections=dets,
+            slp_version="v3",
+            compression="gzip",
+        )
+    assert calls[0] == {"embed": False}
+    assert calls[1]["compression"] == "gzip"
+    with h5py.File(out) as f:
+        assert float(f["metadata"].attrs["format_id"]) >= 3.0
+    back = sio.load_slp(str(out), open_videos=False)
+    assert [b.metadata.get("match_iou") for b in _pred(back[0])][0] > 0.5
+
+
+def test_detect_boxes_refuses_v2(tmp_path):
+    """The 2.x layout cannot keep each box's matching score: refused up front."""
+    with pytest.raises(ValueError, match="only the SLP 3.0 layout"):
+        detect_boxes(tmp_path / "missing.slp", detections="d.json", slp_version="v2")
+    with pytest.raises(ValueError, match="slp_version"):
+        detect_boxes(tmp_path / "missing.slp", detections="d.json", slp_version="v1")
+    with pytest.warns(UserWarning, match="only to embedded frames"):
+        labels, _, _ = _labels(tmp_path)
+        src = tmp_path / "w.slp"
+        labels.save(str(src))
+        detect_boxes(src, detections=_coco_dets(tmp_path), image_format="png")
+
+
+def test_cli_detect_boxes_save_options(tmp_path):
+    from unittest.mock import patch
+
+    from sleap_nn.cli import cli
+
+    labels, _, _ = _labels(tmp_path)
+    src = tmp_path / "train.slp"
+    labels.save(str(src))
+    args = ["detect-boxes", "-i", str(src), "--detections", str(_coco_dets(tmp_path))]
+    runner = CliRunner()
+
+    res = runner.invoke(cli, args + ["--slp_version", "v2"])
+    assert res.exit_code != 0
+    assert "SLP 3.0" in " ".join(res.output.replace("│", " ").split())
+    assert not (tmp_path / "train.dets.slp").exists()
+
+    stats = dict.fromkeys(
+        ["people", "matched", "unmatched", "boxes_added", "boxes_linked"], 0
+    )
+    stats.update(recall_iou50=0.0, recall_iou75=0.0, mean_iou_matched=0.0)
+    with patch(
+        "sleap_nn.inference.detect_boxes.detect_boxes", return_value=(stats, None)
+    ) as run:
+        res = runner.invoke(cli, args + ["--dry_run"])
+        assert res.exit_code == 0, res.output
+        assert not set(run.call_args.kwargs) & {
+            "slp_version",
+            "image_format",
+            "image_quality",
+            "compression",
+            "unlabeled_as",
+        }
+        res = runner.invoke(
+            cli, args + ["--slp_version", "auto", "--compression", "lzf"]
+        )
+        assert res.exit_code == 0, res.output
+        kw = run.call_args.kwargs
+        assert kw["slp_version"] == "auto" and kw["compression"] == "lzf"
