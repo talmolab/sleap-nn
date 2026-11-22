@@ -26,6 +26,18 @@ Distillation", 2023, arXiv 2307.15880), configured by
    teacher's head runs on the student's own (shared) backbone features, so the
    backbone runs once per step.
 
+**Box detectors** (``bbox_centernet``, ``bbox_ssd``, ``bbox_detr``; experimental,
+stage 1 only; `BoxDistiller`): a trained box detector of any of the three styles
+teaches another. The loss is the supervised loss plus
+``r(t) * (alpha * L_feat + beta * L_box)``, with ``L_feat`` as above (a DETR
+backbone's feature is its last tapped token map) and ``L_box`` the student's own
+detection loss against the teacher's detections on the same training input
+(scores >= ``teacher_score_threshold``, categories matched by name) used as
+targets, encoded by the student's own target encoder. A detector's outputs (set
+queries, anchors, center heatmaps) do not line up between two models, so the
+teacher's decoded boxes are the shared language: this works across styles and
+input sizes.
+
 Design: a `Distiller` is a component of the `LightningModel` (its
 ``distiller`` attribute), not a subclass or a wrapper. The supported training
 steps call ``LightningModel._forward_train`` (which asks the network for its
@@ -68,12 +80,16 @@ from sleap_nn.training.weight_transfer import (
     set_requires_grad,
 )
 
-# Model types whose training step adds the distillation loss.
-DISTILLATION_MODEL_TYPES = (
+# Confidence-map model types whose training step adds the distillation loss.
+POSE_DISTILLATION_MODEL_TYPES = (
     "single_instance",
     "centered_instance",
     "multi_class_topdown",
 )
+# Box detectors that learn from a box-detector teacher (stage 1; `BoxDistiller`).
+BOX_DISTILLATION_MODEL_TYPES = ("bbox_centernet", "bbox_ssd", "bbox_detr")
+# Model types whose training step adds the distillation loss.
+DISTILLATION_MODEL_TYPES = POSE_DISTILLATION_MODEL_TYPES + BOX_DISTILLATION_MODEL_TYPES
 # Checkpoint key that holds the distiller's own weights (the projector).
 CHECKPOINT_KEY = "distillation"
 # State-dict prefix of the distiller inside the LightningModel.
@@ -123,6 +139,8 @@ def load_teacher_model(path: str) -> Tuple[nn.Module, DictConfig]:
     backbone_cfg = copy.deepcopy(cfg.model_config.backbone_config[backbone_type])
     if backbone_type == "pretrained":
         backbone_cfg.weights = False  # the checkpoint has every weight
+    elif backbone_type == "dinov2_windowed" and "weights" in backbone_cfg:
+        backbone_cfg.weights = None  # (a DETR backbone) likewise
     model = Model(
         backbone_type=backbone_type,
         backbone_config=backbone_cfg,
@@ -173,8 +191,13 @@ def shared_node_channels(
     return list(s_idx), list(t_idx)
 
 
-def backbone_feature(backbone_outputs: Dict[str, Any]) -> torch.Tensor:
-    """The distilled feature: a plain ViT's last tap, else the bottleneck."""
+def backbone_feature(backbone_outputs: Any) -> torch.Tensor:
+    """The distilled feature: a plain ViT's last tap, else the bottleneck.
+
+    A ``bbox_detr`` backbone returns its tapped token maps as a list: the last.
+    """
+    if isinstance(backbone_outputs, (list, tuple)):
+        return backbone_outputs[-1]
     feat = backbone_outputs.get("last_tap")
     return backbone_outputs["middle_output"] if feat is None else feat
 
@@ -453,7 +476,12 @@ def _probe_features(model: nn.Module, size: int) -> Tuple[int, Tuple[int, int]]:
     model.eval()
     try:
         in_ch = int(model.backbone_config.in_channels)
-        _, bb = model(torch.zeros(1, in_ch, size, size), return_backbone_outputs=True)
+        x = torch.zeros(1, in_ch, size, size)
+        if getattr(model, "model_type", None) == "bbox_detr":
+            # The backbone alone: the detector needs more tokens than queries.
+            bb = model.backbone(x)
+        else:
+            _, bb = model(x, return_backbone_outputs=True)
     finally:
         model.train(was_training)
     feat = backbone_feature(bb)
@@ -490,6 +518,255 @@ def _check_sigma(student: nn.Module, teacher_cfg: DictConfig, scale: float) -> N
         )
 
 
+class BoxDistiller(Distiller):
+    """Stage-1 distillation of a box detector by a box-detector teacher.
+
+    Experimental. Adds ``r(t) * (alpha * L_feat + beta * L_box)`` to the
+    supervised loss (see the module docstring). Build it with
+    `attach_distillation`.
+
+    Attributes:
+        teacher_type: The teacher's model type (``bbox_*``).
+        teacher_decoder: The teacher's `BBoxDecoder` at ``score_threshold``.
+        class_map: Per teacher category, the student category id (``-1``: none).
+        score_threshold: Teacher detections below this score are not targets.
+        target_encoder: The student's own target encoder.
+    """
+
+    def __init__(
+        self,
+        teacher: nn.Module,
+        teacher_type: str,
+        teacher_decoder: Any,
+        class_map: List[int],
+        target_encoder: Any,
+        score_threshold: float = 0.5,
+        alpha: float = 1.0,
+        beta: float = 1.0,
+        supervised_weight: Optional[float] = None,
+        decay: Optional[str] = None,
+        teacher_input_scale: float = 1.0,
+        teacher_bf16: bool = True,
+        projector: Optional[nn.Module] = None,
+    ):
+        """Initialize from resolved settings (see `attach_distillation`)."""
+        super().__init__(
+            teacher,
+            stage=1,
+            student_head="",
+            teacher_head="",
+            student_idx=[],
+            teacher_idx=[],
+            alpha=alpha,
+            beta=beta,
+            supervised_weight=supervised_weight,
+            decay=decay,
+            teacher_input_scale=teacher_input_scale,
+            teacher_bf16=teacher_bf16,
+            projector=projector,
+        )
+        self.teacher_type = teacher_type
+        self.teacher_decoder = teacher_decoder
+        self.class_map = [int(c) for c in class_map]
+        self.target_encoder = target_encoder
+        self.score_threshold = float(score_threshold)
+
+    @torch.no_grad()
+    def run_box_teacher(self, x: torch.Tensor) -> Tuple[List, Optional[torch.Tensor]]:
+        """The teacher's detections on ``x`` (in ``x``'s pixels) and its feature.
+
+        The teacher reads ``x`` resampled by ``teacher_input_scale`` to a multiple
+        of its ``max_stride``; its boxes are scaled back to ``x``.
+
+        Args:
+            x: The student's normalized input ``(B, C, H, W)``.
+
+        Returns:
+            ``([(boxes (n, 4), classes (n,)) per image], feature or None)``:
+            boxes in ``x`` pixels, classes as student category ids.
+        """
+        stride = _max_stride(self.teacher)
+        h, w = x.shape[-2:]
+        th, tw = (
+            max(stride, int(round(d * self.teacher_input_scale / stride)) * stride)
+            for d in (h, w)
+        )
+        xt = x
+        if (th, tw) != (h, w):
+            xt = F.interpolate(x, size=(th, tw), mode="bilinear", align_corners=False)
+        use_bf16 = self.teacher_bf16 and x.is_cuda
+        with torch.autocast("cuda", dtype=torch.bfloat16, enabled=use_bf16):
+            raw, t_bb = self.teacher(xt, return_backbone_outputs=True)
+        raw = _float_tree(raw)
+        if self.teacher_type == "bbox_centernet":
+            raw = dict(raw)
+            raw["BBoxCenterHead"] = torch.sigmoid(raw["BBoxCenterHead"])
+        boxes, scores, classes = self.teacher_decoder(raw, img_hw=(th, tw))
+        scale = boxes.new_tensor([w / tw, h / th, w / tw, h / th])
+        class_map = torch.as_tensor(self.class_map, device=classes.device)
+        out = []
+        for b, sc, c in zip(boxes.float(), scores.float(), classes.long()):
+            keep = torch.isfinite(sc) & (sc >= self.score_threshold)
+            b, c = b[keep] * scale, class_map[c[keep].clamp(min=0)]
+            b = torch.stack(
+                [b[:, 0].clamp(0, w), b[:, 1].clamp(0, h)]
+                + [b[:, 2].clamp(0, w), b[:, 3].clamp(0, h)],
+                dim=-1,
+            )
+            keep = (c >= 0) & (b[:, 2] - b[:, 0] >= 1) & (b[:, 3] - b[:, 1] >= 1)
+            out.append((b[keep], c[keep]))
+        feat = None
+        if self.projector is not None:
+            feat = backbone_feature(t_bb).float()
+        return out, feat
+
+    def pseudo_targets(
+        self, detections: List, img_hw: Tuple[int, int], device: torch.device
+    ) -> Dict[str, torch.Tensor]:
+        """The teacher's detections as a batch of the student's training targets."""
+        if hasattr(self.target_encoder, "max_targets"):
+            self.target_encoder.max_targets = max([1] + [len(b) for b, _ in detections])
+        encoded = [
+            self.target_encoder(b.cpu(), c.cpu(), tuple(img_hw)) for b, c in detections
+        ]
+        return {k: torch.stack([e[k] for e in encoded]).to(device) for k in encoded[0]}
+
+    def box_loss_terms(
+        self,
+        student: nn.Module,
+        x: torch.Tensor,
+        outputs: Dict[str, Any],
+        backbone_outputs: Any,
+    ) -> Tuple[Dict[str, torch.Tensor], float]:
+        """Unweighted terms ``{"box": ..., "feat": ...}`` and the teacher's box count.
+
+        Args:
+            student: The student `_BBoxLightningModel` (its ``_compute_losses``).
+            x: The student's normalized training input.
+            outputs: The student's raw head outputs.
+            backbone_outputs: The student's backbone outputs.
+
+        Returns:
+            ``(terms, mean teacher boxes per image)``.
+        """
+        detections, t_feat = self.run_box_teacher(x)
+        targets = self.pseudo_targets(detections, tuple(x.shape[-2:]), x.device)
+        box_loss, _ = student._compute_losses(outputs, targets)
+        terms = {"box": box_loss}
+        if self.projector is not None and t_feat is not None:
+            s_feat = backbone_feature(backbone_outputs)
+            if t_feat.shape[-2:] != s_feat.shape[-2:]:
+                t_feat = F.interpolate(
+                    t_feat, size=s_feat.shape[-2:], mode="bilinear", align_corners=False
+                )
+            terms["feat"] = F.mse_loss(self.projector(s_feat).float(), t_feat)
+        n_boxes = sum(len(b) for b, _ in detections) / max(len(detections), 1)
+        return terms, float(n_boxes)
+
+    def combine(
+        self, supervised: torch.Tensor, terms: Dict[str, torch.Tensor], r: float
+    ) -> torch.Tensor:
+        """The loss to optimize: ``supervised_weight * L + r * (beta L_box + alpha L_feat)``."""
+        kd = self.beta * terms["box"]
+        if "feat" in terms:
+            kd = kd + self.alpha * terms["feat"]
+        total = r * kd
+        if self.supervised_weight:
+            total = total + self.supervised_weight * supervised
+        return total
+
+
+def _float_tree(outputs: Any) -> Any:
+    """Nested dicts / lists of tensors with half-precision floats as float32."""
+    if isinstance(outputs, torch.Tensor):
+        half = outputs.dtype in (torch.float16, torch.bfloat16)
+        return outputs.float() if half else outputs
+    if isinstance(outputs, dict):
+        return {k: _float_tree(v) for k, v in outputs.items()}
+    if isinstance(outputs, (list, tuple)):
+        return [_float_tree(v) for v in outputs]
+    return outputs
+
+
+def _attach_box_distillation(student: nn.Module, get) -> BoxDistiller:
+    """`attach_distillation` for a box-detector student (see `BoxDistiller`)."""
+    from sleap_nn.config.utils import get_model_type_from_cfg
+    from sleap_nn.data.bboxes import bbox_head_categories, get_bbox_target_encoder
+    from sleap_nn.inference.bbox import BBoxDecoder
+
+    if int(get("stage", 1)) != 1:
+        raise ValueError(
+            "Distillation of box detectors is stage 1 (teacher -> student) only; "
+            "stage 2 (head self-distillation) is for confidence-map models."
+        )
+    if get("teacher_crop_size") is not None:
+        raise ValueError(
+            "distillation.teacher_crop_size is for top-down pose crops; a box "
+            "detector's teacher reads the student's frame (teacher_input_scale)."
+        )
+    teacher, teacher_cfg = load_teacher_model(get("teacher"))
+    t_type = get_model_type_from_cfg(teacher_cfg)
+    if t_type not in BOX_DISTILLATION_MODEL_TYPES:
+        raise ValueError(
+            f"A {student.model_type} student needs a box-detector teacher "
+            f"({list(BOX_DISTILLATION_MODEL_TYPES)}), not {t_type!r}."
+        )
+    t_heads = teacher_cfg.model_config.head_configs
+    s_cats = list(student.categories)
+    t_cats = bbox_head_categories(t_type, t_heads)
+    class_map = [s_cats.index(c) if c in s_cats else -1 for c in t_cats]
+    if all(c < 0 for c in class_map):
+        if len(s_cats) == 1 and len(t_cats) == 1:
+            class_map = [0]
+            logger.info(
+                f"Distillation: the teacher's one category {t_cats[0]!r} teaches "
+                f"the student's {s_cats[0]!r}."
+            )
+        else:
+            raise ValueError(
+                f"Student and teacher share no box category ({s_cats} vs {t_cats})."
+            )
+    threshold = float(get("teacher_score_threshold", 0.5))
+    decoder = BBoxDecoder.from_head_configs(t_type, t_heads, score_threshold=threshold)
+    projector = None
+    alpha = float(get("alpha", 1.0))
+    if alpha > 0:
+        size = 2 * max(_max_stride(student.model), _max_stride(teacher))
+        cs, _ = _probe_features(student.model, size)
+        ct, _ = _probe_features(teacher, size)
+        projector = nn.Conv2d(cs, ct, kernel_size=1)
+        feat_note = f"feature {cs}->{ct} ch"
+    else:
+        feat_note = "no feature term"
+    distiller = BoxDistiller(
+        teacher,
+        teacher_type=t_type,
+        teacher_decoder=decoder,
+        class_map=class_map,
+        target_encoder=get_bbox_target_encoder(
+            student.model_type, student.head_configs
+        ),
+        score_threshold=threshold,
+        alpha=alpha,
+        beta=get("beta", 1.0),
+        supervised_weight=get("supervised_weight"),
+        decay=get("decay"),
+        teacher_input_scale=float(get("teacher_input_scale", 1.0)),
+        teacher_bf16=get("teacher_precision", "bf16") == "bf16",
+        projector=projector,
+    )
+    shared = sum(c >= 0 for c in class_map)
+    logger.info(
+        f"Box distillation (experimental) from a {t_type} teacher: {feat_note}, "
+        f"{shared} shared categories, teacher boxes >= {threshold}, "
+        f"alpha={distiller.alpha}, beta={distiller.beta}, "
+        f"supervised_weight={distiller.supervised_weight}, decay={distiller.decay}, "
+        f"teacher_input_scale={distiller.teacher_input_scale}."
+    )
+    student.distiller = distiller
+    return distiller
+
+
 def attach_distillation(
     student: nn.Module, cfg: Any, student_crop_size: Any = None
 ) -> Distiller:
@@ -508,6 +785,9 @@ def attach_distillation(
     Returns:
         The distiller, also set as ``student.distiller``.
 
+    Box detectors (``bbox_*``) get a `BoxDistiller` (stage 1, a box-detector
+    teacher).
+
     Raises:
         ValueError: For an unsupported model type, skeletons with no shared node,
             or a stage-2 ``teacher`` that does not fully initialize the student,
@@ -522,6 +802,9 @@ def attach_distillation(
 
     def get(key, default=None):
         return _cfg_get(cfg, key, default)
+
+    if student.model_type in BOX_DISTILLATION_MODEL_TYPES:
+        return _attach_box_distillation(student, get)
 
     stage = int(get("stage", 1))
     s_head = _confmap_head_index(student)

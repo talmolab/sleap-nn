@@ -13,7 +13,9 @@ trained model, the **teacher**. It follows DWPose ([Yang et al. 2023](https://ar
 
 Distillation is off by default. It works for `single_instance`,
 `centered_instance` and `multi_class_topdown` models (the confidence-map head;
-`multi_class_topdown`'s class vectors are trained as usual).
+`multi_class_topdown`'s class vectors are trained as usual), and, as an
+**experimental** stage 1, for the box detectors `bbox_centernet`, `bbox_ssd` and
+`bbox_detr` (see [Box detectors](#box-detectors-experimental)).
 
 ---
 
@@ -113,6 +115,53 @@ trainer_config:
 `trainable` takes the same selectors as `model_config.init_from` (see
 [Selectors](init-from.md#selectors)). Stage 2 cannot be combined with
 `trainer_config.freeze_schedule`.
+
+---
+
+## Box detectors (experimental)
+
+A trained box detector can teach another one, e.g. a large `bbox_detr` teaching a
+small `bbox_detr` or a `bbox_ssd`. Stage 1 only:
+
+```yaml
+trainer_config:
+  distillation:
+    teacher: /runs/detr_vit_b        # a trained bbox_* model directory
+    teacher_score_threshold: 0.5     # teacher boxes kept as targets
+    alpha: 1.0                       # feature loss weight (0 = off)
+    beta: 1.0                        # weight of the loss against the teacher's boxes
+```
+
+The loss is
+
+```text
+loss = supervised + r(t) * (alpha * L_feat + beta * L_box)
+```
+
+- **`L_box`** is the student's own detection loss (its set criterion, SSD multibox
+  loss or CenterNet loss) with the **teacher's detections** on the same training
+  input as the targets: the teacher (frozen, eval mode) runs on the student's
+  augmented frame, its boxes with a score of at least `teacher_score_threshold`
+  are kept, and the student's target encoder turns them into targets. Box
+  outputs do not line up between two detectors (set queries, anchors and center
+  grids differ), so decoded boxes are what the two share: teacher and student may
+  be different styles and input sizes. Categories are matched by name (a teacher
+  with one category teaches a student with one category whatever the names);
+  teacher boxes of other categories are dropped.
+- **`L_feat`** is as for pose models: the student's deepest backbone feature,
+  projected to the teacher's channels, against the teacher's. For `bbox_detr`
+  the feature is the backbone's last tapped token map.
+- `teacher_input_scale` resamples the student's frame for the teacher (rounded to
+  a multiple of the teacher's `max_stride`); the teacher's boxes are scaled back.
+- Logged as epoch means: `train/distill_box`, `train/distill_feat`,
+  `train/distill_teacher_boxes` (teacher boxes per image used as targets) and
+  `train/distill_weight`.
+
+This is the smallest working version: hard targets from the teacher's boxes, no
+soft class scores and no stage 2. `teacher_crop_size`, `gamma`, `trainable` and
+`mask_unlabeled_nodes` do not apply. A teacher that misses animals the labels
+have, or finds animals they lack, passes that on, weighted by `beta` and fading
+with `r(t)`; the supervised loss on the labels stays in full.
 
 ---
 
@@ -229,6 +278,7 @@ distillation run (`resume_ckpt_path`) restores it. Resuming stage 2 needs
 | `mask_unlabeled_nodes` | `true` | Weight the heatmap term by `node_weights` |
 | `trainable` | `null` | Stage 2: what is re-initialized and trained (`[head]`) |
 | `teacher_precision` | `bf16` | `bf16` or `32` |
+| `teacher_score_threshold` | `0.5` | Box detectors: teacher detections with at least this score are the distillation targets |
 
 The feature and heatmap losses have different scales: heatmap MSE is about the
 size of the supervised loss (~1e-3), while the feature MSE of LayerNorm'd ViT

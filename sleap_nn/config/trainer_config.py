@@ -789,6 +789,16 @@ class DistillationConfig:
     The teacher is frozen, in eval mode, outside the state dict, optimizer and
     checkpoints, and is replicated on every DDP rank without DDP wrapping.
 
+    **Box detectors** (``bbox_centernet``, ``bbox_ssd``, ``bbox_detr``;
+    experimental, stage 1 only): the teacher is a trained box detector of any of
+    the three styles, and ``L_heatmap`` is replaced by ``L_box``, the student's
+    own detection loss against the teacher's detections on the same training
+    frame (scores >= ``teacher_score_threshold``; categories matched by name, or
+    one category to one) used as targets. ``L_feat`` is as above (a ``bbox_detr``
+    backbone's last tapped token map). ``beta`` weights ``L_box``; ``gamma``,
+    ``teacher_crop_size``, ``mask_unlabeled_nodes`` and ``trainable`` do not
+    apply.
+
     Attributes:
         teacher: (str) Teacher model directory (``training_config.yaml`` +
             ``best.ckpt``) or a ``.ckpt`` next to its ``training_config.yaml``.
@@ -799,7 +809,8 @@ class DistillationConfig:
             *Default*: ``1``.
         alpha: (float) Feature loss weight (stage 1; ``0`` skips the feature
             term and builds no projector). *Default*: ``1.0``.
-        beta: (float) Heatmap loss weight (stage 1). *Default*: ``1.0``.
+        beta: (float) Heatmap loss weight (stage 1); box detectors: the weight of
+            the loss against the teacher's boxes. *Default*: ``1.0``.
         gamma: (float) Heatmap loss weight (stage 2). *Default*: ``1.0``.
         supervised_weight: (float) Weight of the supervised loss. ``None`` = 1 at
             stage 1 and 0 at stage 2. *Default*: ``None``.
@@ -835,6 +846,9 @@ class DistillationConfig:
             (``["head"]``).
         teacher_precision: (str) ``"bf16"`` runs the teacher under bf16 autocast
             on CUDA; ``"32"`` in the training precision. *Default*: ``"bf16"``.
+        teacher_score_threshold: (float) Box detectors only: the teacher's
+            detections with at least this score are the student's distillation
+            targets. *Default*: ``0.5``.
     """
 
     teacher: Optional[str] = None
@@ -867,6 +881,9 @@ class DistillationConfig:
     trainable: Optional[List[str]] = None
     teacher_precision: str = field(
         default="bf16", validator=validators.in_(["bf16", "32"])
+    )
+    teacher_score_threshold: float = field(
+        default=0.5, validator=[validators.ge(0), validators.le(1)]
     )
 
     def validate_teacher_crop_size(self, attr=None, new=None):

@@ -529,7 +529,10 @@ trainer_config:
 ```
 
 The teacher stays frozen and outside the checkpoint; the distillation terms fade
-out linearly over the run. See [Distillation](../guides/distillation.md).
+out linearly over the run. Box detectors (`bbox_*`, experimental, stage 1) learn
+from a box-detector teacher's detections instead of heatmaps
+(`teacher_score_threshold`, default `0.5`). See
+[Distillation](../guides/distillation.md).
 
 ---
 
@@ -655,7 +658,7 @@ trainer_config:
 | `use_wandb` | bool | `false` | Enable WandB logging |
 | `resume_ckpt_path` | str | `null` | Path to checkpoint to resume from |
 | `freeze_schedule` | FreezeScheduleConfig | `null` | Freeze `targets` (selectors, default `[encoder]`) until `unfreeze_at_step` (`null` = whole run) |
-| `distillation` | DistillationConfig | `null` | Teacher → student (`stage: 1`) or head self-distillation (`stage: 2`); see [Distillation](../guides/distillation.md) |
+| `distillation` | DistillationConfig | `null` | Teacher → student (`stage: 1`) or head self-distillation (`stage: 2`); box detectors: stage 1 from a box-detector teacher (experimental); see [Distillation](../guides/distillation.md) |
 | `optimizer_name` | str | `Adam` | Optimizer: `Adam` or `AdamW` |
 | `precision` | str | `"32"` | Lightning precision: `"32"`, `"bf16-mixed"`, `"16-mixed"` |
 | `float32_matmul_precision` | str | `null` | `torch.set_float32_matmul_precision` during training on CUDA, restored afterwards (`high` = TF32; `highest` = strict fp32; `null` = leave unchanged) |
