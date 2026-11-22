@@ -510,3 +510,78 @@ def test_gallery_bottomup_training(config, tmp_path):
     model_trainer.model_type = "multi_class_bottomup"
     OmegaConf.update(model_trainer.config, "trainer_config.use_wandb", True)
     assert model_trainer._gallery_callback().kind == "instances"
+
+
+def test_gallery_multi_class_bottomup_training(config, tmp_path, minimal_instance):
+    import sleap_io as sio
+
+    from sleap_nn.training.model_trainer import ModelTrainer
+
+    cfg = _bottomup_config(config, tmp_path, "mc")
+    head = cfg.model_config.head_configs.bottomup
+    del cfg.model_config.head_configs.bottomup["pafs"]
+    cfg.model_config.head_configs.multi_class_bottomup = head
+    cfg.model_config.head_configs.multi_class_bottomup["class_maps"] = {
+        "classes": None,
+        "sigma": 4,
+        "output_stride": 4,
+        "loss_weight": 1.0,
+    }
+    del cfg.model_config.head_configs.bottomup
+    labels = sio.load_slp(minimal_instance)
+    for i, inst in enumerate(labels[0].instances):
+        inst.track = sio.Track(f"id{i}")
+    labels.update()
+    model_trainer = ModelTrainer.get_model_trainer_from_config(
+        cfg, train_labels=[labels], val_labels=[labels]
+    )
+    model_trainer.train()
+    cb = _gallery_callback(model_trainer)
+    assert cb.enabled and cb.kind == "instances"
+    val, train = _logged_media(tmp_path / "mc")
+    assert val and train
+
+
+def test_instances_caption_counts_found_animals(monkeypatch):
+    """Class-map grouping returns a slot per class; empty slots are not animals."""
+    cb = WandBGalleryCallback("instances", ["v"], ["t"])
+    cb._panel = [
+        {
+            "file": 0,
+            "video": 0,
+            "frame": 3,
+            "role": "typical",
+            "gt": np.array([[[5.0, 5.0], [9.0, 5.0]]]),
+        }
+    ]
+    cb._panel_images = torch.zeros(1, 1, 3, 32, 32, dtype=torch.uint8)
+    cb._batch_size = 4
+    empty = np.full((2, 2, 2), np.nan)
+    empty[1, 0] = (6.0, 5.0)  # one slot found one node
+    monkeypatch.setattr(
+        gallery,
+        "predict_instances",
+        lambda module, x: [(empty, np.zeros((2, 2)))],
+    )
+    captions = []
+    monkeypatch.setattr(
+        gallery, "keypoint_wandb_image", lambda img, cap: captions.append(cap)
+    )
+
+    class M(torch.nn.Module):
+        device = torch.device("cpu")
+
+    cb._val_images(type("T", (), {})(), M())
+    assert "GT 1, pred 1" in captions[0]
+
+
+def test_sample_count_from_cached_instances():
+    import sleap_io as sio
+
+    sk = sio.Skeleton(["a", "b"])
+    full = sio.Instance.from_numpy(np.array([[1.0, 2.0], [3.0, 4.0]]), skeleton=sk)
+    empty = sio.Instance.from_numpy(np.full((2, 2), np.nan), skeleton=sk)
+    count = WandBGalleryCallback._sample_count
+    assert count(None, {"instances": [full, empty, full]}) == 2
+    assert count(None, {"instances": None, "is_negative": True}) == 0
+    assert count(None, {"instances": None, "labels_idx": 0, "lf_idx": 0}) is None

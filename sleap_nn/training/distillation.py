@@ -32,8 +32,9 @@ teaches another. The loss is the supervised loss plus
 ``r(t) * (alpha * L_feat + beta * L_box)``, with ``L_feat`` as above (a DETR
 backbone's feature is its last tapped token map) and ``L_box`` the student's own
 detection loss against the teacher's detections on the same training input
-(scores >= ``teacher_score_threshold``, categories matched by name) used as
-targets, encoded by the student's own target encoder. A detector's outputs (set
+(scores >= ``teacher_score_threshold``, categories matched by name; the teacher
+must detect every student category) used as targets, encoded by the student's own
+target encoder. A detector's outputs (set
 queries, anchors, center heatmaps) do not line up between two models, so the
 teacher's decoded boxes are the shared language: this works across styles and
 input sizes.
@@ -688,6 +689,35 @@ def _float_tree(outputs: Any) -> Any:
     return outputs
 
 
+def _check_box_input_geometry(student: nn.Module, teacher_cfg: DictConfig) -> None:
+    """Warn when a box teacher trained at another input scale or size.
+
+    The teacher reads the student's preprocessed frame (its ``scale``,
+    ``max_height`` and ``max_width``), so a teacher trained at another geometry
+    sees animals at a size it did not train on, unless ``teacher_input_scale``
+    resamples the frame for it.
+    """
+    student_pre = getattr(student, "input_preprocessing", None)
+    if not student_pre:
+        return
+    differ = []
+    for key in ("scale", "max_height", "max_width"):
+        t_val = OmegaConf.select(teacher_cfg, f"data_config.preprocessing.{key}")
+        s_val = student_pre.get(key)
+        if key == "scale":
+            t_val, s_val = float(t_val or 1.0), float(s_val or 1.0)
+        if t_val != s_val:
+            differ.append(f"{key} {t_val} (teacher) vs {s_val} (student)")
+    if differ:
+        logger.warning(
+            "Box distillation: the teacher was trained at another input geometry ("
+            + "; ".join(differ)
+            + ") and reads the student's frames as they are. Set "
+            "distillation.teacher_input_scale (e.g. the teacher's scale over the "
+            "student's) if its animals should appear at the size it trained on."
+        )
+
+
 def _attach_box_distillation(student: nn.Module, get) -> BoxDistiller:
     """`attach_distillation` for a box-detector student (see `BoxDistiller`)."""
     from sleap_nn.config.utils import get_model_type_from_cfg
@@ -715,17 +745,25 @@ def _attach_box_distillation(student: nn.Module, get) -> BoxDistiller:
     s_cats = list(student.categories)
     t_cats = bbox_head_categories(t_type, t_heads)
     class_map = [s_cats.index(c) if c in s_cats else -1 for c in t_cats]
-    if all(c < 0 for c in class_map):
-        if len(s_cats) == 1 and len(t_cats) == 1:
-            class_map = [0]
-            logger.info(
-                f"Distillation: the teacher's one category {t_cats[0]!r} teaches "
-                f"the student's {s_cats[0]!r}."
-            )
-        else:
-            raise ValueError(
-                f"Student and teacher share no box category ({s_cats} vs {t_cats})."
-            )
+    one_to_one = len(s_cats) == 1 and len(t_cats) == 1
+    if one_to_one and class_map == [-1]:
+        class_map = [0]
+        logger.info(
+            f"Distillation: the teacher's one category {t_cats[0]!r} teaches "
+            f"the student's {s_cats[0]!r}."
+        )
+    missing = [c for c in s_cats if c not in t_cats]
+    if missing and not one_to_one:
+        # The box term trains every student category; one the teacher never
+        # detects would get only background targets from it.
+        raise ValueError(
+            f"Box distillation needs a teacher that detects every student category; "
+            f"the teacher ({t_cats}) lacks {missing} of the student's {s_cats}. "
+            "Its boxes would teach those categories as background."
+        )
+    teacher_scale = float(get("teacher_input_scale", 1.0))
+    if teacher_scale == 1.0:
+        _check_box_input_geometry(student, teacher_cfg)
     threshold = float(get("teacher_score_threshold", 0.5))
     decoder = BBoxDecoder.from_head_configs(t_type, t_heads, score_threshold=threshold)
     projector = None
@@ -751,7 +789,7 @@ def _attach_box_distillation(student: nn.Module, get) -> BoxDistiller:
         beta=get("beta", 1.0),
         supervised_weight=get("supervised_weight"),
         decay=get("decay"),
-        teacher_input_scale=float(get("teacher_input_scale", 1.0)),
+        teacher_input_scale=teacher_scale,
         teacher_bf16=get("teacher_precision", "bf16") == "bf16",
         projector=projector,
     )

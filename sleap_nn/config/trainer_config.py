@@ -794,7 +794,8 @@ class DistillationConfig:
     the three styles, and ``L_heatmap`` is replaced by ``L_box``, the student's
     own detection loss against the teacher's detections on the same training
     frame (scores >= ``teacher_score_threshold``; categories matched by name, or
-    one category to one) used as targets. ``L_feat`` is as above (a ``bbox_detr``
+    one category to one; the teacher must detect every student category) used as
+    targets. ``L_feat`` is as above (a ``bbox_detr``
     backbone's last tapped token map). ``beta`` weights ``L_box``; ``gamma``,
     ``teacher_crop_size``, ``mask_unlabeled_nodes`` and ``trainable`` do not
     apply.

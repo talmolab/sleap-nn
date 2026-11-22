@@ -147,18 +147,26 @@ loss = supervised + r(t) * (alpha * L_feat + beta * L_box)
   grids differ), so decoded boxes are what the two share: teacher and student may
   be different styles and input sizes. Categories are matched by name (a teacher
   with one category teaches a student with one category whatever the names);
-  teacher boxes of other categories are dropped.
+  teacher boxes of other categories are dropped. The teacher must detect every
+  student category: one it lacks would get only background targets from it, so
+  setup refuses such a pair.
 - **`L_feat`** is as for pose models: the student's deepest backbone feature,
   projected to the teacher's channels, against the teacher's. For `bbox_detr`
   the feature is the backbone's last tapped token map.
 - `teacher_input_scale` resamples the student's frame for the teacher (rounded to
   a multiple of the teacher's `max_stride`); the teacher's boxes are scaled back.
+  The teacher reads the student's preprocessed frame, so when its training
+  `preprocessing.scale`, `max_height` or `max_width` differ from the student's
+  (and `teacher_input_scale` is 1) setup warns: animals may not appear at the size
+  the teacher trained on.
 - Logged as epoch means: `train/distill_box`, `train/distill_feat`,
   `train/distill_teacher_boxes` (teacher boxes per image used as targets) and
   `train/distill_weight`.
 
 This is the smallest working version: hard targets from the teacher's boxes, no
-soft class scores and no stage 2. `teacher_crop_size`, `gamma`, `trainable` and
+soft class scores and no stage 2. The teacher's boxes are turned into targets on
+the CPU in each training step (not in the data loader workers); its cost on a GPU
+has not been measured. `teacher_crop_size`, `gamma`, `trainable` and
 `mask_unlabeled_nodes` do not apply. A teacher that misses animals the labels
 have, or finds animals they lack, passes that on, weighted by `beta` and fading
 with `r(t)`; the supervised loss on the labels stays in full.

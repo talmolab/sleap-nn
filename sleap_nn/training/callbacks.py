@@ -1911,7 +1911,10 @@ class WandBGalleryCallback(Callback):
                 pts = self._only_nodes(pts, nodes)
                 edges = self.val_edges[f] if self.val_edges else []
                 err = gallery.instance_error(gt, pts)
-                extra = f"GT {len(gt)}, pred {len(pts)}"
+                # Count animals with a found node: class-map grouping returns one
+                # slot per class, found or not.
+                n_pred = int(np.isfinite(pts).all(-1).any(-1).sum()) if pts.size else 0
+                extra = f"GT {len(gt)}, pred {n_pred}"
                 if np.isfinite(err):
                     extra += f", err {err:.1f}px"
                 drawn = gallery.draw_instances(

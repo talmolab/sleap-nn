@@ -6236,8 +6236,8 @@ class DetrBBoxDataset(BBoxDataset):
             and float(detr_aug.get("zoom_out_p", 0.0) or 0.0) > 0
         )
         if self._carries_classes:
-            # A frame zoomed out onto another training frame keeps the visible mice of
-            # both, so a sample holds up to twice the largest per-frame box count.
+            # A frame zoomed out onto another training frame keeps the visible boxes
+            # of both, so a sample holds up to twice the largest per-frame box count.
             self.max_instances = 2 * int(self.max_instances)
             if hasattr(self.target_encoder, "max_targets"):
                 self.target_encoder.max_targets = self.max_instances
@@ -7666,6 +7666,13 @@ def box_zoom_out_aug(config: DictConfig) -> Optional[DictConfig]:
         logger.warning(
             "augmentation_config.detr: bbox_centernet and bbox_ssd apply only its "
             f"{list(ZOOM_OUT_KEYS)}; ignored: {ignored}."
+        )
+    if float(given.get("zoom_out_p", 0.0) or 0.0) > 0:
+        logger.info(
+            f"Zoom-out on for training frames: p={given.get('zoom_out_p')}, factor "
+            f"{given.get('zoom_out_min', 0.4)}..{given.get('zoom_out_max', 1.0)}, "
+            f"canvas {given.get('zoom_out_canvas', 'zero')} "
+            "(augmentation_config.detr.zoom_out_*)."
         )
     return aug
 

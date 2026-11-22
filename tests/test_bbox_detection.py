@@ -1297,13 +1297,14 @@ def test_bbox_zoom_out_from_config(config, minimal_instance):
 
     cfg = verify_training_cfg(cfg)
     msgs = []
-    sink = logger.add(lambda m: msgs.append(m.record["message"]), level="WARNING")
+    sink = logger.add(lambda m: msgs.append(m.record["message"]), level="INFO")
     try:
         train, val = get_train_val_datasets([labels], [labels], cfg)
     finally:
         logger.remove(sink)
     assert train.zoom_out_aug.zoom_out_p == 0.4 and val.zoom_out_aug is None
     assert any("ignored: ['crop_p']" in m for m in msgs)
+    assert any(m.startswith("Zoom-out on for training frames: p=0.4") for m in msgs)
     cfg.data_config.use_augmentations_train = False
     assert box_zoom_out_aug(cfg) is None
 

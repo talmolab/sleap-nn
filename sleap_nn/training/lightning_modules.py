@@ -567,6 +567,14 @@ class LightningModel(L.LightningModule):
             lightning_model.encoder_lr_scale,
             lightning_model.layer_decay,
         ) = resolve_encoder_lr_options(config)
+        # The input geometry a model trained at (read by box distillation to warn
+        # when a teacher trained at another one).
+        lightning_model.input_preprocessing = {
+            key: OmegaConf.select(
+                config, f"data_config.preprocessing.{key}", default=None
+            )
+            for key in ("scale", "max_height", "max_width")
+        }
         if model_type == "bbox_detr":
             from sleap_nn.data.custom_datasets import detr_multi_scale_sizes
 
