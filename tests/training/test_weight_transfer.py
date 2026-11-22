@@ -168,18 +168,36 @@ def test_legacy_pretrained_head_weights_remap(
     assert len(model.transfer_reports) == 2
 
 
-def test_legacy_keys_warn_on_shape_mismatch_unless_strict(
+def test_legacy_keys_raise_on_shape_mismatch_unless_lenient(
     minimal_instance_centered_instance_ckpt,
 ):
-    """Documented behaviour change: skip + warn, `init_from.strict` raises."""
+    """`pretrained_*_weights` raise on a shape mismatch, as before `init_from`.
+
+    `init_from.strict: false` skips and warns instead; `true` raises as the default.
+    """
     ckpt = minimal_instance_centered_instance_ckpt
     cfg = _ci_config(ckpt, filters=8)
     cfg.model_config.pretrained_backbone_weights = str(Path(ckpt) / "best.ckpt")
-    model = LightningModel.get_lightning_model_from_config(cfg)
-    assert model.transfer_reports[0].skipped
+    with pytest.raises(ValueError, match="strict=True"):
+        LightningModel.get_lightning_model_from_config(cfg)
     cfg.model_config.init_from = {"strict": True}
     with pytest.raises(ValueError, match="strict=True"):
         LightningModel.get_lightning_model_from_config(cfg)
+    cfg.model_config.init_from = {"strict": False}
+    model = LightningModel.get_lightning_model_from_config(cfg)
+    assert model.transfer_reports[0].skipped
+
+
+def test_init_from_path_stays_lenient_by_default(
+    minimal_instance_centered_instance_ckpt,
+):
+    """`init_from.path` skips a shape-mismatched tensor with a report by default."""
+    from sleap_nn.config.model_config import InitFromConfig
+
+    assert InitFromConfig().strict is None
+    ckpt = minimal_instance_centered_instance_ckpt
+    model = _build(_ci_config(ckpt, filters=8), path=str(ckpt))
+    assert model.transfer_reports[0].skipped
 
 
 def test_checkpoint_records_head_channels(
@@ -597,7 +615,7 @@ def test_config_schema():
     init = OmegaConf.structured(
         InitFromConfig(path="x.ckpt", node_map={"neck": "nose"}, reinit=["head"])
     )
-    assert init.node_map == {"neck": "nose"} and init.strict is False
+    assert init.node_map == {"neck": "nose"} and init.strict is None
 
 
 def test_train_with_init_from_and_freeze_schedule(

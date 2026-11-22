@@ -360,13 +360,15 @@ class LightningModel(L.LightningModule):
                 f"Loading backbone weights from `{self.pretrained_backbone_weights}` ..."
             )
             if self.pretrained_backbone_weights.endswith(".ckpt"):
-                # Shape-tolerant: matching tensors load, the rest are reported.
+                # Strict by default on this route, as before `init_from` existed:
+                # a tensor that does not fit raises unless `init_from.strict` is
+                # false (then matching tensors load and the rest are reported).
                 self.transfer_reports.append(
                     init_from_checkpoint(
                         self,
                         self.pretrained_backbone_weights,
                         include=["backbone"],
-                        strict=self._init_from_option("strict", False),
+                        strict=self._init_from_option("strict", True),
                     )
                 )
 
@@ -396,7 +398,7 @@ class LightningModel(L.LightningModule):
                         self,
                         self.pretrained_head_weights,
                         include=["head"],
-                        strict=self._init_from_option("strict", False),
+                        strict=self._init_from_option("strict", True),
                     )
                 )
 

@@ -722,8 +722,10 @@ def init_from_checkpoint(
     report.log()
     if strict and report.skipped:
         message = (
-            f"init_from strict=True but {len(report.skipped)} tensor(s) were skipped: "
-            f"{list(report.skipped)[:5]}"
+            f"strict=True but {len(report.skipped)} tensor(s) of {path} do not fit "
+            f"the model and were skipped: {list(report.skipped)[:5]}. Set "
+            "model_config.init_from.strict: false to load the tensors that fit and "
+            "leave the rest at their init."
         )
         logger.error(message)
         raise ValueError(message)

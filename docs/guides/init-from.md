@@ -74,7 +74,7 @@ model_config:
     interpolate_pos_embed: true   # resize learned position embeddings
     reinit: null                  # selectors to re-initialize AFTER loading
     reinit_layer_scale: 1.0e-5    # LayerScale for re-initialized ViT blocks
-    strict: false                 # raise if any tensor had to be skipped
+    strict: null                  # true: raise if any tensor had to be skipped
 ```
 
 | Option | Default | Description |
@@ -88,7 +88,7 @@ model_config:
 | `interpolate_pos_embed` | `true` | Bicubically resize learned positional embeddings on a different square grid, keeping CLS/register tokens. |
 | `reinit` | `null` | Selectors re-initialized after loading, e.g. `["head"]` or `["blocks[-2:]", "head"]`. |
 | `reinit_layer_scale` | `1e-5` | LayerScale value for re-initialized ViT blocks, so they start close to identity on the residual stream. |
-| `strict` | `false` | Raise instead of warning when a tensor is skipped for a shape mismatch. |
+| `strict` | `null` | Raise instead of warning when a tensor is skipped for a shape mismatch. `null`: warn for `path`, raise for the `.ckpt` forms of `pretrained_backbone_weights` / `pretrained_head_weights`. |
 
 `init_from` runs after every other weight source: `init_weights`, the backbone's
 own pretrained weights, and `pretrained_backbone_weights` /
@@ -234,7 +234,7 @@ The `.ckpt` forms of these keys now go through the same loader (`include:
 channels by node name. `pretrained_head_weights` no longer fails when the skeleton
 grows, and no longer copies a reordered skeleton's channels blindly.
 
-**Behaviour change:** a tensor whose shape differs used to raise an error. It is now
-skipped with a WARNING, and the target keeps its init. Set
-`model_config.init_from.strict: true` (no `path` needed) to fail on any mismatch
-again. Legacy SLEAP `.h5` weights load as before.
+A tensor whose shape differs still raises an error with these two keys. Set
+`model_config.init_from.strict: false` (no `path` needed) to skip such tensors
+with a WARNING instead, leaving the target at its init. Legacy SLEAP `.h5` weights
+load as before.

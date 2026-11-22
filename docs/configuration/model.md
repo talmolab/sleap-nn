@@ -478,10 +478,11 @@ model_config:
 !!! note "UNet only"
     Legacy SLEAP weights only work with UNet backbone.
 
-!!! warning "Shape mismatches are skipped"
-    A `.ckpt` tensor whose shape differs from the new model's is now skipped with
-    a warning (the target keeps its init) instead of raising. Set
-    `init_from.strict: true` to raise again.
+!!! note "Shape mismatches raise"
+    A `.ckpt` tensor whose shape differs from the new model's raises an error
+    with these two keys. Set `init_from.strict: false` to skip such tensors with
+    a warning (the target keeps its init), or use `init_from.path`, which skips
+    them by default.
 
 ### From Another Model, Tolerating Differences
 
@@ -628,7 +629,7 @@ model_config:
 | `interpolate_pos_embed` | bool | `true` | Resize learned positional embeddings to the new token grid |
 | `reinit` | list | `null` | Selectors re-initialized after loading |
 | `reinit_layer_scale` | float | `1e-5` | LayerScale for re-initialized ViT blocks |
-| `strict` | bool | `false` | Raise on any shape-mismatched tensor (also for `pretrained_*_weights`) |
+| `strict` | bool | `null` | Raise on any shape-mismatched tensor. `null`: `init_from.path` skips with a warning, the `.ckpt` forms of `pretrained_*_weights` raise. `true` / `false` apply one rule to both |
 
 ### UNetConfig
 

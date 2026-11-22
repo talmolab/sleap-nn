@@ -2174,9 +2174,11 @@ class InitFromConfig:
         reinit_layer_scale: (float) LayerScale value for re-initialized ViT blocks
             (small = block starts near identity). *Default*: ``1e-5``.
         strict: (bool) Raise if any selected source tensor had to be skipped
-            for a shape mismatch, here and in the ``.ckpt`` forms of
-            ``pretrained_backbone_weights`` / ``pretrained_head_weights`` (which
-            otherwise warn and skip). *Default*: ``False``.
+            for a shape mismatch. ``None`` means each route's own default:
+            ``path`` here warns and skips (``False``), while the ``.ckpt`` forms
+            of ``pretrained_backbone_weights`` / ``pretrained_head_weights``
+            raise (``True``), as they did before ``init_from`` existed. Set
+            ``True`` or ``False`` to apply one rule to both. *Default*: ``None``.
     """
 
     path: Optional[str] = None
@@ -2188,7 +2190,7 @@ class InitFromConfig:
     interpolate_pos_embed: bool = True
     reinit: Optional[List[str]] = None
     reinit_layer_scale: float = 1e-5
-    strict: bool = False
+    strict: Optional[bool] = None
 
 
 @define
