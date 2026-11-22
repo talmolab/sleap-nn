@@ -584,6 +584,14 @@ def test_detect_boxes_refuses_v2(tmp_path):
         detect_boxes(src, detections=_coco_dets(tmp_path), image_format="png")
 
 
+def _flat(text):
+    """CLI output without ANSI colour codes or box borders, whitespace collapsed."""
+    import re
+
+    text = re.sub(r"\x1b\[[0-9;]*m", "", text)
+    return " ".join(text.replace("│", " ").split())
+
+
 def test_cli_detect_boxes_save_options(tmp_path):
     from unittest.mock import patch
 
@@ -598,7 +606,7 @@ def test_cli_detect_boxes_save_options(tmp_path):
     # `v2` is not one of the command's choices (the Python call refuses it too).
     res = runner.invoke(cli, args + ["--slp_version", "v2"])
     assert res.exit_code == 2
-    flat = " ".join(res.output.replace("│", " ").split())
+    flat = _flat(res.output)
     assert "'v2' is not one of 'auto', 'v3'" in flat
     assert not (tmp_path / "train.dets.slp").exists()
 
@@ -612,7 +620,7 @@ def test_cli_detect_boxes_save_options(tmp_path):
     ):
         res = runner.invoke(cli, args + extra)
         assert res.exit_code == 2
-        flat = " ".join(res.output.replace("│", " ").split())
+        flat = _flat(res.output)
         assert said in flat and "never embeds frames" in flat
     assert not (tmp_path / "train.dets.slp").exists()
 
@@ -643,9 +651,9 @@ def test_cli_detect_boxes_save_options(tmp_path):
 def test_cli_detect_boxes_help_offers_no_v2():
     from sleap_nn.cli import cli
 
-    out = " ".join(CliRunner().invoke(cli, ["detect-boxes", "--help"]).output.split())
+    out = _flat(CliRunner().invoke(cli, ["detect-boxes", "--help"]).output)
     assert "[auto|v3]" in out and "auto|v2|v3" not in out
-    out = " ".join(CliRunner().invoke(cli, ["predict", "--help"]).output.split())
+    out = _flat(CliRunner().invoke(cli, ["predict", "--help"]).output)
     assert "auto|v2|v3" in out
 
 
