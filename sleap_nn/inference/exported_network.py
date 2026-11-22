@@ -136,15 +136,15 @@ class ExportedNetwork(nn.Module):
                 f"{self.export_dir}: a TensorRT engine runs on CUDA only (device "
                 f"{device!r}); use the ONNX runtime."
             )
-        if self.runtime == "tensorrt" and str(device) not in ("cuda", "auto"):
-            raise ValueError(
-                f"{self.export_dir}: a TensorRT engine runs on the current CUDA "
-                f"device only (device {device!r}). Pick the card with "
-                "CUDA_VISIBLE_DEVICES and pass --device cuda, or use the ONNX runtime."
-            )
         _check_config_hash(self.export_dir, meta)
         self.backend = _build_export_backend(self.runtime, path, device)
-        self.out_device = torch.device("cuda" if str(device) == "cuda" else str(device))
+        if self.runtime == "tensorrt":
+            # The engine's own device ("cuda" / "auto": the current one).
+            self.out_device = self.backend._cuda_device
+        else:
+            self.out_device = torch.device(
+                "cuda" if str(device) == "cuda" else str(device)
+            )
 
     def forward(
         self, img: torch.Tensor
