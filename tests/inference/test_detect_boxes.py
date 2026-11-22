@@ -595,9 +595,25 @@ def test_cli_detect_boxes_save_options(tmp_path):
     args = ["detect-boxes", "-i", str(src), "--detections", str(_coco_dets(tmp_path))]
     runner = CliRunner()
 
+    # `v2` is not one of the command's choices (the Python call refuses it too).
     res = runner.invoke(cli, args + ["--slp_version", "v2"])
-    assert res.exit_code != 0
-    assert "SLP 3.0" in " ".join(res.output.replace("│", " ").split())
+    assert res.exit_code == 2
+    flat = " ".join(res.output.replace("│", " ").split())
+    assert "'v2' is not one of 'auto', 'v3'" in flat
+    assert not (tmp_path / "train.dets.slp").exists()
+
+    # The output never embeds frames: the frame-format options are refused.
+    for extra, said in (
+        (["--image_format", "png"], "--image_format is not supported"),
+        (
+            ["--image_format", "jpg", "--image_quality", "80"],
+            "--image_format / --image_quality are not supported",
+        ),
+    ):
+        res = runner.invoke(cli, args + extra)
+        assert res.exit_code == 2
+        flat = " ".join(res.output.replace("│", " ").split())
+        assert said in flat and "never embeds frames" in flat
     assert not (tmp_path / "train.dets.slp").exists()
 
     stats = dict.fromkeys(
@@ -622,6 +638,15 @@ def test_cli_detect_boxes_save_options(tmp_path):
         assert res.exit_code == 0, res.output
         kw = run.call_args.kwargs
         assert kw["slp_version"] == "auto" and kw["compression"] == "lzf"
+
+
+def test_cli_detect_boxes_help_offers_no_v2():
+    from sleap_nn.cli import cli
+
+    out = " ".join(CliRunner().invoke(cli, ["detect-boxes", "--help"]).output.split())
+    assert "[auto|v3]" in out and "auto|v2|v3" not in out
+    out = " ".join(CliRunner().invoke(cli, ["predict", "--help"]).output.split())
+    assert "auto|v2|v3" in out
 
 
 @pytest.mark.parametrize("given", [None, "auto", "v3"])

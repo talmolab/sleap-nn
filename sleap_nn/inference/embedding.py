@@ -665,7 +665,10 @@ def predict_embeddings_to_slp(
     from sleap_nn.config.utils import get_model_type_from_cfg, resolve_model_dir
     from sleap_nn.inference.loaders import _load_training_config
     from sleap_nn.inference.run import _refuse_overwriting_frame_source
-    from sleap_nn.inference.save_options import slp_save_kwargs
+    from sleap_nn.inference.save_options import (
+        explain_unlabeled_points,
+        slp_save_kwargs,
+    )
 
     save_options = dict(
         slp_version=slp_version,
@@ -819,14 +822,15 @@ def predict_embeddings_to_slp(
         # input already carries its pixels, and sleap-io's own default (True) would
         # point the output at a pre-embedding source video that is often absent --
         # so `lf.image` on the tracked output raised FileNotFoundError.
-        sio.save_slp(
-            tracked,
-            output_path,
-            embed=False,
-            restore_original_videos=restore_source_videos,
-            save_embedding_vectors=persist_vectors,
-            **slp_save_kwargs(**save_options, embeds_frames=False),
-        )
+        with explain_unlabeled_points():
+            sio.save_slp(
+                tracked,
+                output_path,
+                embed=False,
+                restore_original_videos=restore_source_videos,
+                save_embedding_vectors=persist_vectors,
+                **slp_save_kwargs(**save_options, embeds_frames=False),
+            )
         logger.info(f"Wrote tracked labels to {output_path}")
         return output_path
 
@@ -848,14 +852,15 @@ def predict_embeddings_to_slp(
     )
     # This path exists to persist the vectors, so opt in explicitly (#536 default flip).
     # See the tracked save above for why `restore_original_videos` defaults to False.
-    sio.save_slp(
-        labels,
-        output_path,
-        embed=False,
-        restore_original_videos=restore_source_videos,
-        save_embedding_vectors=True,
-        **slp_save_kwargs(**save_options, embeds_frames=False),
-    )
+    with explain_unlabeled_points():
+        sio.save_slp(
+            labels,
+            output_path,
+            embed=False,
+            restore_original_videos=restore_source_videos,
+            save_embedding_vectors=True,
+            **slp_save_kwargs(**save_options, embeds_frames=False),
+        )
     logger.info(
         f"Attached {n_attached} embeddings (dim={embedding_dim}) and wrote "
         f"{output_path}"

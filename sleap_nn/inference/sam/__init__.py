@@ -336,13 +336,17 @@ def run_sam_segmentation(
         # intact for ``embed="auto"`` detection.
         from sleap_nn.inference.run import _resolve_embed
 
+        from sleap_nn.inference.save_options import explain_unlabeled_points
+
         embed_frames = _resolve_embed(embed, out)
-        out.save(
-            out_path.as_posix(),
-            embed=embed_frames,
-            restore_original_videos=restore_source_videos,
-            **slp_save_kwargs(**save_options, embeds_frames=bool(embed_frames)),
-        )
+        extra = slp_save_kwargs(**save_options, embeds_frames=bool(embed_frames))
+        with explain_unlabeled_points():
+            out.save(
+                out_path.as_posix(),
+                embed=embed_frames,
+                restore_original_videos=restore_source_videos,
+                **extra,
+            )
     if overlay_path is not None:
         # Flag masks below the backend's per-model nominal predicted-IoU floor
         # (SAM1 0.88 / SAM3 0.5) so the review overlay surfaces low-confidence

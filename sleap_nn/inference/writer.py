@@ -49,8 +49,9 @@ class IncrementalLabelsWriter:
             ``image_format``, ``image_quality``, ``compression``,
             ``unlabeled_as``; see :mod:`sleap_nn.inference.save_options`) for
             the final write. ``None`` (the default) or unset entries pass
-            nothing to sleap-io. This writer never embeds frames, so
-            ``image_format`` / ``image_quality`` only warn.
+            nothing to sleap-io. A key outside those five, or an invalid
+            value, raises ``ValueError`` here. This writer never embeds
+            frames, so ``image_format`` / ``image_quality`` only warn.
 
     Usage::
 
@@ -79,7 +80,21 @@ class IncrementalLabelsWriter:
     mask_output: str = "mask"
     polygon_epsilon: float = 0.01
     bbox_categories: Optional[List[str]] = None
-    save_options: Optional[dict] = None
+    save_options: Optional[dict] = attrs.field(default=None)
+
+    @save_options.validator
+    def _check_save_options(self, attribute, value) -> None:
+        # Refuse unknown keys (a typo would otherwise be dropped silently) and
+        # invalid values here, before any frame is processed.
+        if value is None:
+            return
+        from sleap_nn.inference.save_options import (
+            check_save_option_names,
+            validate_save_options,
+        )
+
+        check_save_option_names(value)
+        validate_save_options(**value)
 
     _buffer: List[Any] = attrs.field(factory=list, init=False, repr=False)
     _all_frames: List[Any] = attrs.field(factory=list, init=False, repr=False)
@@ -221,11 +236,16 @@ class IncrementalLabelsWriter:
         # restore_original_videos=False matches the non-streaming path's
         # default (PRESERVE_SOURCE): a .pkg.slp input backreferences itself,
         # not a pre-embedding source video that's often not on disk.
-        from sleap_nn.inference.save_options import save_options_from, slp_save_kwargs
+        from sleap_nn.inference.save_options import (
+            explain_unlabeled_points,
+            save_options_from,
+            slp_save_kwargs,
+        )
 
         extra = slp_save_kwargs(
             **save_options_from(self.save_options or {}), embeds_frames=False
         )
-        labels.save(str(tmp), format="slp", restore_original_videos=False, **extra)
+        with explain_unlabeled_points():
+            labels.save(str(tmp), format="slp", restore_original_videos=False, **extra)
         # Atomic rename — no half-written file on the destination path.
         tmp.replace(self.path)

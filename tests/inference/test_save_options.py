@@ -163,10 +163,26 @@ def test_validation_normalizes():
 
 
 def test_image_options_without_embedding_warn():
-    with pytest.warns(UserWarning, match="only to embedded frames"):
+    with pytest.warns(
+        UserWarning,
+        match="^image_format applies only to embedded frames and has no effect: ",
+    ):
         slp_save_kwargs(image_format="png", embeds_frames=False)
-    with pytest.warns(UserWarning, match="image_format and image_quality"):
+    with pytest.warns(
+        UserWarning,
+        match="^image_format and image_quality apply only to embedded frames and "
+        "have no effect: ",
+    ):
         slp_save_kwargs(image_format="jpg", image_quality=80, embeds_frames=False)
+
+
+def test_unused_options_message_grammar():
+    assert so.unused_options_message(["a"], "to x", "why") == (
+        "a applies to x and has no effect: why."
+    )
+    assert so.unused_options_message(["a", "b", "c"], "to x", "why") == (
+        "a, b and c apply to x and have no effect: why."
+    )
 
 
 def test_image_options_with_embedding_do_not_warn(recwarn):
@@ -244,7 +260,9 @@ def test_save_predictions_options_without_slp_warn(tmp_path):
     from sleap_nn.inference.run import save_predictions
 
     with patch("sleap_nn.inference.run.save_analysis_h5_files", return_value=[]):
-        with pytest.warns(UserWarning, match="only to .slp output"):
+        with pytest.warns(
+            UserWarning, match="^slp_version applies only to .slp output"
+        ):
             save_predictions(
                 _predicted_labels(),
                 tmp_path / "o.slp",
@@ -282,8 +300,12 @@ def test_round_trip_unlabeled_points(tmp_path):
     from sleap_nn.inference.run import save_predictions
 
     out = tmp_path / "u.slp"
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="--unlabeled_as absent") as info:
         save_predictions(_predicted_labels(unlabeled=True), out, slp_version="v2")
+    # sleap-nn's spelling, with sleap-io's own error kept as the cause.
+    assert 'unlabeled_as="absent"' in str(info.value)
+    assert "sio convert" not in str(info.value)
+    assert "sio convert" in str(info.value.__cause__)
     assert not out.exists()
     with pytest.warns(UserWarning):
         save_predictions(
@@ -296,6 +318,40 @@ def test_round_trip_unlabeled_points(tmp_path):
     pts = sio.load_slp(str(out), open_videos=False)[0].instances[0].points
     assert not pts["visible"][1] and np.isnan(pts["xy"][1]).all()
     assert pts["visible"][0]
+
+
+_SIO_UNLABELED = (
+    "3 point(s) are unlabeled, but the legacy SLP layout can't store unlabeled "
+    "points: they would be read back as labeled hidden points. Pass "
+    'unlabeled_as="absent" (`--unlabeled-as absent` from `sio convert`) to save '
+    "them as hidden points instead, or save without legacy_format=True."
+)
+
+
+def test_explain_unlabeled_points_rewords_only_that_error():
+    with pytest.raises(ValueError, match="^3 point.s. are marked as not labeled"):
+        with so.explain_unlabeled_points():
+            raise ValueError(_SIO_UNLABELED)
+    other = ValueError("unlabeled points somewhere else")
+    with pytest.raises(ValueError) as info:
+        with so.explain_unlabeled_points():
+            raise other
+    assert info.value is other
+    with pytest.raises(KeyError):
+        with so.explain_unlabeled_points():
+            raise KeyError("x")
+
+
+def test_writer_rewords_unlabeled_points_error(tmp_path):
+    """The stream-to-file writer's save rewords it too."""
+    from sleap_nn.inference.writer import IncrementalLabelsWriter
+
+    writer = IncrementalLabelsWriter(
+        path=str(tmp_path / "s.slp"), skeleton=sio.Skeleton(["a"])
+    )
+    with patch.object(sio.Labels, "save", side_effect=ValueError(_SIO_UNLABELED)):
+        with pytest.raises(ValueError, match="--unlabeled_as absent"):
+            writer.close()
 
 
 # ── predict() ────────────────────────────────────────────────────────────────
@@ -409,6 +465,23 @@ def test_writer_defaults_unchanged(tmp_path):
         "format": "slp",
         "restore_original_videos": False,
     }
+
+
+@pytest.mark.parametrize(
+    "bad,match",
+    [
+        ({"slp_versoin": "v2"}, "Unknown save option.*slp_versoin"),
+        ({"slp_version": "v2", "embed": True}, "Unknown save option.*embed"),
+        ({"compression": "zip"}, "compression"),
+    ],
+)
+def test_writer_refuses_unknown_or_invalid_save_options(tmp_path, bad, match):
+    from sleap_nn.inference.writer import IncrementalLabelsWriter
+
+    with pytest.raises(ValueError, match=match):
+        IncrementalLabelsWriter(
+            path=str(tmp_path / "s.slp"), skeleton=sio.Skeleton(["a"]), save_options=bad
+        )
 
 
 def test_writer_forwards_options(tmp_path, monkeypatch):

@@ -66,7 +66,30 @@ def _parse_int_list(ctx, param, value):
         )
 
 
-def _slp_save_option_list() -> list:
+_SLP_VERSION_HELP = (
+    "File layout of the output .slp: 'v2' (the SLP 2.x layout that older "
+    "sleap-io and SLEAP releases can open), 'v3' (SLP 3.0) or 'auto'. 'auto' "
+    "passes nothing to a sleap-io without its own slp_version option, such as "
+    "sleap-io 0.10.0, so the file is SLP 3.0; a sleap-io with its own "
+    "slp_version option writes the 2.x layout when the content allows. "
+    "Default: unset, which saves as 'auto' does."
+)
+
+# `detect-boxes` output keeps each box's matching score, which only SLP 3.0
+# stores, so it does not offer `v2` (the Python call refuses it too).
+_DETECT_BOXES_SLP_VERSION_HELP = (
+    "File layout of the output .slp: 'v3' or 'auto'. Both write SLP 3.0, which "
+    "keeps each box's matching score; the SLP 2.x layout cannot, so 'v2' is not "
+    "offered. Default: unset (SLP 3.0)."
+)
+
+# The save options that only shape embedded frames.
+_IMAGE_SAVE_OPTIONS = ("image_format", "image_quality")
+
+
+def _slp_save_option_list(
+    slp_versions=("auto", "v2", "v3"), slp_version_help: str = _SLP_VERSION_HELP
+) -> list:
     """The ``.slp`` file-layout and frame-format options (all default to ``None``).
 
     Shared by every command that writes a ``.slp``; ``None`` passes nothing to
@@ -75,11 +98,9 @@ def _slp_save_option_list() -> list:
     return [
         click.option(
             "--slp_version",
-            type=click.Choice(["auto", "v2", "v3"], case_sensitive=False),
+            type=click.Choice(list(slp_versions), case_sensitive=False),
             default=None,
-            help="File layout of the output .slp: 'v2' (the SLP 2.x layout that "
-            "older sleap-io and SLEAP releases can open), 'v3' (SLP 3.0) or 'auto' "
-            "(sleap-io picks). Default: sleap-io's default.",
+            help=slp_version_help,
         ),
         click.option(
             "--image_format",
@@ -87,8 +108,10 @@ def _slp_save_option_list() -> list:
             default=None,
             help="Format of frames embedded in the output .slp: 'png', 'jpg' "
             "(or 'jpeg') or 'hdf5' (raw pixels). Only applies when frames are "
-            "embedded; otherwise it warns and has no effect. Default: sleap-io's "
-            "default.",
+            "embedded (predict's in-memory route with --embed true or auto); "
+            "with --embed false it warns and has no effect, and routes that never "
+            "embed frames (--stream-to-file, the re-ID embedding route, track, "
+            "detect-boxes) refuse it. Default: sleap-io's default.",
         ),
         click.option(
             "--image_quality",
@@ -96,7 +119,7 @@ def _slp_save_option_list() -> list:
             default=None,
             help="Quality of re-encoded embedded frames: JPEG quality 0-100 with "
             "--image_format jpg, or PNG compression level 0-9 with --image_format "
-            "png. Default: sleap-io's default.",
+            "png. Applies where --image_format does. Default: sleap-io's default.",
         ),
         click.option(
             "--compression",
@@ -123,6 +146,69 @@ def _slp_save_options(f):
     for d in reversed(_slp_save_option_list()):
         f = d(f)
     return f
+
+
+def _detect_boxes_save_options(f):
+    """The ``.slp`` save options for ``detect-boxes``: no ``--slp_version v2``."""
+    for d in reversed(
+        _slp_save_option_list(("auto", "v3"), _DETECT_BOXES_SLP_VERSION_HELP)
+    ):
+        f = d(f)
+    return f
+
+
+def _refuse_image_save_options(kwargs: dict, route: str, why: str) -> None:
+    """Refuse ``--image_format`` / ``--image_quality`` on a route that never embeds.
+
+    Args:
+        kwargs: The command's parameters.
+        route: The route, completing "... not supported <route>".
+        why: Why that route never embeds frames.
+
+    Raises:
+        click.UsageError: If either option is set.
+    """
+    given = [f"--{n}" for n in _IMAGE_SAVE_OPTIONS if kwargs.get(n) is not None]
+    if not given:
+        return
+    one = len(given) == 1
+    raise click.UsageError(
+        f"{' / '.join(given)} {'is' if one else 'are'} not supported {route}: "
+        f"{why}, and {'it only shapes' if one else 'they only shape'} embedded "
+        "frames."
+    )
+
+
+def _warn_unused_save_options_early(kwargs: dict) -> None:
+    """Warn, before any model loads, about save options this run cannot use.
+
+    With only ``--output_format analysis_h5`` no ``.slp`` is written, so every
+    set save option is unused; with ``--embed false`` no frames are embedded, so
+    ``--image_format`` / ``--image_quality`` are unused. The unused options are
+    then cleared from ``kwargs``, so the save does not warn a second time.
+    """
+    from sleap_nn.inference.save_options import (
+        SAVE_OPTION_NAMES,
+        unused_options_message,
+    )
+
+    formats = {str(f).lower() for f in (kwargs.get("output_format") or ("slp",))}
+    if "slp" not in formats:
+        unused = [n for n in SAVE_OPTION_NAMES if kwargs.get(n) is not None]
+        reason = "--output_format analysis_h5 writes no .slp"
+        applies_to = "only to .slp output"
+    elif str(kwargs.get("embed") or "false").lower() == "false":
+        unused = [n for n in _IMAGE_SAVE_OPTIONS if kwargs.get(n) is not None]
+        reason = "--embed is false, so no frames are embedded"
+        applies_to = "only to embedded frames"
+    else:
+        return
+    if unused:
+        logger.warning(
+            unused_options_message([f"--{n}" for n in unused], applies_to, reason)
+        )
+        for name in unused:
+            kwargs[name] = None
 
 
 def _set_slp_save_options(kwargs: dict) -> dict:
@@ -1466,9 +1552,13 @@ def track(**kwargs):
     kwargs.pop("sam_disjointify_masks", None)
     kwargs.pop("sam3_model_id", None)
     kwargs.pop("overlay_path", None)
-    # The .slp save options: only the ones set are passed on.
+    # The .slp save options: only the ones set are passed on. `track` never
+    # embeds frames, so the frame-format options are refused before inference.
     from sleap_nn.inference.save_options import SAVE_OPTION_NAMES
 
+    _refuse_image_save_options(
+        kwargs, "by `track`", "it never embeds frames in its output"
+    )
     save_options = _set_slp_save_options(kwargs)
     for name in SAVE_OPTION_NAMES:
         kwargs.pop(name, None)
@@ -2528,10 +2618,9 @@ _EMBEDDING_ROUTE_HONORED_OPTIONS = frozenset(
         "save_embeddings",
         "tracking",
         "restore_source_videos",
-        # The .slp save options, forwarded to the embedding writer.
+        # The .slp save options, forwarded to the embedding writer. (Not
+        # --image_format / --image_quality: this route never embeds frames.)
         "slp_version",
-        "image_format",
-        "image_quality",
         "compression",
         "unlabeled_as",
         # Read for remote `.slp` inputs / rejected with their own message earlier.
@@ -2571,6 +2660,10 @@ _EMBEDDING_ROUTE_OPTION_REASONS = {
     "anchor_part": "crop centering comes from the trained config",
     "output_format": "the embedding route writes a .slp only",
     "embed": "the embedding route writes a .slp only",
+    "image_format": "the embedding route's .slp references the source video; "
+    "frames are not embedded",
+    "image_quality": "the embedding route's .slp references the source video; "
+    "frames are not embedded",
     "video_dataset": "the embedding route reads detections from a .slp, not a video",
     "peak_threshold": "the embedding route detects nothing; it embeds existing detections",
 }
@@ -2587,6 +2680,16 @@ _FUSED_OUTPUT_OPTIONS = {
     ),
     "embed": (
         lambda v: str(v or "false").lower() != "false",
+        "the embedding route's .slp references the source video; frames are not "
+        "embedded",
+    ),
+    "image_format": (
+        lambda v: v is not None,
+        "the embedding route's .slp references the source video; frames are not "
+        "embedded",
+    ),
+    "image_quality": (
+        lambda v: v is not None,
         "the embedding route's .slp references the source video; frames are not "
         "embedded",
     ),
@@ -3156,6 +3259,10 @@ def _run_in_memory_new_flow(
                 "it masks the poses already in the input .slp. Use --frames to "
                 "subset frames, or pre-filter the .slp."
             )
+
+    # Save options this run cannot use: warn now, not after the whole pass.
+    if save_output:
+        _warn_unused_save_options_early(kwargs)
 
     # ── Tracking-only retrack: no model_paths, --tracking on a .slp ────
     if not kwargs.get("model_paths") and kwargs.get("tracking"):
@@ -3816,6 +3923,12 @@ def _run_stream_to_file(
             "no embedding and .pkg.slp references preserved. Drop "
             "--stream-to-file to control embedding."
         )
+    _refuse_image_save_options(
+        kwargs,
+        "with --stream-to-file",
+        "the incremental writer never embeds frames (drop --stream-to-file and "
+        "pass --embed true to embed them)",
+    )
     if not kwargs.get("model_paths"):
         raise click.UsageError("--model_paths is required for --stream-to-file.")
     data_path = kwargs.get("data_path")
@@ -5337,7 +5450,7 @@ def import_rfdetr(model, output_dir, revision, overwrite):
 @click.option(
     "--overwrite", is_flag=True, default=False, help="Replace an existing output."
 )
-@_slp_save_options
+@_detect_boxes_save_options
 def detect_boxes(**kwargs):
     """Write detector boxes into a training labels file (detector-box crops).
 
@@ -5351,7 +5464,8 @@ def detect_boxes(**kwargs):
     Match statistics go into provenance["detector_boxes"] and <output>.json.
 
     The output is written in the SLP 3.0 layout, which keeps each box's matching
-    score; `--slp_version v2` is refused.
+    score, so `--slp_version` takes only `v3` or `auto`. The output embeds no
+    frames, so `--image_format` / `--image_quality` are refused.
 
     Examples:
         sleap-nn detect-boxes -i coco_val2017.slp -m models/rfdetr-medium
@@ -5362,6 +5476,10 @@ def detect_boxes(**kwargs):
     """
     from sleap_nn.inference.detect_boxes import TileSpec, detect_boxes as run
     from sleap_nn.inference.save_options import save_options_from
+
+    _refuse_image_save_options(
+        kwargs, "by `detect-boxes`", "its output never embeds frames"
+    )
 
     tiling = None
     if kwargs["tile_width"] is not None:

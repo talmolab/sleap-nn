@@ -527,7 +527,10 @@ class PoseStream:
             ValueError: If a save option is invalid or not supported by the
                 installed sleap-io.
         """
-        from sleap_nn.inference.save_options import slp_save_kwargs
+        from sleap_nn.inference.save_options import (
+            explain_unlabeled_points,
+            slp_save_kwargs,
+        )
 
         extra = slp_save_kwargs(
             slp_version=slp_version,
@@ -537,4 +540,5 @@ class PoseStream:
             unlabeled_as=unlabeled_as,
             embeds_frames=False,
         )
-        self.labels(video).save(str(path), embed=False, **extra)
+        with explain_unlabeled_points():
+            self.labels(video).save(str(path), embed=False, **extra)

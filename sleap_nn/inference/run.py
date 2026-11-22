@@ -354,8 +354,10 @@ def save_predictions(
             output that could not be retracked again). ``True``/``False`` force it.
         slp_version: File layout of the ``.slp`` output: ``"v2"`` (the SLP 2.x
             layout that older sleap-io and SLEAP releases read), ``"v3"`` (SLP
-            3.0) or ``"auto"`` (sleap-io chooses). ``None`` (the default) passes
-            nothing, so sleap-io's default applies.
+            3.0) or ``"auto"``, which passes nothing to a sleap-io without its
+            own ``slp_version`` option (such as 0.10.0: SLP 3.0); a sleap-io
+            with it writes the 2.x layout when the content allows. ``None`` (the
+            default) passes nothing, so sleap-io's default applies.
         image_format: Format of embedded frames: ``"png"``, ``"jpg"`` /
             ``"jpeg"`` or ``"hdf5"`` (raw pixels). Applies only when frames are
             embedded (``embed``); otherwise it warns and has no effect. ``None``
@@ -382,7 +384,9 @@ def save_predictions(
             invalid or not supported by the installed sleap-io.
     """
     from sleap_nn.inference.save_options import (
+        explain_unlabeled_points,
         slp_save_kwargs,
+        unused_options_message,
         validate_save_options,
     )
 
@@ -395,12 +399,14 @@ def save_predictions(
         unlabeled_as=unlabeled_as,
     )
     validate_save_options(**save_options)
-    if "slp" not in formats and any(v is not None for v in save_options.values()):
+    set_options = [k for k, v in save_options.items() if v is not None]
+    if "slp" not in formats and set_options:
         import warnings
 
         warnings.warn(
-            "slp_version, image_format, image_quality, compression and "
-            "unlabeled_as apply only to .slp output; no .slp is written here.",
+            unused_options_message(
+                set_options, "only to .slp output", "no .slp is written here"
+            ),
             UserWarning,
             stacklevel=2,
         )
@@ -415,13 +421,15 @@ def save_predictions(
 
             save_embedding_vectors = _labels_have_embeddings(labels)
         embed_frames = _resolve_embed(embed, labels)
-        labels.save(
-            Path(output_path).as_posix(),
-            embed=embed_frames,
-            restore_original_videos=restore_source_videos,
-            save_embedding_vectors=save_embedding_vectors,
-            **slp_save_kwargs(**save_options, embeds_frames=bool(embed_frames)),
-        )
+        extra = slp_save_kwargs(**save_options, embeds_frames=bool(embed_frames))
+        with explain_unlabeled_points():
+            labels.save(
+                Path(output_path).as_posix(),
+                embed=embed_frames,
+                restore_original_videos=restore_source_videos,
+                save_embedding_vectors=save_embedding_vectors,
+                **extra,
+            )
         logger.info(f"Predictions output path: {output_path}")
         logger.info(f"Saved file at: {datetime.now()}")
 

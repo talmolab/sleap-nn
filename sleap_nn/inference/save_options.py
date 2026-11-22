@@ -6,7 +6,9 @@ save made before these options existed:
 
 * ``slp_version``: ``"auto"``, ``"v2"`` or ``"v3"``, the file layout. ``"v2"`` is
   the SLP 2.x layout that older sleap-io (< 0.10) and SLEAP releases read;
-  ``"v3"`` is the SLP 3.0 layout; ``"auto"`` leaves the choice to sleap-io.
+  ``"v3"`` is the SLP 3.0 layout. ``"auto"`` passes nothing to a sleap-io without
+  its own ``slp_version`` option (such as 0.10.0), which then writes SLP 3.0; a
+  sleap-io with that option writes the 2.x layout when the content allows.
 * ``image_format``: ``"png"``, ``"jpg"`` (or ``"jpeg"``) or ``"hdf5"``, the format
   of embedded frames.
 * ``image_quality``: JPEG quality (0-100) or PNG compression level (0-9) of
@@ -21,9 +23,11 @@ of ``sleap_io.save_slp`` (``Labels.save`` forwards them).
 
 from __future__ import annotations
 
+import contextlib
 import inspect
+import re
 import warnings
-from typing import Any, Dict, Mapping, Optional
+from typing import Any, Dict, Iterator, Mapping, Optional
 
 SAVE_OPTION_NAMES = (
     "slp_version",
@@ -62,6 +66,82 @@ def _choice(name: str, value: Any, choices: tuple) -> str:
 def save_options_from(mapping: Mapping[str, Any]) -> Dict[str, Any]:
     """The five save options in ``mapping`` (missing ones as ``None``)."""
     return {name: mapping.get(name) for name in SAVE_OPTION_NAMES}
+
+
+def check_save_option_names(mapping: Mapping[str, Any]) -> None:
+    """Refuse keys of ``mapping`` that are not save option names.
+
+    Raises:
+        ValueError: If ``mapping`` has a key outside :data:`SAVE_OPTION_NAMES`.
+    """
+    unknown = sorted(str(k) for k in mapping if k not in SAVE_OPTION_NAMES)
+    if unknown:
+        raise ValueError(
+            f"Unknown save option(s): {', '.join(unknown)}. The save options are "
+            f"{', '.join(SAVE_OPTION_NAMES)}."
+        )
+
+
+def _name_list(names) -> str:
+    """``"a"``, ``"a and b"``, ``"a, b and c"``."""
+    names = list(names)
+    if len(names) <= 1:
+        return "".join(names)
+    return f"{', '.join(names[:-1])} and {names[-1]}"
+
+
+def unused_options_message(names, applies_to: str, reason: str) -> str:
+    """A grammatical "these options have no effect" message.
+
+    ``"image_format applies only to embedded frames and has no effect: <reason>."``
+    for one option, ``"... apply ... and have no effect ..."`` for several.
+
+    Args:
+        names: The option names that are set but unused.
+        applies_to: What they apply to, e.g. ``"only to embedded frames"``.
+        reason: Why that is not the case here, e.g. ``"this save embeds no
+            frames"``.
+    """
+    names = list(names)
+    if len(names) == 1:
+        return f"{names[0]} applies {applies_to} and has no effect: {reason}."
+    return f"{_name_list(names)} apply {applies_to} and have no effect: {reason}."
+
+
+# sleap-io's refusal, on a 2.x-layout save, of points marked as not labeled. It
+# names sleap-io's own `sio convert --unlabeled-as`; sleap-nn spells it
+# differently, so `explain_unlabeled_points` rewords exactly this error.
+_UNLABELED_POINTS_ERROR = re.compile(
+    r"^(\d+) point\(s\) are unlabeled, but the legacy SLP layout can't store "
+    r"unlabeled points"
+)
+
+
+@contextlib.contextmanager
+def explain_unlabeled_points() -> Iterator[None]:
+    """Reword sleap-io's error for unlabeled points in an SLP 2.x save.
+
+    sleap-io refuses to write points marked as not labeled in the 2.x layout
+    and suggests its own ``sio convert`` flag. Inside this context that one
+    ``ValueError`` (matched by its message) is re-raised naming sleap-nn's
+    ``--unlabeled_as absent`` / ``unlabeled_as="absent"``; every other
+    exception propagates unchanged.
+
+    Raises:
+        ValueError: The reworded error, chained to sleap-io's.
+    """
+    try:
+        yield
+    except ValueError as e:
+        match = _UNLABELED_POINTS_ERROR.match(str(e))
+        if match is None:
+            raise
+        raise ValueError(
+            f"{match.group(1)} point(s) are marked as not labeled, which the SLP 2.x "
+            "layout (slp_version 'v2') cannot store. Pass --unlabeled_as absent "
+            '(unlabeled_as="absent" in Python) to write them as hidden points, or '
+            "save in the SLP 3.0 layout (--slp_version v3)."
+        ) from e
 
 
 def validate_save_options(
@@ -127,9 +207,10 @@ def slp_save_kwargs(
     ``{}`` and the save is unchanged.
 
     ``slp_version`` is passed straight through when the installed sleap-io takes
-    it. An older sleap-io that only has ``legacy_format`` gets ``v2`` as
+    it (its ``"auto"`` writes the 2.x layout when the content allows). An older
+    sleap-io that only has ``legacy_format`` (such as 0.10.0) gets ``v2`` as
     ``legacy_format=True``, ``v3`` as ``legacy_format=False`` and ``auto`` as
-    nothing (sleap-io's own default layout).
+    nothing, so it writes SLP 3.0.
 
     Args:
         slp_version: ``"auto"``, ``"v2"`` or ``"v3"``.
@@ -139,7 +220,8 @@ def slp_save_kwargs(
         unlabeled_as: ``"error"`` or ``"absent"``.
         embeds_frames: Whether the save embeds frames. ``False`` warns when
             ``image_format`` or ``image_quality`` is set, since they then have no
-            effect; ``None`` skips the check.
+            effect; ``None`` skips the check. (The command line checks this
+            before any model loads; this warning is for Python callers.)
 
     Returns:
         Keyword arguments for ``sleap_io.save_slp`` / ``Labels.save``.
@@ -192,9 +274,11 @@ def slp_save_kwargs(
         ]
         if set_image:
             warnings.warn(
-                f"{' and '.join(set_image)} apply only to embedded frames; this "
-                "save embeds no frames, so they have no effect.",
+                unused_options_message(
+                    set_image,
+                    "only to embedded frames",
+                    "this save embeds no frames",
+                ),
                 UserWarning,
-                stacklevel=2,
             )
     return kwargs

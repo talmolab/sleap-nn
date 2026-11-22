@@ -1088,11 +1088,13 @@ def run_inference(
                 )
             else:
                 output_path = base_path.with_suffix(".predictions.slp")
-        output.save(
-            Path(output_path).as_posix(),
-            restore_original_videos=False,
-            **slp_save_kwargs(**save_options, embeds_frames=False),
-        )
+        from sleap_nn.inference.save_options import explain_unlabeled_points
+
+        extra = slp_save_kwargs(**save_options, embeds_frames=False)
+        with explain_unlabeled_points():
+            output.save(
+                Path(output_path).as_posix(), restore_original_videos=False, **extra
+            )
     finish_timestamp = str(datetime.now())
     logger.info(f"Predictions output path: {output_path}")
     logger.info(f"Saved file at: {finish_timestamp}")
