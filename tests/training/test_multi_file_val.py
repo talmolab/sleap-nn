@@ -593,9 +593,10 @@ def test_dry_run_with_per_file_validation(tmp_path, pytestconfig):
 
 @pytest.mark.xfail(
     strict=True,
+    raises=pytest.fail.Exception,
     reason="A dry run builds no callbacks, so settings that are only checked "
-    "while a real run builds them (`trainer_config.eval.file_nodes`, a per-file "
-    "`model_ckpt.monitor`) are not checked by it.",
+    "while a real run builds them (here `trainer_config.eval.file_nodes`; also a "
+    "per-file `model_ckpt.monitor`) are not checked by it.",
 )
 def test_dry_run_rejects_file_nodes_of_an_unknown_file(tmp_path, pytestconfig):
     from tests.utils.dry_run import dry_run

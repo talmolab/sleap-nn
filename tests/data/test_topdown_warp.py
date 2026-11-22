@@ -513,6 +513,7 @@ def test_warp_dry_run(tmp_path, pytestconfig, balanced_sampler):
 
 @pytest.mark.xfail(
     strict=True,
+    raises=ValueError,
     reason="A dry run cuts every labels file to its first batch of labeled frames. "
     "When the dataset keeps no instance of those frames (here `instance_filter` "
     "drops them), the file has no sample left and the balanced sampler refuses "

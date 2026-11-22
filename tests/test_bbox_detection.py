@@ -651,17 +651,25 @@ def test_bbox_train_predict_eval(
     _check_onnx_export_parity(run_dir, minimal_instance, labels, tmp_path)
 
 
-def test_bbox_centernet_dry_run(config, tmp_path):
+@pytest.mark.parametrize("model_type", ["bbox_centernet", "bbox_ssd"])
+def test_bbox_dry_run(config, tmp_path, model_type):
     """A dry run of a box detector takes one training and one validation batch
     through the configured image cache and leaves nothing behind."""
-    from sleap_nn.training.lightning_modules import BBoxCenterNetLightningModule
+    from sleap_nn.training.lightning_modules import (
+        BBoxCenterNetLightningModule,
+        BBoxSSDLightningModule,
+    )
     from tests.utils.dry_run import dry_run
 
-    cfg = _bbox_train_config(config, "bbox_centernet", tmp_path)
+    cfg = _bbox_train_config(config, model_type, tmp_path)
     cfg.data_config.data_pipeline_fw = "torch_dataset_cache_img_disk"
     cfg.data_config.cache_img_path = (tmp_path / "cache").as_posix()
     trainer = dry_run(cfg, tmp_path)
-    assert isinstance(trainer.lightning_model, BBoxCenterNetLightningModule)
+    expected = {
+        "bbox_centernet": BBoxCenterNetLightningModule,
+        "bbox_ssd": BBoxSSDLightningModule,
+    }[model_type]
+    assert isinstance(trainer.lightning_model, expected)
     assert torch.isfinite(trainer.trainer.callback_metrics["train/loss"])
 
 
