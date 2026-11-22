@@ -177,7 +177,7 @@ Unset values come from the model's training config.
 | `--integral_patch_size` | Keypoint models | Patch size for `integral` refinement | `INT` | `5` |
 | `--flip_test` | Top-down | Top-down `centered_instance` only: average the confidence maps of the crops and their mirror (left/right nodes swapped from the skeleton symmetries) | Flag | `false` |
 | `--nodes` | Keypoint models | `single_instance` / `centered_instance` only: predict only these nodes (repeat or comma-separate). The confmap head is sliced to their channels | `TEXT` | all nodes |
-| `--node_prefix` | Keypoint models | Like `--nodes`, for every node whose name starts with the prefix (e.g. `hcm-2025/`) | `TEXT` | `None` |
+| `--node_prefix` | Keypoint models | Like `--nodes`, for every node whose name starts with the prefix (e.g. `lab_a/`) | `TEXT` | `None` |
 | `--strip_prefix` | Keypoint models | Write the `--node_prefix` nodes without the prefix | Flag | `false` |
 | `--centroid_peak_threshold` | Top-down | Peak threshold for the centroid stage only | `FLOAT` | `--peak_threshold` |
 | `--centroid_only` | Top-down | Output centroids only, from a centroid + centered-instance pair (a lone centroid model is detected automatically). See [Centroid-only](../guides/centroid-only-inference.md) | Flag | `false` |
@@ -190,12 +190,12 @@ Unset values come from the model's training config.
 | `--bbox_nms_iou` | Box detectors | Class-wise IoU-NMS threshold; `1.0` disables. See [Bounding boxes](../guides/bbox-detection.md) | `FLOAT` | `0.45` (SSD), off (CenterNet) |
 | `--boxes` | Top-down | Seed a top-down crop model (pass it alone) from boxes instead of a centroid model or detector: `gt`, a COCO detection results `.json`, or a `.slp` whose frames carry `PredictedBoundingBox`es (a `bbox_*` detector's output, or the input itself). Needs a `.slp` input. See [COCO-Style Evaluation](../guides/coco-evaluation.md) | `gt`, `PATH` | None (off) |
 | `--box_score_threshold` | Top-down | With `--boxes <file>`: drop boxes scoring below this | `FLOAT` | `0` |
-| `--part_model` | Part stage | A part model (centered-instance crop model) run after the pose model on square crops built from each predicted instance's keypoints by `--part_crop_rule`; its points are appended to that instance | `PATH` | None (no part stage) |
-| `--part_crop_rule` | Part stage | A `.json` / `.yaml` `KeypointCropRule` for `--part_model` | `PATH` | None |
+| `--part_model` | Part stage | A part model (centered-instance crop model) run after the pose model on square crops built from each predicted instance's keypoints by `--part_crop_rule`; its points are appended to that instance. See [Part stage](../guides/part-stage.md) | `PATH` | None (no part stage) |
+| `--part_crop_rule` | Part stage | A `.json` / `.yaml` crop rule for `--part_model`: `center`, `reference`, `reference_fallback`, `scale`, `fallback`, `fallback_scale`, `min_half_side`, and the per-video floor `session_floor` / `session_min_boxes` (see [The crop rule](../guides/part-stage.md#the-crop-rule)) | `PATH` | None |
 | `--part_node_prefix` | Part stage | Predict only the part model's nodes with this name prefix | `STR` | None |
 | `--part_peak_threshold` | Part stage | Peak threshold of `--part_model` | `FLOAT` | The model's own |
 | `--part_prefix` | Part stage | Prefix for the part nodes in the merged skeleton | `STR` | None |
-| `--part_streaming` | Part stage | Run `--part_model` on each batch right after the pose stage (no second read of the frames), with a running crop floor instead of the whole-video floor | Flag | `false` |
+| `--part_streaming` | Part stage | **Experimental.** Run `--part_model` on each batch right after the pose stage (no second read of the frames), with a running crop floor instead of the whole-video floor; with `session_floor`, results depend on `--batch_size` (see [Streaming part stage](../guides/part-stage.md#streaming-part-stage-part_streaming)) | Flag | `false` |
 
 Exported models do no sub-pixel refinement and refuse `--flip_test`. See
 [Sub-pixel refinement and flip-test](../guides/inference-guide.md#sub-pixel-refinement-and-flip-test).
@@ -496,10 +496,10 @@ sleap-nn export MODEL_PATH [MODEL_PATH_2] [-o OUTPUT_DIR] [OPTIONS]
 | `--precision` | | TensorRT precision | `fp32`, `fp16`, `tf32`, `bf16` | `fp16` |
 | `--max-instances` | | Max instances per frame | `INT` | `20` |
 | `--max-batch-size` | | Max batch size | `INT` | `8` |
-| `--opt-batch-size` | | TensorRT: batch the engine's kernels are tuned for (profile `opt`; for throughput, the batch you run); ignored for `--format onnx` (noted in the metadata) | `INT` | `1` |
-| `--strongly-typed` | | TensorRT 10.x: build fp16 / bf16 strongly typed, with the precision in the graph, as TensorRT 11 always does (see [Precision](../guides/export.md#tensorrt-precision)) | Flag | `false` |
+| `--opt-batch-size` | | TensorRT: batch the engine's kernels are tuned for (profile `opt`; for throughput, the batch you run); ignored for `--format onnx` (noted in the metadata). Unset, the engine is tuned for batch 1 | `INT` | unset |
+| `--strongly-typed` | | **Experimental.** TensorRT 10.x: build fp16 / bf16 strongly typed, with the precision in the graph, as TensorRT 11 always does (see [Precision](../guides/export.md#tensorrt-precision)) | Flag | `false` |
 | `--force-precision` | | Build fp16 / bf16 even for a family whose reduced-precision engines fail its fp32 graph (multi-class bottom-up; see [Precision](../guides/export.md#tensorrt-precision)) | Flag | `false` |
-| `--fp32-attention-logits` | | With `--precision fp16`, strongly typed: keep each attention block's logits product (Q.K^T) in fp32 (see [fp16 for ViT backbones](../guides/export.md#fp16-for-vit-backbones-fp32-attention-logits)) | Flag | `false` |
+| `--fp32-attention-logits` | | **Experimental.** With `--precision fp16`, strongly typed: keep each attention block's logits product (Q.K^T) in fp32 (see [fp16 for ViT backbones](../guides/export.md#fp16-for-vit-backbones-fp32-attention-logits)) | Flag | `false` |
 | `--input-dtype` | | Box detectors and `--network-only` exports: dtype of the graph's image input (`float32` receives the checkpoint path's own input; `auto` = `float32` for `bbox_detr`, `uint8` otherwise) | `auto`, `uint8`, `float32` | `auto` |
 | `--network-only` | | `centered_instance` only: export the network alone (crop in, raw confidence maps out; no peak finding baked in), for `sleap-nn predict` to load in place of the checkpoint (see [network-only exports](../guides/export.md#detector-box-scaled-top-down-part-stage-network-only-exports)) | Flag | `false` |
 | `--peak-threshold` | | Peak threshold baked into the ONNX graph | `FLOAT` | `0.2` |
