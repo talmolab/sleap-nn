@@ -527,6 +527,23 @@ trainer_config:
 The teacher stays frozen and outside the checkpoint; the distillation terms fade
 out linearly over the run. See [Distillation](../guides/distillation.md).
 
+### Coordinate Losses (experimental)
+
+Centered-instance models only. Soft-argmax coordinates of the predicted maps go
+through a frozen linear keypoint autoencoder. Off by default; set exactly one
+weight:
+
+```yaml
+trainer_config:
+  coordinate_losses:
+    autoencoder: /models/keypoint_ae.npz  # W_enc (L x J), W_dec (J x L), names
+    consistency: 0.001    # add |P - W_dec W_enc P|_1 to the confmap loss
+    # decoded: 0.01       # or: predict the L latent points, loss |W_dec Q - Y|_1
+    soft_argmax_beta: 20.0
+```
+
+See [Coordinate Losses](../guides/coordinate-losses.md).
+
 ---
 
 ## Online Hard Keypoint Mining
@@ -652,6 +669,7 @@ trainer_config:
 | `resume_ckpt_path` | str | `null` | Path to checkpoint to resume from |
 | `freeze_schedule` | FreezeScheduleConfig | `null` | Freeze `targets` (selectors, default `[encoder]`) until `unfreeze_at_step` (`null` = whole run) |
 | `distillation` | DistillationConfig | `null` | Teacher → student (`stage: 1`) or head self-distillation (`stage: 2`); see [Distillation](../guides/distillation.md) |
+| `coordinate_losses` | CoordinateLossesConfig | `null` | Experimental: coordinate losses through a frozen linear keypoint autoencoder (`centered_instance` only); see [CoordinateLossesConfig](#coordinatelossesconfig). Left out of the saved `training_config.yaml` when unset |
 | `optimizer_name` | str | `Adam` | Optimizer: `Adam` or `AdamW` |
 | `precision` | str | `"32"` | Lightning precision: `"32"`, `"bf16-mixed"`, `"16-mixed"` |
 | `float32_matmul_precision` | str | `null` | `torch.set_float32_matmul_precision` during training on CUDA, restored afterwards (`high` = TF32; `highest` = strict fp32; `null` = leave unchanged) |
@@ -805,6 +823,21 @@ five `null`) = constant learning rate.
 | `max_hard_keypoints` | int | `null` | Maximum hard keypoints |
 | `loss_scale` | float | `5.0` | Scale factor for hard keypoint losses |
 | `per_sample` | bool | `true` | Rank hard keypoints within each sample over nodes with nonzero loss weight; `false` restores batch-level ranking |
+
+### CoordinateLossesConfig
+
+Experimental. See [Coordinate Losses](../guides/coordinate-losses.md).
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `autoencoder` | str | required | `.npz` with `W_enc` (L x J), `W_dec` (J x L), `names` (J channel names) and optionally `latent_partner` (each latent point's left/right partner). Rows of both matrices must sum to 1 |
+| `consistency` | float | `0.0` | Weight of the L1 distance between `P` and `W_dec W_enc P`, for the soft-argmax coordinates of the head's channels (which must be the autoencoder's channels, any order); added to the confidence-map loss |
+| `decoded` | float | `0.0` | Weight of the L1 distance between `W_dec Q` and the labels `Y`: the head predicts the L latent points (`latent_00`, ...), compared after decoding with the channels each sample labels; the whole loss |
+| `soft_argmax_beta` | float | `20.0` | Inverse temperature of the soft-argmax (`softmax(beta * map)`) |
+| `soft_argmax_window` | int | `null` | Soft-argmax over the grid cells within this many cells of each map's maximum (`null`: whole map) |
+| `data_head` | dict | `null` | Set by training for `decoded`: the labelled channels' head settings the data loader uses. Leave unset |
+
+Exactly one of `consistency` and `decoded` must be above 0.
 
 ### EvalConfig
 

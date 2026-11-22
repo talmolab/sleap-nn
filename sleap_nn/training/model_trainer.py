@@ -100,6 +100,7 @@ from sleap_nn.config.training_job_config import verify_training_cfg
 from sleap_nn.config.trainer_config import fixed_length_lr_schedule
 from sleap_nn.training.optim import migrate_encoder_lr_options
 from sleap_nn.training.distillation import attach_distillation
+from sleap_nn.training.coordinate_losses import setup_coordinate_losses
 from sleap_nn.training.callbacks import (
     ProgressReporterZMQ,
     TrainingControllerZMQ,
@@ -2538,6 +2539,11 @@ class ModelTrainer:
 
         # verify input_channels in model_config based on input image and pretrained model weights
         self._verify_model_input_channels()
+
+        # Experimental `trainer_config.coordinate_losses` (drops the key when unset).
+        self.skeletons = setup_coordinate_losses(
+            self.config, self.skeletons, self._initial_config
+        )
 
     def _setup_model_ckpt_dir(self):
         """Create the model ckpt folder and save ground truth labels."""

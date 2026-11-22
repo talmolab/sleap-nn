@@ -101,6 +101,7 @@ from sleap_nn.training.weight_transfer import (
     reinit as reinit_selected,
 )
 from sleap_nn.training.distillation import drop_distiller_keys
+from sleap_nn.training.coordinate_losses import build_coordinate_losses
 
 MODEL_WEIGHTS = {
     "Swin_T_Weights": Swin_T_Weights,
@@ -553,6 +554,10 @@ class LightningModel(L.LightningModule):
         if model_type == "embedding":
             # Make `data_config.preprocessing.burn_in` live (mask-on vs centroid-crop).
             set_embedding_burn_in_from_config(lightning_model, config)
+
+        if model_type == "centered_instance":
+            # Experimental `trainer_config.coordinate_losses` (None when unset).
+            lightning_model.coord_losses = build_coordinate_losses(config)
 
         lightning_model.confmap_fg_bg_diagnostics = OmegaConf.select(
             config, "trainer_config.confmap_fg_bg_diagnostics", default=None
@@ -2077,6 +2082,10 @@ class TopDownCenteredInstanceLightningModule(LightningModel):
         )
 
         self.node_names = self.head_configs.centered_instance.confmaps.part_names
+        # Experimental coordinate losses (`sleap_nn.training.coordinate_losses`),
+        # set from `trainer_config.coordinate_losses` by
+        # `get_lightning_model_from_config`; None = plain confmap training.
+        self.coord_losses = None
 
     def get_visualization_data(self, sample) -> VisualizationData:
         """Extract visualization data from a sample."""
@@ -2139,8 +2148,55 @@ class TopDownCenteredInstanceLightningModule(LightningModel):
             batch["instance"], tuple(X.shape[-2:]), cfg.sigma, cfg.output_stride
         )
 
+    def _coordinate_term(self, y_preds, batch, stage: str) -> torch.Tensor:
+        """The unweighted coordinate term, logged as ``{stage}/coord_<term>``."""
+        term = self.coord_losses(y_preds, batch)
+        self.log(
+            f"{stage}/{self.coord_losses.log_name}",
+            term,
+            prog_bar=False,
+            on_step=False,
+            on_epoch=True,
+            sync_dist=True,
+        )
+        return term
+
+    def _decoded_step(self, batch, stage: str) -> torch.Tensor:
+        """Train/val step of the latent-point head (``coordinate_losses.decoded``).
+
+        The loss is the weighted decoded-coordinate term alone: the head's latent
+        channels have no confidence-map targets. It is what ``loss``,
+        ``train/loss`` and ``val/loss`` log.
+        """
+        X = normalize_on_gpu(torch.squeeze(batch["instance_image"], dim=1))
+        y_preds = self.model(X)["CenteredInstanceConfmapsHead"]
+        loss = self.coord_losses.weight * self._coordinate_term(y_preds, batch, stage)
+        if stage == "train":
+            self.log(
+                "loss",
+                loss,
+                prog_bar=True,
+                on_step=True,
+                on_epoch=False,
+                sync_dist=True,
+            )
+            self._accumulate_loss(loss)
+        else:
+            self.log(
+                "val/loss",
+                loss,
+                prog_bar=True,
+                on_step=False,
+                on_epoch=True,
+                sync_dist=True,
+            )
+        return loss
+
     def training_step(self, batch, batch_idx):
         """Training step."""
+        coord = self.coord_losses
+        if coord is not None and coord.mode == "decoded":
+            return self._decoded_step(batch, "train")
         X = torch.squeeze(batch["instance_image"], dim=1)
         y = self._confmap_targets(batch, X)
         X = normalize_on_gpu(X)
@@ -2170,15 +2226,28 @@ class TopDownCenteredInstanceLightningModule(LightningModel):
         )
         # Accumulate for epoch-averaged loss (logged in on_train_epoch_end)
         self._accumulate_loss(loss)
-        return self._with_distillation(loss, X, outputs, backbone_outputs, batch)
+        total = self._with_distillation(loss, X, outputs, backbone_outputs, batch)
+        if coord is not None:
+            # `loss` / `train/loss` stay the confmap loss; the term is added here.
+            total = total + coord.weight * self._coordinate_term(
+                y_preds, batch, "train"
+            )
+        return total
 
     def validation_step(self, batch, batch_idx):
         """Perform validation step."""
+        coord = self.coord_losses
+        if coord is not None and coord.mode == "decoded":
+            self._decoded_step(batch, "val")
+            return
         X = torch.squeeze(batch["instance_image"], dim=1)
         y = self._confmap_targets(batch, X)
         X = normalize_on_gpu(X)
 
         y_preds = self.model(X)["CenteredInstanceConfmapsHead"]
+        if coord is not None:
+            # Logged only: val/loss stays the confmap loss.
+            self._coordinate_term(y_preds, batch, "val")
         # Checkpoint selection (val/loss) uses the masked loss; the plain MSE is
         # logged as val/loss_unmasked for comparison with older runs.
         val_loss = self._compute_masked_confmap_loss(y_preds, y, batch, stage="val")

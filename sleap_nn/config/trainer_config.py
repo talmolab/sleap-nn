@@ -911,6 +911,83 @@ class DistillationConfig:
 
 
 @define
+class CoordinateLossesConfig:
+    """Coordinate losses through a frozen linear keypoint autoencoder (experimental).
+
+    For ``centered_instance`` models only. A soft-argmax (integral regression, Sun
+    et al. 2018) turns each predicted confidence map into differentiable
+    coordinates in crop pixels, and one of two terms goes through a frozen
+    affine-combining autoencoder (Sárándi, Hermans and Leibe 2023): ``W_enc``
+    (``L x J``) maps ``J`` keypoint channels to ``L`` latent points and ``W_dec``
+    (``J x L``) maps them back. Set exactly one of the two weights:
+
+    * ``consistency``: the head predicts the ``J`` channels as usual (the
+      confidence-map loss is unchanged) and ``consistency * |P - W_dec W_enc P|_1``
+      is added, ``P`` being the soft-argmax coordinates. The head's part names
+      must be the autoencoder's channel names (any order).
+    * ``decoded``: the head predicts the ``L`` latent points (its channels become
+      ``latent_00``, ``latent_01``, ...) and the whole loss is
+      ``decoded * |W_dec Q - Y|_1`` over the channels each sample labels, ``Q``
+      being the soft-argmax latent points and ``Y`` the labelled coordinates
+      (weighted by the per-node weights). The saved model is a plain
+      centered-instance model that predicts the latent points; decode them with
+      ``W_dec``. No confidence-map loss is computed.
+
+    Off unless set; runs without it save nothing new in ``training_config.yaml``.
+
+    Attributes:
+        autoencoder: (str) Path to the ``.npz`` file with ``W_enc`` (``L x J``),
+            ``W_dec`` (``J x L``), ``names`` (the ``J`` channel names) and,
+            optionally, ``latent_partner`` (the left/right partner index of each
+            latent point, itself for a centre point). Rows of both matrices must
+            sum to 1 (affine combinations), so the terms do not depend on where the
+            crop sits in the frame. Required.
+        consistency: (float) Weight of the consistency term. *Default*: ``0.0``.
+        decoded: (float) Weight of the decoded-coordinate term. *Default*: ``0.0``.
+        soft_argmax_beta: (float) Inverse temperature of the soft-argmax: the
+            coordinates are the expectation over ``softmax(beta * map)``. Over a
+            whole map trained towards Gaussians of height 1 the flat background
+            needs a large value (``20``); too large a value narrows the peak below
+            a grid cell and rounds the estimate towards the grid. *Default*:
+            ``20.0``.
+        soft_argmax_window: (int) Run the soft-argmax only over the grid cells
+            within this many cells of each map's maximum (``None``: the whole map,
+            as in Sun et al. 2018). A window of about three times the head's
+            ``sigma`` with ``soft_argmax_beta: 10`` locates Gaussian peaks to about
+            0.2 cells even on noisy maps. *Default*: ``None``.
+        data_head: (dict) Filled in by training for the ``decoded`` term: the head
+            settings the data loader uses (``part_names`` of the labelled channels
+            and the anchor settings), since the saved head describes the latent
+            points. Leave unset. *Default*: ``None``.
+    """
+
+    autoencoder: Optional[str] = None
+    consistency: float = field(default=0.0, validator=validators.ge(0))
+    decoded: float = field(default=0.0, validator=validators.ge(0))
+    soft_argmax_beta: float = field(default=20.0, validator=validators.gt(0))
+    soft_argmax_window: Optional[int] = field(
+        default=None, validator=validators.optional(validators.ge(1))
+    )
+    data_head: Optional[Dict[str, Any]] = None
+
+    def __attrs_post_init__(self):
+        """Require the autoencoder and exactly one term."""
+        message = None
+        if not self.autoencoder:
+            message = "trainer_config.coordinate_losses needs `autoencoder` (.npz)."
+        elif (self.consistency > 0) == (self.decoded > 0):
+            message = (
+                "trainer_config.coordinate_losses: set exactly one of `consistency` "
+                "and `decoded` above 0 (the consistency term needs the head to "
+                "predict the autoencoder's channels, the decoded term its latent "
+                "points)."
+            )
+        if message is not None:
+            logger.error(message)
+            raise ValueError(message)
+
+
+@define
 class TrainerConfig:
     """Configuration for trainer.
 
@@ -947,6 +1024,10 @@ class TrainerConfig:
             (``FreezeScheduleConfig``); off by default.
         distillation: Teacher -> student / head self-distillation
             (``DistillationConfig``); off by default.
+        coordinate_losses: Experimental coordinate losses through a frozen linear
+            keypoint autoencoder for ``centered_instance`` models
+            (``CoordinateLossesConfig``); off by default, and left out of the
+            saved ``training_config.yaml`` when unset.
         zmq: Zmq config with publish and controller port addresses.
         precision: (str) Lightning training precision: `"32"` (full fp32), `"bf16-mixed"` (bf16 autocast, fp32 weights/optimizer; recommended on Ampere+ GPUs), or `"16-mixed"` (fp16 autocast with a gradient scaler). *Default*: `"32"`.
         float32_matmul_precision: (str) Passed to `torch.set_float32_matmul_precision` for the duration of `fit` on CUDA, and restored afterwards. `"high"` lets fp32 matmuls use TF32 tensor cores (~1.4-1.6x faster ViT training on Ampere+; ~10 mantissa bits for matmul inputs, fp32 accumulation); `"highest"` forces strict fp32 matmuls; `None` leaves the process setting untouched (PyTorch's default is `"highest"`). cuDNN convolutions already use TF32 by default (`torch.backends.cudnn.allow_tf32`) and are not affected. Has no effect under `bf16-mixed`/`16-mixed` autocast regions, only on ops that stay fp32. *Default*: `None`.
@@ -997,6 +1078,7 @@ class TrainerConfig:
     ema: EMAConfig = field(factory=EMAConfig)
     freeze_schedule: Optional[FreezeScheduleConfig] = None
     distillation: Optional[DistillationConfig] = None
+    coordinate_losses: Optional[CoordinateLossesConfig] = None
     online_hard_keypoint_mining: Optional[HardKeypointMiningConfig] = field(
         factory=HardKeypointMiningConfig
     )
