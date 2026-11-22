@@ -223,6 +223,17 @@ def _load_lightning_module(
 
     if not is_legacy:
         ckpt_path = (Path(ckpt_dir) / "best.ckpt").as_posix()
+        d = Path(ckpt_dir)
+        if not (d / "best.ckpt").exists() and (d / "export_metadata.json").exists():
+            # An export with its post-processing in the graph (exported without
+            # --network-only) cannot stand in for a checkpoint among model paths.
+            raise ValueError(
+                f"{ckpt_dir} is an exported model with its post-processing in the "
+                "graph; among several model paths (and in open_stream) an export "
+                "must be network-only (`sleap-nn export --network-only`, box "
+                "detectors always are). Pass the checkpoint directory, or run a "
+                "single exported model directory on its own."
+            )
         module = cls.load_from_checkpoint(
             checkpoint_path=ckpt_path,
             map_location=device,

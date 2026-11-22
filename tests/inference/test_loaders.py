@@ -426,3 +426,16 @@ def test_load_model_assets_legacy_single_instance():
     finally:
         del assets
         gc.collect()
+
+
+def test_an_export_with_post_processing_is_refused_with_a_clear_error(tmp_path):
+    """A non-network-only export folder among model paths names the fix."""
+    if not CENTERED_CKPT.exists():
+        pytest.skip("checkpoint fixture not present")
+    fused = tmp_path / "fused"
+    fused.mkdir()
+    shutil.copy(CENTERED_CKPT / "training_config.yaml", fused)
+    (fused / "model.onnx").write_bytes(b"")
+    (fused / "export_metadata.json").write_text('{"model_type": "centered_instance"}')
+    with pytest.raises(ValueError, match="network-only"):
+        load_model_assets([str(fused)], device="cpu")
