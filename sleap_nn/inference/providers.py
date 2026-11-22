@@ -527,6 +527,8 @@ class LabelsProvider:
             ``instance_boxes`` aligned with ``instances``. The GT-box fallback of
             a box-scaled centered-instance model uses it to derive boxes exactly
             as its training boxes were (linked user boxes / masks, or keypoints).
+            A provider handed to a ``Predictor`` without one gets the predictor's
+            rule when the model crops GT boxes.
         frame_box_fn: Optional ``(LabeledFrame) -> ((K, 4) xyxy, (K,) scores)``
             giving the boxes that seed a top-down model's stage 1 on each frame;
             when set, batches carry ``frame_boxes`` / ``frame_box_scores``. See
