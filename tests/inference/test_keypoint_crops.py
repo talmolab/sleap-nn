@@ -291,6 +291,12 @@ def test_session_floor_validation(tmp_path):
 # End to end on the fixture models
 # --------------------------------------------------------------------------- #
 RULE = dict(center=["A"], reference=["B"], scale=2.0, min_half_side=8.0)
+# At most two animals a frame. With peak_threshold 0 and no centroid threshold every
+# local maximum of the centroid map is an animal, and the part stage then runs on a
+# crop per maximum (the slowest part tests on the mac CI job). What these tests check
+# (part points for every instance, stagewise = in-predict, the CLI) does not depend on
+# the count; each asserts that instances were found.
+FEW = dict(centroid_threshold=0.05, max_instances=2)
 
 
 def _base(minimal_instance, centroid, centered):
@@ -301,6 +307,7 @@ def _base(minimal_instance, centroid, centered):
         model_paths=[str(centroid), str(centered)],
         device="cpu",
         peak_threshold=0.0,
+        **FEW,
     )
 
 
@@ -383,6 +390,7 @@ def test_run_part_stage_with_session_floor(
         minimal_instance_centered_instance_ckpt,
     )
     n = sum(len(lf.predicted_instances) for lf in base)
+    assert n > 0
     rule = dict(RULE, session_floor=2.0)
     merged = run_part_stage(
         base,
@@ -430,6 +438,7 @@ def test_predict_with_part_model_matches_stagewise(
         model_paths=ckpts,
         device="cpu",
         peak_threshold=0.0,
+        **FEW,
         part_model_paths=[ckpts[1]],
         part_crop_rule=RULE,
         part_peak_threshold=0.0,
@@ -438,6 +447,7 @@ def test_predict_with_part_model_matches_stagewise(
     )
     a = np.stack([i.numpy() for lf in labels for i in lf.predicted_instances])
     b = np.stack([i.numpy() for lf in stagewise for i in lf.predicted_instances])
+    assert len(a) >= 1  # compared on real instances
     np.testing.assert_allclose(a, b, rtol=1e-5, atol=1e-4)
     saved = sio.load_slp(str(out))
     assert saved.skeletons[0].node_names == ["A", "B", "part/A", "part/B"]
@@ -491,6 +501,10 @@ def test_cli_part_model(
         "cpu",
         "--peak_threshold",
         "0.0",
+        "--centroid_peak_threshold",
+        "0.05",
+        "--max_instances",
+        "2",
         "-o",
         str(out),
     ]
@@ -509,6 +523,7 @@ def test_cli_part_model(
         ],
     )
     assert res.exit_code == 0, res.output
+    assert len(sio.load_slp(str(out)).labeled_frames[0].predicted_instances) >= 1
     assert sio.load_slp(str(out)).skeletons[0].node_names == [
         "A",
         "B",

@@ -108,6 +108,17 @@ CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"]}
     "--strongly-typed), and built as asked with a warning on TensorRT 10.",
 )
 @click.option(
+    "--fp32-attention-logits",
+    is_flag=True,
+    default=False,
+    help="With --precision fp16 on the strongly typed path (TensorRT 11, or "
+    "--strongly-typed on 10): keep each attention block's logits product (Q.K^T, found "
+    "by structure) in fp32, so TensorRT accumulates it in fp32; everything else is the "
+    "usual fp16 rewrite (in graphs with coordinates, fp16 only inside the backbone). "
+    "Measured on DINOv3 ViT-B detector / pose / tail models, whose plain fp16 engines "
+    "fail. Default off.",
+)
+@click.option(
     "--peak-threshold",
     type=float,
     default=0.2,
@@ -170,6 +181,7 @@ def export(
     precision: str,
     strongly_typed: bool,
     force_precision: bool,
+    fp32_attention_logits: bool,
     peak_threshold: float,
     workspace_size_gb: Optional[float],
     verify: bool,
@@ -239,6 +251,37 @@ def export(
             f"--opt-batch-size {opt_batch_size} must be between 1 and "
             f"--max-batch-size ({max_batch_size})."
         )
+
+    if fp32_attention_logits:
+        if fmt not in ("tensorrt", "both"):
+            raise click.ClickException(
+                "--fp32-attention-logits shapes TensorRT engines: use --format "
+                "tensorrt or both."
+            )
+        if precision.lower() != "fp16":
+            raise click.ClickException(
+                f"--fp32-attention-logits applies to --precision fp16, not "
+                f"{precision}: bf16 already accumulates in fp32, and fp32 / tf32 keep "
+                "everything in fp32."
+            )
+        try:
+            import tensorrt as _trt
+        except ImportError as e:
+            raise click.ClickException(
+                f"--fp32-attention-logits builds TensorRT engines: TensorRT is not "
+                f"installed ({e})."
+            )
+        from sleap_nn.export.exporters.tensorrt_exporter import _uses_strong_typing
+
+        if not strongly_typed and not _uses_strong_typing(_trt):
+            raise click.ClickException(
+                "--fp32-attention-logits needs the strongly typed build: add "
+                "--strongly-typed on TensorRT 10 (TensorRT 11 builds that way always)."
+            )
+    fp32_islands = "attention_logits" if fp32_attention_logits else None
+    # With the switch, the fp16 warnings below wait for the build: they are dropped
+    # only if the rewrite kept logits products and left no softmax unmatched.
+    deferred: list = []
 
     trt_workspace_kwargs = (
         {"workspace_size": int(workspace_size_gb * (1 << 30))}
@@ -311,7 +354,12 @@ def export(
         )
 
     for c, mt, bt in zip(cfgs, model_types, backbone_types):  # bundles too
-        _warn_fp16_vit_pose(c, mt, bt, fmt, precision)
+        if fp32_attention_logits:
+            deferred.append(
+                lambda c=c, mt=mt, bt=bt: _warn_fp16_vit_pose(c, mt, bt, fmt, precision)
+            )
+        else:
+            _warn_fp16_vit_pose(c, mt, bt, fmt, precision)
 
     if len(model_paths) == 1:
         model_path = model_paths[0]
@@ -618,11 +666,15 @@ def export(
             and fmt in ("tensorrt", "both")
             and precision.lower() == "fp16"
         ):
-            click.echo(
+            _detr_note = lambda: click.echo(  # noqa: E731
                 "Warning: a bbox_detr detector can lose boxes in fp16 (its activations "
                 "can overflow fp16's range); export with --precision bf16 or fp32 "
                 "unless fp16 is checked on your data."
             )
+            if fp32_attention_logits:
+                deferred.append(_detr_note)
+            else:
+                _detr_note()
         if network_only:
             # The host scales each crop by preprocessing.scale and pads it to the
             # backbone's max_stride before the network: trace (and profile) at that
@@ -773,22 +825,28 @@ def export(
             # embeddings) keep only their transposed convolutions in fp32.
             coords_in_graph = not network_only and model_type != "embedding"
             build_info = {}
-            export_to_tensorrt(
-                wrapper,
-                trt_out_path,
-                input_shape=trt_input_shape,
-                input_dtype=graph_dtype,
-                precision=precision,
-                min_shape=trt_min_shape,
-                opt_shape=trt_opt_shape,
-                max_shape=trt_max_shape,
-                **trt_workspace_kwargs,
-                verbose=True,
-                _bf16_fp32_outside=BACKBONE_SCOPE if coords_in_graph else None,
-                _build_info=build_info,
-                strongly_typed=strongly_typed,
-                force_precision=force_precision,
-            )
+            try:
+                export_to_tensorrt(
+                    wrapper,
+                    trt_out_path,
+                    input_shape=trt_input_shape,
+                    input_dtype=graph_dtype,
+                    precision=precision,
+                    min_shape=trt_min_shape,
+                    opt_shape=trt_opt_shape,
+                    max_shape=trt_max_shape,
+                    **trt_workspace_kwargs,
+                    verbose=True,
+                    _bf16_fp32_outside=BACKBONE_SCOPE if coords_in_graph else None,
+                    _build_info=build_info,
+                    strongly_typed=strongly_typed,
+                    force_precision=force_precision,
+                    fp32_islands=fp32_islands,
+                )
+            except BaseException:
+                # A failed build still prints the warnings held back above.
+                _emit_deferred_warnings(deferred, {})
+                raise
             # Update metadata for TensorRT
             trt_metadata = build_base_metadata(
                 export_format="tensorrt",
@@ -830,6 +888,7 @@ def export(
             if network_only:
                 _mark_network_only(export_dir / "model.trt.metadata.json", output_names)
             _record_build(export_dir / "model.trt.metadata.json", build_info)
+            _emit_deferred_warnings(deferred, build_info)
         return
 
     if len(model_paths) == 2 and set(model_types) == {
@@ -1006,25 +1065,33 @@ def export(
             trt_out_path = export_dir / "model.trt"
             B, C, H, W = input_shape
             build_info = {}
-            export_to_tensorrt(
-                wrapper,
-                trt_out_path,
-                input_shape=input_shape,
-                input_dtype=torch.uint8,
-                precision=precision,
-                max_shape=(max_batch_size, C, H * 2, W * 2),
-                opt_shape=(
-                    (opt_batch_size, C, H, W) if opt_batch_size is not None else None
-                ),
-                **trt_workspace_kwargs,
-                verbose=True,
-                # As for the ONNX graph: only the centroid model sees the frame.
-                static_hw=has_rope(centroid_model),
-                _bf16_fp32_outside=BACKBONE_SCOPE,
-                _build_info=build_info,
-                strongly_typed=strongly_typed,
-                force_precision=force_precision,
-            )
+            try:
+                export_to_tensorrt(
+                    wrapper,
+                    trt_out_path,
+                    input_shape=input_shape,
+                    input_dtype=torch.uint8,
+                    precision=precision,
+                    max_shape=(max_batch_size, C, H * 2, W * 2),
+                    opt_shape=(
+                        (opt_batch_size, C, H, W)
+                        if opt_batch_size is not None
+                        else None
+                    ),
+                    **trt_workspace_kwargs,
+                    verbose=True,
+                    # As for the ONNX graph: only the centroid model sees the frame.
+                    static_hw=has_rope(centroid_model),
+                    _bf16_fp32_outside=BACKBONE_SCOPE,
+                    _build_info=build_info,
+                    strongly_typed=strongly_typed,
+                    force_precision=force_precision,
+                    fp32_islands=fp32_islands,
+                )
+            except BaseException:
+                # A failed build still prints the warnings held back above.
+                _emit_deferred_warnings(deferred, {})
+                raise
             # Update metadata for TensorRT
             trt_metadata = build_base_metadata(
                 export_format="tensorrt",
@@ -1057,6 +1124,7 @@ def export(
             )
             trt_metadata.save(export_dir / "model.trt.metadata.json")
             _record_build(export_dir / "model.trt.metadata.json", build_info)
+            _emit_deferred_warnings(deferred, build_info)
         return
 
     # Combined multiclass top-down export (centroid + multi_class_topdown)
@@ -1227,25 +1295,33 @@ def export(
             trt_out_path = export_dir / "model.trt"
             B, C, H, W = input_shape
             build_info = {}
-            export_to_tensorrt(
-                wrapper,
-                trt_out_path,
-                input_shape=input_shape,
-                input_dtype=torch.uint8,
-                precision=precision,
-                max_shape=(max_batch_size, C, H * 2, W * 2),
-                opt_shape=(
-                    (opt_batch_size, C, H, W) if opt_batch_size is not None else None
-                ),
-                **trt_workspace_kwargs,
-                verbose=True,
-                # As for the ONNX graph: only the centroid model sees the frame.
-                static_hw=has_rope(centroid_model),
-                _bf16_fp32_outside=BACKBONE_SCOPE,
-                _build_info=build_info,
-                strongly_typed=strongly_typed,
-                force_precision=force_precision,
-            )
+            try:
+                export_to_tensorrt(
+                    wrapper,
+                    trt_out_path,
+                    input_shape=input_shape,
+                    input_dtype=torch.uint8,
+                    precision=precision,
+                    max_shape=(max_batch_size, C, H * 2, W * 2),
+                    opt_shape=(
+                        (opt_batch_size, C, H, W)
+                        if opt_batch_size is not None
+                        else None
+                    ),
+                    **trt_workspace_kwargs,
+                    verbose=True,
+                    # As for the ONNX graph: only the centroid model sees the frame.
+                    static_hw=has_rope(centroid_model),
+                    _bf16_fp32_outside=BACKBONE_SCOPE,
+                    _build_info=build_info,
+                    strongly_typed=strongly_typed,
+                    force_precision=force_precision,
+                    fp32_islands=fp32_islands,
+                )
+            except BaseException:
+                # A failed build still prints the warnings held back above.
+                _emit_deferred_warnings(deferred, {})
+                raise
             trt_metadata = build_base_metadata(
                 export_format="tensorrt",
                 model_type="multi_class_topdown_combined",
@@ -1279,6 +1355,7 @@ def export(
             )
             trt_metadata.save(export_dir / "model.trt.metadata.json")
             _record_build(export_dir / "model.trt.metadata.json", build_info)
+            _emit_deferred_warnings(deferred, build_info)
         return
 
     raise click.ClickException(
@@ -1286,6 +1363,25 @@ def export(
         "or two paths (centroid + centered_instance or centroid + multi_class_topdown) "
         "for combined top-down export."
     )
+
+
+def _emit_deferred_warnings(deferred: list, build_info: dict) -> None:
+    """Print the fp16 warnings held back by ``--fp32-attention-logits``.
+
+    They are dropped only when the rewrite kept logits products in fp32, left no
+    softmax without one and found none inside control-flow bodies (``fp32_islands``
+    in the build info); otherwise (a failed build included) they are printed as they
+    would be without the option.
+    """
+    rec = build_info.get("fp32_islands") or {}
+    if (
+        rec.get("applied")
+        and not rec.get("softmax_unmatched")
+        and not rec.get("softmax_in_subgraphs")
+    ):
+        return
+    for warn in deferred:
+        warn()
 
 
 def _record_build(path: Path, info: dict) -> None:
@@ -1354,8 +1450,9 @@ def _warn_fp16_vit_pose(cfg, model_type, backbone_type, fmt, precision) -> None:
         f"Warning: {model_type} model with a ViT backbone ({name}): fp16 TensorRT "
         "engines of DINOv3 ViT-B pose / tail models kept only 17-44% of keypoints "
         "within 0.5 px of fp32 (TensorRT 10 and 11; other ViTs not tested). Export "
-        "with --precision bf16 (a GPU with compute capability >= 8.0) or fp32 unless "
-        "fp16 is checked on your data."
+        "with --precision bf16 (a GPU with compute capability >= 8.0) or fp32, or fp16 "
+        "with --fp32-attention-logits (strongly typed; tested on DINOv3 only), unless "
+        "plain fp16 is checked on your data."
     )
 
 

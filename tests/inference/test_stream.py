@@ -103,31 +103,10 @@ def test_stream_matches_predict_over_frames_with_floor_and_options(
 
 
 @pytest.fixture(scope="module")
-def detector_pair(tmp_path_factory, pytestconfig):
-    """A tiny box detector + box-scaled centered-instance model (as test_bbox_topdown)."""
-    from pathlib import Path
-
-    from sleap_nn.training.model_trainer import ModelTrainer
-    from tests.fixtures.datasets import config as config_fixture
-    from tests.test_bbox_topdown import _train_config
-
-    tmp_path = tmp_path_factory.mktemp("stream_det")
-    base = config_fixture.__wrapped__(
-        Path(pytestconfig.rootdir) / "tests/assets/datasets"
-    )
-    dirs = {}
-    for name, model_type, pre in (
-        ("det", "bbox_centernet", {}),
-        (
-            "ci_bbox",
-            "centered_instance",
-            {"crop_mode": "bbox", "crop_size": None, "crop_bbox_aspect": "square"},
-        ),
-    ):
-        cfg = _train_config(base, tmp_path, model_type, name, **pre)
-        ModelTrainer.get_model_trainer_from_config(cfg).train()
-        dirs[name] = (tmp_path / name).as_posix()
-    return dirs
+def detector_pair(bbox_det_pair):
+    """A tiny box detector + box-scaled centered-instance model (the session's shared
+    pair, tests/fixtures/bbox_models.py, trained as in test_bbox_topdown)."""
+    return {k: v.as_posix() for k, v in bbox_det_pair.items()}
 
 
 def test_stream_matches_predict_with_a_box_detector(

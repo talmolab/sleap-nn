@@ -143,7 +143,7 @@ def test_vit_warning_covers_every_model_of_a_bundle(
 
     calls = []
     monkeypatch.setattr(
-        export_cli, "_warn_fp16_vit_pose", lambda c, mt, bt, f, p: calls.append(mt)
+        export_cli, "_warn_fp16_vit_pose", lambda c, mt, bt, f, p, *a: calls.append(mt)
     )
     CliRunner().invoke(
         export_cli.export,

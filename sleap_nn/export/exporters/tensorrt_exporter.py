@@ -152,6 +152,49 @@ def _pin_static_dims(
     return lo, opt, hi
 
 
+#: Recipes for ``export_to_tensorrt(fp32_islands=...)`` / ``--fp32-attention-logits``.
+_FP32_ISLAND_RECIPES = ("attention_logits",)
+
+
+def _islands_record(recipe: str, applied: bool, reason=None, **counts) -> dict:
+    """The ``fp32_islands`` metadata record: one shape whether applied or not."""
+    keys = (
+        "softmaxes_in_scope",
+        "products",
+        "softmax_unmatched",
+        "softmax_ambiguous",
+        "products_shared",
+        "softmax_in_subgraphs",
+    )
+    record = {"recipe": recipe, "applied": applied, "reason": reason}
+    record.update({k: counts.get(k) for k in keys})
+    for k in ("first", "unmatched_first", "ambiguous_first"):
+        record[k] = list(counts.get(k) or [])
+    return record
+
+
+def _check_fp32_islands(recipe, precision, method, strongly_typed, trt_module) -> None:
+    """Refuse an ``fp32_islands`` recipe where it cannot apply."""
+    if recipe not in _FP32_ISLAND_RECIPES:
+        raise ValueError(
+            f"Unknown fp32_islands recipe {recipe!r}: use one of {_FP32_ISLAND_RECIPES}."
+        )
+    if precision != "fp16":
+        raise ValueError(
+            f"fp32 attention logits apply to fp16 engines only, not {precision}: bf16 "
+            "already accumulates in fp32, and fp32 / tf32 keep everything in fp32."
+        )
+    if method != "onnx" or not (
+        bool(strongly_typed) or _uses_strong_typing(trt_module)
+    ):
+        raise ValueError(
+            "fp32 attention logits need the strongly typed build, where the graph "
+            "carries each node's precision: TensorRT 11, or --strongly-typed "
+            "(strongly_typed=True) on TensorRT 10, with the ONNX method. TensorRT 10's "
+            "builder flags cannot keep single products in fp32."
+        )
+
+
 def export_to_tensorrt(
     model: nn.Module,
     save_path: str | Path,
@@ -169,6 +212,7 @@ def export_to_tensorrt(
     _build_info: Optional[dict] = None,
     strongly_typed: bool = False,
     force_precision: bool = False,
+    fp32_islands: Optional[str] = None,
 ) -> Path:
     """Export a PyTorch model to TensorRT format.
 
@@ -214,6 +258,14 @@ def export_to_tensorrt(
             (:func:`~sleap_nn.export.exporters.onnx_precision.cast_onnx_precision`),
             the way TensorRT 11 builds always. Default off: TensorRT 10 builds
             use the builder flags as before. Ignored by the ``"jit"`` method.
+        fp32_islands: Opt-in recipe for ``precision="fp16"`` on the strongly typed
+            path (TensorRT 11, or ``strongly_typed`` on 10): ``"attention_logits"``
+            keeps every attention block's logits product (Q.K^T, found by structure:
+            :func:`~sleap_nn.export.exporters.onnx_precision._find_attention_logits`)
+            in fp32, so TensorRT accumulates it in fp32; everything else is the
+            usual fp16 rewrite. With ``_bf16_fp32_outside`` (graphs with coordinates)
+            the fp16 runs only inside that scope, as bf16 does. Recorded as
+            ``fp32_islands`` in the build info. ``None`` (default): plain fp16.
 
     Returns:
         Path to the exported TensorRT engine.
@@ -232,6 +284,8 @@ def export_to_tensorrt(
         )
     precision = str(precision).lower()
     info = _build_info if _build_info is not None else {}
+    if fp32_islands is not None:
+        _check_fp32_islands(fp32_islands, precision, method, strongly_typed, trt)
     if precision in ("fp16", "bf16") and isinstance(model, _reduced_precision_fails()):
         strong = bool(strongly_typed) or _uses_strong_typing(trt)
         what = (
@@ -246,6 +300,11 @@ def export_to_tensorrt(
             info["precision_requested"] = precision
             info["precision_fallback"] = what + "; built fp32"
             precision = "fp32"
+            if fp32_islands is not None:  # nothing left to keep in fp32
+                info["fp32_islands"] = _islands_record(
+                    fp32_islands, applied=False, reason="family built fp32"
+                )
+                fp32_islands = None
         else:
             msg = f"Warning: {what}; check the engine against fp32 on your data."
             _warn_once(msg)
@@ -307,6 +366,7 @@ def export_to_tensorrt(
                 _bf16_fp32_outside=_bf16_fp32_outside,
                 _build_info=info,
                 strongly_typed=strongly_typed,
+                fp32_islands=fp32_islands,
             )
     elif method == "jit":
         return _export_tensorrt_jit(
@@ -330,7 +390,10 @@ _EXTERNAL_DATA_BYTES = 1_800_000_000
 
 
 def _write_typed_graph(
-    onnx_path: Path, precision: str, scope: Optional[str]
+    onnx_path: Path,
+    precision: str,
+    scope: Optional[str],
+    fp32_islands: Optional[str] = None,
 ) -> Tuple[Path, dict]:
     """Write the fp16 / bf16 version of an exported graph for a strongly typed build.
 
@@ -340,6 +403,9 @@ def _write_typed_graph(
         precision: ``"fp16"`` or ``"bf16"``.
         scope: Reduce only nodes inside this scope (:data:`BACKBONE_SCOPE`); ``None``
             for the whole graph.
+        fp32_islands: ``"attention_logits"``: also keep the attention logits
+            products inside the reduced scope in fp32 (``info["fp32_islands"]``, see
+            :func:`_islands_record`). ``None``: none.
 
     Returns:
         ``(path, info)``: ``tensorrt_graph/<stem>.<precision>.onnx`` next to
@@ -353,10 +419,84 @@ def _write_typed_graph(
     """
     import onnx
 
-    from sleap_nn.export.exporters.onnx_precision import cast_onnx_precision
+    from sleap_nn.export.exporters.onnx_precision import (
+        _find_attention_logits,
+        _scope_path,
+        cast_onnx_precision,
+    )
 
+    if fp32_islands not in (None, "attention_logits"):
+        raise ValueError(f"Unknown fp32_islands recipe {fp32_islands!r}.")
     original = onnx.load(str(onnx_path))
-    typed, info = cast_onnx_precision(original, precision, scope)
+    islands = None
+    if fp32_islands == "attention_logits":
+        found = _find_attention_logits(original)
+        nodes = {n.name or n.output[0]: n for n in original.graph.node if n.output}
+        nodes.update({n.output[0]: n for n in original.graph.node if n.output})
+
+        def inside(name):  # outside the scope everything is fp32 anyway
+            return scope is None or scope in _scope_path(nodes[name])
+
+        softmaxes = [x for x in found["softmaxes"] if inside(x)]
+        products = [t for t in found["products"] if inside(t)]
+        unmatched = [x for x in found["unmatched"] if inside(x)]
+        ambiguous = {x: c for x, c in found["ambiguous"].items() if inside(x)}
+        shared = {t: r for t, r in found["shared"].items() if inside(t)}
+        islands = set(products)
+        name = lambda t: nodes[t].name or t  # noqa: E731
+        record = _islands_record(
+            fp32_islands,
+            applied=bool(products),
+            softmaxes_in_scope=len(softmaxes),
+            products=len(products),
+            softmax_unmatched=len(unmatched),
+            softmax_ambiguous=len(ambiguous),
+            products_shared=len(shared),
+            softmax_in_subgraphs=found["in_subgraphs"],
+            first=[name(t) for t in products[:3]],
+            unmatched_first=unmatched[:3],
+            ambiguous_first=list(ambiguous)[:3],
+        )
+        where = (
+            f"fp16 only inside '*{scope}*' and fp32 elsewhere"
+            if scope is not None
+            else f"plain {precision}"
+        )
+        if not products:
+            _warn_once(
+                f"Warning: --fp32-attention-logits found no attention logits in "
+                f"{onnx_path.name}; the engine is {where}."
+            )
+        if unmatched:
+            _warn_once(
+                f"Warning: --fp32-attention-logits found no logits product for "
+                f"{len(unmatched)} softmax node(s) ({', '.join(unmatched[:3])}"
+                f"{' ...' if len(unmatched) > 3 else ''}); they run in {precision}."
+            )
+        if ambiguous:
+            _warn_once(
+                f"Warning: --fp32-attention-logits found more than one candidate "
+                f"logits product for {len(ambiguous)} softmax node(s) "
+                f"({', '.join(list(ambiguous)[:3])}{' ...' if len(ambiguous) > 3 else ''}"
+                f"): all {sum(len(c) for c in ambiguous.values())} kept in fp32."
+            )
+        if shared:
+            _warn_once(
+                f"Note: --fp32-attention-logits: {len(shared)} product(s) feed more "
+                f"than one softmax ({', '.join(name(t) for t in list(shared)[:3])}); "
+                "kept in fp32."
+            )
+        if found["in_subgraphs"]:
+            _warn_once(
+                f"Warning: --fp32-attention-logits does not handle the "
+                f"{found['in_subgraphs']} softmax node(s) inside control-flow bodies "
+                f"(If / Loop); they run in {precision}."
+            )
+    typed, info = cast_onnx_precision(
+        original, precision, scope, keep_fp32_outputs=islands
+    )
+    if fp32_islands is not None:
+        info["fp32_islands"] = record
     out_dir = onnx_path.parent / "tensorrt_graph"
     out_dir.mkdir(exist_ok=True)
     out = out_dir / f"{onnx_path.stem}.{precision}.onnx"
@@ -421,6 +561,7 @@ def _export_tensorrt_onnx(
     _bf16_fp32_outside: Optional[str] = None,
     _build_info: Optional[dict] = None,
     strongly_typed: bool = False,
+    fp32_islands: Optional[str] = None,
 ) -> Path:
     """Export via ONNX, then compile to TensorRT engine."""
     import tensorrt as trt
@@ -488,10 +629,21 @@ def _export_tensorrt_onnx(
         # transposed convolutions (bf16) and normalizations in fp32. The rewritten
         # graph is saved next to the engine (tensorrt_graph/, never picked up as
         # the export's ONNX model) and checked before TensorRT parses it.
+        # The fp16 attention-logits recipe takes the bf16 scope too: on graphs with
+        # coordinates, everything outside the backbone stays fp32.
         typed_path, cast_info = _write_typed_graph(
-            onnx_path, precision, _bf16_fp32_outside if precision == "bf16" else None
+            onnx_path,
+            precision,
+            (
+                _bf16_fp32_outside
+                if precision == "bf16" or (precision == "fp16" and fp32_islands)
+                else None
+            ),
+            fp32_islands=fp32_islands if precision == "fp16" else None,
         )
         info["graph_casts"] = cast_info
+        if "fp32_islands" in cast_info:
+            info["fp32_islands"] = cast_info["fp32_islands"]
         info["tensorrt_graph"] = str(typed_path.relative_to(onnx_path.parent))
         if cast_info.get("unknown_type_nodes"):
             msg = (
