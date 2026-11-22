@@ -3051,8 +3051,10 @@ def _run_in_memory_new_flow(
             from click.core import ParameterSource
 
             # A lone exported box detector decodes on the host: a --peak_threshold
-            # given on the command line is its score threshold, as next to a pose
-            # model (`--bbox_nms_iou` is forwarded as well).
+            # typed on the command line is its score threshold, as next to a pose
+            # model. The option always has a value (default 0.2), so only a typed
+            # one may replace the threshold stored at export. `--bbox_nms_iou`
+            # defaults to None and is forwarded whenever it is set.
             keep_threshold = _ctx.get_parameter_source(
                 "peak_threshold"
             ) == ParameterSource.COMMANDLINE and _is_box_detector_dir(export_dir)
@@ -3819,9 +3821,9 @@ def _common_inference_options(f):
             type=float,
             default=None,
             help="Class-wise IoU-NMS threshold for bounding-box detectors "
-            "(bbox_centernet / bbox_ssd). Default: 0.45 for SSD, off for "
-            "CenterNet; 1.0 disables it. --peak_threshold is the detection "
-            "score threshold and --max_instances the per-frame cap.",
+            "(bbox_centernet / bbox_ssd / bbox_detr). Default: 0.45 for SSD, off "
+            "for CenterNet and DETR; 1.0 disables it. --peak_threshold is the "
+            "detection score threshold and --max_instances the per-frame cap.",
         ),
         click.option(
             "--fg_threshold",

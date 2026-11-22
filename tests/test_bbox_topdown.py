@@ -1061,12 +1061,12 @@ def _lone_detector_boxes(det, data, out, *extra):
 
 
 def test_lone_exported_detector_takes_the_thresholds(
-    lone_det_export, minimal_instance, tmp_path
+    trained_pair, lone_det_export, minimal_instance, tmp_path
 ):
     """A lone exported box detector decodes with a typed --peak_threshold / --bbox_nms_iou.
 
-    Without the flags it keeps the export's own score threshold (0.2) and the detector
-    style's default suppression (none for CenterNet), as before.
+    Without the flags it keeps the score threshold stored at export (0.2 by default)
+    and the detector style's default suppression (none for CenterNet), as before.
     """
 
     def run(name, *extra):
@@ -1099,6 +1099,25 @@ def test_lone_exported_detector_takes_the_thresholds(
         expected
     )
 
+    # The untyped cut is the threshold stored at export, whatever it is: an export
+    # made with `--peak-threshold` between the two best scores keeps the best only,
+    # and a typed threshold still replaces it.
+    stored = _export(
+        trained_pair["det"], tmp_path / "det_stored", "--peak-threshold", repr(thr)
+    )
+
+    def run_stored(name, *extra):
+        return scores(
+            _lone_detector_boxes(
+                stored, minimal_instance, tmp_path / f"{name}.slp", *extra
+            )
+        )
+
+    assert run_stored("stored_default") == pytest.approx(expected)
+    assert run_stored("stored_typed", "--peak_threshold", "0.0") == pytest.approx(
+        all_scores
+    )
+
     # A typed suppression threshold. 1.0 disables it (as CenterNet's default does); a
     # low one keeps the best box and only boxes the unsuppressed run also has.
     nms_off = run("nms_off", "--peak_threshold", "0.0", "--bbox_nms_iou", "1.0")
@@ -1108,6 +1127,30 @@ def test_lone_exported_detector_takes_the_thresholds(
     assert flat(suppressed[:1]) == pytest.approx(flat(everything[:1]))
     for box in suppressed:
         assert any(flat([box]) == pytest.approx(flat([other])) for other in everything)
+
+
+def _lone_detector_decoder(monkeypatch, det, data, out, *flags):
+    """Run a lone exported detector on the command line; what reached its decoder.
+
+    Returns the two threshold keywords ``Predictor.from_export_dir`` was called with
+    (only those present) and the decoder it built.
+    """
+    from sleap_nn.inference.predictor import Predictor
+
+    seen = {}
+    build = Predictor.from_export_dir.__func__
+
+    def spy(cls, export_dir, **kwargs):
+        seen.update(kwargs)
+        predictor = build(cls, export_dir, **kwargs)
+        seen["decoder"] = predictor.layer.decoder
+        return predictor
+
+    monkeypatch.setattr(Predictor, "from_export_dir", classmethod(spy))
+    _lone_detector_boxes(det, data, out, *flags)
+    decoder = seen.pop("decoder")
+    typed = {k: seen[k] for k in ("peak_conf_threshold", "bbox_nms_iou") if k in seen}
+    return typed, decoder
 
 
 @pytest.mark.parametrize(
@@ -1126,27 +1169,34 @@ def test_lone_exported_detector_forwards_only_typed_thresholds(
     lone_det_export, minimal_instance, tmp_path, monkeypatch, flags, expected
 ):
     """Only thresholds typed on the command line reach the lone detector's decoder."""
-    from sleap_nn.inference.predictor import Predictor
-
-    seen = {}
-    build = Predictor.from_export_dir.__func__
-
-    def spy(cls, export_dir, **kwargs):
-        seen.update(kwargs)
-        predictor = build(cls, export_dir, **kwargs)
-        seen["decoder"] = predictor.layer.decoder
-        return predictor
-
-    monkeypatch.setattr(Predictor, "from_export_dir", classmethod(spy))
-    _lone_detector_boxes(lone_det_export, minimal_instance, tmp_path / "o.slp", *flags)
-
-    decoder = seen.pop("decoder")
-    typed = {k: seen[k] for k in ("peak_conf_threshold", "bbox_nms_iou") if k in seen}
+    typed, decoder = _lone_detector_decoder(
+        monkeypatch, lone_det_export, minimal_instance, tmp_path / "o.slp", *flags
+    )
     assert typed == pytest.approx(expected)
     assert decoder.score_threshold == pytest.approx(
         expected.get("peak_conf_threshold", 0.2)
     )
     assert decoder.iou_threshold == expected.get("bbox_nms_iou")
+
+
+@pytest.mark.parametrize("flags, iou", [((), 0.45), (("--bbox_nms_iou", "0.3"), 0.3)])
+def test_lone_exported_ssd_detector_suppression(
+    config, minimal_instance, tmp_path, monkeypatch, flags, iou
+):
+    """An SSD detector's default suppression (0.45) stays unless --bbox_nms_iou is typed."""
+    pytest.importorskip("onnxruntime")
+    from sleap_nn.training.model_trainer import ModelTrainer
+
+    cfg = _train_config(config, tmp_path, "bbox_ssd", "det_ssd")
+    cfg.trainer_config.max_epochs = 2
+    ModelTrainer.get_model_trainer_from_config(cfg).train()
+    det = _export(tmp_path / "det_ssd", tmp_path / "det_ssd_export")
+    typed, decoder = _lone_detector_decoder(
+        monkeypatch, det, minimal_instance, tmp_path / "o.slp", *flags
+    )
+    assert typed == ({"bbox_nms_iou": iou} if flags else {})
+    assert decoder.iou_threshold == pytest.approx(iou)
+    assert decoder.score_threshold == pytest.approx(0.2)
 
 
 def test_lone_exported_detector_thresholds_from_python(
