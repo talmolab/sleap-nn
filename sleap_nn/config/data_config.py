@@ -207,7 +207,9 @@ class PreprocessingConfig:
             to the instance (`box.instance`), i.e. a person-detector box matched to
             the ground truth, so training crops look like the ones a detector gives at
             inference (the highest-scoring linked box wins). Instances without one
-            follow `crop_bbox_fallback`. *Default*: `"gt"`.
+            follow `crop_bbox_fallback`. `detector` is experimental: it may change
+            or be removed without a deprecation period, and its measured gain was
+            within noise. *Default*: `"gt"`.
         crop_bbox_detector: (str) For `crop_bbox_source="detector"`: only predicted
             boxes whose `source` equals this string count (for files carrying boxes
             from several detectors). *Default*: `None` (any source).
@@ -221,21 +223,23 @@ class PreprocessingConfig:
             standard deviation, as a fraction of the box's width (x edges) or height
             (y edges), before padding. Mimics detector box noise; validation crops are
             never jittered. *Default*: `0.0` (off).
-        crop_bbox_jitter_tail: (float) With `crop_bbox_jitter_tail_p > 0`, training
-            only: standard deviation of a second, heavy-tail Gaussian component of
-            the edge shift (same units as `crop_bbox_jitter`). Each edge draws from it
+        crop_bbox_jitter_tail: (float) Experimental (may change or be removed
+            without a deprecation period; no measured benefit in the developers'
+            tests). With `crop_bbox_jitter_tail_p > 0`, training only: standard
+            deviation of a second, heavy-tail Gaussian component of the edge shift
+            (same units as `crop_bbox_jitter`). Each edge draws from it
             with probability `crop_bbox_jitter_tail_p` and from `crop_bbox_jitter`
             otherwise, so the shifts can follow a detector whose box errors are mostly
             small with a few large ones (a box over two animals, a cut-off box).
             *Default*: `0.0`.
-        crop_bbox_jitter_tail_p: (float) Per-edge probability of the
+        crop_bbox_jitter_tail_p: (float) Experimental. Per-edge probability of the
             `crop_bbox_jitter_tail` component, in [0, 1]. *Default*: `0.0` (off: the
             edge shift is plain `crop_bbox_jitter`, drawn exactly as before).
-        crop_bbox_jitter_min_cover: (float) Training only, with any box jitter: a
-            jittered box that keeps less than this share of the original box's area is
-            redrawn (up to 10 times; then the edges get the `crop_bbox_jitter`
-            component only), so the animal stays in the crop. In [0, 1]. *Default*:
-            `0.0` (never redraw).
+        crop_bbox_jitter_min_cover: (float) Experimental. Training only, with any
+            box jitter: a jittered box that keeps less than this share of the
+            original box's area is redrawn (up to 10 times; then the edges get the
+            `crop_bbox_jitter` component only), so the animal stays in the crop. In
+            [0, 1]. *Default*: `0.0` (never redraw).
         tiling:Configuration of tiled training/inference. Inert unless `tiling.enabled` is `True`.
         burn_in: (bool) For the `embedding` model type: burn the instance mask into the
             crop (background pixels set to `background_fill`) so the embedder sees only
@@ -414,14 +418,17 @@ class IntensityConfig:
         gaussian_blur_sigma_max: (float) Largest blur sigma. *Default*: `2.0`.
         gray_p, channel_shuffle_p, channel_gain_max, channel_gain_p, gamma_min,
         gamma_max, gamma_p, invert_p, downup_min, downup_max, downup_p,
-        jpeg_quality_min, jpeg_quality_max, jpeg_p: appearance ops of
+        jpeg_quality_min, jpeg_quality_max, jpeg_p: Experimental (may change or be
+            removed without a deprecation period; no measured benefit in the
+            developers' tests). Appearance ops of
             :mod:`sleap_nn.data.photometric_extra` (luminance, channel permutation,
             per-channel gain, log-uniform gamma, inversion, down-then-up sampling by
-            a factor in ``[downup_min, downup_max]``, JPEG re-encoding). Off by
-            default.
-        frame_photometric: (bool) ``bbox_detr`` only: apply the warp pipeline's
-            photometric ops (contrast, brightness, HSV, blurs, noise and the ops
-            above) to the whole frame before RF-DETR's geometry, instead of the
+            a factor in ``[downup_min, downup_max]``, JPEG re-encoding), applied by
+            `crop_pipeline="warp"` and, with `frame_photometric`, by `bbox_detr`;
+            other pipelines ignore them with a warning. Off by default.
+        frame_photometric: (bool) Experimental. ``bbox_detr`` only: apply the warp
+            pipeline's photometric ops (contrast, brightness, HSV, blurs, noise and
+            the ops above) to the whole frame before RF-DETR's geometry, instead of the
             stock contrast / brightness / noise. *Default*: `False`.
     """
 
@@ -450,8 +457,8 @@ class IntensityConfig:
     gaussian_blur_p: float = field(default=0.0, validator=validate_proportion)
     gaussian_blur_sigma_min: float = field(default=0.1, validator=validators.gt(0))
     gaussian_blur_sigma_max: float = field(default=2.0, validator=validators.gt(0))
-    # E19 appearance ops (sleap_nn.data.photometric_extra); crop_pipeline="warp" and,
-    # with frame_photometric, bbox_detr frames. All off by default.
+    # Experimental appearance ops (sleap_nn.data.photometric_extra); crop_pipeline=
+    # "warp" and, with frame_photometric, bbox_detr frames. All off by default.
     gray_p: float = field(default=0.0, validator=validate_proportion)
     channel_shuffle_p: float = field(default=0.0, validator=validate_proportion)
     channel_gain_max: float = field(default=0.0, validator=validators.ge(0))
@@ -639,10 +646,10 @@ class DetrAugmentationConfig:
             boxes. With `flip_p: 0.5, vflip_p: 0.5, rot90_p: 0.5` every
             orientation and mirror image is equally likely (overhead footage).
             *Default*: `0.0`.
-        zoom_out_p: (float) Probability of shrinking the fitted training frame by
-            ``f ~ U(zoom_out_min, zoom_out_max)`` onto a zero canvas at a random
-            offset (mice smaller than in the source; not in RF-DETR). *Default*:
-            `0.0`.
+        zoom_out_p: (float) Probability of shrinking the fitted training frame by a
+            factor drawn log-uniformly from ``[zoom_out_min, zoom_out_max]`` onto a
+            canvas (see ``zoom_out_canvas``) at a random offset (animals smaller than
+            in the source; not in RF-DETR). *Default*: `0.0`.
         zoom_out_min: (float) Smallest zoom-out factor. *Default*: `0.4`.
         zoom_out_max: (float) Largest zoom-out factor. *Default*: `1.0`.
         zoom_out_canvas: (str) What the shrunk frame is pasted on: ``"zero"`` (a black
@@ -650,7 +657,9 @@ class DetrAugmentationConfig:
             size with its own boxes; its boxes covered >= 50% by the pasted frame are
             dropped, the rest clipped to outside it), so the surroundings are real scenes.
             *Default*: `"zero"`.
-        paste_p: (float) Probability of pasting animals cut from other training frames
+        paste_p: (float) Experimental (may change or be removed without a
+            deprecation period; no measured benefit in the developers' tests).
+            Probability of pasting animals cut from other training frames
             onto the fitted training frame (copy-paste; not in RF-DETR): crowds, small
             animals and new backgrounds. Each pasted animal is its box region cut with a
             soft mask, the convex hull of the linked instance's points inside the box,

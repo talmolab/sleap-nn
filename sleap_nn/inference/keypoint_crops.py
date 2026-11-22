@@ -13,7 +13,7 @@ model's predictions, so detector, body and part run as one pipeline::
 A :class:`KeypointCropRule` turns each predicted instance into one square box:
 
 * center: the first located node of ``center`` (names matched exactly, or by the
-  part after the last ``/``, so ``"TTI"`` matches ``"skel-60143b/TTI"``);
+  part after the last ``/``, so ``"tail_base"`` matches ``"lab_a/tail_base"``);
 * half side: ``scale`` x the distance from the center to the mean of the
   ``reference`` nodes (all must be located), else of ``reference_fallback``,
   floored at ``min_half_side`` pixels;
@@ -639,6 +639,8 @@ class RunningMedian:
 
 class StreamingPartStage:
     """The part stage run on each batch right after the pose stage (``part_streaming``).
+
+    Experimental: it may change or be removed without a deprecation period.
 
     :func:`run_part_stage` runs after the whole video: it reads every frame a
     second time and floors each crop at the median crop of the whole video

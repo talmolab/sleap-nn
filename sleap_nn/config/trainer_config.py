@@ -551,7 +551,7 @@ class EvalConfig:
         file_nodes: (dict) With several validation files, the nodes each file is
             scored on by the epoch-end evaluation, keyed by the file's display name
             (``data_config.val_names``): a list of node names, or a string prefix
-            such as ``"hcm-2025/"``. Files not listed are scored on the model nodes
+            such as ``"lab_a/"``. Files not listed are scored on the model nodes
             their skeleton has. *Default*: `None`.
         post_train_splits: (list) Splits that the post-training evaluation (after
             `fit`, with `save_ckpt`) predicts and scores, any of `"val"`, `"test"`
@@ -743,7 +743,9 @@ class BalancedSamplerConfig:
         per_sample: (bool) Draw every sample's file at random with probability
             `weights` (normalized; equal when `None`) instead of fixed per-batch
             counts. *Default*: `False`.
-        overlap_weight: (float) `bbox_*` models with `per_sample` only: within each
+        overlap_weight: (float) Experimental (may change or be removed without a
+            deprecation period; no measured benefit in the developers' tests).
+            `bbox_*` models with `per_sample` only: within each
             file, a frame whose labelled boxes overlap (two boxes sharing at least
             `overlap_min` of the smaller box's area) is drawn `overlap_weight` times
             as often as the file's other frames. Each file's share of the samples
@@ -765,6 +767,9 @@ class BalancedSamplerConfig:
 @define
 class DistillationConfig:
     """DWPose-style knowledge distillation (Yang et al. 2023, arXiv 2307.15880).
+
+    Experimental: it may change or be removed without a deprecation period, its
+    defaults are untuned, and it showed no measured benefit in the developers' tests.
 
     **Stage 1** (teacher -> student) adds to the supervised loss
     ``r(t) * (alpha * L_feat + beta * L_heatmap)``:

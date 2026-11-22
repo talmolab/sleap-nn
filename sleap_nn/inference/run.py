@@ -889,8 +889,9 @@ def predict(
             models (export them filtered instead).
         strip_prefix: Rename the kept nodes: ``True`` strips the ``node_filter``
             prefix, a string strips that prefix.
-        part_streaming: Run the part stage on each batch right after the pose
-            stage, on the frames already in memory, with a running crop floor
+        part_streaming: Experimental (may change or be removed without a
+            deprecation period). Run the part stage on each batch right after the
+            pose stage, on the frames already in memory, with a running crop floor
             instead of the whole-video floor
             (:class:`~sleap_nn.inference.keypoint_crops.StreamingPartStage`). The
             running floor is the median over the boxes so far *including the rest
@@ -1234,6 +1235,8 @@ def open_stream(
     keep: bool = False,
 ):
     """Open a frame-in, pose-out stream (:class:`~sleap_nn.inference.stream.PoseStream`).
+
+    Beta: the interface may still change in a minor release.
 
     Builds the same pipeline as :func:`predict` with the same model arguments
     (checkpoints, or network-only export folders as ``model_paths`` with

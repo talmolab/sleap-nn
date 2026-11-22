@@ -304,11 +304,14 @@ Used by the `embedding` model type (see the [embedding tracking guide](../guides
 | `crop_pipeline` | str | `legacy` | How `centered_instance` training crops are cut: `legacy`, or `warp` (one affine warp from the full frame, uint8 samples, no size matcher; needs `crop_mode: bbox`). See [Fast top-down data path](../guides/warp-data-path.md) |
 | `gpu_confmaps` | bool | `false` | `crop_pipeline: warp`: render the confidence maps on the GPU in the training step instead of in the workers |
 | `crop_bbox_categories` | list | `null` | `crop_pipeline: warp`: only linked user boxes of these categories (e.g. `[person]`) are crop boxes; others (e.g. MPII head boxes) fall back to the keypoint box |
-| `crop_bbox_source` | str | `gt` | `crop_pipeline: warp`: `gt` crops from the instance's user (or keypoint) box; `detector` crops from the `PredictedBoundingBox` linked to the instance (a detector box matched to the GT), so training crops look like inference crops. See [Detector-box crops](../guides/warp-data-path.md#detector-box-crops) |
+| `crop_bbox_source` | str | `gt` | `crop_pipeline: warp`: `gt` crops from the instance's user (or keypoint) box; `detector` (**experimental**) crops from the `PredictedBoundingBox` linked to the instance (a detector box matched to the GT), so training crops look like inference crops. See [Detector-box crops](../guides/warp-data-path.md#detector-box-crops) |
 | `crop_bbox_detector` | str | `null` | `crop_bbox_source: detector`: only predicted boxes whose `source` is this string count |
 | `crop_bbox_min_score` | float | `0.0` | `crop_bbox_source: detector`: only predicted boxes scoring at least this count |
 | `crop_bbox_fallback` | str | `gt` | `crop_bbox_source: detector`: an instance without a usable detector box is cropped from its `gt` box, or left out (`drop`) |
 | `crop_bbox_jitter` | float | `0.0` | `crop_pipeline: warp`, training only: each box edge moves by Gaussian noise with this std, as a fraction of the box width / height (detector-like box noise). Off at `0` |
+| `crop_bbox_jitter_tail` | float | `0.0` | **Experimental.** Std of a second, heavy-tail component of the edge shift (same units as `crop_bbox_jitter`). See [Heavy-tail box jitter](../guides/warp-data-path.md#heavy-tail-box-jitter) |
+| `crop_bbox_jitter_tail_p` | float | `0.0` | **Experimental.** Per-edge probability of drawing the shift from `crop_bbox_jitter_tail`. Off at `0` |
+| `crop_bbox_jitter_min_cover` | float | `0.0` | **Experimental.** Redraw a jittered box that keeps less than this share of the original box's area (up to 10 times). Off at `0` |
 | `min_crop_size` | int | `100` | Minimum crop size when auto-computing |
 | `crop_padding` | int | `null` | Extra padding around crops. If `null`, auto-computed from augmentation settings |
 | `crop_mode` | str | `fixed` | How a centered-instance crop is cut (`centered_instance` / `multi_class_topdown`): `fixed` (a `crop_size` window at the centroid) or `bbox` (the instance's box, resized to `crop_size`; inference needs a `bbox_*` detector or GT boxes). See the [box-seeded top-down guide](../guides/bbox-topdown.md) |
@@ -340,6 +343,18 @@ Used by the `embedding` model type (see the [embedding tracking guide](../guides
 | `blur_p` | float | `0.0` | `crop_pipeline: warp` only: box blur, odd kernel in `[blur_kernel_min, blur_kernel_max]` (`3`-`7`) |
 | `median_blur_p` | float | `0.0` | `crop_pipeline: warp` only: median blur, kernel in `[median_blur_kernel_min, median_blur_kernel_max]` (`3`-`7`) |
 | `gaussian_blur_p` | float | `0.0` | `crop_pipeline: warp` only: Gaussian blur, sigma in `[gaussian_blur_sigma_min, gaussian_blur_sigma_max]` (`0.1`-`2.0`) crop px |
+| `gray_p` | float | `0.0` | **Experimental**, warp path (and `frame_photometric`) only: replace a colour image by its luminance |
+| `channel_shuffle_p` | float | `0.0` | **Experimental**, as above: random permutation of the 3 channels |
+| `channel_gain_p` | float | `0.0` | **Experimental**, as above: multiply each channel by a factor in `[1 - channel_gain_max, 1 + channel_gain_max]` |
+| `channel_gain_max` | float | `0.0` | Largest per-channel gain change for `channel_gain_p` |
+| `gamma_p` | float | `0.0` | **Experimental**, as above: gamma curve, gamma drawn log-uniformly from `[gamma_min, gamma_max]` |
+| `gamma_min` / `gamma_max` | float | `1.0` / `1.0` | Gamma range for `gamma_p` (> 0) |
+| `invert_p` | float | `0.0` | **Experimental**, as above: invert the image (`255 - x`) |
+| `downup_p` | float | `0.0` | **Experimental**, as above: downsample by a factor in `[downup_min, downup_max]`, then resize back |
+| `downup_min` / `downup_max` | float | `1.0` / `1.0` | Factor range for `downup_p` (>= 1) |
+| `jpeg_p` | float | `0.0` | **Experimental**, as above: JPEG re-encode at a quality in `[jpeg_quality_min, jpeg_quality_max]` |
+| `jpeg_quality_min` / `jpeg_quality_max` | int | `95` / `95` | Quality range for `jpeg_p` |
+| `frame_photometric` | bool | `false` | **Experimental**, `bbox_detr` only: apply the warp path's photometric ops (including the ones above) to whole training frames. See [Appearance augmentations](../guides/warp-data-path.md#appearance-augmentations) |
 
 ### AugmentationStage2Config (augmentation_config.stage2)
 
@@ -366,6 +381,16 @@ generator uses the input's short side and 2/3 to 1x of it).
 | `shortest_sides` | list[int] | `[400, 500, 600]` | Pre-crop shortest sides |
 | `crop_range` | list[int] | `[384, 600]` | Inclusive `[min, max]` crop side |
 | `flip_p` | float | `0.5` | Horizontal flip probability |
+| `vflip_p` | float | `0.0` | Vertical flip probability (not in RF-DETR) |
+| `rot90_p` | float | `0.0` | Probability of a 90 degree rotation, either direction (not in RF-DETR); boxes stay exact |
+| `zoom_out_p` | float | `0.0` | Probability of shrinking the fitted frame onto a canvas (animals look smaller). See [Zoom-out](../guides/bbox-detr.md#zoom-out) |
+| `zoom_out_min` / `zoom_out_max` | float | `0.4` / `1.0` | Range of the zoom-out factor (drawn log-uniformly) |
+| `zoom_out_canvas` | str | `zero` | `zero` (black) or `frame` (another training frame, with its boxes) |
+| `paste_p` | float | `0.0` | **Experimental.** Probability of pasting animals cut from other training frames (copy-paste). See [Copy-paste](../guides/bbox-detr.md#copy-paste) |
+| `paste_max` / `paste_frames` | int | `6` / `2` | **Experimental.** Most animals pasted per frame / most source frames read per paste |
+| `paste_scale_min` / `paste_scale_max` | float | `0.3` / `1.2` | **Experimental.** Scale range of a pasted animal |
+| `paste_overlap` | float | `0.3` | **Experimental.** Largest share of a pasted box that may overlap existing boxes |
+| `paste_dilate` / `paste_feather` | float | `0.08` / `0.04` | **Experimental.** Mask dilation / edge blur, as shares of the box's longest side |
 | `multi_scale` | bool | `true` | Per-batch multi-scale: every training batch is resized to one size drawn per optimizer step (the same on every rank) from `max_height x max_width` +/- `multi_scale_steps` multiples of the backbone's `max_stride` |
 | `multi_scale_steps` | int | `5` | Size steps up and down |
 

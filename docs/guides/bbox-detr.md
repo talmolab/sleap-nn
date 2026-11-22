@@ -357,8 +357,98 @@ Advice for a few hundred to a few thousand labeled frames, as in the mouse sampl
   (RF-DETR: 16 per step at 1e-4). Halve the LR if the loss spikes or
   `bbox_mAP` stays near 0 after 20-30 epochs.
 - **Start from another detector** when one exists for a similar domain
-  (`init_from`, previous section). Whether a human detector helps a mouse
-  detector is one of the M5 experiments.
+  (`init_from`, previous section).
+
+## Training augmentation
+
+Besides RF-DETR's crop, flip and multi-scale (above), `augmentation_config.detr` has
+options that RF-DETR does not. All are off by default and apply to training frames
+only. They run in this order: RF-DETR's crop branch, horizontal flip, vertical flip,
+90 degree rotation, the fit to the input size, zoom-out, then copy-paste; the
+`intensity` / `geometric` sections come after (with `frame_photometric`, the
+intensity ops run first, on the whole frame).
+
+### Zoom-out
+
+Zoom-out shrinks the fitted training frame and places it at a random spot on a
+canvas of the input size, so the detector also sees animals smaller than in the
+labelled frames (a camera farther away, a larger arena). The factor is drawn
+log-uniformly from `[zoom_out_min, zoom_out_max]`; boxes shrink and move with the
+frame. In the developers' tests it was the one option in this section that improved
+detection in recording setups not seen in training.
+
+```yaml
+data_config:
+  augmentation_config:
+    detr:
+      zoom_out_p: 0.5         # share of training frames that are zoomed out
+      zoom_out_min: 0.4       # smallest factor (0.4 = 40% of the input size)
+      zoom_out_max: 1.0
+      zoom_out_canvas: frame  # zero (black) or frame (another training frame)
+```
+
+| Key | Default | Meaning |
+|---|---|---|
+| `zoom_out_p` | `0.0` (off) | Probability of zooming a training frame out |
+| `zoom_out_min` | `0.4` | Smallest factor (> 0) |
+| `zoom_out_max` | `1.0` | Largest factor (<= 1) |
+| `zoom_out_canvas` | `zero` | `zero`: a black canvas. `frame`: another training frame (a uniformly drawn file, then frame), fitted to the input size with its own boxes; its boxes at least half covered by the shrunk frame are dropped and the others clipped to the part left visible, so the surroundings are real scenes |
+
+With `zoom_out_canvas: frame` a sample can hold the boxes of two frames, so the
+largest number of boxes per sample (`max_instances`) is doubled. Zoom-out is
+implemented for `bbox_detr` only.
+
+### Vertical flip and 90 degree rotation
+
+For overhead video, where no orientation is special, `vflip_p` flips frames upside
+down and `rot90_p` turns them by 90 degrees (clockwise or counterclockwise at random).
+Both keep boxes exact, unlike the `geometric` rotation, whose turned box corners
+enlarge the boxes. With `flip_p: 0.5`, `vflip_p: 0.5` and `rot90_p: 0.5` every
+orientation and mirror image is equally likely. They are available with no measured
+gain in the developers' tests.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `vflip_p` | `0.0` (off) | Vertical flip probability |
+| `rot90_p` | `0.0` (off) | Probability of a 90 degree rotation, either direction |
+
+Boxes are clipped to the frame before it is fitted to the input size, so a box
+reaching past the frame's right or bottom edge (an animal cut by a random crop, or a
+padded keypoint box at the frame edge) is not kept over the letterbox padding.
+
+### Copy-paste
+
+!!! warning "Experimental"
+    Copy-paste may change or be removed in a later release without a deprecation
+    period, and it showed no measured benefit in the developers' tests.
+
+Copy-paste cuts animals out of other training frames and pastes them onto the fitted
+training frame: more animals, small animals and new backgrounds per sample. Each
+animal is its box region with a soft mask (the convex hull of its linked instance's
+points inside the box, dilated and feathered), scaled by a log-uniform factor,
+flipped and turned by a multiple of 90 degrees at random, and placed inside the
+frame's content (not on the letterbox padding). Boxes with no linked instance, or with
+fewer than 4 points inside, are never pasted, so this needs pose labels.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `paste_p` | `0.0` (off) | Probability of pasting into a training frame |
+| `paste_max` | `6` | Most animals pasted into one frame (a uniform draw from 1 to this) |
+| `paste_frames` | `2` | Most source frames read per paste (each a uniformly drawn training file, then frame) |
+| `paste_scale_min` | `0.3` | Smallest scale of a pasted animal, relative to its size in its own fitted frame |
+| `paste_scale_max` | `1.2` | Largest such scale |
+| `paste_overlap` | `0.3` | Largest share of a pasted box that may overlap boxes already in the frame (a pasted box never covers half of another box) |
+| `paste_dilate` | `0.08` | Mask dilation, as a share of the box's longest side |
+| `paste_feather` | `0.04` | Mask edge blur (Gaussian radius), as a share of the box's longest side |
+
+With copy-paste on, `max_instances` grows by `paste_max`.
+
+### Appearance augmentations on whole frames
+
+`augmentation_config.intensity.frame_photometric: true` (experimental) applies the
+warp data path's photometric ops, including the experimental appearance ops (grey,
+channel shuffle and gain, gamma, invert, down-up, JPEG), to whole detector training
+frames. See [Appearance augmentations](warp-data-path.md#appearance-augmentations).
 
 ## Configuration reference
 
@@ -397,8 +487,8 @@ inference up to the runtime's numerics. `--input-dtype uint8` (the other detecto
 convention) is available: the host then resizes the frame in float and rounds it,
 while checkpoint inference resizes it in the frame's own dtype; the canvases differ by
 up to one grey level, and the two-stage query selection (a top-k over many near-tied
-proposals) can turn that into slightly different boxes and scores (on a DINOv3 ViT-B
-mouse detector, 1.5% of boxes at IoU 0.94-0.95 with the checkpoint's box and scores up
+proposals) can turn that into slightly different boxes and scores (on one DINOv3 ViT-B
+detector, 1.5% of boxes at IoU 0.94-0.95 with the checkpoint's box and scores up
 to 0.017 apart -- the same as PyTorch itself on that canvas).
 
 ## Limits

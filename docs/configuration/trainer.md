@@ -511,7 +511,11 @@ Frozen parameters stay in the optimizer and train once unfrozen. Under DDP,
 
 ### Distillation
 
-Train a student with a frozen teacher (DWPose-style). Off by default:
+Train a student with a frozen teacher (DWPose-style). Off by default.
+
+!!! warning "Experimental"
+    Distillation may change or be removed without a deprecation period, and it
+    showed no measured benefit in the developers' tests.
 
 ```yaml
 trainer_config:
@@ -651,7 +655,7 @@ trainer_config:
 | `use_wandb` | bool | `false` | Enable WandB logging |
 | `resume_ckpt_path` | str | `null` | Path to checkpoint to resume from |
 | `freeze_schedule` | FreezeScheduleConfig | `null` | Freeze `targets` (selectors, default `[encoder]`) until `unfreeze_at_step` (`null` = whole run) |
-| `distillation` | DistillationConfig | `null` | Teacher → student (`stage: 1`) or head self-distillation (`stage: 2`); see [Distillation](../guides/distillation.md) |
+| `distillation` | DistillationConfig | `null` | **Experimental.** Teacher → student (`stage: 1`) or head self-distillation (`stage: 2`); see [Distillation](../guides/distillation.md) |
 | `optimizer_name` | str | `Adam` | Optimizer: `Adam` or `AdamW` |
 | `precision` | str | `"32"` | Lightning precision: `"32"`, `"bf16-mixed"`, `"16-mixed"` |
 | `float32_matmul_precision` | str | `null` | `torch.set_float32_matmul_precision` during training on CUDA, restored afterwards (`high` = TF32; `highest` = strict fp32; `null` = leave unchanged) |
@@ -665,7 +669,7 @@ trainer_config:
 | `throughput_log_every_n_steps` | int | `50` | `perf/*` throughput window (0 disables) |
 | `confmap_fg_bg_diagnostics` | bool | `null` | Log confmap fg/bg MSE split (`null` = centroid only) |
 | `ema` | EMAConfig | off | Weight EMA; see [EMAConfig](#emaconfig) |
-| `balanced_sampler` | BalancedSamplerConfig | `null` | Per-file batch composition for `crop_pipeline: warp` and the `bbox_*` models: fixed per-file `counts`, or `weights` rounded to the batch size; with `per_sample: true` each sample's file is drawn with probability `weights` instead (any number of files at any batch size); `bbox_*` with `per_sample`: `overlap_weight` (default `1.0`, off) draws frames whose labelled boxes overlap by at least `overlap_min` (default `0.25`) of the smaller box that many times as often within their file. Per-rank streams, resumed from checkpoints. See [Fast top-down data path](../guides/warp-data-path.md#mixing-datasets) |
+| `balanced_sampler` | BalancedSamplerConfig | `null` | Per-file batch composition for `crop_pipeline: warp` and the `bbox_*` models: fixed per-file `counts`, or `weights` rounded to the batch size; with `per_sample: true` each sample's file is drawn with probability `weights` instead (any number of files at any batch size); `bbox_*` with `per_sample`: `overlap_weight` (**experimental**; default `1.0`, off) draws frames whose labelled boxes overlap by at least `overlap_min` (default `0.25`) of the smaller box that many times as often within their file. Per-rank streams, resumed from checkpoints. See [Fast top-down data path](../guides/warp-data-path.md#mixing-datasets) |
 
 ### DataLoaderConfig
 
@@ -823,6 +827,12 @@ five `null`) = constant learning rate.
 | `post_train_max_train_frames` | int | `null` | Score only this many random frames (seeded by `seed`) of each train file after training. Val and test always run in full |
 | `post_train_batch_size` | int | `null` | Frames per prediction batch after training. `null` = `val_data_loader.batch_size`, or 4 for the crop-based top-down models |
 | `post_train_precision` | str | `null` | `"32"`, `"bf16"` or `"fp16"` (CUDA autocast) for the post-training predictions. `null` follows `precision` (`bf16-mixed` -> bf16) |
+| `norm_scale` | str | `null` | Opt-in point error relative to instance size: `bbox` (the linked user box, else the labelled points' box) or `points`; unpredicted points count as `norm_missing_error`. Logs `eval/<file>/norm_distance/*`. See [Point error relative to animal size](../guides/evaluation.md#point-error-relative-to-animal-size-norm_scale) |
+| `norm_missing_error` | float | `1.0` | Error of an unpredicted labelled point, in instance sizes |
+| `norm_pad_frac` | float | `0.0` | Padding of a points box on every side, as a fraction of its longest side |
+| `norm_bootstrap` | int | `0` | Bootstrap resamples for 95% intervals of the post-training normalised p50 / p95 / miss rate (`0` = none) |
+| `norm_bootstrap_by` | str | `frame` | Resampling unit of `norm_bootstrap`: `frame` or `video` |
+| `bbox_cover_metrics` | bool | `false` | Box detectors with `enabled`: also log `eval/val/bbox_cover_*` (share of animals covered at fixed false boxes per frame, cover-rule AP). See [Box cover measures](../guides/evaluation.md#box-cover-measures-bbox_cover_metrics) |
 
 !!! tip "Post-training evaluation on large training sets"
     After `fit`, the run predicts every saved GT file (`labels_gt.<split>.N.slp`)

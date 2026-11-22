@@ -5978,7 +5978,7 @@ class BBoxDataset(BaseDataset):
         if getattr(self, "_carries_classes", False):
             sample_dict["_classes"] = classes
         sample_dict = self._apply_common_preprocessing(sample_dict)
-        if "_classes" in sample_dict:  # E19 zoom-out onto a frame may add canvas boxes
+        if "_classes" in sample_dict:  # zoom-out onto a frame may add canvas boxes
             classes = sample_dict.pop("_classes")
             n_boxes = int(classes.shape[0])
         if decode_scale is not None and "eff_scale" in sample_dict:
@@ -6198,7 +6198,7 @@ class DetrBBoxDataset(BBoxDataset):
         return sample
 
     def _zoom_out_on_frame(self, image, boxes, classes, zoom_range):
-        """Shrink the fitted frame onto another random training frame (E19).
+        """Shrink the fitted frame onto another random training frame (zoom-out).
 
         The canvas frame is read, channel-coerced and fitted to ``train_hw`` like any
         frame (no other augmentation); its boxes covered >= 50% by the pasted frame are
@@ -6414,9 +6414,9 @@ class DetrBBoxDataset(BBoxDataset):
     def _frame_photometric(self, image: torch.Tensor) -> torch.Tensor:
         """The warp pipeline's photometric ops on a whole ``(1, C, H, W)`` uint8 frame.
 
-        ``intensity.frame_photometric`` (E19): contrast, brightness, HSV, blurs,
-        noise and :mod:`sleap_nn.data.photometric_extra`, drawn from one generator
-        per worker process.
+        ``intensity.frame_photometric`` (experimental): contrast, brightness, HSV,
+        blurs, noise and :mod:`sleap_nn.data.photometric_extra`, drawn from one
+        generator per worker process.
         """
         from sleap_nn.data.topdown_warp import WarpAug
 

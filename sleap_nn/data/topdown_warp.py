@@ -527,7 +527,7 @@ class WarpAug:
     erase_scale: Tuple[float, float] = (0.0001, 0.01)
     erase_ratio: Tuple[float, float] = (1.0, 1.0)
     erase_p: float = 0.0
-    # E19 appearance ops (gray, channel shuffle/gain, gamma, invert, down-up, JPEG).
+    # Experimental appearance ops (gray, channel shuffle/gain, gamma, invert, ...).
     extra: ExtraPhotometric = field(default_factory=ExtraPhotometric)
     # Bound to the model's nodes by :meth:`bind_nodes`.
     upper_idx: Optional[np.ndarray] = field(default=None, repr=False)

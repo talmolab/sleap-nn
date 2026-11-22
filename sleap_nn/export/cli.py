@@ -93,7 +93,9 @@ CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"]}
     "--strongly-typed",
     is_flag=True,
     default=False,
-    help="TensorRT 10: build a strongly typed engine, with fp16 / bf16 carried by "
+    help="Experimental (as is the TensorRT 11 path it mirrors; may change without a "
+    "deprecation period). "
+    "TensorRT 10: build a strongly typed engine, with fp16 / bf16 carried by "
     "Cast nodes in the graph instead of builder flags. TensorRT 11 builds this way "
     "always (it removed the flags); the option lets TensorRT 10 build the same "
     "engines. Default off.",
@@ -111,7 +113,8 @@ CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"]}
     "--fp32-attention-logits",
     is_flag=True,
     default=False,
-    help="With --precision fp16 on the strongly typed path (TensorRT 11, or "
+    help="Experimental (may change or be removed without a deprecation period). "
+    "With --precision fp16 on the strongly typed path (TensorRT 11, or "
     "--strongly-typed on 10): keep each attention block's logits product (Q.K^T, found "
     "by structure) in fp32, so TensorRT accumulates it in fp32; everything else is the "
     "usual fp16 rewrite (in graphs with coordinates, fp16 only inside the backbone). "
