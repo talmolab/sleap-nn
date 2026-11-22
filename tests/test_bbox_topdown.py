@@ -667,7 +667,10 @@ def _labels_with_linked_user_box(path, video=None):
     return labels
 
 
-@pytest.mark.parametrize("source", ["labels_provider", "video_selection", "list"])
+@pytest.mark.parametrize(
+    "source",
+    ["labels_provider", "video_selection", "list_of_providers", "multi_provider"],
+)
 def test_gt_boxes_follow_the_box_rule_for_any_frame_source(
     trained_pair, minimal_instance, centered_instance_video, monkeypatch, source
 ):
@@ -679,7 +682,11 @@ def test_gt_boxes_follow_the_box_rule_for_any_frame_source(
     back to tight keypoint boxes and ignored the labels' own boxes.
     """
     from sleap_nn.inference.predictor import Predictor
-    from sleap_nn.inference.providers import LabelsProvider, VideoSelection
+    from sleap_nn.inference.providers import (
+        LabelsProvider,
+        MultiVideoProvider,
+        VideoSelection,
+    )
 
     pred = Predictor.from_model_paths(
         [trained_pair["ci_fixed"].as_posix()],
@@ -710,18 +717,23 @@ def test_gt_boxes_follow_the_box_rule_for_any_frame_source(
         video=centered_instance_video if source == "video_selection" else None,
     )
     expected_boxes, expected_points = crop_boxes(labels)
-    # The reference route: the linked user box as is, the other mouse's keypoint box.
+    # The reference route: the linked user box as is, the other instance's keypoint box.
     tight = labels[0].instances[1].to_bbox(mode="tight").xyxy
     np.testing.assert_allclose(
         expected_boxes, [[40, 60, 200, 220], list(tight)], atol=1e-3
     )
 
+    def provider():
+        return LabelsProvider(labels=labels, batch_size=4, only_labeled_frames=True)
+
     if source == "labels_provider":
-        src = LabelsProvider(labels=labels, batch_size=4, only_labeled_frames=True)
+        src = provider()
     elif source == "video_selection":
         src = VideoSelection(labels=labels, video_index=0)
+    elif source == "list_of_providers":
+        src = [provider()]
     else:
-        src = [labels]
+        src = MultiVideoProvider(providers=[provider()], video_offsets=[0])
     boxes, points = crop_boxes(src)
     np.testing.assert_allclose(boxes, expected_boxes, atol=1e-3)
     np.testing.assert_allclose(points, expected_points, atol=1e-3)
@@ -734,6 +746,53 @@ def test_gt_boxes_follow_the_box_rule_for_any_frame_source(
     boxes, _ = crop_boxes(src)
     np.testing.assert_allclose(boxes, [[10, 20, 110, 120]] * 2, atol=1e-3)
     assert src.instance_box_fn is own_rule
+
+
+def test_gt_box_rule_counts_occluded_keypoints_for_a_caller_built_provider(
+    trained_pair, minimal_instance, monkeypatch
+):
+    """A box-scaled model alone boxes occluded keypoints too, for any frame source.
+
+    The model's rule counts a keypoint that is marked not visible but has
+    coordinates; the tight box of the visible keypoints, which a caller-built provider
+    used to get, leaves it out.
+    """
+    from sleap_nn.inference.predictor import Predictor
+    from sleap_nn.inference.providers import LabelsProvider
+
+    labels = sio.load_slp(minimal_instance)
+    occluded, other = labels[0].instances
+    occluded.points["visible"][1] = False
+    located = occluded.numpy(invisible_as_nan=False)
+    assert np.isnan(occluded.numpy()[1]).all() and np.isfinite(located).all()
+
+    pred = Predictor.from_model_paths(
+        [trained_pair["ci_bbox"].as_posix()], device="cpu", peak_threshold=0.0
+    )
+    padding = OmegaConf.load(
+        trained_pair["ci_bbox"] / "training_config.yaml"
+    ).data_config.bbox_padding
+    stage_1 = pred.layer.centroid_layer
+    seen = []
+    stage_1_predict = stage_1.predict
+
+    def spy(image, instances=None, boxes=None, **kwargs):
+        out = stage_1_predict(image, instances=instances, boxes=boxes, **kwargs)
+        seen.append(out.pred_bboxes.reshape(-1, 4).numpy())
+        return out
+
+    monkeypatch.setattr(stage_1, "predict", spy)
+    expected = [
+        [*(located.min(axis=0) - padding), *(located.max(axis=0) + padding)],
+        list(other.to_bbox(mode="tight", padding=padding).xyxy),
+    ]
+    for src in (
+        labels,
+        LabelsProvider(labels=labels, batch_size=4, only_labeled_frames=True),
+    ):
+        seen.clear()
+        pred.predict(src, make_labels=True)
+        np.testing.assert_allclose(np.concatenate(seen), expected, atol=1e-3)
 
 
 def test_reused_provider_gets_each_predictors_gt_box_rule(
