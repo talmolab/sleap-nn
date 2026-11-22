@@ -174,7 +174,11 @@ def _islands_record(recipe: str, applied: bool, reason=None, **counts) -> dict:
 
 
 def _check_fp32_islands(recipe, precision, method, strongly_typed, trt_module) -> None:
-    """Refuse an ``fp32_islands`` recipe where it cannot apply."""
+    """Refuse an ``fp32_islands`` recipe where it cannot apply.
+
+    ``strongly_typed`` and ``trt_module`` are not needed: the recipe builds strongly
+    typed on TensorRT 10 (kept for callers).
+    """
     if recipe not in _FP32_ISLAND_RECIPES:
         raise ValueError(
             f"Unknown fp32_islands recipe {recipe!r}: use one of {_FP32_ISLAND_RECIPES}."
@@ -184,14 +188,12 @@ def _check_fp32_islands(recipe, precision, method, strongly_typed, trt_module) -
             f"fp32 attention logits apply to fp16 engines only, not {precision}: bf16 "
             "already accumulates in fp32, and fp32 / tf32 keep everything in fp32."
         )
-    if method != "onnx" or not (
-        bool(strongly_typed) or _uses_strong_typing(trt_module)
-    ):
+    if method != "onnx":
         raise ValueError(
-            "fp32 attention logits need the strongly typed build, where the graph "
-            "carries each node's precision: TensorRT 11, or --strongly-typed "
-            "(strongly_typed=True) on TensorRT 10, with the ONNX method. TensorRT 10's "
-            "builder flags cannot keep single products in fp32."
+            "fp32 attention logits need the strongly typed build of the ONNX method, "
+            "where the graph carries each node's precision (on TensorRT 10 the recipe "
+            "builds strongly typed; its builder flags cannot keep single products in "
+            "fp32)."
         )
 
 
@@ -317,26 +319,51 @@ def export_to_tensorrt(
         else:
             msg = f"Warning: {what}; check the engine against fp32 on your data."
             _warn_once(msg)
+    strong = bool(strongly_typed) or _uses_strong_typing(trt)
     if (
         auto_islands
         and precision == "fp16"
         and method == "onnx"
         and has_plain_vit(model)
     ):
-        fp32_islands = "attention_logits"
-        info["fp32_islands_mode"] = "auto (plain-ViT backbone)"
-        typed = ""
-        if not (bool(strongly_typed) or _uses_strong_typing(trt)):
-            strongly_typed = True  # TensorRT 10's flags cannot keep a product fp32
-            typed = ", strongly typed"
-        _warn_once(
-            "Note: fp16 engine of a plain-ViT backbone: each attention logits product "
-            f"(Q.K^T) is kept in fp32{typed} (plain fp16 accumulates it in fp16, which "
-            "moves keypoints and loses boxes). --no-fp32-attention-logits "
-            "(fp32_islands=None) builds plain fp16."
-        )
+        version = str(getattr(trt, "__version__", "0"))
+        if not strong and _tensorrt_version(version) < _MIN_TENSORRT:
+            # Strongly typed builds are supported from 10.13 only: keep the builder
+            # flags, as promised for older versions, and say what the engine is.
+            info["fp32_islands_mode"] = (
+                f"not applied: TensorRT {version} is older than "
+                f"{_MIN_TENSORRT[0]}.{_MIN_TENSORRT[1]}"
+            )
+            _warn_once(
+                f"Warning: plain fp16 engine of a plain-ViT backbone (TensorRT {version} "
+                "builds with its builder flags): its attention logits accumulate in "
+                "fp16, so the engine may be inaccurate. Export with --precision bf16 or "
+                f"fp32, or use TensorRT >= {_MIN_TENSORRT[0]}.{_MIN_TENSORRT[1]}."
+            )
+        elif not strong and not _platform_has_fast_fp16(trt, device):
+            # The builder-flag build is fp32 on such a GPU (accurate): keep it.
+            info["fp32_islands_mode"] = "not applied: no fast fp16 (built fp32)"
+        else:
+            fp32_islands = "attention_logits"
+            info["fp32_islands_mode"] = "auto (plain-ViT backbone)"
+            typed = ""
+            if not strong:
+                strongly_typed = True  # TensorRT 10's flags cannot keep a product fp32
+                typed = ", strongly typed"
+            _warn_once(
+                "Note: fp16 engine of a plain-ViT backbone: each attention logits "
+                f"product (Q.K^T) is kept in fp32{typed} (plain fp16 accumulates it in "
+                "fp16, which moves keypoints and loses boxes). "
+                "--no-fp32-attention-logits (fp32_islands=None) builds plain fp16."
+            )
     elif fp32_islands is not None:
         info["fp32_islands_mode"] = "requested"
+        if not strong:
+            strongly_typed = True  # the recipe needs the graph's types
+            _warn_once(
+                "Note: fp32 attention logits: building strongly typed (TensorRT 10's "
+                "builder flags cannot keep single products in fp32)."
+            )
 
     save_path = Path(save_path)
     if not save_path.suffix:
@@ -493,31 +520,31 @@ def _write_typed_graph(
         )
         if not products:
             _warn_once(
-                f"Warning: --fp32-attention-logits found no attention logits in "
+                f"Warning: fp32 attention logits: found no attention logits in "
                 f"{onnx_path.name}; the engine is {where}."
             )
         if unmatched:
             _warn_once(
-                f"Warning: --fp32-attention-logits found no logits product for "
+                f"Warning: fp32 attention logits: found no logits product for "
                 f"{len(unmatched)} softmax node(s) ({', '.join(unmatched[:3])}"
                 f"{' ...' if len(unmatched) > 3 else ''}); they run in {precision}."
             )
         if ambiguous:
             _warn_once(
-                f"Warning: --fp32-attention-logits found more than one candidate "
+                f"Warning: fp32 attention logits: found more than one candidate "
                 f"logits product for {len(ambiguous)} softmax node(s) "
                 f"({', '.join(list(ambiguous)[:3])}{' ...' if len(ambiguous) > 3 else ''}"
                 f"): all {sum(len(c) for c in ambiguous.values())} kept in fp32."
             )
         if shared:
             _warn_once(
-                f"Note: --fp32-attention-logits: {len(shared)} product(s) feed more "
+                f"Note: fp32 attention logits: {len(shared)} product(s) feed more "
                 f"than one softmax ({', '.join(name(t) for t in list(shared)[:3])}); "
                 "kept in fp32."
             )
         if found["in_subgraphs"]:
             _warn_once(
-                f"Warning: --fp32-attention-logits does not handle the "
+                f"Warning: fp32 attention logits do not handle the "
                 f"{found['in_subgraphs']} softmax node(s) inside control-flow bodies "
                 f"(If / Loop); they run in {precision}."
             )
@@ -725,6 +752,9 @@ def _export_tensorrt_onnx(
             # typed path, so the outputs keep the value instead of an inf.
             held = _hold_fp32_beyond_fp16_range(network, onnx_path, trt)
             if held:
+                # PREFER, not OBEY: a layer with no fp32 kernel would be built in fp16
+                # with a TensorRT warning instead of failing the build (Where / TopK /
+                # broadcasts, the layers held here, all have fp32 kernels).
                 config.set_flag(trt.BuilderFlag.PREFER_PRECISION_CONSTRAINTS)
             info["fp16_fp32_layers"] = held
             if verbose:
@@ -867,19 +897,50 @@ def _export_tensorrt_onnx(
     return engine_path
 
 
+def _platform_has_fast_fp16(trt, device: torch.device) -> bool:
+    """Whether the build GPU has fast fp16 (TensorRT 10's ``platform_has_fast_fp16``).
+
+    Asked on ``device`` (the engine is built there); ``True`` when the TensorRT
+    version does not say.
+    """
+    ctx = (
+        torch.cuda.device(device)
+        if device.type == "cuda" and torch.cuda.is_available()
+        else nullcontext()
+    )
+    with ctx:
+        builder = trt.Builder(trt.Logger(trt.Logger.WARNING))
+        return bool(getattr(builder, "platform_has_fast_fp16", True))
+
+
 def has_plain_vit(model: nn.Module) -> bool:
     """Whether ``model`` contains a plain (isotropic, single-stride) ViT backbone.
 
     A :class:`~sleap_nn.architectures.pretrained.PretrainedBackbone` whose encoder is
-    a plain ViT (DINOv2 / v3, CLIP, SigLIP, MAE ...; its ``isotropic`` attribute), or
-    the windowed DINOv2 backbone of ``bbox_detr`` models.
+    a plain ViT (DINOv2 / v3, CLIP, SigLIP, MAE ...: its ``isotropic`` attribute, and
+    attention modules inside it), or the windowed DINOv2 backbone of ``bbox_detr``
+    models. The attention check keeps out single-stride encoders without attention
+    (an HF config without ``stage_names``, e.g. RegNet or EfficientNet, counts as
+    isotropic when the backbone is built). A bundle (e.g. a top-down pair) counts if
+    any of its models has one.
     """
     from sleap_nn.architectures.detr.dinov2_windowed import WindowedDinov2Backbone
     from sleap_nn.architectures.pretrained import PretrainedBackbone
 
+    def has_attention(module: nn.Module) -> bool:
+        return any(
+            isinstance(m, nn.MultiheadAttention)
+            or "attention" in type(m).__name__.lower()
+            for m in module.modules()
+        )
+
     return any(
         isinstance(m, WindowedDinov2Backbone)
-        or (isinstance(m, PretrainedBackbone) and bool(getattr(m, "isotropic", False)))
+        or (
+            isinstance(m, PretrainedBackbone)
+            and bool(getattr(m, "isotropic", False))
+            and has_attention(m)
+        )
         for m in model.modules()
     )
 

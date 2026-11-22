@@ -164,25 +164,35 @@ the whole graph runs in bf16.
 
 #### fp16 for ViT backbones: `--fp32-attention-logits`
 
-Plain `fp16` engines of DINOv3 ViT-B models fail: pose / tail models kept 17-44% of
+Plain `fp16` engines of DINOv3 ViT-B models fail: two keypoint models kept 17-44% of
 their keypoints within 0.5 px of fp32, and a `bbox_detr` detector loses boxes, on
 TensorRT 10 and 11. The cause is the attention logits product (Q.K^T): TensorRT's fp16
-kernels accumulate it in fp16. `--fp32-attention-logits` (with `--precision fp16`, on
-the strongly typed path: TensorRT 11, or `--strongly-typed` on 10.x) keeps that one
-product per attention block in fp32; everything else is the usual fp16 rewrite above,
-and in graphs that compute coordinates fp16 runs only inside the backbone (as `bf16`
-does).
+kernels accumulate it in fp16. `--fp32-attention-logits` (with `--precision fp16`)
+keeps that one product per attention block in fp32; everything else is the usual fp16
+rewrite above, and in graphs that compute coordinates fp16 runs only inside the
+backbone (as `bf16` does). The build is strongly typed: on TensorRT 10 the option turns
+`--strongly-typed` on (the builder flags cannot keep one product in fp32).
 
 **This is the default for plain-ViT backbones** (a `pretrained` backbone whose encoder
 is a plain, single-stride ViT -- DINOv2 / v3, CLIP, SigLIP, MAE ... -- and the
-windowed DINOv2 backbone of `bbox_detr`): an fp16 export of such a model keeps its
-attention logits in fp32 without the flag, and on TensorRT 10 its fp16 build is then
-strongly typed (TensorRT 10's builder flags cannot keep one product in fp32). The
-export prints a note, and the metadata records `fp32_islands` and `fp32_islands_mode`
-(`auto (plain-ViT backbone)`, or `requested` with the flag). `--no-fp32-attention-logits`
-builds plain fp16 as before. Other backbones (UNet, ConvNeXt, Swin ...), other
-precisions and the JIT method are unchanged. Before this default, `--precision fp16`
-(the export default) built plain fp16 engines for ViT backbones too. The products are found by structure, not by name: every `MatMul` / `Einsum`
+windowed DINOv2 backbone of `bbox_detr`; an encoder counts when it is single-stride
+and has attention modules): an fp16 export of such a model keeps its attention logits
+in fp32 without the flag. A bundle (a top-down pair) gets the setting as a whole when
+any of its models has such a backbone. On TensorRT 10 the build is then strongly typed,
+so the export folder also holds the graph TensorRT parsed
+(`tensorrt_graph/model.fp16.onnx`, plus `model.fp16.onnx.data` above 1.8 GB) and the
+metadata gains its keys (`typing: strong`, `tensorrt_graph`, `graph_casts`, a
+`precision_by_scope` per scope). The export prints a note, and the metadata records
+`fp32_islands` and `fp32_islands_mode` (`auto (plain-ViT backbone)`, or `requested`
+with the flag). Two exceptions keep the old build: below TensorRT 10.13 (builder
+flags, plain fp16, with a warning that the engine may be inaccurate: pass
+`--precision bf16` or `fp32`, or use TensorRT >= 10.13), and a GPU without fast fp16
+(the builder-flag build is fp32 there). `--no-fp32-attention-logits` builds plain fp16
+as before. Other backbones (UNet, ConvNeXt, Swin ...), other precisions and the JIT
+method are unchanged. Before this default, `--precision fp16` (the export default)
+built plain fp16 engines for ViT backbones too.
+
+The products are found by structure, not by name: every `MatMul` / `Einsum`
 with two computed inputs (not weights) that reaches a `Softmax` through scale, mask,
 bias, soft-capping and layout ops. When a softmax has more than one such candidate
 (relative-position terms, scores carried over from an earlier block), all of them stay
@@ -197,10 +207,10 @@ get without products: plain fp16 for crop (`--network-only`) graphs, and fp16 in
 backbone with fp32 elsewhere for graphs that compute coordinates. The `bbox_detr` and
 ViT fp16 warnings are held back (unless `--no-fp32-attention-logits` is given) and
 printed after the build unless it kept products and left no softmax unmatched. On an RTX PRO 6000 Blackwell with TensorRT
-10.16, DINOv3 ViT-B detector, pose and tail engines built so kept TensorRT's fused
+10.16, DINOv3 ViT-B detector and two keypoint-model engines built so kept TensorRT's fused
 attention kernel, ran at plain fp16 speed (detector 3.1 ms per 576 x 768 frame) and
 matched fp32 (same boxes on 200 frames, corners within 0.13 px at p99; 99.6% / 98.6%
-of pose / tail keypoints within 0.5 px, against 96% / 89% for bf16).
+of their keypoints within 0.5 px, against 96% / 89% for bf16).
 
 Caveats: TensorRT chooses kernels per GPU by speed, so the same export built on another
 card (a GeForce card in particular) may accumulate other fp16 products differently and
@@ -293,8 +303,8 @@ exported graph that ran (a part model's tagged `stage: part`). A `--network-only
 runs exactly as its checkpoint would there. Node filters are baked in at export (`--nodes` /
 `--node-prefix` / `--strip-prefix`); `--node_prefix` at prediction time is refused for
 an exported network. `--max-batch-size` is a TensorRT engine's batch limit: larger
-crop batches run in chunks of it. A TensorRT engine runs on the current CUDA device:
-pick the card with `CUDA_VISIBLE_DEVICES` and pass `--device cuda`. A box detector
+crop batches run in chunks of it. A TensorRT engine runs on the CUDA device `--device`
+names (`cuda`: the current one; `cuda:N`: card N). A box detector
 exported at another size (`--input-height` / `--input-width`, default the training
 size) has that size written to the export's metadata and copied training config; a
 `bbox_detr` graph is exported at that fixed height and width (CenterNet and SSD graphs
