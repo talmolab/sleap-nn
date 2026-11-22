@@ -2154,7 +2154,12 @@ class InitFromConfig:
         exclude: (List[str]) Selectors to leave at their init. *Default*: ``None``.
         remap_nodes: (bool) Copy per-node head channels by node name, using the
             source skeleton saved in the checkpoint (or its
-            ``training_config.yaml``). *Default*: ``True``.
+            ``training_config.yaml``). ``None`` means each route's own default:
+            ``path`` here copies by name (``True``), while the ``.ckpt`` form of
+            ``pretrained_head_weights`` copies by position (``False``), as it did
+            before ``init_from`` existed, so a head whose node count differs
+            raises there. Set ``True`` or ``False`` to apply one rule to both.
+            *Default*: ``None``.
         node_map: (Dict[str, str]) ``{target node: source node}`` overrides, e.g.
             to seed a new node from a related source node. For ``bbox_detr`` the
             class heads' rows (``categories`` plus the never-positive extra logit,
@@ -2184,7 +2189,7 @@ class InitFromConfig:
     path: Optional[str] = None
     include: Optional[List[str]] = None
     exclude: Optional[List[str]] = None
-    remap_nodes: bool = True
+    remap_nodes: Optional[bool] = None
     node_map: Optional[Dict[str, str]] = None
     source_part_names: Optional[List[str]] = None
     interpolate_pos_embed: bool = True

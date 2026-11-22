@@ -480,9 +480,11 @@ model_config:
 
 !!! note "Shape mismatches raise"
     A `.ckpt` tensor whose shape differs from the new model's raises an error
-    with these two keys. Set `init_from.strict: false` to skip such tensors with
-    a warning (the target keeps its init), or use `init_from.path`, which skips
-    them by default.
+    with these two keys, and head channels are copied by position, as in
+    earlier releases. Set `init_from.remap_nodes: true` to copy head channels by
+    node name (a skeleton that grows or is reordered), `init_from.strict: false`
+    to skip tensors that do not fit with a warning (the target keeps its init),
+    or use `init_from.path`, which does both by default.
 
 ### From Another Model, Tolerating Differences
 
@@ -623,7 +625,7 @@ model_config:
 | `path` | str | `null` | Model directory (`best.ckpt`), `.ckpt` or raw state dict. `null`: load nothing (`reinit` still applies) |
 | `include` | list | `null` | Selectors of weights to load (`null` = all): `all`, `backbone`, `encoder`, `decoder`, `neck`, `head`, `embeddings`, `blocks[a:b]`, globs |
 | `exclude` | list | `null` | Selectors of weights to leave at their init |
-| `remap_nodes` | bool | `true` | Copy per-node head channels by node name |
+| `remap_nodes` | bool | `null` | Copy per-node head channels by node name. `null`: yes for `path`, no (by position) for `pretrained_head_weights` |
 | `node_map` | dict | `null` | `{target node: source node}` overrides. For `bbox_detr` the class-head rows are matched by class name the same way (the never-positive extra logit is `__extra__`; leave it unmapped so it takes the source's own); classes the source lacks start fresh |
 | `source_part_names` | list | `null` | Source node names, for checkpoints that record none |
 | `interpolate_pos_embed` | bool | `true` | Resize learned positional embeddings to the new token grid |

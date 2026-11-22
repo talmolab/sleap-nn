@@ -68,7 +68,7 @@ model_config:
     path: /runs/coco17_vit_s
     include: null                 # selectors to load (null = everything)
     exclude: null                 # selectors to leave at their init
-    remap_nodes: true             # copy head channels by node name
+    remap_nodes: null             # null: by node name here (true)
     node_map: null                # {target node: source node} overrides
     source_part_names: null       # source node names, if the checkpoint has none
     interpolate_pos_embed: true   # resize learned position embeddings
@@ -82,7 +82,7 @@ model_config:
 | `path` | `null` | Model directory (its `best.ckpt`), a Lightning `.ckpt`, or a raw `state_dict` file. `null` loads nothing, but `reinit` still applies. |
 | `include` | `null` | [Selectors](#selectors) of the weights to load. `null` means everything. |
 | `exclude` | `null` | Selectors of weights to leave at their init. |
-| `remap_nodes` | `true` | Copy per-node head channels by node name. With `false`, they are copied by position when the shapes match. |
+| `remap_nodes` | `null` | Copy per-node head channels by node name. With `false`, they are copied by position when the shapes match. `null`: by name for `path`, by position for the `.ckpt` form of `pretrained_head_weights`. |
 | `node_map` | `null` | `{target node: source node}`. Seeds a new node from a related source node, or bridges a renamed node. |
 | `source_part_names` | `null` | Source node names, for checkpoints that record none (see [Where node names come from](#where-node-names-come-from)). |
 | `interpolate_pos_embed` | `true` | Bicubically resize learned positional embeddings on a different square grid, keeping CLS/register tokens. |
@@ -230,11 +230,16 @@ trainer_config:
 ## Changes to `pretrained_backbone_weights` / `pretrained_head_weights`
 
 The `.ckpt` forms of these keys now go through the same loader (`include:
-[backbone]` and `include: [head]`), so they log the same report and match head
-channels by node name. `pretrained_head_weights` no longer fails when the skeleton
-grows, and no longer copies a reordered skeleton's channels blindly.
+[backbone]` and `include: [head]`), so they log the same report. They load what
+they loaded before: head channels are copied by position, and a tensor whose shape
+differs (for example a head with more or fewer nodes) raises an error.
 
-A tensor whose shape differs still raises an error with these two keys. Set
-`model_config.init_from.strict: false` (no `path` needed) to skip such tensors
-with a WARNING instead, leaving the target at its init. Legacy SLEAP `.h5` weights
-load as before.
+Two `init_from` options change that without a `path`:
+
+- `model_config.init_from.remap_nodes: true` copies `pretrained_head_weights`'
+  head channels by node name, so the skeleton can grow, shrink or be reordered
+  (shared nodes are copied, new nodes keep their init, and the report says so).
+- `model_config.init_from.strict: false` skips a tensor that does not fit with a
+  WARNING instead, leaving the target at its init.
+
+Legacy SLEAP `.h5` weights load as before.

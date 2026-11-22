@@ -154,18 +154,47 @@ def test_include_exclude(minimal_instance_centered_instance_ckpt):
     )
 
 
-def test_legacy_pretrained_head_weights_remap(
+def test_legacy_pretrained_head_weights_by_position_unless_remap(
     minimal_instance_centered_instance_ckpt,
 ):
-    """`pretrained_head_weights` no longer crashes on a grown skeleton."""
+    """`pretrained_head_weights` copies head channels as before `init_from`.
+
+    By position: a reordered skeleton of the same size loads channel for channel,
+    and a grown skeleton raises (its head tensor has another shape).
+    `init_from.remap_nodes: true` copies by node name instead.
+    """
     ckpt = minimal_instance_centered_instance_ckpt
-    cfg = _ci_config(ckpt, part_names=["B", "A", "C"])
-    cfg.model_config.pretrained_head_weights = str(Path(ckpt) / "best.ckpt")
-    cfg.model_config.pretrained_backbone_weights = str(Path(ckpt) / "best.ckpt")
-    model = LightningModel.get_lightning_model_from_config(cfg)
+    best = str(Path(ckpt) / "best.ckpt")
     src = _source_sd(ckpt)
+
+    cfg = _ci_config(ckpt, part_names=["B", "A"])
+    cfg.model_config.pretrained_head_weights = best
+    model = LightningModel.get_lightning_model_from_config(cfg)
+    assert torch.equal(model.state_dict()[HEAD_W], src[HEAD_W])
+    assert not model.transfer_reports[0].remapped
+
+    cfg = _ci_config(ckpt, part_names=["B", "A", "C"])
+    cfg.model_config.pretrained_head_weights = best
+    cfg.model_config.pretrained_backbone_weights = best
+    with pytest.raises(ValueError, match="strict=True"):
+        LightningModel.get_lightning_model_from_config(cfg)
+
+    cfg.model_config.init_from = {"remap_nodes": True}
+    model = LightningModel.get_lightning_model_from_config(cfg)
     assert torch.equal(model.state_dict()[HEAD_W][1], src[HEAD_W][0])
     assert len(model.transfer_reports) == 2
+
+
+def test_init_from_path_remaps_by_name_by_default(
+    minimal_instance_centered_instance_ckpt,
+):
+    """`init_from.path` copies head channels by node name when `remap_nodes` is unset."""
+    from sleap_nn.config.model_config import InitFromConfig
+
+    assert InitFromConfig().remap_nodes is None
+    ckpt = minimal_instance_centered_instance_ckpt
+    model = _build(_ci_config(ckpt, part_names=["B", "A"]), path=str(ckpt))
+    assert torch.equal(model.state_dict()[HEAD_W][0], _source_sd(ckpt)[HEAD_W][1])
 
 
 def test_legacy_keys_raise_on_shape_mismatch_unless_lenient(

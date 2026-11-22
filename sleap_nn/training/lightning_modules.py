@@ -391,14 +391,18 @@ class LightningModel(L.LightningModule):
                 f"Loading head weights from `{self.pretrained_head_weights}` ..."
             )
             if self.pretrained_head_weights.endswith(".ckpt"):
-                # Per-node channels are copied by node name (source skeleton from
-                # the checkpoint / its training_config.yaml).
+                # As before `init_from` existed: per-node channels are copied by
+                # position and a tensor that does not fit raises. With
+                # `init_from.remap_nodes: true` they are copied by node name
+                # (source skeleton from the checkpoint / its training_config.yaml),
+                # and `init_from.strict: false` skips what does not fit.
                 self.transfer_reports.append(
                     init_from_checkpoint(
                         self,
                         self.pretrained_head_weights,
                         include=["head"],
                         strict=self._init_from_option("strict", True),
+                        remap_nodes=self._init_from_option("remap_nodes", False),
                     )
                 )
 
