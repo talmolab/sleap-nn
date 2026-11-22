@@ -30,10 +30,10 @@ except ImportError:  # pragma: no cover
 ROLES = ("typical", "hard")
 
 #: A box smaller than this fraction of its file's median box side (``sqrt`` of the
-#: area) is not eligible as a "hard" example. In 32 top-view mouse datasets
-#: (~250k boxes) such boxes are mostly not small animals but degenerate labels: a few
-#: points on a larger, visible animal, or point clusters on nothing; real small
-#: animals (mice in a wide arena, a mouse in a hole) start at about this size.
+#: area) is not eligible as a "hard" example. Such boxes are mostly not small animals
+#: but degenerate labels: a few points on a larger, visible animal, or point clusters
+#: on nothing; real small animals (a small animal in a wide arena, or half hidden)
+#: start at about this size.
 MIN_HARD_REL_SIDE = 0.25
 
 # Node colors (RGB), cycled by node index within a file.
