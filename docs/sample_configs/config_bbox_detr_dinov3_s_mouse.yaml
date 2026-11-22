@@ -122,7 +122,7 @@ trainer_config:
   # Small data needs long training: the RF-DETR paper says more than 100 epochs.
   # 200 epochs of 148 steps is ~30K steps: ~7 GB of GPU memory and ~2 h on one
   # RTX PRO 6000 (estimated from RF-DETR-M's measured 44 images/s at a similar
-  # token count). M5 sweeps 100 / 200 / 400. An epoch is one pass over the frames
+  # token count). An epoch is one pass over the frames
   # (min_train_steps_per_epoch: 1).
   max_epochs: 200
   min_train_steps_per_epoch: 1

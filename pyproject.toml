@@ -347,4 +347,7 @@ check-hidden = true
 # ignore-regex = ''
 # `fpr` = false positive rate (ROC term in the embedding verification eval);
 # `mot` = multi-object tracking (sleap_nn/tracking/mot, MOT metrics).
-ignore-words-list = 'fpr,mot'
+# `te` = a module alias (`tensorrt_exporter as te`) and a teacher-crop variable in tests;
+# `fo` = an output HDF5 file handle; `dfine` = the D-FINE detector's name;
+# `mabe` = the MABe benchmark dataset.
+ignore-words-list = 'fpr,mot,te,fo,dfine,mabe'

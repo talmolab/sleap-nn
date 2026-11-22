@@ -1,4 +1,4 @@
-# bbox_detr M3, arm A, stage 1: a person detector on a pretrained DINOv3 ViT-B/16
+# bbox_detr, stage 1 of 2: a person detector on a pretrained DINOv3 ViT-B/16
 # (timm, LVD-1689M) with a freshly initialized projector and 4-layer decoder,
 # trained on the person boxes of Objects365 v2 + Open Images V7 and validated on
 # COCO val2017. RF-DETR's training recipe, letterboxed at 704 (global attention:

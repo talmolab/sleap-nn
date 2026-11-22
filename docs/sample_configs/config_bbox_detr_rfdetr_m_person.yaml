@@ -1,4 +1,4 @@
-# bbox_detr M2 check: fine-tune an imported RF-DETR-M to a person-only detector on
+# bbox_detr sample: fine-tune an imported RF-DETR-M to a person-only detector on
 # COCO train2017 person boxes (people without keypoints included, crowd regions
 # dropped), validated on COCO val2017. RF-DETR's training recipe throughout.
 #

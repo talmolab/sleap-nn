@@ -1613,7 +1613,7 @@ class Predictor:
                 this.
             node_filter: ``single_instance`` / ``centered_instance`` models only:
                 predict only these nodes, a list of node names or a string prefix
-                (e.g. ``"hcm-2025/"``). The confmap head is sliced to their
+                (e.g. ``"lab_a/"``). The confmap head is sliced to their
                 channels, so the other confmaps are never computed, and the output
                 skeleton keeps their edges and symmetries.
             strip_prefix: Rename the kept nodes in the output: ``True`` strips the

@@ -319,7 +319,7 @@ def test_config_rejects_pooled_or_decoder_modes(tmp_path):
 
 
 def test_m3_sample_config_round_trip(tmp_path):
-    """The M3 stage-1 sample config survives a TrainingJobConfig round trip."""
+    """The person stage-1 sample config survives a TrainingJobConfig round trip."""
     from sleap_nn.config.training_job_config import verify_training_cfg
     from sleap_nn.config.utils import check_output_strides
 

@@ -2237,7 +2237,7 @@ def select_nodes(
 ) -> List[str]:
     """The nodes of ``node_names`` a node spec picks, in ``node_names`` order.
 
-    ``spec`` is a list of node names, or a string prefix (e.g. ``"hcm-2025/"``)
+    ``spec`` is a list of node names, or a string prefix (e.g. ``"lab_a/"``)
     selecting every node whose name starts with it; ``None`` selects every node.
 
     Raises:

@@ -480,7 +480,7 @@ def test_train_pretrained_backbone_with_mixing(config, minimal_instance, tmp_pat
 
 
 # --------------------------------------------------------------------------- #
-# E19: zoom-out onto another training frame
+# Zoom-out onto another training frame
 # --------------------------------------------------------------------------- #
 def test_zoom_out_on_frame_keeps_both_frames_boxes(tmp_path):
     """A frame shrunk onto another frame keeps the canvas mice that stay visible, so a

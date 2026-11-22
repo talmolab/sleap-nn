@@ -1,4 +1,4 @@
-# bbox_detr M3, arm A, stage 2: fine-tune the stage-1 person detector
+# bbox_detr, stage 2 of 2: fine-tune the stage-1 person detector
 # (config_bbox_detr_dinov3_b_person.yaml: DINOv3 ViT-B/16, fresh projector and
 # 4-layer decoder, Objects365 + Open Images person boxes) on the pose datasets'
 # domains: COCO train2017 + CrowdHuman + CrowdPose + JRDB-Pose + Human-Art,

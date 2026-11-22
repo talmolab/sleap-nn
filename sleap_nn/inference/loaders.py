@@ -1604,7 +1604,7 @@ def load_model_assets(
 
     ``node_filter`` (``single_instance`` / ``centered_instance`` only) keeps a
     subset of the confmap channels: a list of node names, or a string prefix such
-    as ``"hcm-2025/"``. The confmap head's output conv is sliced to those channels
+    as ``"lab_a/"``. The confmap head's output conv is sliced to those channels
     (the others are never computed) and the skeleton restricted to them, with
     their edges and symmetries and the flip-test permutation recomputed;
     ``strip_prefix`` (``True``: the filter's prefix, or a string) renames the
