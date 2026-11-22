@@ -212,6 +212,13 @@ The export's metadata and copied `training_config.yaml` describe the kept nodes.
 sleap-nn export models/bottomup -o exports/bottomup --format both
 ```
 
+A single-instance model with an input scale resizes each frame inside the graph,
+antialiased like checkpoint inference. The resize is built from gathers and sums
+(TensorRT's parser takes no antialiased `Resize`), and its output size follows the
+frame's size, as `int(size * input_scale)` does on the checkpoint path. For the few
+scales whose double rounding no fraction reproduces (0.7, 0.35, ...) the export warns
+that the resized size can differ by one pixel for some frame sizes.
+
 ### Top-Down
 
 Export both models together:
