@@ -588,7 +588,7 @@ sleap-nn config labels.slp --auto -o my_config.yaml
 sleap-nn config labels.slp --auto --pipeline bottomup
 
 # DETR box detector + box-scaled centered-instance pair
-sleap-nn config labels.slp --auto --pipeline topdown_bbox_detr -o mice.yaml
+sleap-nn config labels.slp --auto --pipeline topdown_bbox_detr -o animals.yaml
 
 # Let the recommender consider this machine's GPU (may pick topdown_bbox_detr)
 sleap-nn config labels.slp --auto --gpu_memory_gb auto

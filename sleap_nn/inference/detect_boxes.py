@@ -17,9 +17,9 @@ ground-truth people and writes a copy of the labels with the boxes added.
   (``dets/<model>/<set>/chunk_*.npz`` + its image list;
   :func:`load_detection_chunks`), so existing detections can be replayed.
 
-**Matching** (:func:`match_detections`): per frame, Hungarian matching on IoU between the
-detections scoring at least ``score_threshold`` (0.3) and the ground-truth people,
-keeping pairs with IoU above ``min_iou`` (0.1). Ground-truth people
+**Matching** (:func:`match_detections`): per frame, Hungarian matching on IoU
+between the detections scoring at least ``score_threshold`` (0.3) and the
+ground-truth people, keeping pairs with IoU above ``min_iou`` (0.1). Ground-truth people
 (:func:`gt_people`) are every non-crowd user box of the person category (people
 without keypoints too, so their detections are not handed to a labeled
 neighbour) plus the keypoint extent of each pose instance with no linked person
@@ -208,8 +208,8 @@ def load_detection_chunks(
     orientation) and ``scores``, per-image ``image_idx`` / ``image_hw``, and the
     detector id ``model``. ``image_list`` is the text file of image paths the pass
     ran over (one per line); frames are matched to it by their image path. Within
-    a frame, detections keep the chunk files' order, so matching ties break as
-    they did in ``match.py``.
+    a frame, detections keep the chunk files' order, so matching ties break the
+    same way on every run.
 
     Raises:
         ValueError: If no chunk is found, the chunks do not cover every listed

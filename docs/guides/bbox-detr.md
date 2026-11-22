@@ -57,8 +57,8 @@ labels:
 ```bash
 sleap-nn config labels.slp --auto --pipeline bbox_detr -o detector.yaml
 # or the pair (detector + box-scaled centered-instance model):
-sleap-nn config labels.slp --auto --pipeline topdown_bbox_detr -o mice.yaml
-#   -> mice_bbox_detr.yaml + mice_centered_instance.yaml
+sleap-nn config labels.slp --auto --pipeline topdown_bbox_detr -o animals.yaml
+#   -> animals_bbox_detr.yaml + animals_centered_instance.yaml
 sleap-nn train detector.yaml
 ```
 
@@ -281,9 +281,9 @@ Train the detector and a box-scaled centered-instance model (the config generato
 `topdown_bbox_detr` writes both), then pass both to `predict`:
 
 ```bash
-sleap-nn train mice_bbox_detr.yaml
-sleap-nn train mice_centered_instance.yaml
-sleap-nn predict -i video.mp4 -m models/mice_bbox_detr -m models/mice_centered_instance
+sleap-nn train animals_bbox_detr.yaml
+sleap-nn train animals_centered_instance.yaml
+sleap-nn predict -i video.mp4 -m models/animals_bbox_detr -m models/animals_centered_instance
 sleap-nn eval --ground_truth_path test.slp --predicted_path test.predictions.slp
 ```
 
@@ -301,7 +301,7 @@ runs a detector over the labeled frames and stores its boxes, matched to the
 instances, so the instance model can train on detector-box crops:
 
 ```bash
-sleap-nn detect-boxes -i train.pkg.slp -m models/mice_bbox_detr --category mouse
+sleap-nn detect-boxes -i train.pkg.slp -m models/animals_bbox_detr --category animal
 # -> train.pkg.bboxdetr.slp: one PredictedBoundingBox per detection (score >= 0.3),
 #    linked to its matched instance; match statistics in <output>.json
 ```
