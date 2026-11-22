@@ -135,10 +135,11 @@ passes ONNX's full check (types included); the **bf16 graph is for TensorRT only
 as the metadata (`graph_validity`) says.
 
 Multi-class bottom-up models do not reproduce their fp32 graph in fp16 or bf16 (on a
-test model, 40-77% of peaks within 0.5 px, on TensorRT 10 and 11): on the strongly
-typed path they are built in fp32 with a warning (`precision_requested` /
-`precision_fallback` in the metadata); `--force-precision` builds what was asked. On
-TensorRT 10's builder flags they are built as asked, with a warning.
+test model, 40-77% of peaks within 0.5 px, on TensorRT 10 and 11): they are built in
+fp32 with one warning (`precision_requested` / `precision_fallback` in the metadata),
+on TensorRT 11, with `--strongly-typed` and on TensorRT 10's builder flags alike;
+`--force-precision` builds what was asked. (Before this, TensorRT 10's builder flags
+built them as asked, with a warning.)
 
 The same `--precision` therefore gives slightly different numbers on TensorRT 10 and
 11 (TensorRT 10 also picks fp32 for some layers on its own). Engines, and results from
@@ -194,8 +195,7 @@ one crop took 0.66 ms for one crop and 1.33 ms for three; tuned for three, 0.91 
 1.08 ms.
 
 The multi-class bottom-up fallback above is unchanged by the option (such a family is
-still built in fp32 on the strongly typed path); `--force-precision` is still the only
-override there.
+still built in fp32); `--force-precision` is still the only override there.
 
 `--nodes` / `--node-prefix` slice the confmap head to the kept channels before
 tracing, so the exported graph computes only those confidence maps (see

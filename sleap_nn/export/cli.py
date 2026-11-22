@@ -104,8 +104,7 @@ CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"]}
     default=False,
     help="Build fp16 / bf16 even for a model family whose reduced-precision engines do "
     "not reproduce its fp32 graph (multi-class bottom-up). Without it such a family is "
-    "built fp32 with a warning on the strongly typed path (TensorRT 11, "
-    "--strongly-typed), and built as asked with a warning on TensorRT 10.",
+    "built fp32 with a warning (TensorRT 10 and 11).",
 )
 @click.option(
     "--fp32-attention-logits",

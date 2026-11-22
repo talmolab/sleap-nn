@@ -250,9 +250,9 @@ def export_to_tensorrt(
             and, for bf16, ``bf16_scope`` and ``bf16_fp32_layers``.
         force_precision: Build fp16 / bf16 even for a model family whose
             reduced-precision engines do not reproduce its fp32 graph (multi-class
-            bottom-up): on the strongly typed path (TensorRT 11, ``strongly_typed``)
-            such a family is otherwise built in fp32 with a warning, and on TensorRT
-            10's builder flags it is built as asked, with a warning.
+            bottom-up). Without it such a family is built in fp32 with a warning, on
+            the strongly typed path (TensorRT 11, ``strongly_typed``) and on TensorRT
+            10's builder flags alike.
         strongly_typed: TensorRT 10: build a strongly typed engine whose fp16 /
             bf16 is carried by Cast nodes in the graph
             (:func:`~sleap_nn.export.exporters.onnx_precision.cast_onnx_precision`),
@@ -287,12 +287,13 @@ def export_to_tensorrt(
     if fp32_islands is not None:
         _check_fp32_islands(fp32_islands, precision, method, strongly_typed, trt)
     if precision in ("fp16", "bf16") and isinstance(model, _reduced_precision_fails()):
-        strong = bool(strongly_typed) or _uses_strong_typing(trt)
+        # Built fp32 on every path (strongly typed or TensorRT 10's builder flags):
+        # the reduced-precision engine of such a family is wrong, not just less exact.
         what = (
             f"a {type(model).__name__} engine does not reproduce its fp32 graph in "
             f"{precision} (multi-class bottom-up: 40-77% of peaks within 0.5 px)"
         )
-        if strong and not force_precision:
+        if not force_precision:
             msg = (
                 f"Warning: {what}; building fp32 instead (force_precision to override)."
             )

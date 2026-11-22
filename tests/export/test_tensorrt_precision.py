@@ -200,7 +200,9 @@ def test_reduced_precision_engines_build(
     [
         ("11.5.0.63", [], "fp32", True),
         ("11.5.0.63", ["--force-precision"], "fp16", True),
-        ("10.16.1.11", [], "fp16", True),
+        ("10.16.1.11", [], "fp32", True),
+        ("10.16.1.11", ["--strongly-typed"], "fp32", True),
+        ("10.16.1.11", ["--force-precision"], "fp16", True),
     ],
 )
 def test_multi_class_bottomup_precision_through_the_cli(
@@ -213,7 +215,8 @@ def test_multi_class_bottomup_precision_through_the_cli(
     warned,
 ):
     """The real export_to_tensorrt on a stub TensorRT: multi-class bottom-up builds fp32
-    on the strongly typed path unless forced; TensorRT 10 flags build as asked, warned.
+    unless forced, on the strongly typed path and TensorRT 10's flags alike, with the
+    warning printed once.
     """
     pytest.importorskip("onnx")
     import sys
@@ -237,6 +240,6 @@ def test_multi_class_bottomup_precision_through_the_cli(
     assert result.exit_code == 0, result.output + str(result.exception)
     meta = json.loads((out / "model.trt.metadata.json").read_text())
     assert meta["precision"] == want
-    assert ("does not reproduce its fp32 graph" in result.output) == warned
+    assert result.output.count("does not reproduce its fp32 graph") == int(warned)
     if want == "fp32":
         assert meta["precision_requested"] == "fp16" and "precision_fallback" in meta

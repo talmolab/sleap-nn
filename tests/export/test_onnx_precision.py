@@ -6,6 +6,7 @@ constraint flags, no EXPLICIT_BATCH, every network strongly typed), so they run
 without TensorRT or a GPU.
 """
 
+import importlib.machinery
 import json
 import sys
 import types
@@ -287,6 +288,9 @@ def _fake_trt(version, layer_names=(), fast_fp16=True):
     v11 = version.startswith("11")
     calls = {"flags": [], "cleared": [], "network_flags": None, "parsed": None}
     trt = types.ModuleType("tensorrt")
+    # importlib.util.find_spec("tensorrt") (asked by some torch versions while
+    # exporting) needs a spec on a module found in sys.modules.
+    trt.__spec__ = importlib.machinery.ModuleSpec("tensorrt", None)
     trt.__version__ = version
     flags = dict(TF32="TF32")
     if not v11:
