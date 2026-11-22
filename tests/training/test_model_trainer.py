@@ -3222,9 +3222,13 @@ def test_training_recipe_knobs_end_to_end(config, tmp_path, caplog):
 
     The checkpoint's `state_dict` holds the EMA weights (what inference loads) and
     the online weights ride under `"ema"`; the LR schedule is stepped per
-    iteration; early stopping left on next to a fixed schedule warns.
+    iteration. A config that leaves `stop_training_on_plateau` out keeps early
+    stopping on next to the fixed schedule, as in v0.3.5, and warns.
     """
+    from lightning.pytorch.callbacks import EarlyStopping
+
     cfg = config.copy()
+    del cfg.trainer_config.early_stopping["stop_training_on_plateau"]
     OmegaConf.update(cfg, "trainer_config.trainer_accelerator", "cpu")
     OmegaConf.update(cfg, "trainer_config.save_ckpt", True)
     OmegaConf.update(cfg, "trainer_config.ckpt_dir", f"{tmp_path}")
@@ -3277,9 +3281,13 @@ def test_training_recipe_knobs_end_to_end(config, tmp_path, caplog):
         for k in online
         if best["state_dict"][k].is_floating_point()
     )
-    # The fixture sets `stop_training_on_plateau: true` explicitly: kept, warned.
+    # The key was left out: early stopping is on (the v0.3.5 default), warned.
     assert trainer.config.trainer_config.early_stopping.stop_training_on_plateau
     assert "early_stopping.stop_training_on_plateau is true" in caplog.text
+    assert any(isinstance(cb, EarlyStopping) for cb in trainer.trainer.callbacks)
+    for name in ("initial_config.yaml", "training_config.yaml"):
+        written = OmegaConf.load(tmp_path / "recipe" / name)
+        assert written.trainer_config.early_stopping.stop_training_on_plateau is True
     saved = OmegaConf.load(tmp_path / "recipe" / "training_config.yaml")
     assert saved.trainer_config.lr_scheduler.reduce_lr_on_plateau is None
     assert saved.trainer_config.lr_scheduler.multi_step_lr.milestones == [1]
