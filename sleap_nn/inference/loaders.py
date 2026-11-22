@@ -1932,6 +1932,36 @@ BBOX_STAGE_2_MODEL_TYPES = (
 )
 
 
+def _padding_difference_detail(det_cfg, crop_cfg, det_val, crop_val) -> str:
+    """Describe how a ``bbox_padding`` difference changes the crop model's boxes.
+
+    ``bbox_padding`` is added on every side of boxes derived from keypoints or
+    masks, never to user-drawn boxes, so a size is stated only when both models
+    derive their boxes (``bbox_source`` of ``instances`` or ``masks``).
+    """
+    sources = {
+        OmegaConf.select(c, "data_config.bbox_source", default="auto") or "auto"
+        for c in (det_cfg, crop_cfg)
+    }
+    if not sources <= {"instances", "masks"}:
+        return (
+            "where boxes are derived from keypoints or masks (padding is not added "
+            "to user-drawn boxes), the detector's boxes and the boxes the crop "
+            "model was trained on differ in size, so crops are scaled differently "
+            "from training"
+        )
+    try:
+        grow = 2 * (float(det_val or 0.0) - float(crop_val or 0.0))
+    except (TypeError, ValueError):
+        return "the boxes differ in size, so crops are scaled differently from training"
+    return (
+        f"each side of the detector's boxes is about {abs(grow):g} px "
+        f"{'longer' if grow > 0 else 'shorter'} than in the boxes the crop model was "
+        "trained on, so each animal fills its crop "
+        f"{'less' if grow > 0 else 'more'} than in training"
+    )
+
+
 def _check_crop_stage(assets: LoadedAssets, model_types: List[str]) -> None:
     """Check that stage 1 can cut the crops the stage-2 model was trained on.
 
@@ -1974,13 +2004,8 @@ def _check_crop_stage(assets: LoadedAssets, model_types: List[str]) -> None:
             continue  # resolved per labels file; only explicit values compare
         if spec is not None and det_val != crop_val:
             if key == "bbox_padding":
-                grow = 2 * (float(det_val) - float(crop_val))
-                detail = (
-                    f"the detector's boxes are about {abs(grow):g} px "
-                    f"{'wider and taller' if grow > 0 else 'narrower and shorter'} "
-                    "than the boxes the crop model was trained on, so each animal "
-                    "fills its crop slightly "
-                    f"{'less' if grow > 0 else 'more'} than in training"
+                detail = _padding_difference_detail(
+                    det_cfg, crop_cfg, det_val, crop_val
                 )
             else:
                 detail = (

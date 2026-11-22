@@ -160,18 +160,49 @@ def test_apply_sizematcher_warn_false(caplog):
 
 
 def test_apply_sizematcher_warn_info(caplog):
-    """``warn="info"`` (prediction) logs one info line per size pair, no warning."""
+    """``warn="info"`` (prediction) logs one info line per target size, no warning."""
     resizing._SIZEMATCHER_WARNED_KEYS.clear()
     resizing._INFERENCE_RESIZE_NOTED.clear()
     caplog.clear()
-    for _ in range(3):
-        image, _ = apply_sizematcher(torch.zeros(1, 3, 300, 400), 256, 256, warn="info")
+    for hw in ((300, 400), (300, 400), (120, 90), (500, 500)):
+        image, _ = apply_sizematcher(torch.zeros(1, 3, *hw), 256, 256, warn="info")
     assert image.shape[-2:] == (256, 256)
     noted = [r for r in caplog.records if "256x256" in r.message]
     assert len(noted) == 1
     assert noted[0].levelname == "INFO"
     assert "300x400" in noted[0].message and "slower" not in noted[0].message
     # Same-size frames are not noted.
+    resizing._INFERENCE_RESIZE_NOTED.clear()
     caplog.clear()
     apply_sizematcher(torch.zeros(1, 3, 256, 256), 256, 256, warn="info")
     assert not caplog.records
+
+
+def test_prediction_layers_resize_with_info(monkeypatch):
+    """The inference layers fit frames with ``warn="info"``, never the warning."""
+    from sleap_nn.data import resizing as resizing_mod
+    from sleap_nn.inference.layers.single_instance import SingleInstanceLayer
+    from sleap_nn.inference.layers.configs import PreprocessConfig
+    from sleap_nn.inference.layers.topdown import TopDownLayer
+
+    seen = []
+    real = resizing_mod.apply_sizematcher
+
+    def spy(*args, **kwargs):
+        seen.append(kwargs.get("warn", True))
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(resizing_mod, "apply_sizematcher", spy)
+
+    layer = SingleInstanceLayer.__new__(SingleInstanceLayer)
+    layer.preprocess_config = PreprocessConfig(max_height=64, max_width=64)
+    layer._apply_full_preprocess(torch.zeros(2, 1, 100, 80))
+
+    centroid = SingleInstanceLayer.__new__(SingleInstanceLayer)
+    centroid.preprocess_config = PreprocessConfig(max_height=64, max_width=64)
+    topdown = TopDownLayer.__new__(TopDownLayer)
+    topdown.crop_max_hw = None
+    topdown.centroid_layer = centroid
+    topdown._sizematch_like_centroid_layer(torch.zeros(2, 1, 100, 80))
+
+    assert seen == ["info"] * 4

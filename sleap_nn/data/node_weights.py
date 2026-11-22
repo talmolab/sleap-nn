@@ -139,7 +139,7 @@ def check_some_node_weighted(
             break
     raise ValueError(
         f"provenance['{LABELED_NODES_KEY}'] leaves every node without loss in every "
-        "training file, so the model would train on nothing ("
+        "labels file, so the model would train on nothing ("
         + "; ".join(examples)
         + "). The entries must name nodes of the skeleton: if the nodes were "
         f"renamed, rename provenance['{LABELED_NODES_KEY}'] the same way, or remove "

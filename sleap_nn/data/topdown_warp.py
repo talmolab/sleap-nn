@@ -60,7 +60,6 @@ from sleap_nn.data.instance_cropping import (
     window_corners,
 )
 from sleap_nn.data.node_weights import (
-    LABELED_NODES_KEY,
     UNLABELED_POINTS_MODES,
     check_some_node_weighted,
     get_labeled_nodes_weights,
@@ -266,9 +265,7 @@ def build_instance_table(
     ]
     file_masks = []
     for labels, w_sk in zip(labels_list, file_sk_weights):
-        if LABELED_NODES_KEY not in (labels.provenance or {}):
-            file_masks.append(None)
-            continue
+        # A file without the key weights every node its skeleton has.
         sk_names = labels.skeletons[0].node_names
         file_masks.append(
             np.array(

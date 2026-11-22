@@ -181,20 +181,22 @@ _INFERENCE_RESIZE_NOTED: set = set()
 def _note_inference_resize(
     img_height: int, img_width: int, max_height: int, max_width: int
 ) -> None:
-    """Log once per size pair that prediction fits frames to the model's input size.
+    """Log once per target size that prediction fits frames to the model's input size.
 
-    At prediction time ``max_height``/``max_width`` come from the model's training
-    config, so fitting frames to them is how the model is meant to run, not a
-    setting the user should change; an info line, not a warning.
+    At prediction time ``max_height``/``max_width`` are the model's (from its
+    training config, unless overridden for prediction), so fitting frames to them
+    is how the model runs, not a slow path to fix; an info line, not a warning.
+    Keyed by target size only, like the training warning, so image lists with many
+    frame sizes log once.
     """
-    key = (int(img_height), int(img_width), int(max_height), int(max_width))
+    key = (int(max_height), int(max_width))
     if key in _INFERENCE_RESIZE_NOTED:
         return
     _INFERENCE_RESIZE_NOTED.add(key)
     logger.info(
-        f"Frames of {img_height}x{img_width} (HxW) are fitted to the model's input "
-        f"size {max_height}x{max_width} (max_height/max_width from its training "
-        "config); predictions are mapped back to the original frame."
+        f"Frames are fitted to the model's input size {max_height}x{max_width} "
+        f"(HxW; max_height/max_width), for example {img_height}x{img_width}; "
+        "predictions are mapped back to the original frames."
     )
 
 

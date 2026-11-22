@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 import sleap_io as sio
 import torch
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 
 from sleap_nn.data.augmentation import (
     apply_flip_augmentation,
@@ -570,25 +570,69 @@ def test_multiclass_track_lookup_stays_aligned(minimal_instance):
 
 def test_mask_naming_no_node_in_any_file_raises(minimal_instance):
     """Renamed nodes with stale provenance entries: an error, not a silent no-op."""
+    from sleap_nn.data.custom_datasets import _check_train_node_mask
+
+    cfg = OmegaConf.create({"trainer_config": {}})
     renamed = ["renamed/A", "renamed/B"]
+    stale = _labels(minimal_instance, labeled_nodes=renamed)
     with pytest.raises(ValueError, match="train on nothing"):
-        _ci_dataset(_labels(minimal_instance, labeled_nodes=renamed))
+        _check_train_node_mask(_ci_dataset(stale), [stale], cfg)
+    for ds in _frame_datasets(stale):
+        with pytest.raises(ValueError, match="train on nothing"):
+            _check_train_node_mask(ds, [stale], cfg)
+    empty = _labels(minimal_instance, labeled_nodes=[])
     with pytest.raises(ValueError, match="train on nothing"):
-        _frame_datasets(_labels(minimal_instance, labeled_nodes=renamed))
+        _check_train_node_mask(_ci_dataset(empty), [empty], cfg)
     # One file with a working mask is enough; the other file only warns.
-    CenteredInstanceDataset(
+    ok = _labels(minimal_instance, labeled_nodes=["A"])
+    head = DictConfig({"sigma": 1.5, "output_stride": 2, "anchor_part": None})
+    pool = CenteredInstanceDataset(
         max_stride=8,
         scale=1.0,
-        confmap_head_config=DictConfig(
-            {"sigma": 1.5, "output_stride": 2, "anchor_part": None}
-        ),
+        confmap_head_config=head,
         crop_size=160,
-        labels=[
-            _labels(minimal_instance, labeled_nodes=renamed),
-            _labels(minimal_instance, labeled_nodes=["A"]),
-        ],
+        labels=[stale, ok],
     )
-    # A file without the key trains every node, so it is not an error either.
-    _ci_dataset(_labels(minimal_instance))
+    _check_train_node_mask(pool, [stale, ok], cfg)
+    # A file without the key trains every node, so a pool with one is fine.
+    plain = _labels(minimal_instance)
+    pool = CenteredInstanceDataset(
+        max_stride=8,
+        scale=1.0,
+        confmap_head_config=head,
+        crop_size=160,
+        labels=[plain, stale],
+    )
+    _check_train_node_mask(pool, [plain, stale], cfg)
     # With the mask switched off nothing is weighted, so nothing is checked.
-    _ci_dataset(_labels(minimal_instance, labeled_nodes=renamed), node_loss_mask=False)
+    off = _ci_dataset(stale, node_loss_mask=False)
+    _check_train_node_mask(off, [stale], cfg)
+    # Distillation that ignores the mask trains every node on the teacher's maps.
+    distill = OmegaConf.create(
+        {"trainer_config": {"distillation": {"mask_unlabeled_nodes": False}}}
+    )
+    _check_train_node_mask(_ci_dataset(stale), [stale], distill)
+    masked = OmegaConf.create(
+        {"trainer_config": {"distillation": {"mask_unlabeled_nodes": True}}}
+    )
+    with pytest.raises(ValueError, match="train on nothing"):
+        _check_train_node_mask(_ci_dataset(stale), [stale], masked)
+
+
+def test_mask_check_skips_datasets_that_do_not_apply_the_mask(minimal_instance):
+    """Subclasses with their own sample format never applied the mask: unchanged."""
+    from sleap_nn.data.custom_datasets import (
+        CenteredInstanceSegmentationDataset,
+        TopDownCenteredInstanceMultiClassDataset,
+        _check_train_node_mask,
+    )
+
+    cfg = OmegaConf.create({"trainer_config": {}})
+    stale = _labels(minimal_instance, labeled_nodes=["renamed/A", "renamed/B"])
+    for cls in (
+        TopDownCenteredInstanceMultiClassDataset,
+        CenteredInstanceSegmentationDataset,
+    ):
+        ds = cls.__new__(cls)
+        ds.file_node_weights = [np.zeros(2, dtype=np.float32)]
+        _check_train_node_mask(ds, [stale], cfg)

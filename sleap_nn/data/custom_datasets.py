@@ -681,8 +681,6 @@ class BaseDataset(Dataset):
             if self.emit_node_weights
             else None
         )
-        if self.file_node_weights is not None:
-            check_some_node_weighted(self.file_node_weights, labels)
         self.use_negative_frames = use_negative_frames
         self.ensure_rgb = ensure_rgb
         self.ensure_grayscale = ensure_grayscale
@@ -8726,7 +8724,37 @@ def get_train_val_datasets(
                 if video.is_open:
                     video.close()
 
+    _check_train_node_mask(train_dataset, train_labels, config)
     return train_dataset, val_dataset
+
+
+def _check_train_node_mask(
+    train_dataset: Dataset, train_labels: List[sio.Labels], config: DictConfig
+) -> None:
+    """Stop when the files' node masks leave every node of the training set unweighted.
+
+    Only the datasets whose samples carry the per-node weights are checked
+    (single-instance, centered-instance and bottom-up; their subclasses with their
+    own sample format do not apply the mask). Distillation with
+    ``mask_unlabeled_nodes: false`` trains every node on the teacher's maps
+    whatever the mask says, so it is not checked either.
+    """
+    if type(train_dataset) not in (
+        SingleInstanceDataset,
+        CenteredInstanceDataset,
+        BottomUpDataset,
+    ):
+        return
+    file_weights = getattr(train_dataset, "file_node_weights", None)
+    if file_weights is None:
+        return
+    if OmegaConf.select(
+        config, "trainer_config.distillation", default=None
+    ) is not None and not OmegaConf.select(
+        config, "trainer_config.distillation.mask_unlabeled_nodes", default=True
+    ):
+        return
+    check_some_node_weighted(file_weights, train_labels)
 
 
 def freeze_heap_worker_init_fn(worker_id: int) -> None:

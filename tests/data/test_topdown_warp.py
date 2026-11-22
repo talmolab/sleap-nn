@@ -483,3 +483,8 @@ def test_warp_mask_naming_no_node_raises(tmp_path):
     labels_ok, _ = _labels(tmp_path, name="b", labeled=["head"])
     ds = WarpCenteredInstanceDataset([labels, labels_ok], (64, 48), _head())
     assert len(ds) > 0
+    # A file without the key trains every node it has: the pool is fine.
+    plain, _ = _labels(tmp_path, name="c")
+    for other in (labels, _labels(tmp_path, name="d", labeled=[])[0]):
+        ds = WarpCenteredInstanceDataset([plain, other], (64, 48), _head())
+        assert len(ds) > 0

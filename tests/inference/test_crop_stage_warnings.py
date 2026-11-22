@@ -23,7 +23,7 @@ def caplog(caplog: LogCaptureFixture):
     logger.remove(handler_id)
 
 
-def _assets(det_padding, crop_padding, det_source="user", crop_source="user"):
+def _assets(det_padding, crop_padding, det_source="instances", crop_source="instances"):
     crop_cfg = OmegaConf.create(
         {
             "data_config": {
@@ -50,12 +50,21 @@ def test_padding_difference_is_quantified(caplog):
     caplog.clear()
     _check_crop_stage(_assets(9.0, 0.0), ["bbox_detr", "centered_instance"])
     (msg,) = _warnings(caplog)
-    assert "about 18 px wider and taller" in msg
+    assert "each side of the detector's boxes is about 18 px longer" in msg
     assert "on purpose" in msg
     caplog.clear()
     _check_crop_stage(_assets(0.0, 4.0), ["bbox_detr", "centered_instance"])
     (msg,) = _warnings(caplog)
-    assert "about 8 px narrower and shorter" in msg
+    assert "about 8 px shorter" in msg
+    # User-drawn boxes are never padded: no size is claimed then.
+    for source in ("bboxes", "auto"):
+        caplog.clear()
+        _check_crop_stage(
+            _assets(9.0, 0.0, det_source=source, crop_source=source),
+            ["bbox_detr", "centered_instance"],
+        )
+        (msg,) = _warnings(caplog)
+        assert "px" not in msg and "user-drawn" in msg
 
 
 @pytest.mark.parametrize("padding", [0.0, 5.0])
@@ -68,7 +77,7 @@ def test_matching_settings_do_not_warn(caplog, padding):
 def test_box_source_difference_warns(caplog):
     caplog.clear()
     _check_crop_stage(
-        _assets(0.0, 0.0, det_source="user", crop_source="keypoints"),
+        _assets(0.0, 0.0, det_source="bboxes", crop_source="instances"),
         ["bbox_detr", "centered_instance"],
     )
     (msg,) = _warnings(caplog)
