@@ -582,6 +582,11 @@ def predict_embeddings_to_slp(
     labels: Optional[sio.Labels] = None,
     restore_source_videos: bool = False,
     remote_kwargs: Optional[dict] = None,
+    slp_version: Optional[str] = None,
+    image_format: Optional[str] = None,
+    image_quality: Optional[int] = None,
+    compression: Optional[str] = None,
+    unlabeled_as: Optional[str] = None,
 ) -> str:
     """Embed every detection in ``data_path`` and persist the vectors into a ``.slp``.
 
@@ -633,6 +638,18 @@ def predict_embeddings_to_slp(
             pre-embedding source videos, which are often unavailable.
         remote_kwargs: Options for loading a remote ``data_path`` (``headers``,
             ``stream_mode``), forwarded to ``sio.load_slp``.
+        slp_version: File layout of the ``.slp`` output: ``"v2"`` (SLP 2.x, read
+            by older sleap-io and SLEAP releases), ``"v3"`` (SLP 3.0) or ``"auto"``.
+            ``None`` (the default) passes nothing, so sleap-io's default applies.
+        image_format: Format of embedded frames (``"png"``, ``"jpg"`` / ``"jpeg"``,
+            ``"hdf5"``). This writer embeds no
+            frames, so setting it only warns.
+        image_quality: JPEG quality (0-100) or PNG compression level (0-9) of
+            re-encoded embedded frames (with ``image_format`` ``"jpg"`` / ``"png"``).
+        compression: ``"gzip"`` or ``"lzf"`` compression of the table columns.
+            ``None`` (the default): uncompressed.
+        unlabeled_as: ``"error"`` or ``"absent"``: what a ``"v2"`` save does with
+            points that are not labeled. ``None`` (the default): sleap-io's default.
 
     Returns:
         The output ``.slp`` path.
@@ -648,6 +665,16 @@ def predict_embeddings_to_slp(
     from sleap_nn.config.utils import get_model_type_from_cfg, resolve_model_dir
     from sleap_nn.inference.loaders import _load_training_config
     from sleap_nn.inference.run import _refuse_overwriting_frame_source
+    from sleap_nn.inference.save_options import slp_save_kwargs
+
+    save_options = dict(
+        slp_version=slp_version,
+        image_format=image_format,
+        image_quality=image_quality,
+        compression=compression,
+        unlabeled_as=unlabeled_as,
+    )
+    slp_save_kwargs(**save_options)  # fail before the embedding pass, not at the save
 
     if isinstance(model_paths, (str, bytes)):
         model_paths = [model_paths]
@@ -798,6 +825,7 @@ def predict_embeddings_to_slp(
             embed=False,
             restore_original_videos=restore_source_videos,
             save_embedding_vectors=persist_vectors,
+            **slp_save_kwargs(**save_options, embeds_frames=False),
         )
         logger.info(f"Wrote tracked labels to {output_path}")
         return output_path
@@ -826,6 +854,7 @@ def predict_embeddings_to_slp(
         embed=False,
         restore_original_videos=restore_source_videos,
         save_embedding_vectors=True,
+        **slp_save_kwargs(**save_options, embeds_frames=False),
     )
     logger.info(
         f"Attached {n_attached} embeddings (dim={embedding_dim}) and wrote "

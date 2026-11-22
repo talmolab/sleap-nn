@@ -146,6 +146,36 @@ sio.save_analysis_h5(labels, "predictions.analysis.h5")
 
 For other formats, see the [sleap-io documentation](https://io.sleap.ai/).
 
+### Choosing the file layout and frame format
+
+Five options control how the `.slp` is written. Left unset, each takes
+sleap-io's default, so the file is written exactly as without them.
+
+| Option | What it does |
+|--------|--------------|
+| `--slp_version` | `v2` writes the SLP 2.x layout, which older sleap-io (before 0.10) and SLEAP releases can open; `v3` writes SLP 3.0, which they cannot; `auto` lets sleap-io pick. |
+| `--unlabeled_as` | The 2.x layout cannot store a point marked as not labeled. With `v2`, `error` (sleap-io's default) refuses to write such a file and `absent` writes those points as hidden points, with a warning. |
+| `--compression` | `gzip` or `lzf` compress the file's tables: a smaller file that reads more slowly. |
+| `--image_format` | With `--embed true` (or `auto` on an embedded input): store the embedded frames as `png`, `jpg` or `hdf5` (raw pixels). |
+| `--image_quality` | For re-encoded embedded frames: JPEG quality `0`-`100` with `jpg`, PNG compression level `0`-`9` with `png`. |
+
+```bash
+# A file older SLEAP releases can open
+sleap-nn predict -i video.mp4 -m models/my_model/ --slp_version v2
+
+# A self-contained file with JPEG frames
+sleap-nn predict -i labels.pkg.slp -m models/my_model/ \
+    --embed true --image_format jpg --image_quality 90
+```
+
+`--image_format` and `--image_quality` only apply when frames are embedded;
+without embedding they warn and change nothing. `predict` takes the options on
+every route that writes a `.slp` (including `--stream-to-file`, track-only and
+the re-ID embedding route), as do `track` and `detect-boxes`. `detect-boxes`
+refuses `--slp_version v2`, because each box keeps a matching score that only
+SLP 3.0 stores. From Python, pass the same names to `sleap_nn.inference.predict`
+(e.g. `predict(..., output_path="out.slp", slp_version="v2")`).
+
 ---
 
 ## Essential Parameters

@@ -66,6 +66,82 @@ def _parse_int_list(ctx, param, value):
         )
 
 
+def _slp_save_option_list() -> list:
+    """The ``.slp`` file-layout and frame-format options (all default to ``None``).
+
+    Shared by every command that writes a ``.slp``; ``None`` passes nothing to
+    sleap-io, so a command run without them saves exactly as before.
+    """
+    return [
+        click.option(
+            "--slp_version",
+            type=click.Choice(["auto", "v2", "v3"], case_sensitive=False),
+            default=None,
+            help="File layout of the output .slp: 'v2' (the SLP 2.x layout that "
+            "older sleap-io and SLEAP releases can open), 'v3' (SLP 3.0) or 'auto' "
+            "(sleap-io picks). Default: sleap-io's default.",
+        ),
+        click.option(
+            "--image_format",
+            type=click.Choice(["png", "jpg", "jpeg", "hdf5"], case_sensitive=False),
+            default=None,
+            help="Format of frames embedded in the output .slp: 'png', 'jpg' "
+            "(or 'jpeg') or 'hdf5' (raw pixels). Only applies when frames are "
+            "embedded; otherwise it warns and has no effect. Default: sleap-io's "
+            "default.",
+        ),
+        click.option(
+            "--image_quality",
+            type=int,
+            default=None,
+            help="Quality of re-encoded embedded frames: JPEG quality 0-100 with "
+            "--image_format jpg, or PNG compression level 0-9 with --image_format "
+            "png. Default: sleap-io's default.",
+        ),
+        click.option(
+            "--compression",
+            type=click.Choice(["gzip", "lzf"], case_sensitive=False),
+            default=None,
+            help="Compress the tables of the output .slp ('gzip' or 'lzf') for a "
+            "smaller file that reads more slowly. Default: sleap-io's default "
+            "(uncompressed).",
+        ),
+        click.option(
+            "--unlabeled_as",
+            type=click.Choice(["error", "absent"], case_sensitive=False),
+            default=None,
+            help="What a --slp_version v2 save does with points that are not "
+            "labeled, which that layout cannot store: 'error' (refuse to write) or "
+            "'absent' (write them as hidden points, with a warning). Default: "
+            "sleap-io's default ('error').",
+        ),
+    ]
+
+
+def _slp_save_options(f):
+    """Add the ``.slp`` save options (see :func:`_slp_save_option_list`)."""
+    for d in reversed(_slp_save_option_list()):
+        f = d(f)
+    return f
+
+
+def _set_slp_save_options(kwargs: dict) -> dict:
+    """The ``.slp`` save options set in ``kwargs``, validated (unset ones left out).
+
+    Raises:
+        click.UsageError: If an option is invalid or the installed sleap-io cannot
+            take it.
+    """
+    from sleap_nn.inference.save_options import save_options_from, slp_save_kwargs
+
+    opts = {k: v for k, v in save_options_from(kwargs).items() if v is not None}
+    try:
+        slp_save_kwargs(**opts)
+    except ValueError as e:
+        raise click.UsageError(str(e)) from e
+    return opts
+
+
 class _CommaFloatTuple(click.ParamType):
     """Click type parsing a comma-separated float list into a tuple.
 
@@ -1333,6 +1409,7 @@ def train(
     default=0,
     help="IOU to use when culling instances *after* tracking. (default: 0)",
 )
+@_slp_save_options
 @click.option(
     "--gui",
     is_flag=True,
@@ -1389,6 +1466,13 @@ def track(**kwargs):
     kwargs.pop("sam_disjointify_masks", None)
     kwargs.pop("sam3_model_id", None)
     kwargs.pop("overlay_path", None)
+    # The .slp save options: only the ones set are passed on.
+    from sleap_nn.inference.save_options import SAVE_OPTION_NAMES
+
+    save_options = _set_slp_save_options(kwargs)
+    for name in SAVE_OPTION_NAMES:
+        kwargs.pop(name, None)
+    kwargs.update(save_options)
 
     return run_inference(**kwargs)
 
@@ -1450,6 +1534,8 @@ def _run_inference_impl(**kwargs):
 
     # Tracker flags the selected tracker family would ignore, on every route.
     _check_tracker_flags(kwargs)
+    # The .slp save options, checked before any model loads.
+    _set_slp_save_options(kwargs)
 
     # ── Embedding (re-ID) path: persist appearance vectors into a .slp ──
     # An `embedding` model emits appearance vectors, not poses/masks, so it does not go
@@ -2442,6 +2528,12 @@ _EMBEDDING_ROUTE_HONORED_OPTIONS = frozenset(
         "save_embeddings",
         "tracking",
         "restore_source_videos",
+        # The .slp save options, forwarded to the embedding writer.
+        "slp_version",
+        "image_format",
+        "image_quality",
+        "compression",
+        "unlabeled_as",
         # Read for remote `.slp` inputs / rejected with their own message earlier.
         "headers",
         "stream_mode",
@@ -2744,6 +2836,7 @@ def _run_embeddings(
             tracker_config=tracker_config,
             restore_source_videos=bool(kwargs.get("restore_source_videos", False)),
             remote_kwargs=remote_kwargs or None,
+            **_set_slp_save_options(kwargs),
         )
     except EmbeddingInputError as e:
         raise click.UsageError(str(e)) from e
@@ -3268,6 +3361,9 @@ def _run_in_memory_new_flow(
         predict_kwargs["sam3_model_id"] = kwargs.get("sam3_model_id", "facebook/sam3")
         predict_kwargs["overlay_path"] = kwargs.get("overlay_path")
 
+    # The .slp save options: only the ones set are passed on.
+    predict_kwargs.update(_set_slp_save_options(kwargs))
+
     preprocess_config = _build_preprocess_config(kwargs)
     if preprocess_config is not None:
         predict_kwargs["preprocess_config"] = preprocess_config
@@ -3483,6 +3579,7 @@ def _run_retrack_only(kwargs: dict, predictor_cls) -> "object":
         embed=kwargs.get("embed") or "false",
         restore_source_videos=kwargs.get("restore_source_videos", False),
         save_embedding_vectors=kwargs.get("save_embedding_vectors"),
+        **_set_slp_save_options(kwargs),
     )
     return out
 
@@ -3845,6 +3942,7 @@ def _run_stream_to_file(
             remote_kwargs=remote_kwargs or None,
         )
 
+    save_options = _set_slp_save_options(kwargs)
     if kwargs.get("gui"):
         return _run_guarded(
             lambda: predictor.predict_to_file(
@@ -3852,6 +3950,7 @@ def _run_stream_to_file(
                 path=str(stream_to_file),
                 write_interval=write_interval,
                 progress_callback=_gui_progress_callback(),
+                **save_options,
             ),
             gui=True,
         )
@@ -3865,6 +3964,7 @@ def _run_stream_to_file(
                 path=str(stream_to_file),
                 write_interval=write_interval,
                 progress_callback=cb,
+                **save_options,
             ),
             gui=False,
         )
@@ -3950,6 +4050,7 @@ def _common_inference_options(f):
             "original pre-embedding source video files, when recorded. "
             "Ignored when embedding.",
         ),
+        *_slp_save_option_list(),
         click.option(
             "--save_embeddings",
             "save_embeddings",
@@ -5236,6 +5337,7 @@ def import_rfdetr(model, output_dir, revision, overwrite):
 @click.option(
     "--overwrite", is_flag=True, default=False, help="Replace an existing output."
 )
+@_slp_save_options
 def detect_boxes(**kwargs):
     """Write detector boxes into a training labels file (detector-box crops).
 
@@ -5248,6 +5350,9 @@ def detect_boxes(**kwargs):
     pose instance. Train on it with `preprocessing.crop_bbox_source: detector`.
     Match statistics go into provenance["detector_boxes"] and <output>.json.
 
+    The output is written in the SLP 3.0 layout, which keeps each box's matching
+    score; `--slp_version v2` is refused.
+
     Examples:
         sleap-nn detect-boxes -i coco_val2017.slp -m models/rfdetr-medium
 
@@ -5256,6 +5361,7 @@ def detect_boxes(**kwargs):
         sleap-nn detect-boxes -i jrdb_train.slp -m models/person --tile_width 640
     """
     from sleap_nn.inference.detect_boxes import TileSpec, detect_boxes as run
+    from sleap_nn.inference.save_options import save_options_from
 
     tiling = None
     if kwargs["tile_width"] is not None:
@@ -5289,6 +5395,7 @@ def detect_boxes(**kwargs):
             save_detections=kwargs["save_detections"],
             dry_run=kwargs["dry_run"],
             overwrite=kwargs["overwrite"],
+            **{k: v for k, v in save_options_from(kwargs).items() if v is not None},
         )
     except (FileExistsError, ValueError) as e:
         raise click.ClickException(str(e)) from e

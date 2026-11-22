@@ -158,6 +158,11 @@ def run_sam_segmentation(
     clean_empty_frames: bool = False,
     embed: Union[str, bool] = "false",
     restore_source_videos: bool = False,
+    slp_version: Optional[str] = None,
+    image_format: Optional[str] = None,
+    image_quality: Optional[int] = None,
+    compression: Optional[str] = None,
+    unlabeled_as: Optional[str] = None,
 ):
     """Predict per-instance masks for a pose ``.slp`` with a SAM backend.
 
@@ -213,6 +218,18 @@ def run_sam_segmentation(
             unavailable. ``True`` instead restores references to the original
             pre-embedding source video files, when recorded. Maps to
             sleap-io's ``restore_original_videos`` and is ignored when embedding.
+        slp_version: File layout of the ``.slp`` output: ``"v2"`` (SLP 2.x, read
+            by older sleap-io and SLEAP releases), ``"v3"`` (SLP 3.0) or ``"auto"``.
+            ``None`` (the default) passes nothing, so sleap-io's default applies.
+        image_format: Format of embedded frames (``"png"``, ``"jpg"`` / ``"jpeg"``,
+            ``"hdf5"``). Only applies when frames are
+            embedded (``embed``); otherwise it warns.
+        image_quality: JPEG quality (0-100) or PNG compression level (0-9) of
+            re-encoded embedded frames (with ``image_format`` ``"jpg"`` / ``"png"``).
+        compression: ``"gzip"`` or ``"lzf"`` compression of the table columns.
+            ``None`` (the default): uncompressed.
+        unlabeled_as: ``"error"`` or ``"absent"``: what a ``"v2"`` save does with
+            points that are not labeled. ``None`` (the default): sleap-io's default.
 
     Returns:
         A new ``sio.Labels`` with per-frame ``PredictedSegmentationMask`` (and the
@@ -222,6 +239,17 @@ def run_sam_segmentation(
 
     from sleap_nn.inference.outputs import Outputs
     from sleap_nn.inference.sam.overlay import save_mask_overlay
+
+    from sleap_nn.inference.save_options import slp_save_kwargs
+
+    save_options = dict(
+        slp_version=slp_version,
+        image_format=image_format,
+        image_quality=image_quality,
+        compression=compression,
+        unlabeled_as=unlabeled_as,
+    )
+    slp_save_kwargs(**save_options)  # fail before the backend loads, not at the save
 
     if isinstance(source, sio.Labels):
         labels = source
@@ -308,10 +336,12 @@ def run_sam_segmentation(
         # intact for ``embed="auto"`` detection.
         from sleap_nn.inference.run import _resolve_embed
 
+        embed_frames = _resolve_embed(embed, out)
         out.save(
             out_path.as_posix(),
-            embed=_resolve_embed(embed, out),
+            embed=embed_frames,
             restore_original_videos=restore_source_videos,
+            **slp_save_kwargs(**save_options, embeds_frames=bool(embed_frames)),
         )
     if overlay_path is not None:
         # Flag masks below the backend's per-model nominal predicted-IoU floor

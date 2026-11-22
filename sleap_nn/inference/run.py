@@ -316,6 +316,11 @@ def save_predictions(
     embed: Union[str, bool] = "false",
     restore_source_videos: bool = False,
     save_embedding_vectors: Optional[bool] = None,
+    slp_version: Optional[str] = None,
+    image_format: Optional[str] = None,
+    image_quality: Optional[int] = None,
+    compression: Optional[str] = None,
+    unlabeled_as: Optional[str] = None,
 ) -> List[Path]:
     """Save predicted ``Labels`` to disk in the requested format(s).
 
@@ -347,6 +352,24 @@ def save_predictions(
             silently dropped every vector when retracking an embedded ``.slp``
             (``predict -i embedded.slp -t --features embeddings`` produced an
             output that could not be retracked again). ``True``/``False`` force it.
+        slp_version: File layout of the ``.slp`` output: ``"v2"`` (the SLP 2.x
+            layout that older sleap-io and SLEAP releases read), ``"v3"`` (SLP
+            3.0) or ``"auto"`` (sleap-io chooses). ``None`` (the default) passes
+            nothing, so sleap-io's default applies.
+        image_format: Format of embedded frames: ``"png"``, ``"jpg"`` /
+            ``"jpeg"`` or ``"hdf5"`` (raw pixels). Applies only when frames are
+            embedded (``embed``); otherwise it warns and has no effect. ``None``
+            (the default): sleap-io's default.
+        image_quality: JPEG quality (0-100) with ``image_format="jpg"`` or PNG
+            compression level (0-9) with ``image_format="png"``, for re-encoded
+            embedded frames. ``None`` (the default): the encoder's default.
+        compression: ``"gzip"`` or ``"lzf"`` compression of the ``.slp`` table
+            columns (smaller files, slower reads). ``None`` (the default):
+            sleap-io's default (uncompressed).
+        unlabeled_as: What a ``"v2"`` save does with points that are not labeled,
+            which that layout cannot store: ``"error"`` (refuse to write) or
+            ``"absent"`` (write them as hidden points, with a warning). ``None``
+            (the default): sleap-io's default (``"error"``).
 
     Returns:
         The list of analysis HDF5 paths written (empty unless ``"analysis_h5"``
@@ -354,10 +377,33 @@ def save_predictions(
 
     Raises:
         ValueError: If any requested format is not ``"slp"`` or ``"analysis_h5"``,
-            or if the ``.slp`` output would overwrite a video's frame source (e.g.
-            ``output_path`` is the input ``.pkg.slp``).
+            if the ``.slp`` output would overwrite a video's frame source (e.g.
+            ``output_path`` is the input ``.pkg.slp``), or if a save option is
+            invalid or not supported by the installed sleap-io.
     """
+    from sleap_nn.inference.save_options import (
+        slp_save_kwargs,
+        validate_save_options,
+    )
+
     formats = _normalize_output_formats(output_format)
+    save_options = dict(
+        slp_version=slp_version,
+        image_format=image_format,
+        image_quality=image_quality,
+        compression=compression,
+        unlabeled_as=unlabeled_as,
+    )
+    validate_save_options(**save_options)
+    if "slp" not in formats and any(v is not None for v in save_options.values()):
+        import warnings
+
+        warnings.warn(
+            "slp_version, image_format, image_quality, compression and "
+            "unlabeled_as apply only to .slp output; no .slp is written here.",
+            UserWarning,
+            stacklevel=2,
+        )
 
     if "slp" in formats:
         _refuse_overwriting_frame_source(labels, output_path)
@@ -368,11 +414,13 @@ def save_predictions(
             from sleap_nn.inference.tracking import _labels_have_embeddings
 
             save_embedding_vectors = _labels_have_embeddings(labels)
+        embed_frames = _resolve_embed(embed, labels)
         labels.save(
             Path(output_path).as_posix(),
-            embed=_resolve_embed(embed, labels),
+            embed=embed_frames,
             restore_original_videos=restore_source_videos,
             save_embedding_vectors=save_embedding_vectors,
+            **slp_save_kwargs(**save_options, embeds_frames=bool(embed_frames)),
         )
         logger.info(f"Predictions output path: {output_path}")
         logger.info(f"Saved file at: {datetime.now()}")
@@ -768,6 +816,11 @@ def predict(
     embed: Union[str, bool] = "false",
     restore_source_videos: bool = False,
     save_embedding_vectors: Optional[bool] = None,
+    slp_version: Optional[str] = None,
+    image_format: Optional[str] = None,
+    image_quality: Optional[int] = None,
+    compression: Optional[str] = None,
+    unlabeled_as: Optional[str] = None,
     clean_empty_frames: bool = False,
     progress_callback: Optional[Callable[[int, int], None]] = None,
     tracking_progress_callback: Optional[Callable[[int, int], None]] = None,
@@ -962,6 +1015,17 @@ def predict(
         save_embedding_vectors: Whether to persist appearance (re-ID) vectors on
             the saved detections. ``None`` (the default) preserves them iff any
             detection carries one; see :func:`save_predictions`.
+        slp_version: File layout of a ``.slp`` output: ``"v2"`` (SLP 2.x, read
+            by older sleap-io and SLEAP releases), ``"v3"`` (SLP 3.0) or
+            ``"auto"``. ``None`` (the default): sleap-io's default. See
+            :func:`save_predictions` for this and the next four options.
+        image_format: Format of embedded frames (``"png"``, ``"jpg"`` /
+            ``"jpeg"``, ``"hdf5"``); only applies with ``embed``.
+        image_quality: JPEG quality (0-100) or PNG compression level (0-9) of
+            re-encoded embedded frames.
+        compression: ``"gzip"`` or ``"lzf"`` compression of the table columns.
+        unlabeled_as: ``"error"`` or ``"absent"``: what a ``"v2"`` save does
+            with points that are not labeled.
         clean_empty_frames: Drop frames with no instances.
         progress_callback: ``(processed_frames, total_frames)`` callback
             invoked after each batch (counts are in frames).
@@ -975,13 +1039,25 @@ def predict(
         ValueError: If neither ``model_paths`` nor ``export_dir`` is given,
             or if both are given, or if the ``.slp`` output would overwrite a file
             the input reads its frames from (e.g. ``output_path`` is the input
-            ``.pkg.slp``) -- checked before any model is loaded.
+            ``.pkg.slp``) -- checked before any model is loaded -- or if a save
+            option is invalid or not supported by the installed sleap-io.
     """
     import torch
+
+    from sleap_nn.inference.save_options import slp_save_kwargs
 
     # Before any model load or inference (SAM included): `save_predictions` makes
     # the same check, but only once the whole pass has run.
     _refuse_overwriting_source_before_inference(source, output_path, output_format)
+    save_options = dict(
+        slp_version=slp_version,
+        image_format=image_format,
+        image_quality=image_quality,
+        compression=compression,
+        unlabeled_as=unlabeled_as,
+    )
+    # Invalid or unsupported save options fail here, not after the whole pass.
+    slp_save_kwargs(**save_options)
 
     if device == "auto":
         device = (
@@ -1035,6 +1111,7 @@ def predict(
             clean_empty_frames=clean_empty_frames,
             embed=embed,
             restore_source_videos=restore_source_videos,
+            **save_options,
         )
         return labels
 
@@ -1189,6 +1266,7 @@ def predict(
             embed=embed,
             restore_source_videos=restore_source_videos,
             save_embedding_vectors=save_embedding_vectors,
+            **save_options,
         )
 
     return labels

@@ -151,6 +151,11 @@ URL's file name.
 | `--embed` | Embed images in the `.slp`: `true` (self-contained `.pkg.slp`-style file), `auto` (only if the input was an embedded `.pkg.slp`), `false` (reference the source media) | `auto`, `true`, `false` | `false` |
 | `--restore_source_videos` | When a `.pkg.slp` input is not re-embedded, reference the original source videos instead of the `.pkg.slp` | Flag | `false` |
 | `--save_embeddings` | Write each detection's re-ID vector into the `.slp` (see [Embedding tracking](../guides/embedding-tracking.md)) | `none`, `slp` | `none` |
+| `--slp_version` | File layout of the `.slp`: `v2` (the SLP 2.x layout older sleap-io and SLEAP releases open), `v3` (SLP 3.0) or `auto` (sleap-io picks). See [Choosing the file layout and frame format](../guides/inference-guide.md#choosing-the-file-layout-and-frame-format) | `auto`, `v2`, `v3` | sleap-io's default |
+| `--image_format` | Format of embedded frames (with `--embed`); warns and has no effect when no frames are embedded | `png`, `jpg`, `jpeg`, `hdf5` | sleap-io's default |
+| `--image_quality` | Quality of re-encoded embedded frames: JPEG quality with `--image_format jpg`, PNG compression level with `--image_format png` | `0`-`100` (jpg), `0`-`9` (png) | sleap-io's default |
+| `--compression` | Compress the `.slp` tables (smaller file, slower reads) | `gzip`, `lzf` | sleap-io's default (none) |
+| `--unlabeled_as` | With `--slp_version v2`: what to do with points that are not labeled, which that layout cannot store: `error` refuses to write, `absent` writes them as hidden points (with a warning) | `error`, `absent` | sleap-io's default (`error`) |
 | `--stream-to-file` | Stream predictions to this `.slp` path, dropping heavy tensors per batch (lower memory). Not combinable with `--tracking` or exported models | `PATH` | None |
 | `--write-interval` | With `--stream-to-file`: frames buffered between conversions | `INT` | `500` |
 | `--gui` | Print JSON progress lines (for the SLEAP GUI) instead of a progress bar | Flag | `false` |
@@ -397,6 +402,11 @@ grouping, filtering and classic-tracker options above, plus `--gui` and
 - centroid-only output, segmentation, box detectors and SAM masks
 - the modern MOT trackers (`--tracker` and its options), `--link_tracklets`, `--appearance_weight` / `--euclidean_scale`
 - `--output_format`, `--embed`, `--restore_source_videos`, `--save_embeddings`, remote inputs (`--headers`, `--stream-mode`)
+
+It does take the `.slp` save options `--slp_version`, `--compression` and
+`--unlabeled_as` (see [Output Options](#output-options)); `--image_format` and
+`--image_quality` are accepted too but only warn, since `track` never embeds
+frames.
 
 The default output name is the same as `predict`'s (`video.mp4` →
 `video.predictions.slp`). Differences in behavior:
@@ -688,6 +698,11 @@ above `--min_iou` are kept. Match statistics go into
 | `--save_detections` | | Also write the raw detections as a COCO results JSON | `PATH` | `None` |
 | `--dry_run` | | Print match statistics only | Flag | `false` |
 | `--overwrite` | | Replace an existing output | Flag | `false` |
+| `--slp_version` | | File layout of the output: `v3` or `auto`. `v2` is refused: each box keeps its matching score as box metadata, which only SLP 3.0 stores | `auto`, `v3` | sleap-io's default (SLP 3.0) |
+| `--compression` | | Compress the output's tables | `gzip`, `lzf` | sleap-io's default (none) |
+| `--image_format` | | Accepted for symmetry with `predict`; the output embeds no frames, so it only warns | `png`, `jpg`, `jpeg`, `hdf5` | sleap-io's default |
+| `--image_quality` | | As `--image_format`: only warns here | `INT` | sleap-io's default |
+| `--unlabeled_as` | | Only matters for a 2.x save, so it has no effect here | `error`, `absent` | sleap-io's default |
 
 ```bash
 # A mouse detector over a pose project (boxes named "mouse")

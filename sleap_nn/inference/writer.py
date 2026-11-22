@@ -45,6 +45,12 @@ class IncrementalLabelsWriter:
             ``LabeledFrame``s every ``write_interval`` frames; the
             consolidated ``.slp`` is written once at :meth:`close` (no
             per-flush disk write until sleap-io supports incremental append).
+        save_options: The ``.slp`` save options (``slp_version``,
+            ``image_format``, ``image_quality``, ``compression``,
+            ``unlabeled_as``; see :mod:`sleap_nn.inference.save_options`) for
+            the final write. ``None`` (the default) or unset entries pass
+            nothing to sleap-io. This writer never embeds frames, so
+            ``image_format`` / ``image_quality`` only warn.
 
     Usage::
 
@@ -73,6 +79,7 @@ class IncrementalLabelsWriter:
     mask_output: str = "mask"
     polygon_epsilon: float = 0.01
     bbox_categories: Optional[List[str]] = None
+    save_options: Optional[dict] = None
 
     _buffer: List[Any] = attrs.field(factory=list, init=False, repr=False)
     _all_frames: List[Any] = attrs.field(factory=list, init=False, repr=False)
@@ -214,6 +221,11 @@ class IncrementalLabelsWriter:
         # restore_original_videos=False matches the non-streaming path's
         # default (PRESERVE_SOURCE): a .pkg.slp input backreferences itself,
         # not a pre-embedding source video that's often not on disk.
-        labels.save(str(tmp), format="slp", restore_original_videos=False)
+        from sleap_nn.inference.save_options import save_options_from, slp_save_kwargs
+
+        extra = slp_save_kwargs(
+            **save_options_from(self.save_options or {}), embeds_frames=False
+        )
+        labels.save(str(tmp), format="slp", restore_original_videos=False, **extra)
         # Atomic rename — no half-written file on the destination path.
         tmp.replace(self.path)

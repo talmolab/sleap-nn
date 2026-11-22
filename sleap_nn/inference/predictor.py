@@ -2679,6 +2679,11 @@ class Predictor:
         videos: Optional[List["sio.Video"]] = None,
         write_interval: int = 500,
         progress_callback: Optional[Callable[[int, int], None]] = None,
+        slp_version: Optional[str] = None,
+        image_format: Optional[str] = None,
+        image_quality: Optional[int] = None,
+        compression: Optional[str] = None,
+        unlabeled_as: Optional[str] = None,
     ) -> str:
         """Run inference and write results to a ``.slp`` file.
 
@@ -2701,10 +2706,36 @@ class Predictor:
                 a disk flush.
             progress_callback: Optional ``(processed_frames, total_frames)``
                 callback invoked after each batch.
+            slp_version: File layout of the ``.slp``: ``"v2"`` (SLP 2.x, read
+                by older sleap-io and SLEAP releases), ``"v3"`` (SLP 3.0) or
+                ``"auto"``. ``None`` (the default): sleap-io's default.
+            image_format: Format of embedded frames. This path embeds no
+                frames, so setting it only warns.
+            image_quality: Quality of re-encoded embedded frames; as
+                ``image_format``, it only warns here.
+            compression: ``"gzip"`` or ``"lzf"`` compression of the table
+                columns. ``None`` (the default): uncompressed.
+            unlabeled_as: ``"error"`` or ``"absent"``: what a ``"v2"`` save
+                does with points that are not labeled. ``None`` (the
+                default): sleap-io's default.
 
         Returns:
             The (resolved) destination path string.
+
+        Raises:
+            ValueError: If a save option is invalid or not supported by the
+                installed sleap-io (checked before inference).
         """
+        from sleap_nn.inference.save_options import slp_save_kwargs
+
+        save_options = dict(
+            slp_version=slp_version,
+            image_format=image_format,
+            image_quality=image_quality,
+            compression=compression,
+            unlabeled_as=unlabeled_as,
+        )
+        slp_save_kwargs(**save_options)  # fail before inference, not at the save
         if skeleton is not None:
             self.skeleton = skeleton
         # Same as `predict(make_labels=True)`: an embedding model has nothing to
@@ -2760,6 +2791,7 @@ class Predictor:
             mask_output=getattr(self.layer, "mask_output", "mask"),
             polygon_epsilon=getattr(self.layer, "polygon_epsilon", 0.01),
             bbox_categories=self._bbox_categories(),
+            save_options=save_options,
         )
         _prov_start = datetime.now()
         with writer:
