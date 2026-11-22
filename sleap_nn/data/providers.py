@@ -3,6 +3,8 @@
 import importlib.util
 from typing import Any, Dict, List, Optional, Tuple, Union
 
+import copy
+
 import numpy as np
 import sleap_io as sio
 from sleap_io.io.video_reading import MediaVideo
@@ -162,6 +164,24 @@ def instance_points(inst: sio.Instance, supervise_occluded: bool = True) -> np.n
 _OCCLUDED_ESTIMATE_FORMAT_ID = 3.0
 
 
+def has_legacy_hidden_points(labels: Optional[sio.Labels]) -> bool:
+    """Whether sleap-io reports ``labels`` as loaded from a file older than SLP 3.0.
+
+    In such files a hidden point's stored coordinates are stale, not an occluded
+    estimate (see :func:`clear_legacy_hidden_points`).
+    """
+    source = getattr(labels, "_source_format_id", None) if labels is not None else None
+    return source is not None and float(source) < _OCCLUDED_ESTIMATE_FORMAT_ID
+
+
+def without_hidden_coordinates(inst: sio.Instance) -> sio.Instance:
+    """A copy of ``inst`` whose hidden points have no coordinates (``inst`` is kept)."""
+    out = copy.deepcopy(inst)
+    hidden = ~np.asarray(out.points["visible"], dtype=bool)
+    out.points["xy"][hidden] = np.nan
+    return out
+
+
 def clear_legacy_hidden_points(labels: Optional[sio.Labels]) -> int:
     """Clear the stored coordinates of hidden points in labels read from an old file.
 
@@ -189,8 +209,7 @@ def clear_legacy_hidden_points(labels: Optional[sio.Labels]) -> int:
     Returns:
         The number of points whose coordinates were cleared.
     """
-    source = getattr(labels, "_source_format_id", None) if labels is not None else None
-    if source is None or float(source) >= _OCCLUDED_ESTIMATE_FORMAT_ID:
+    if not has_legacy_hidden_points(labels):
         return 0
     if getattr(labels, "is_lazy", False):
         logger.warning(

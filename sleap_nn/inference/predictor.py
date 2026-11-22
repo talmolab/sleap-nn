@@ -1932,7 +1932,23 @@ class Predictor:
             source = resolve_bbox_source(labels, "auto")
             padding = stage_1.gt_bbox_padding
 
+        from sleap_nn.data.providers import (
+            has_legacy_hidden_points,
+            without_hidden_coordinates,
+        )
+
+        # Old-layout files: hidden points' stored coordinates are stale, so boxes
+        # taken from keypoints ignore them, as in training (the labels stay
+        # unchanged). A box or mask linked to the instance is used as it is.
+        stale = has_legacy_hidden_points(labels)
+
         def box_fn(lf, inst):
+            if stale and (
+                source == "instances" or not _has_linked_box(lf, inst, source)
+            ):
+                return instance_crop_bbox(
+                    lf, without_hidden_coordinates(inst), "instances", padding
+                )
             return instance_crop_bbox(lf, inst, source, padding)
 
         return box_fn
@@ -3436,3 +3452,20 @@ class Predictor:
             new_layer.inner = new_target
             return new_layer
         return new_target
+
+
+def _has_linked_box(lf: Any, inst: Any, source: str) -> bool:
+    """Whether ``instance_crop_bbox`` takes ``inst``'s box from a linked box or mask."""
+    from sleap_nn.data.bboxes import frame_user_bboxes
+
+    if source == "bboxes":
+        return any(
+            getattr(b, "instance", None) is inst and not b.is_empty
+            for b in frame_user_bboxes(lf)
+        )
+    if source == "masks":
+        return any(
+            not m.is_predicted and getattr(m, "instance", None) is inst
+            for m in getattr(lf, "masks", None) or []
+        )
+    return False

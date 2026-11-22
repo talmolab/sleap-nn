@@ -1051,3 +1051,35 @@ def test_lone_network_only_export_runs_as_its_checkpoint(
         outs[name] = (result.exit_code, type(result.exception).__name__)
     # Same outcome as the checkpoint alone, not the fused-export route's error.
     assert outs["export"] == outs["checkpoint"], outs
+
+
+@pytest.mark.parametrize("legacy", [True, False])
+def test_gt_boxes_ignore_stale_hidden_points_of_old_files(
+    minimal_instance, monkeypatch, legacy
+):
+    """Boxes from labelled keypoints skip hidden points' stored coordinates for
+    labels read from a pre-3.0 file (as training does); the labels are unchanged."""
+    from types import SimpleNamespace
+
+    from sleap_nn.data import providers
+    from sleap_nn.inference.predictor import Predictor
+
+    monkeypatch.setattr(providers, "has_legacy_hidden_points", lambda labels: legacy)
+    labels = sio.load_slp(minimal_instance)
+    lf = labels[0]
+    inst = lf.user_instances[0]
+    inst.points["visible"][0] = False  # hidden, stale coordinates kept
+    stale_xy = inst.points["xy"][0].copy()
+    predictor = Predictor.__new__(Predictor)
+    predictor.layer = SimpleNamespace(
+        centroid_layer=SimpleNamespace(use_gt_boxes=True),
+        bbox_crop=SimpleNamespace(bbox_source="instances", bbox_padding=0.0),
+    )
+    box = predictor._gt_box_fn(labels)(lf, inst)
+    visible_xy = inst.points["xy"][1]
+    if legacy:
+        # Only the visible point is left: a degenerate box on it.
+        np.testing.assert_allclose(box, [*visible_xy, *visible_xy], atol=1e-4)
+    else:
+        assert box[0] <= min(stale_xy[0], visible_xy[0]) + 1e-4
+    np.testing.assert_array_equal(inst.points["xy"][0], stale_xy)  # unchanged
