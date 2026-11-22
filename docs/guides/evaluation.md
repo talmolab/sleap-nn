@@ -119,8 +119,10 @@ The size is `sqrt(width x height)` of a box:
 
 - `norm_scale: bbox`: the user bounding box linked to the ground-truth instance, else
   the tight box of its labelled points;
-- `norm_scale: points`: the tight box of its labelled points, padded on every side by
-  `norm_pad_frac` of its longest side (default `0.0`).
+- `norm_scale: points`: the tight box of its labelled points.
+
+Any box built from points (under either setting) is padded on every side by
+`norm_pad_frac` of its longest side (default `0.0`).
 
 Instances with no box and fewer than two labelled points are skipped. It is opt-in
 and off by default, for `match_method="oks"` only (not on the `sleap-nn eval` command

@@ -76,7 +76,8 @@ Each predicted instance gets at most one square box:
 | `session_min_boxes` | `10` | A video with fewer boxes than this uses the median over all videos instead of its own |
 
 Node names match exactly, or by the part after the last `/`: `"tail_base"` matches a
-node named `"lab_a/tail_base"`. Unknown keys in the rule file raise an error.
+node named `"lab_a/tail_base"`, but only when exactly one node ends that way; an
+ambiguous name matches nothing. Unknown keys in the rule file raise an error.
 
 ### Per-video floor (`session_floor`)
 

@@ -5241,6 +5241,9 @@ def import_rfdetr(model, output_dir, revision, overwrite):
 def detect_boxes(**kwargs):
     """Write detector boxes into a training labels file (detector-box crops).
 
+    Experimental: this workflow may change or be removed without a deprecation
+    period.
+
     Runs a bbox_* model over every labeled frame (or reads a COCO results JSON or
     detector chunk files), matches the detections to each frame's GT people
     (Hungarian on IoU over detections scoring >= --score_threshold, pairs with

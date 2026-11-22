@@ -645,6 +645,12 @@ sleap-nn predict -m models/rfdetr-medium -i video.mp4
 
 ## `sleap-nn detect-boxes`
 
+!!! warning "Experimental"
+    Training on detector-box crops (`sleap-nn detect-boxes`, then
+    `crop_bbox_source: detector`) may change or be removed without a deprecation
+    period. In the developers' test its gain over ground-truth-box crops was within
+    noise.
+
 Run a `bbox_*` detector over every labeled frame (or read existing detections),
 match the detections to each frame's ground-truth animals and write a copy of the
 labels with one `PredictedBoundingBox` per detection, linked to its matched

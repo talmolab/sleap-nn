@@ -2,7 +2,8 @@
 
 This page lists every default and output of sleap-nn 0.4 that differs from v0.3.5,
 with who is affected and how to get the old behaviour where there is a switch. New
-features that are off by default are not listed here; see the release notes.
+features that are off by default are listed only where they replace or extend an
+existing option; for the rest, see the release notes.
 
 Saved configs from 0.3 train and predict as before, except where an item below says
 otherwise.
@@ -10,11 +11,17 @@ otherwise.
 ## Files and dependencies
 
 - **sleap-io 0.10 is required** (`sleap-io>=0.10,<0.11`, was `>=0.9.3,<0.10`).
-  sleap-io 0.10 reads both `.slp` file layouts (the one SLEAP 1.x and sleap-io 0.9
-  write, and the newer format 3.0 that stores separate *labelled* and *visible* flags
-  per point). Which layout `sleap-nn predict` and the other commands write by default,
-  and the options to choose it, are set by sleap-io and by `predict`'s save options.
-  <!-- verify against sleap-io 0.10 -->
+  sleap-io 0.10 reads both `.slp` file layouts: the one SLEAP 1.x and sleap-io 0.9
+  write, and the newer format 3.0, which stores separate *labelled* and *visible*
+  flags per point. With nothing set, a file whose content fits the old layout is
+  written in it, so SLEAP 1.x and sleap-io 0.9 open it; a file that needs format 3.0
+  is written as 3.0, with a warning. Centroid-only output fits the old layout.
+  `sleap-nn detect-boxes` always writes 3.0, because each box keeps its matching
+  score.
+- **Save options.** `predict`, `track` and `detect-boxes` take `--slp_version
+  {auto,v2,v3}`, `--image_format`, `--image_quality`, `--compression` and
+  `--unlabeled_as` to choose the layout and how embedded frames are stored. The
+  defaults give the behaviour above.
 - **Default output name of `sleap-nn predict`.** Without `-o`, `sleap-nn predict -i
   video.mp4` now writes `video.predictions.slp`, as SLEAP's `sleap-track` does (0.3.5
   wrote `video.mp4.slp`, and `labels.slp.slp` for a `labels.slp` input). Who:
@@ -22,6 +29,11 @@ otherwise.
 
 ## Prediction
 
+- **`--integral_refinement local` works.** It used to do nothing (grid peaks); it now
+  applies SLEAP's quarter-pixel step towards the higher neighbour. `local` (and
+  `dark`) with a bottom-up model raises, and an unknown refinement name raises a
+  `ValueError` instead of silently giving grid peaks. Who: anyone who passed `local`
+  or a misspelled name.
 - **Top-down keypoints use DARK refinement.** `--integral_refinement` defaults to
   `auto`: DARK sub-pixel refinement for the centered-instance stage of top-down models
   (`centered_instance`, `multi_class_topdown`), integral refinement for every other
@@ -68,7 +80,8 @@ otherwise.
   strict loading, a learned positional-embedding table of another size raises, as in
   0.3.5; with `init_from.strict: false` it is resized. When a run is resumed,
   `init_from.path` and `reinit` are skipped, but `strict` and `remap_nodes` still apply
-  to the old keys.
+  to the old keys. The error a shape mismatch raises is now a `ValueError` (0.3.5
+  raised PyTorch's `RuntimeError`); code that catches the old type needs updating.
 - **Early stopping is unchanged.** It stays on by default under every learning-rate
   schedule, as in 0.3.5. Turn it off with
   `trainer_config.early_stopping.stop_training_on_plateau: false`, for example with a
@@ -85,9 +98,13 @@ otherwise.
   torch with `seed + epoch` instead.
 - **Data loading.** `prefetch_factor` defaults to `2` (0.3.5 used the batch size,
   which could exhaust host or shared memory with large batches), and
-  `num_workers: auto` may pick up to 16 workers (was 4). Who: every training with
-  workers. Old behaviour: set `train_data_loader.prefetch_factor` to the batch size
-  and `num_workers` to a number.
+  `num_workers: auto` may pick up to 16 workers (was 4); its memory bound now also
+  applies when there are no validation labels (0.3.5's cache estimate counted
+  nothing then). Who: every training with workers. Old behaviour: set
+  `train_data_loader.prefetch_factor` to the batch size and `num_workers` to a number.
+- **Legacy hard keypoint mining** (`per_sample: false`) no longer turns into plain
+  MSE when one channel's loss is 0: the easiest-keypoint reference ignores zero-loss
+  channels. Results are unchanged when every channel's loss is positive.
 - **Online hard keypoint mining ranks per sample.** With `online_mining: true`,
   `online_hard_keypoint_mining.per_sample` defaults to `true`: each sample's nodes are
   ranked separately. Old behaviour: `per_sample: false` (ranking over the batch).
@@ -115,6 +132,17 @@ otherwise.
   scored on frames neither model trained on. `use_negative_frames` now works for
   centroid models (0.3.5 dropped every negative frame from their split). Who: anyone
   comparing centroid validation numbers with 0.3.5. No switch.
+- **Node order is checked.** Every training and validation labels file must have
+  the same nodes in the same order as the first training file; a file with the same
+  nodes in another order now raises a `ValueError` (0.3.5 accepted it and trained
+  every channel on the wrong node, and did not check validation files). Reorder with
+  sleap-io's `Labels.reorder_nodes`. The warp data path (`crop_pipeline: warp`)
+  matches nodes by name and is not affected.
+- **Per-epoch warmup no longer starts at LR 0.** With `cosine_annealing_warmup` or
+  `linear_warmup_linear_decay` warming up per epoch, epoch 0 used to train at
+  `warmup_start_lr` (default 0); warmup epoch `e` now trains at `(e + 1) /
+  (warmup_epochs + 1)` of the way to the base LR. Who: runs with an epoch-based
+  warmup. No switch.
 - **Config checks at training start.** Explicit `pafs.edges` that differ from the
   skeleton's edges (in order or direction), a PAF head with no edges, and a track name
   used by a training or validation instance with no class in `classes` now raise

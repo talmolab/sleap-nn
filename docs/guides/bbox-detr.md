@@ -148,7 +148,7 @@ config generator's rule (`recommend_detr_resolution`):
 |---|---|---|---|---|
 | SLEAP mice HC (2 mice) | 1280 x 1024 | 97 / 191 px | 640 x 512 | 3.0 / 6.0 tokens |
 | MABe 2023 (2 mice) | 720 x 480 | 79 / 104 px | 448 x 320 | 3.1 / 4.0 tokens |
-| MoSAIC (6 mice, large arena) | 3934 x 3490 | 87 / 169 px | needs 2170; capped at 1280 x 1152 | 1.8 / 3.4 tokens |
+| A large arena (6 animals) | 3934 x 3490 | 87 / 169 px | needs 2170; capped at 1280 x 1152 | 1.8 / 3.4 tokens |
 
 Compute cost grows with the number of tokens (global attention: with the square
 of it, though flash attention keeps memory linear), so the rule does not go
@@ -184,7 +184,8 @@ pointing at an imported RF-DETR model they fine-tune it (next section).
 
 RF-DETR's Apache-2.0 checkpoints (`nano`, `small`, `medium`, `large`) convert to
 sleap-nn model directories. The other RF-DETR sizes (the XL / 2XL and "plus"
-models) are under a different license (PML 1.0) and are not supported.
+models) are under a different license (PML 1.0) and have no short name here; a Hub id
+or directory you pass carries its own license, which sleap-nn does not check.
 
 ```bash
 sleap-nn import-rfdetr medium -o models/rfdetr-medium      # downloads Roboflow/rf-detr-medium
@@ -294,6 +295,12 @@ caps the boxes per frame. Everything else is as in
 [Top-down with a box detector](bbox-topdown.md).
 
 ## Detector boxes for training crops
+
+!!! warning "Experimental"
+    Training on detector-box crops (`sleap-nn detect-boxes`, then
+    `crop_bbox_source: detector`) may change or be removed without a deprecation
+    period. In the developers' test its gain over ground-truth-box crops was within
+    noise.
 
 At inference the instance model sees crops from detector boxes, which are
 slightly off from the ground-truth boxes it trained on. `sleap-nn detect-boxes`

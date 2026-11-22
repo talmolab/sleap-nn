@@ -162,8 +162,10 @@ and cached: Hugging Face Hub models (DINOv2, DINOv3, ConvNeXtV2, ...) under
 through torchvision. Each set of weights comes under its publisher's own terms, which
 apply to your trained models too. In particular, the DINOv3 weights, which the config
 generator's default `bbox_detr` preset and the ViT sample configs use, are under Meta's
-DINOv3 License, not an open-source licence. RF-DETR checkpoints imported with
-`sleap-nn import-rfdetr` are Apache-2.0; RF-DETR's PML-licensed models are refused.
+DINOv3 License, not an open-source licence. The short names that
+`sleap-nn import-rfdetr` accepts (`nano`, `small`, `medium`, `large`) are RF-DETR's
+Apache-2.0 checkpoints; a Hub id or directory you pass instead carries its own
+licence, which sleap-nn does not check.
 The licence of each tested backbone is listed in
 [Pretrained Backbones](guides/pretrained-backbones.md#tested-model-families); read
 the model card before you redistribute a model trained from it.
