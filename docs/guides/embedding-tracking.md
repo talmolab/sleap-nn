@@ -245,8 +245,10 @@ How they differ from the classic appearance options:
   the other nearby tracks by the calibrated margin. Crops taken during a crossing
   would otherwise pull the track's appearance toward the wrong animal.
 - **`--appearance_weight` and `--features embeddings` belong to the classic
-  tracker.** A MOT tracker refuses both and suggests an appearance tracker
-  instead. Pick the carrier with `--features keypoints` or `masks`. Left unset,
+  tracker.** A MOT tracker refuses both: `--features embeddings` with a pointer
+  to the appearance trackers, `--appearance_weight` as a classic-only option
+  (the error lists the MOT tuning flags). For appearance, pick an appearance
+  tracker. Pick the carrier with `--features keypoints` or `masks`. Left unset,
   an appearance tracker follows the carrier that holds more vectors.
   `deepsort` / `strongsort` refuse vectors that are on the other carrier;
   `botsort` / `deepocsort` warn and track on geometry alone.
@@ -395,7 +397,8 @@ centered-instance model) yields single-node detections to embed + track.
 The output is always a `.slp` that references the source video: `--output_format
 analysis_h5` and `--embed true|auto` are rejected on this route rather than ignored.
 With `--video_index` on a multi-video `.slp`, the default output name includes the
-video's name (`<input>.<video>.tracked.slp`), as with `predict`, so per-video runs do
+video's name and drops the input's extension (`project.slp` →
+`project.<video>.tracked.slp`), as with `predict`, so per-video runs do
 not overwrite each other.
 
 ---

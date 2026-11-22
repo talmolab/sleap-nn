@@ -4,7 +4,9 @@ import pytest
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 from omegaconf import OmegaConf
+import os
 import subprocess
+import sys
 from tests.utils.cli import cpu_only_env, sleap_nn_cli
 from click.testing import CliRunner
 from sleap_nn.legacy_predict import run_inference
@@ -1349,3 +1351,547 @@ def test_eval_command(
         cmd, check=True, capture_output=True, text=True, env=cpu_only_env()
     )
     assert Path(f"{tmp_path}/metrics_test.npz").exists()
+
+
+class TestTrainDryRun:
+    """`sleap-nn train --dry-run`: setup + one train/val batch, nothing left on disk."""
+
+    def test_dry_run_trains_nothing_and_leaves_nothing_behind(
+        self, sample_config, tmp_path
+    ):
+        ckpt_dir = tmp_path / "runs"
+        sample_config.trainer_config.ckpt_dir = ckpt_dir.as_posix()
+        sample_config.trainer_config.run_name = "dry"
+        config_path = tmp_path / "config.yaml"
+        OmegaConf.save(sample_config, config_path.as_posix())
+
+        result = subprocess.run(
+            [*sleap_nn_cli(), "train", config_path.as_posix(), "--dry-run"],
+            capture_output=True,
+            text=True,
+            env=cpu_only_env(),
+        )
+        assert result.returncode == 0, result.stderr[-3000:]
+        output = _strip_ansi_codes(result.stdout + result.stderr)
+        assert "Dry run passed" in output
+        assert f"{ckpt_dir.as_posix()}/dry" in output
+        assert f"wrote configs and a checkpoint to {ckpt_dir.as_posix()}" in output
+        # The write check created `ckpt_dir`, so it removed it again: no run
+        # folder, checkpoint, config copy or log is left.
+        assert not ckpt_dir.exists()
+
+    def test_dry_run_surfaces_config_errors(self, sample_config, tmp_path):
+        sample_config.trainer_config.ckpt_dir = (tmp_path / "runs").as_posix()
+        sample_config.model_config.head_configs.centered_instance.confmaps.anchor_part = (
+            "not_a_node"
+        )
+        config_path = tmp_path / "config.yaml"
+        OmegaConf.save(sample_config, config_path.as_posix())
+
+        result = subprocess.run(
+            [*sleap_nn_cli(), "train", config_path.as_posix(), "--dry-run"],
+            capture_output=True,
+            text=True,
+            env=cpu_only_env(),
+        )
+        assert result.returncode != 0
+        assert "not_a_node" in _strip_ansi_codes(result.stdout + result.stderr)
+        assert not (tmp_path / "runs").exists()
+
+    def test_dry_run_forces_one_device(self, sample_config):
+        from sleap_nn.cli import _adjust_train_config
+
+        sample_config.trainer_config.trainer_devices = 4
+        sample_config.trainer_config.trainer_device_indices = [0, 1, 2, 3]
+        cfg = _adjust_train_config(sample_config, [], None, dry_run=True)
+        assert cfg.trainer_config.trainer_devices == 1
+        assert cfg.trainer_config.trainer_device_indices is None
+
+    @staticmethod
+    def _two_frame_labels(minimal_instance):
+        """`minimal_instance` with its frame twice, so a one-frame batch is a cut."""
+        labels = sio.load_slp(minimal_instance)
+        lf = labels[0]
+        copy = sio.LabeledFrame(
+            video=lf.video,
+            frame_idx=lf.frame_idx,
+            instances=[
+                sio.Instance.from_numpy(inst.numpy(), skeleton=inst.skeleton)
+                for inst in lf.instances
+            ],
+        )
+        return sio.Labels(
+            videos=labels.videos, skeletons=labels.skeletons, labeled_frames=[lf, copy]
+        )
+
+    def test_dry_run_uses_the_configs_pipeline_on_one_batch(
+        self, sample_config, tmp_path, minimal_instance, monkeypatch
+    ):
+        """The batches come from the configured pipeline, on one batch's frames;
+        the counts in the summary come from all of them."""
+        import sleap_nn.training.model_trainer as model_trainer
+        from sleap_nn.train import run_training
+
+        built = []
+        real = model_trainer.get_train_val_datasets
+
+        def spy(train_labels, val_labels, config, rank=None, **kwargs):
+            built.append(
+                (
+                    config.data_config.data_pipeline_fw,
+                    sum(len(x) for x in train_labels),
+                )
+            )
+            return real(train_labels, val_labels, config, rank=rank, **kwargs)
+
+        monkeypatch.setattr(model_trainer, "get_train_val_datasets", spy)
+        summaries = []
+        monkeypatch.setattr(
+            model_trainer.ModelTrainer,
+            "_log_dry_run_summary",
+            lambda self, train, val, steps: summaries.append(len(train)),
+        )
+        sample_config.trainer_config.ckpt_dir = (tmp_path / "runs").as_posix()
+        sample_config.trainer_config.run_name = "dry"
+        sample_config.trainer_config.train_data_loader.batch_size = 1
+        sample_config.data_config.data_pipeline_fw = "torch_dataset_cache_img_disk"
+        sample_config.data_config.cache_img_path = (tmp_path / "cache").as_posix()
+        labels = self._two_frame_labels(minimal_instance)
+
+        run_training(
+            sample_config, train_labels=[labels], val_labels=[labels], dry_run=True
+        )
+
+        # Counted on all frames, uncached; the batch from one frame, as configured.
+        assert built == [
+            ("torch_dataset", 2),
+            ("torch_dataset_cache_img_disk", 1),
+        ]
+        # The summary's samples are the full data's (2 frames x 2 instances).
+        assert summaries == [4]
+        # The cache went to a scratch folder in `cache_img_path`, and nothing is
+        # left of it or of the run folder.
+        assert not (tmp_path / "cache").exists()
+        assert not (tmp_path / "runs").exists()
+
+    def test_dry_run_with_the_default_disk_cache_leaves_nothing_behind(
+        self, sample_config, tmp_path
+    ):
+        """Without `cache_img_path`, setup points the disk cache at the run folder;
+        the dry run must neither create that folder nor leave `ckpt_dir` behind."""
+        from sleap_nn.train import run_training
+
+        ckpt_dir = tmp_path / "runs"
+        sample_config.trainer_config.ckpt_dir = ckpt_dir.as_posix()
+        sample_config.trainer_config.run_name = "dry"
+        sample_config.data_config.data_pipeline_fw = "torch_dataset_cache_img_disk"
+        sample_config.data_config.cache_img_path = None
+
+        run_training(sample_config, dry_run=True)
+
+        assert not ckpt_dir.exists()
+
+    def test_dry_run_writes_configs_and_a_checkpoint_where_the_run_will(
+        self, sample_config, tmp_path, monkeypatch
+    ):
+        import sleap_nn.training.model_trainer as model_trainer
+        from sleap_nn.train import run_training
+
+        trainers = []
+        remove = model_trainer.ModelTrainer._remove_dry_run_dirs
+        # Look at the scratch folder before it's removed.
+        monkeypatch.setattr(
+            model_trainer.ModelTrainer,
+            "_remove_dry_run_dirs",
+            lambda self: trainers.append(self),
+        )
+        ckpt_dir = tmp_path / "runs" / "nested"
+        sample_config.trainer_config.ckpt_dir = ckpt_dir.as_posix()
+        sample_config.trainer_config.run_name = "dry"
+
+        run_training(sample_config, dry_run=True)
+
+        (trainer,) = trainers
+        (scratch,) = [path for path, _, _ in trainer._dry_run_dirs]
+        assert scratch.parent == ckpt_dir and scratch.name.startswith(".dryrun-dry-")
+        assert {p.name for p in scratch.iterdir()} >= {
+            "initial_config.yaml",
+            "training_config.yaml",
+            "best.ckpt",
+        }
+        remove(trainer)
+        # Both folders the dry run created are gone; `tmp_path` is untouched.
+        assert not (tmp_path / "runs").exists()
+        assert tmp_path.exists()
+
+    @pytest.mark.skipif(
+        sys.platform == "win32" or (hasattr(os, "geteuid") and os.geteuid() == 0),
+        reason="needs POSIX permissions, as a non-root user",
+    )
+    def test_dry_run_fails_when_the_run_folder_is_not_writable(
+        self, sample_config, tmp_path
+    ):
+        from sleap_nn.train import run_training
+
+        locked = tmp_path / "locked"
+        locked.mkdir()
+        locked.chmod(0o500)
+        try:
+            sample_config.trainer_config.ckpt_dir = (locked / "runs").as_posix()
+            with pytest.raises(OSError, match="Cannot create a new folder"):
+                run_training(sample_config, dry_run=True)
+        finally:
+            locked.chmod(0o700)
+
+
+class TestTrainLabelsOption:
+    """`sleap-nn train --labels` / `--val-labels`."""
+
+    def test_labels_fill_a_config_without_them(
+        self, sample_config, tmp_path, minimal_instance
+    ):
+        sample_config.data_config.train_labels_path = None
+        sample_config.data_config.val_labels_path = None
+        sample_config.trainer_config.ckpt_dir = (tmp_path / "runs").as_posix()
+        config_path = tmp_path / "config.yaml"
+        OmegaConf.save(sample_config, config_path.as_posix())
+
+        result = subprocess.run(
+            [
+                *sleap_nn_cli(),
+                "train",
+                config_path.as_posix(),
+                "-l",
+                f"{minimal_instance}",
+                "--val-labels",
+                f"{minimal_instance}",
+                "--dry-run",
+            ],
+            capture_output=True,
+            text=True,
+            env=cpu_only_env(),
+        )
+        assert result.returncode == 0, result.stderr[-3000:]
+        output = _strip_ansi_codes(result.stdout + result.stderr)
+        assert "Dry run passed" in output
+        assert "Labeled frames:      1 train, 1 val" in output
+
+    def test_paths_are_made_absolute(self, tmp_path, monkeypatch):
+        from sleap_nn.cli import _resolve_labels_option
+
+        (tmp_path / "labels.slp").touch()
+        monkeypatch.chdir(tmp_path)
+        assert _resolve_labels_option(
+            ("labels.slp",), "--labels", "data_config.train_labels_path", []
+        ) == [(tmp_path / "labels.slp").resolve().as_posix()]
+        assert _resolve_labels_option((), "--labels", "key", []) == []
+
+    def test_replaces_config_paths(self, sample_config):
+        from sleap_nn.cli import _adjust_train_config
+
+        cfg = _adjust_train_config(
+            sample_config, [], None, False, ["/a/train.slp"], ["/a/val.slp"]
+        )
+        assert list(cfg.data_config.train_labels_path) == ["/a/train.slp"]
+        assert list(cfg.data_config.val_labels_path) == ["/a/val.slp"]
+
+    @pytest.mark.parametrize(
+        "overrides,match",
+        [
+            ([], "--labels file not found"),
+            (["data_config.train_labels_path=[x.slp]"], "not both"),
+        ],
+        ids=["missing", "with-override"],
+    )
+    def test_errors(self, tmp_path, overrides, match):
+        import click
+        from sleap_nn.cli import _resolve_labels_option
+
+        path = tmp_path / "labels.slp"
+        if overrides:
+            path.touch()
+        with pytest.raises(click.UsageError, match=match):
+            _resolve_labels_option(
+                (path.as_posix(),),
+                "--labels",
+                "data_config.train_labels_path",
+                overrides,
+            )
+
+
+class TestTrainResume:
+    """`sleap-nn train --resume <run_dir | ckpt>`."""
+
+    @staticmethod
+    def _train(cmd_args):
+        result = subprocess.run(
+            [*sleap_nn_cli(), "train", *cmd_args],
+            capture_output=True,
+            text=True,
+            env=cpu_only_env(),
+        )
+        assert result.returncode == 0, result.stderr[-3000:]
+        return result
+
+    def test_resume_writes_to_a_new_folder(self, sample_config, tmp_path):
+        ckpt_dir = tmp_path / "runs"
+        sample_config.trainer_config.ckpt_dir = ckpt_dir.as_posix()
+        sample_config.trainer_config.run_name = "orig"
+        config_path = tmp_path / "config.yaml"
+        OmegaConf.save(sample_config, config_path.as_posix())
+        self._train([config_path.as_posix()])
+
+        run_dir = ckpt_dir / "orig"
+        best = run_dir / "best.ckpt"
+        assert best.is_file()
+        original_files = sorted(p.name for p in run_dir.iterdir())
+        original_best = best.read_bytes()
+
+        self._train(["--resume", run_dir.as_posix(), "trainer_config.max_epochs=2"])
+
+        resumed_dir = ckpt_dir / "orig-1"
+        assert (resumed_dir / "best.ckpt").is_file()
+        resumed_cfg = OmegaConf.load(resumed_dir / "training_config.yaml")
+        # A run folder resumes from its most recent epoch when it has one.
+        expected = run_dir / "last.ckpt" if (run_dir / "last.ckpt").is_file() else best
+        assert resumed_cfg.trainer_config.resume_ckpt_path == expected.as_posix()
+        assert resumed_cfg.trainer_config.run_name == "orig-1"
+        assert resumed_cfg.trainer_config.max_epochs == 2
+        # The original run is untouched.
+        assert sorted(p.name for p in run_dir.iterdir()) == original_files
+        assert best.read_bytes() == original_best
+        # The resumed run continued from epoch 1 rather than starting over.
+        ckpt = torch.load(resumed_dir / "best.ckpt", weights_only=False)
+        assert ckpt["epoch"] == 1
+
+        # A dry run of a resume checks it (checkpoint loading included) but
+        # creates no folder.
+        result = self._train(
+            ["--resume", run_dir.as_posix(), "trainer_config.max_epochs=2", "--dry-run"]
+        )
+        output = _strip_ansi_codes(result.stdout + result.stderr)
+        assert "Dry run passed" in output and "Resumes from" in output
+        assert sorted(p.name for p in ckpt_dir.iterdir()) == ["orig", "orig-1"]
+
+        # Resuming the original again picks the next free name.
+        self._train(["--resume", best.as_posix(), "trainer_config.max_epochs=2"])
+        assert (ckpt_dir / "orig-2" / "best.ckpt").is_file()
+
+        # A checkpoint that already reached max_epochs has nothing left to train.
+        result = subprocess.run(
+            [*sleap_nn_cli(), "train", "--resume", best.as_posix()],
+            capture_output=True,
+            text=True,
+            env=cpu_only_env(),
+        )
+        assert result.returncode != 0
+        assert "nothing left to train" in _norm_cli_output(
+            _strip_ansi_codes(result.stdout + result.stderr)
+        )
+        assert not (ckpt_dir / "orig-3").exists()
+
+    def test_dry_run_of_a_late_checkpoint_runs_one_batch(self, sample_config, tmp_path):
+        from sleap_nn.training.model_trainer import ModelTrainer
+
+        ckpt_dir = tmp_path / "runs"
+        sample_config.trainer_config.ckpt_dir = ckpt_dir.as_posix()
+        sample_config.trainer_config.run_name = "orig"
+        config_path = tmp_path / "config.yaml"
+        OmegaConf.save(sample_config, config_path.as_posix())
+        self._train([config_path.as_posix()])
+        run_dir = ckpt_dir / "orig"
+
+        # Make the checkpoint look like one saved late in a long run (Lightning
+        # restores the epoch from the fit loop's progress). Restoring its trainer
+        # state under `fast_dev_run` used to fail (Lightning refuses
+        # current_epoch > max_epochs=1) or, from an early epoch, run no batch.
+        ckpt = torch.load(run_dir / "best.ckpt", weights_only=False)
+        ckpt["epoch"] = 5
+        for counts in ckpt["loops"]["fit_loop"]["epoch_progress"].values():
+            counts.update({k: 5 for k in counts})
+        late = run_dir / "late.ckpt"
+        torch.save(ckpt, late)
+
+        def dry_run(ckpt_path):
+            cfg = OmegaConf.load(run_dir / "training_config.yaml")
+            cfg.trainer_config.resume_ckpt_path = ckpt_path.as_posix()
+            cfg.trainer_config.max_epochs = 10
+            cfg.trainer_config.run_name = "dry"
+            cfg.trainer_config.trainer_accelerator = "cpu"
+            trainer = ModelTrainer.get_model_trainer_from_config(cfg)
+            trainer.train(dry_run=True)
+            return trainer
+
+        # Exactly one fresh step ran, from the checkpoint's weights.
+        assert dry_run(late).trainer.global_step == 1
+        assert not (ckpt_dir / "dry").exists()
+
+        # Weights that don't fit the model fail the dry run.
+        name = next(k for k, v in ckpt["state_dict"].items() if v.ndim == 4)
+        ckpt["state_dict"][name] = ckpt["state_dict"][name][:1]
+        bad = run_dir / "bad.ckpt"
+        torch.save(ckpt, bad)
+        with pytest.raises(RuntimeError, match="size mismatch"):
+            dry_run(bad)
+
+
+class TestResolveResumeTarget:
+    """Argument handling for `--resume`, without training."""
+
+    @staticmethod
+    def _run_dir(tmp_path, ckpts=("best.ckpt",), config=True):
+        run_dir = tmp_path / "run"
+        run_dir.mkdir()
+        for name in ckpts:
+            torch.save({"epoch": 0}, run_dir / name)
+        if config:
+            (run_dir / "training_config.yaml").write_text("{}")
+        return run_dir
+
+    def test_run_dir_prefers_last_ckpt(self, tmp_path):
+        from sleap_nn.cli import _resolve_resume_target
+
+        run_dir = self._run_dir(tmp_path, ckpts=("best.ckpt", "last.ckpt"))
+        assert _resolve_resume_target(run_dir.as_posix()) == (
+            run_dir.resolve(),
+            (run_dir / "last.ckpt").resolve(),
+        )
+
+    def test_run_dir_falls_back_to_best_ckpt(self, tmp_path):
+        from sleap_nn.cli import _resolve_resume_target
+
+        run_dir = self._run_dir(tmp_path)
+        _, ckpt = _resolve_resume_target(run_dir.as_posix())
+        assert ckpt.name == "best.ckpt"
+
+    def test_ckpt_file(self, tmp_path):
+        from sleap_nn.cli import _resolve_resume_target
+
+        run_dir = self._run_dir(tmp_path, ckpts=("best.ckpt", "epoch3.ckpt"))
+        _, ckpt = _resolve_resume_target((run_dir / "epoch3.ckpt").as_posix())
+        assert ckpt.name == "epoch3.ckpt"
+
+    @pytest.mark.parametrize(
+        "kwargs,target,match",
+        [
+            ({}, "missing", "path not found"),
+            ({"ckpts": ()}, "run", "No last.ckpt or best.ckpt"),
+            ({"config": False}, "run", "No training_config.yaml"),
+            ({}, "run/training_config.yaml", "expects a run folder or a .ckpt"),
+        ],
+        ids=["missing", "no-ckpt", "no-config", "not-a-ckpt"],
+    )
+    def test_errors(self, tmp_path, kwargs, target, match):
+        import click
+        from sleap_nn.cli import _resolve_resume_target
+
+        self._run_dir(tmp_path, **kwargs)
+        with pytest.raises(click.UsageError, match=match):
+            _resolve_resume_target((tmp_path / target).as_posix())
+
+    def test_resume_with_a_config_is_rejected(self, tmp_path):
+        run_dir = self._run_dir(tmp_path)
+        result = CliRunner().invoke(
+            cli, ["train", "config.yaml", "--resume", run_dir.as_posix()]
+        )
+        assert result.exit_code != 0
+        assert "don't pass a config too" in _norm_cli_output(result.output)
+
+    def test_explicit_run_name_override_wins(self, tmp_path, sample_config):
+        from sleap_nn.cli import _adjust_train_config
+
+        run_dir = self._run_dir(tmp_path)
+        target = (run_dir, run_dir / "best.ckpt")
+        sample_config.trainer_config.max_epochs = 5
+        cfg = _adjust_train_config(
+            sample_config.copy(), ["trainer_config.run_name=mine"], target, False
+        )
+        assert cfg.trainer_config.ckpt_dir == tmp_path.as_posix()
+        assert cfg.trainer_config.resume_ckpt_path == (run_dir / "best.ckpt").as_posix()
+        # `sample_config` already says run_name=test_ckpt; an override would have
+        # set it, so it's left alone.
+        assert cfg.trainer_config.run_name == sample_config.trainer_config.run_name
+
+        cfg = _adjust_train_config(sample_config.copy(), [], target, False)
+        assert cfg.trainer_config.run_name == "run-1"
+
+    def test_checkpoint_at_max_epochs_is_refused(self, tmp_path):
+        import click
+        from sleap_nn.cli import _check_epochs_left
+
+        ckpt = tmp_path / "last.ckpt"
+        torch.save({"epoch": 1}, ckpt)  # saved after the 2nd epoch
+        _check_epochs_left(ckpt, 3)
+        with pytest.raises(click.UsageError, match="nothing left to train"):
+            _check_epochs_left(ckpt, 2)
+
+    @pytest.mark.parametrize("original_name,expected", [(None, None), ("mine", "mine")])
+    def test_wandb_name_follows_the_new_run_unless_set(
+        self, tmp_path, original_name, expected
+    ):
+        from sleap_nn.cli import _adjust_train_config
+
+        run_dir = self._run_dir(tmp_path)
+        OmegaConf.save(
+            {"trainer_config": {"wandb": {"name": original_name}}},
+            run_dir / "initial_config.yaml",
+        )
+        # training_config.yaml carries the name the original run resolved to.
+        cfg = OmegaConf.create(
+            {
+                "trainer_config": {
+                    "ckpt_dir": None,
+                    "run_name": "run",
+                    "resume_ckpt_path": None,
+                    "max_epochs": 5,
+                    "wandb": {"name": original_name or "run"},
+                }
+            }
+        )
+        cfg = _adjust_train_config(cfg, [], (run_dir, run_dir / "best.ckpt"), False)
+        assert cfg.trainer_config.wandb.name == expected
+
+
+class TestTrainCommandInProcess:
+    """The `train` command's option handling, in-process with `run_training`
+    mocked (the end-to-end runs above use a subprocess)."""
+
+    @staticmethod
+    def _invoke(args):
+        with patch("sleap_nn.train.run_training") as run_training:
+            result = CliRunner().invoke(cli, ["train", *args])
+        assert result.exit_code == 0, result.output
+        return run_training.call_args.kwargs
+
+    def test_labels_and_dry_run(self, sample_config, tmp_path, minimal_instance):
+        sample_config.data_config.train_labels_path = None
+        config_path = tmp_path / "config.yaml"
+        OmegaConf.save(sample_config, config_path.as_posix())
+
+        kwargs = self._invoke(
+            [config_path.as_posix(), "-l", f"{minimal_instance}", "--dry-run"]
+        )
+        assert kwargs["dry_run"] is True
+        cfg = kwargs["config"]
+        assert list(cfg.data_config.train_labels_path) == [
+            Path(minimal_instance).resolve().as_posix()
+        ]
+        # Without --val-labels, the config's validation labels are kept.
+        assert list(cfg.data_config.val_labels_path) == [f"{minimal_instance}"]
+
+    def test_resume(self, sample_config, tmp_path):
+        run_dir = tmp_path / "orig"
+        run_dir.mkdir()
+        OmegaConf.save(sample_config, (run_dir / "training_config.yaml").as_posix())
+        torch.save({"epoch": 0}, run_dir / "last.ckpt")
+
+        kwargs = self._invoke(
+            ["--resume", run_dir.as_posix(), "trainer_config.max_epochs=3"]
+        )
+        assert kwargs["dry_run"] is False
+        cfg = kwargs["config"]
+        assert cfg.trainer_config.resume_ckpt_path == (
+            (run_dir / "last.ckpt").resolve().as_posix()
+        )
+        assert cfg.trainer_config.run_name == "orig-1"
+        assert cfg.trainer_config.max_epochs == 3

@@ -239,6 +239,14 @@ class ModelTrainer:
 
     trainer: Optional[L.Trainer] = None
 
+    # Dry-run state (see `train(dry_run=True)`): the scratch folders to remove,
+    # as `(path, base, outermost folder created)`, the full data's labeled-frame
+    # counts (the labels are cut to one batch), and whether the real in-memory
+    # image cache would fit (`None` unless the pipeline caches in memory).
+    _dry_run_dirs: list = attrs.field(factory=list, init=False)
+    _dry_run_frame_counts: tuple = attrs.field(default=(0, 0), init=False)
+    _dry_run_cache_fits: Optional[bool] = attrs.field(default=None, init=False)
+
     @classmethod
     def get_model_trainer_from_config(
         cls,
@@ -513,38 +521,87 @@ class ModelTrainer:
     def _split_centroid_labels(
         self, label: sio.Labels, val_fraction: float, seed: Optional[int]
     ):
-        """Train/val split for the centroid model that keeps centroid-only frames.
+        """Train/val split for the centroid model: the other models' draw, filtered.
 
-        `sio.Labels.make_training_splits` returns only frames with user
-        instances, so it would drop pure-centroid frames. This reimplements a
-        deterministic fractional split over frames with a centroid training
-        target (user instances OR user centroids).
+        The frames are drawn by `sio.Labels.make_training_splits`, the split every
+        other pose model type uses, so a centroid model and a centered-instance
+        model trained on the same labels, `validation_fraction` and seed hold out
+        the same frames and a top-down pipeline can be scored end to end on frames
+        neither model trained on (#833). A separate draw, even with the same seed,
+        overlaps the other models' validation set only by chance.
+
+        - It keeps centroid-only frames (user centroids, no pose instance): it
+          removes predictions (predicted centroids included), then only frames
+          left with no annotation at all.
+        - Training frames are the other models' exactly. Validation is the whole
+          remainder (no ``n_val``): the other models' validation frames plus the at
+          most one frame their rounding leaves in neither split, which none of
+          them trains on either. So no trainable frame is lost and every
+          validation frame is held out from both models.
+        - Each side is then filtered to the frames the centroid model can train on
+          (`_is_training_frame`) plus negative frames, which it reads with
+          ``use_negative_frames`` and skips otherwise; this drops e.g. box-only
+          frames and moves no frame to the other side. Only when one side is left
+          without a trainable frame (tiny projects) is one lent across from the
+          other, with a warning.
         """
-        frames = [lf for lf in label if self._is_training_frame(lf)]
-        for lf in frames:
-            lf.instances = lf.user_instances
-
-        def mk(selected):
-            return sio.Labels(
-                labeled_frames=selected,
-                videos=label.videos,
-                skeletons=label.skeletons,
-                tracks=label.tracks,
-                suggestions=label.suggestions,
-                provenance=label.provenance,
+        if not any(self._is_training_frame(lf) for lf in label):
+            # `make_training_splits` divides by zero when nothing survives its
+            # cleanup; return empty splits so `_validate_nonempty_labels` raises
+            # its clear error instead (or another labels file supplies frames).
+            empty = sio.Labels(videos=label.videos, skeletons=label.skeletons)
+            return empty, deepcopy(empty)
+        splits = label.make_training_splits(n_train=1 - val_fraction, seed=seed)
+        frames = {
+            name: [
+                lf
+                for lf in splits[name]
+                if self._is_training_frame(lf) or lf.is_negative
+            ]
+            for name in ("train", "val")
+        }
+        empty_side = [
+            name
+            for name, lfs in frames.items()
+            if not any(self._is_training_frame(lf) for lf in lfs)
+        ]
+        if empty_side:
+            # The draw put no frame the centroid model can train on on this side.
+            # Lend it one from the other side (shared when that is the only one,
+            # as `Labels.split` does for a single frame) so training still runs.
+            (short,) = empty_side
+            donor = "val" if short == "train" else "train"
+            donor_lfs = [lf for lf in frames[donor] if self._is_training_frame(lf)]
+            lent = donor_lfs[-1]
+            if len(donor_lfs) > 1:
+                frames[donor] = [lf for lf in frames[donor] if lf is not lent]
+            # Each split holds its own copies; point the lent copy at this side's.
+            lent = deepcopy(lent)
+            lent.video = next(
+                (v for v in splits[short].videos if v.matches_path(lent.video)),
+                lent.video,
+            )
+            frames[short].append(lent)
+            side = "training" if short == "train" else "validation"
+            logger.warning(
+                f"Centroid train/val split: no {side} frame drawn has a centroid "
+                "target (e.g. negative or box-only frames), so one frame was moved "
+                f"to {side} from the other side. This split no longer matches the "
+                "other model types' split exactly."
             )
 
-        n = len(frames)
-        if n <= 1:
-            # Too few to hold out a val frame; use the same frame for both so
-            # training still runs (mirrors small-dataset behavior elsewhere).
-            return mk(list(frames)), mk(list(frames))
-        rng = np.random.default_rng(seed)
-        order = rng.permutation(n)
-        n_val = max(1, int(round(n * val_fraction)))
-        val_sel = [frames[i] for i in order[:n_val]]
-        train_sel = [frames[i] for i in order[n_val:]]
-        return mk(train_sel), mk(val_sel)
+        def mk(name):
+            split = splits[name]
+            return sio.Labels(
+                labeled_frames=frames[name],
+                videos=split.videos,
+                skeletons=split.skeletons,
+                tracks=split.tracks,
+                suggestions=split.suggestions,
+                provenance=split.provenance,
+            )
+
+        return mk("train"), mk("val")
 
     def _uses_warp_pipeline(self) -> bool:
         """Whether training uses ``preprocessing.crop_pipeline="warp"``."""
@@ -726,8 +783,8 @@ class ModelTrainer:
                     )
             for label in labels:
                 if self.model_type == "centroid":
-                    # Centroid-aware split keeps pure-centroid frames that
-                    # make_training_splits would drop (no user instances).
+                    # The same frame draw as the other models, filtered to frames
+                    # with a centroid target (pure-centroid ones too) + negatives.
                     train_split, val_split = self._split_centroid_labels(
                         label, val_fraction, seed
                     )
@@ -1862,6 +1919,9 @@ class ModelTrainer:
                     self.config.model_config.head_configs[self.model_type][key][
                         "edges"
                     ] = edges
+                else:
+                    self._validate_explicit_edges(key, head_config[key]["edges"])
+                self._validate_nonempty_edges(key)
 
             if "classes" in head_config[key].keys():
                 if head_config[key]["classes"] is None:
@@ -1870,7 +1930,10 @@ class ModelTrainer:
                         tracks.extend(
                             [x.name for x in train_label.tracks if x is not None]
                         )
-                    classes = list(set(tracks))
+                    # Sorted, not `list(set(...))`: set order varies between
+                    # processes (string hash randomization), so the class ->
+                    # channel assignment would differ run to run.
+                    classes = sorted(set(tracks))
                     if not len(classes):
                         message = (
                             f"No tracks found. ID models need tracks to be defined."
@@ -1880,6 +1943,7 @@ class ModelTrainer:
                     self.config.model_config.head_configs[self.model_type][key][
                         "classes"
                     ] = classes
+                self._validate_classes(key)
 
             # NOTE: no per-class identity UUID is minted. The simplified sleap-io
             # `Identity` (name + metadata, sleap-io #535) matches by NAME across files
@@ -1890,6 +1954,127 @@ class ModelTrainer:
 
         if self.model_type in BBOX_MODEL_TYPES:
             self._setup_bbox_head_config()
+
+    def _validate_explicit_edges(self, key: str, edges) -> None:
+        """Check an explicitly set PAF `edges` list against the skeleton's edges.
+
+        PAF targets are always built from the skeleton's own edges
+        (`BottomUpDataset` reads `skeletons[0].edge_inds`): one x/y channel pair
+        per edge, in skeleton order and direction. The head's channel count is
+        `2 * len(edges)`. So an explicit list of a different length crashed deep
+        in the loss with a tensor-size mismatch, and one of the same length but
+        with different, reordered or reversed edges trained without any error
+        against mislabeled channels. Same contract as `part_names`: it must match
+        the skeleton exactly.
+        """
+        field = f"model_config.head_configs.{self.model_type}.{key}.edges"
+        skeleton = self.skeletons[0] if self.skeletons else None
+        if skeleton is None:
+            message = (
+                f"{field} is set, but the labels carry no skeleton. PAF targets "
+                "are built from the skeleton's edges, so labels with a skeleton "
+                "are required."
+            )
+            logger.error(message)
+            raise ValueError(message)
+
+        try:
+            given = [tuple(str(node) for node in edge) for edge in edges]
+        except TypeError:
+            given = None
+        if given is None or any(len(edge) != 2 for edge in given):
+            message = (
+                f"{field} must be a list of [source, destination] node-name "
+                f"pairs. Got {edges!r}."
+            )
+            logger.error(message)
+            raise ValueError(message)
+
+        skeleton_edges = [(e.source.name, e.destination.name) for e in skeleton.edges]
+        if given != skeleton_edges:
+            message = (
+                f"{field} must exactly match the skeleton's edges (same order and "
+                f"source -> destination direction) -- subsets, reordered or "
+                f"reversed edges are not supported. Got {given!r}, skeleton has "
+                f"{skeleton_edges!r}. Set edges to null to use the skeleton's "
+                f"edges automatically."
+            )
+            logger.error(message)
+            raise ValueError(message)
+
+    def _validate_nonempty_edges(self, key: str) -> None:
+        """Fail fast when a PAF head would have no edges to predict (#567).
+
+        A single-node skeleton, or one with nodes but no edges, gives a PAF head
+        with zero output channels; training then failed later with a low-level
+        shape error in edge-map generation instead of saying why.
+        """
+        edges = self.config.model_config.head_configs[self.model_type][key]["edges"]
+        if edges is not None and len(edges) == 0:
+            message = (
+                f"model_config.head_configs.{self.model_type}.{key}.edges is empty: "
+                f"the {self.model_type} model groups nodes into instances with "
+                "part affinity fields, which need at least one skeleton edge. Add "
+                "edges to the skeleton, or use a model type that doesn't need them "
+                "(e.g. centroid + centered_instance)."
+            )
+            logger.error(message)
+            raise ValueError(message)
+
+    def _validate_classes(self, key: str) -> None:
+        """Check the resolved `classes` against the track names in the labels.
+
+        The ID datasets map each instance to its class with
+        `classes.index(instance.track.name)`, so a track name missing from
+        `classes` crashed on the first sample load with an unhelpful error (inside
+        a worker traceback when `num_workers > 0`). This covers explicit lists and
+        inferred ones alike: classes are inferred from the training labels only,
+        so a track that appears only in the validation labels is also missing.
+        Duplicates would give one name two channels. Classes no instance uses are
+        allowed (a head can be sized for more identities than are labeled yet),
+        but warned about.
+        """
+        field = f"model_config.head_configs.{self.model_type}.{key}.classes"
+        classes = list(
+            self.config.model_config.head_configs[self.model_type][key]["classes"]
+        )
+
+        duplicates = sorted({c for c in classes if classes.count(c) > 1})
+        if duplicates:
+            message = (
+                f"{field} lists {duplicates!r} more than once; each class needs "
+                f"its own output channel. Got {classes!r}."
+            )
+            logger.error(message)
+            raise ValueError(message)
+
+        used = set()
+        for labels in [*self.train_labels, *self.val_labels]:
+            for lf in labels:
+                for instance in lf.instances:
+                    if instance.track is not None:
+                        used.add(instance.track.name)
+
+        missing = sorted(used - set(classes))
+        if missing:
+            message = (
+                f"{field} has no class for the track name(s) {missing!r}, which "
+                f"instances in the training/validation labels use. Got "
+                f"{classes!r}. Every track name used in the labels needs a class "
+                f"(classes set to null are inferred from the training labels "
+                f"only, so a track used only in the validation labels is "
+                f"missing too)."
+            )
+            logger.error(message)
+            raise ValueError(message)
+
+        unused = sorted(set(classes) - used)
+        if unused and used:
+            logger.warning(
+                f"{field} includes {unused!r}, which no instance in the "
+                f"training/validation labels uses; those output channels will "
+                f"never see a positive target."
+            )
 
     def _setup_ckpt_path(self):
         """Setup checkpoint path."""
@@ -3123,7 +3308,17 @@ class ModelTrainer:
             controller_address = "tcp://127.0.0.1:" + str(
                 self.config.trainer_config.zmq.controller_port
             )
-            callbacks.append(TrainingControllerZMQ(address=controller_address))
+            # `controller_polling_timeout` is documented in microseconds, while
+            # pyzmq's `poll` takes milliseconds: convert, rounding down, so the
+            # default 10 us polls without waiting instead of waiting 10 ms per batch.
+            poll_timeout_ms = (
+                self.config.trainer_config.zmq.controller_polling_timeout // 1000
+            )
+            callbacks.append(
+                TrainingControllerZMQ(
+                    address=controller_address, poll_timeout=poll_timeout_ms
+                )
+            )
         if self.config.trainer_config.zmq.publish_port is not None:
             publish_address = "tcp://127.0.0.1:" + str(
                 self.config.trainer_config.zmq.publish_port
@@ -3484,9 +3679,169 @@ class ModelTrainer:
         setattr(dynamo_config, name, max(getattr(dynamo_config, name), len(sizes) + 8))
         self.lightning_model.model.compile(mode=mode, dynamic=False)
 
-    def train(self):
-        """Train the lightning model."""
-        logger.info(f"Setting up for training...")
+    def train(self, dry_run: bool = False):
+        """Train the lightning model.
+
+        Args:
+            dry_run: If True, check the run in seconds instead of training: every
+                setup step (labels, config resolution and validation, model,
+                dataloaders) with the config's own settings, including its data
+                pipeline and worker count, then a single training batch and a
+                single validation batch (Lightning's `fast_dev_run=1`) on one
+                batch's worth of frames (see `_setup_dry_run_datasets`). It also
+                checks the run can write where it will: the configs, any image
+                cache and a checkpoint go to a hidden `.dryrun-*` folder next to
+                the run folder, removed afterwards with any folder the dry run had
+                to create, so nothing is left behind. No logs or wandb run.
+        """
+        # Training's logs print on global rank 0 only, also under srun; a run on
+        # one device is its own main process (see `sleap_nn._use_training_rank`).
+        sleap_nn._use_training_rank(
+            OmegaConf.select(
+                self.config, "trainer_config.trainer_devices", default=None
+            )
+        )
+        if not dry_run:
+            return self._train(dry_run=False)
+        self._dry_run_dirs = []
+        try:
+            return self._train(dry_run=True)
+        finally:
+            self._remove_dry_run_dirs()
+
+    def _make_dry_run_dir(self, base: Path) -> Path:
+        """Create a dry run's scratch folder in `base`, as the real run would.
+
+        Creating it (and `base`, if missing) is the write check: a folder the run
+        couldn't write to fails here instead of hours into training. The folder
+        name can't collide with a run folder, and a dry run that was killed
+        before cleanup leaves only an obviously-safe-to-delete `.dryrun-*`.
+        """
+        base = Path(base)
+        # The outermost folder this creates, so cleanup removes no more than that.
+        created_root = None
+        for parent in [base, *base.parents]:
+            if parent.exists():
+                break
+            created_root = parent
+        run_name = self.config.trainer_config.run_name
+        path = base / f".dryrun-{run_name}-{os.getpid()}"
+        try:
+            path.mkdir(parents=True)
+        except OSError as e:
+            # One line, so the cause is the error's last line (what a GUI shows).
+            message = f"Cannot create a new folder in {base}: {e}"
+            logger.error(message)
+            raise OSError(message)
+        self._dry_run_dirs.append((path, base, created_root))
+        return path
+
+    def _remove_dry_run_dirs(self):
+        """Delete what a dry run wrote, and the folders it had to create.
+
+        Newest first: a later scratch folder can sit inside a folder an earlier
+        one created, which can only be removed once it's empty.
+        """
+        for path, base, created_root in reversed(self._dry_run_dirs):
+            shutil.rmtree(path, ignore_errors=True)
+            if created_root is None:
+                continue
+            folder = base
+            while True:
+                try:
+                    folder.rmdir()  # only if empty: never anything of the user's
+                except OSError:
+                    break
+                if folder == created_root:
+                    break
+                folder = folder.parent
+        self._dry_run_dirs = []
+
+    def _setup_dry_run_datasets(self):
+        """Datasets for a dry run: the config's pipeline on one batch of frames.
+
+        Returns `(train_dataset, val_dataset, full_train_dataset,
+        full_val_dataset)`. The full datasets are uncached, which only indexes
+        the samples and reads no image, and give the counts a real run would
+        have (samples, steps per epoch). Then the labels are cut, in memory, to
+        one batch's worth of labeled frames each (`Labels.extract(copy=False)`
+        shares the videos, embedded or not), and the datasets the batches come
+        from are built from those with the configured data pipeline and workers:
+        the real caching path and worker processes, without caching everything.
+        Embedding models keep their full labels, since their P x K sampler needs
+        several identities.
+        """
+        self._dry_run_cache_fits = None
+        counting_config = deepcopy(self.config)
+        counting_config.data_config.data_pipeline_fw = "torch_dataset"
+        full_train_dataset, full_val_dataset = get_train_val_datasets(
+            train_labels=self.train_labels,
+            val_labels=self.val_labels,
+            config=counting_config,
+            rank=self.trainer.global_rank,
+        )
+
+        if self.config.data_config.data_pipeline_fw == "torch_dataset_cache_img_memory":
+            # The subset always fits, so check the real cache here (and report it).
+            workers = max(
+                self.config.trainer_config.train_data_loader.num_workers,
+                self.config.trainer_config.val_data_loader.num_workers,
+            )
+            self._dry_run_cache_fits = check_cache_memory(
+                self.train_labels,
+                self.val_labels,
+                memory_buffer=MEMORY_BUFFER,
+                num_workers=workers,
+            )
+
+        self._dry_run_frame_counts = (
+            sum(len(x) for x in self.train_labels),
+            sum(len(x) for x in self.val_labels),
+        )
+        if self.model_type != "embedding":
+
+            def first_frames(labels_list, n):
+                subsets = []
+                for labels in labels_list:
+                    inds = [i for i, lf in enumerate(labels) if lf.has_user_instances]
+                    subsets.append(
+                        labels.extract(
+                            (inds or list(range(len(labels))))[:n], copy=False
+                        )
+                    )
+                return subsets
+
+            self.train_labels = first_frames(
+                self.train_labels,
+                self.config.trainer_config.train_data_loader.batch_size,
+            )
+            self.val_labels = first_frames(
+                self.val_labels, self.config.trainer_config.val_data_loader.batch_size
+            )
+
+        # A disk cache (configured, or the memory cache's fallback) goes to a
+        # scratch folder where the real one would be, removed afterwards.
+        # A cache in the run folder (no `cache_img_path`, or the disk pipeline's
+        # default, which setup sets to the run folder) goes in the run's scratch
+        # folder, the first one `_train` made: a scratch folder of its own would
+        # create a folder with the run's name. Elsewhere it gets its own.
+        cache_base = self.config.data_config.cache_img_path
+        run_dir = Path(self.config.trainer_config.ckpt_dir) / (
+            self.config.trainer_config.run_name
+        )
+        scratch = (
+            self._dry_run_dirs[0][0]
+            if cache_base is None or Path(cache_base) == run_dir
+            else self._make_dry_run_dir(cache_base)
+        )
+        self.config.data_config.cache_img_path = (scratch / "cache").as_posix()
+
+        train_dataset, val_dataset = self._setup_datasets()
+        return train_dataset, val_dataset, full_train_dataset, full_val_dataset
+
+    def _train(self, dry_run: bool):
+        """Train the lightning model (see `train`)."""
+        logger.info(f"Setting up for {'a dry run' if dry_run else 'training'}...")
         start_setup_time = time.time()
 
         # initialize the labels object and update config.
@@ -3500,21 +3855,30 @@ class ModelTrainer:
             # factory again (it had already lost `_set_seed` and the video check).
             self._initialize_from_config()
 
-        # create the ckpt dir.
-        self._setup_model_ckpt_dir()
+        if dry_run:
+            # The configs and checkpoint a real run writes go here instead.
+            dry_run_dir = self._make_dry_run_dir(self.config.trainer_config.ckpt_dir)
+        else:
+            # create the ckpt dir.
+            self._setup_model_ckpt_dir()
 
         # create the train and val datasets for visualization.
         viz_train_dataset = None
         viz_val_dataset = None
-        if self.config.trainer_config.visualize_preds_during_training:
+        if self.config.trainer_config.visualize_preds_during_training and not dry_run:
             logger.info(f"Setting up visualization train and val datasets...")
             viz_train_dataset, viz_val_dataset = self._setup_viz_datasets()
 
         # setup loggers and callbacks for Trainer.
         logger.info(f"Setting up Trainer...")
-        loggers, callbacks = self._setup_loggers_callbacks(
-            viz_train_dataset=viz_train_dataset, viz_val_dataset=viz_val_dataset
-        )
+        if dry_run:
+            # Every logger and callback writes into the run folder (or publishes
+            # over ZMQ), so a dry run uses none.
+            loggers, callbacks = False, []
+        else:
+            loggers, callbacks = self._setup_loggers_callbacks(
+                viz_train_dataset=viz_train_dataset, viz_val_dataset=viz_val_dataset
+            )
         # set up the strategy (for multi-gpu training)
         strategy = OmegaConf.select(
             self.config, "trainer_config.trainer_strategy", default="auto"
@@ -3582,7 +3946,7 @@ class ModelTrainer:
         self.trainer = L.Trainer(
             callbacks=callbacks,
             logger=loggers,
-            enable_checkpointing=self.config.trainer_config.save_ckpt,
+            enable_checkpointing=self.config.trainer_config.save_ckpt and not dry_run,
             devices=devices,
             max_epochs=self.config.trainer_config.max_epochs,
             accelerator=self.config.trainer_config.trainer_accelerator,
@@ -3591,6 +3955,8 @@ class ModelTrainer:
             profiler=profiler,
             use_distributed_sampler=use_distributed_sampler,
             **self._get_trainer_speed_kwargs(),
+            # One train batch + one val batch, then stop.
+            fast_dev_run=1 if dry_run else False,
         )
 
         # The process group normally starts inside `fit()`, so the barriers below
@@ -3599,8 +3965,15 @@ class ModelTrainer:
         _init_process_group_before_fit(self.trainer)
         self.trainer.strategy.barrier()
 
-        # setup datasets
-        train_dataset, val_dataset = self._setup_datasets()
+        # setup datasets. Steps per epoch come from the full datasets; on a dry run
+        # the batches come from a subset of them.
+        if dry_run:
+            train_dataset, val_dataset, full_train_dataset, full_val_dataset = (
+                self._setup_dry_run_datasets()
+            )
+        else:
+            train_dataset, val_dataset = self._setup_datasets()
+            full_train_dataset, full_val_dataset = train_dataset, val_dataset
 
         # Barrier after dataset creation to ensure all workers wait for disk caching
         # (rank 0 caches to disk, others must wait before reading cached files)
@@ -3627,14 +4000,14 @@ class ModelTrainer:
                 # `train_data_loader.batch_size`, so the step size comes from the
                 # dataset-aware helper the dataloader factory also uses.
                 samples_per_step = get_train_samples_per_step(
-                    train_dataset, self.config
+                    full_train_dataset, self.config
                 )
                 train_steps_per_epoch = get_steps_per_epoch(
-                    dataset=train_dataset, batch_size=samples_per_step
+                    dataset=full_train_dataset, batch_size=samples_per_step
                 )
                 logger.info(
                     f"train_steps_per_epoch not set; computed {train_steps_per_epoch} "
-                    f"from training dataset ({len(train_dataset)} samples, "
+                    f"from training dataset ({len(full_train_dataset)} samples, "
                     f"{samples_per_step} per step)"
                 )
         else:
@@ -3663,7 +4036,7 @@ class ModelTrainer:
 
         # VAL: always full-coverage (every grid tile visited once), NOT decoupled.
         val_steps_per_epoch = get_steps_per_epoch(
-            dataset=val_dataset,
+            dataset=full_val_dataset,
             batch_size=self.config.trainer_config.val_data_loader.batch_size,
         )
 
@@ -3704,7 +4077,17 @@ class ModelTrainer:
             trainer_devices=self.trainer.num_devices,
         )
 
-        if self.trainer.global_rank == 0:  # save config only in rank 0 process
+        if dry_run:
+            # The run's two config files, written where the real run writes them.
+            OmegaConf.save(
+                self._initial_config, (dry_run_dir / "initial_config.yaml").as_posix()
+            )
+            OmegaConf.save(
+                self.config, (dry_run_dir / "training_config.yaml").as_posix()
+            )
+
+        # save config only in rank 0 process
+        if self.trainer.global_rank == 0 and not dry_run:
             ckpt_path = (
                 Path(self.config.trainer_config.ckpt_dir)
                 / self.config.trainer_config.run_name
@@ -3769,6 +4152,18 @@ class ModelTrainer:
 
         self.trainer.strategy.barrier()
 
+        resume_ckpt_path = self.config.trainer_config.resume_ckpt_path
+        if dry_run and resume_ckpt_path is not None:
+            # `fast_dev_run` caps the run at one step and one epoch, so restoring the
+            # checkpoint's trainer state would leave no batch to run (and Lightning
+            # refuses a checkpoint past epoch 1 outright). Load its weights strictly
+            # instead: that checks the checkpoint fits this model, and the one
+            # training batch then runs from them.
+            logger.info(f"Dry run: loading weights from {resume_ckpt_path}")
+            ckpt = torch.load(resume_ckpt_path, map_location="cpu", weights_only=False)
+            self.lightning_model.load_state_dict(ckpt["state_dict"])
+            resume_ckpt_path = None
+
         # Flag to track if training was interrupted (not completed normally)
         training_interrupted = False
 
@@ -3786,7 +4181,7 @@ class ModelTrainer:
                 self.lightning_model,
                 train_dataloader,
                 val_dataloader,
-                ckpt_path=self.config.trainer_config.resume_ckpt_path,
+                ckpt_path=resume_ckpt_path,
             )
 
         except KeyboardInterrupt:
@@ -3814,6 +4209,7 @@ class ModelTrainer:
             if (
                 self.config.trainer_config.visualize_preds_during_training
                 and not self.config.trainer_config.keep_viz
+                and not dry_run
             ):
                 if self.trainer.global_rank == 0:
                     viz_dir = (
@@ -3826,7 +4222,9 @@ class ModelTrainer:
                         shutil.rmtree(viz_dir, ignore_errors=True)
 
             # Clean up entire run folder if training was interrupted (KeyboardInterrupt)
-            if training_interrupted and self.trainer.global_rank == 0:
+            # (Never on a dry run: it created no run folder, so one at this path
+            # belongs to someone else.)
+            if training_interrupted and self.trainer.global_rank == 0 and not dry_run:
                 run_dir = (
                     Path(self.config.trainer_config.ckpt_dir)
                     / self.config.trainer_config.run_name
@@ -3836,3 +4234,58 @@ class ModelTrainer:
                         f"Training canceled - cleaning up run folder at {run_dir}..."
                     )
                     shutil.rmtree(run_dir, ignore_errors=True)
+
+        if dry_run and not training_interrupted:
+            if self.config.trainer_config.save_ckpt:
+                # Checkpoint serialization and the write, where the run's go.
+                self.trainer.save_checkpoint((dry_run_dir / "best.ckpt").as_posix())
+            self._log_dry_run_summary(
+                full_train_dataset, full_val_dataset, val_steps_per_epoch
+            )
+
+    def _log_dry_run_summary(self, train_dataset, val_dataset, val_steps_per_epoch):
+        """Log what a real run with this config would do, after a passing dry run."""
+        cfg = self.config
+        run_dir = Path(cfg.trainer_config.ckpt_dir) / cfg.trainer_config.run_name
+        n_train, n_val = self._dry_run_frame_counts
+        workers = cfg.trainer_config.train_data_loader.num_workers
+        lines = [
+            "Dry run passed: setup, one training batch and one validation batch "
+            "all ran, with this config's settings on one batch of frames.",
+            f"  Model type:          {self.model_type}",
+            f"  Labeled frames:      {n_train} train, {n_val} val",
+            f"  Samples:             {len(train_dataset)} train, "
+            f"{len(val_dataset)} val",
+            f"  Steps per epoch:     {cfg.trainer_config.train_steps_per_epoch} "
+            f"train, {val_steps_per_epoch} val",
+            f"  Max epochs:          {cfg.trainer_config.max_epochs}",
+            f"  Model parameters:    {cfg.model_config.total_params:,}",
+            f"  Devices:             {self.trainer.num_devices} x "
+            f"{self.trainer.strategy.root_device}",
+            f"  Run folder:          {run_dir.as_posix() if cfg.trainer_config.save_ckpt else '(none: save_ckpt is false)'}",
+            f"  Data pipeline:       {cfg.data_config.data_pipeline_fw}, "
+            f"{workers} worker{'' if workers == 1 else 's'}",
+        ]
+        cache_fits = self._dry_run_cache_fits
+        if cache_fits is not None:
+            lines.append(
+                "  Image cache:         "
+                + (
+                    "fits in memory"
+                    if cache_fits
+                    else "does not fit in memory; a real run falls back to a "
+                    "slower pipeline"
+                )
+            )
+        written = (
+            "configs and a checkpoint" if cfg.trainer_config.save_ckpt else "configs"
+        )
+        lines.append(
+            f"  Write check:         wrote {written} to "
+            f"{Path(cfg.trainer_config.ckpt_dir).as_posix()}, then removed them"
+        )
+        if cfg.trainer_config.resume_ckpt_path is not None:
+            lines.append(
+                f"  Resumes from:        {cfg.trainer_config.resume_ckpt_path}"
+            )
+        logger.info("\n".join(lines))

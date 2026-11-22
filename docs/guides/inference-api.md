@@ -1,10 +1,15 @@
 # Inference API (Python)
 
 The `sleap_nn.inference` package is the programmatic entry point for running
-predictions. It exposes two public symbols:
+predictions. Its two main entry points are also available at the top level:
 
 ```python
 from sleap_nn.inference import Predictor, predict
+# or
+import sleap_nn
+sleap_nn.predict(...)        # same function
+sleap_nn.Predictor           # same class
+sleap_nn.load_models(paths)  # = Predictor.from_model_paths(paths)
 ```
 
 - [`predict(...)`](#one-liner-predict) — the "I just want predictions" function.
@@ -57,10 +62,12 @@ The most common:
 | `centroid_threshold` | Override centroid-stage threshold (top-down) | `None` |
 | `keypoint_threshold` | Override centered-instance threshold (top-down) | `None` |
 | `max_instances` | Cap instances per frame | `None` |
-| `centroid_only` | Force centroid-only output (see below) | `False` |
+| `centroid_only` | Centroid-only output from a centroid + centered-instance pair (see [Centroid-only inference](centroid-only-inference.md)) | `False` |
 | `filter_config` | A [`FilterConfig`](#post-processing-filterconfig) | `None` |
 | `tracker_config` | A [`TrackerConfig`](#tracking-trackerconfig) | `None` |
 | `output_path` | Save the result to this `.slp` | `None` |
+| `output_format` | With `output_path`: `"slp"`, `"analysis_h5"`, or a list of both | `"slp"` |
+| `embed` | With `output_path`: embed images (`"true"`, `"auto"`, `"false"`) | `"false"` |
 | `clean_empty_frames` | Drop frames with no instances | `False` |
 | `progress_callback` | `(processed, total)` callback per batch | `None` |
 
@@ -99,11 +106,13 @@ Selected keyword arguments (all keyword-only):
 | `flip_test` | Top-down `centered_instance` only: average confmaps with those of the mirrored crops | `False` |
 | `integral_patch_size` | Refinement patch size | `5` |
 | `max_instances` | Cap on instances per frame | `None` |
-| `return_confmaps` | Keep confidence maps on `Outputs` | `False` |
+| `return_confmaps` | Keep confidence maps on `Outputs` (single-instance / bottom-up; not top-down) | `False` |
 | `anchor_part` | Override centroid anchor node name | `None` |
 | `filter_config` | A `FilterConfig` | `None` |
 | `tracker_config` | A `TrackerConfig` | `None` |
 | `paf_workers` | CPU worker processes for bottom-up PAF grouping | `0` |
+| `upload_batches` | Copy each `uint8` batch to the model's GPU before preprocessing (CUDA) | `False` |
+| `memory_format` | Weight layout of every model: `"contiguous"` or `"channels_last"` (NVIDIA) | `"contiguous"` |
 | `centroid_only` | Force centroid-only output | `False` |
 
 The skeleton is resolved automatically from the training config, so
@@ -229,7 +238,7 @@ Key tensor fields (shape convention: `B`=batch, `I`=max instances,
 | `pred_centroids` | `(B, I, 2)` | Centroids (top-down / centroid-only) |
 | `pred_centroid_values` | `(B, I)` | Centroid confidence |
 | `instance_scores` | `(B, I)` | Per-instance score |
-| `pred_confmaps` | `(B, N, H, W)` | Confidence maps (opt-in; heavy) |
+| `pred_confmaps` | `(B, N, H, W)` | Confidence maps (opt-in with `return_confmaps=True`; heavy; not returned by top-down models) |
 | `frame_indices` / `video_indices` | `(B,)` | Source frame / video index |
 
 ### Methods
@@ -306,6 +315,7 @@ A default `FilterConfig()` is the no-op identity — every knob defaults to
 | `overlapping` | `False` | Run greedy overlap-NMS |
 | `overlapping_threshold` | `0.8` | Similarity above which the lower-scoring overlap is dropped |
 | `overlapping_method` | `"iou"` | `"iou"` (bbox) or `"oks"` (keypoints) |
+| `min_centroid_distance` | `0.0` | Centroid-only outputs: drop centroids within this many pixels of a higher-scoring one (runs last) |
 
 ### Applying filters manually
 
@@ -440,7 +450,7 @@ tracked.save("tracked_ocsort.slp")
 
 Each `record["videos"]` entry describes one tracked video: `"video"` is its index
 in `labels.videos` (a video with no frames has no entry) and `"video_filename"` its
-file name, next to the resolved `kalman`, `time_base`, `similarity`, `body_size`
+file name, next to the resolved `kalman`, `time_base`, `frame_step`, `similarity`, `body_size`
 (and `body_size_source`), `score_normalizer`, `calibration`, `appearance` and,
 when linking ran, `linking`. The record describes the latest tracking run;
 retracking replaces it.

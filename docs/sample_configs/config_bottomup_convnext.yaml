@@ -67,7 +67,7 @@ model_config:
       up_interpolate: True
       stem_patch_kernel: 4
       stem_patch_stride: 2
-      max_stride: 16
+      max_stride: 32  # always stem_patch_stride * 16 (set by the trainer)
       output_stride: 2
     swint: null
   head_configs:

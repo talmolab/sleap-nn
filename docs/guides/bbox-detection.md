@@ -64,7 +64,7 @@ pose project (boxes are derived from the poses):
 
 ```bash
 sleap-nn config labels.slp --auto --pipeline bbox_ssd -o detector.yaml   # or bbox_centernet
-sleap-nn config labels.slp   # interactive: pick "Bounding Boxes (CenterNet / SSD)"
+sleap-nn config labels.slp   # interactive: pick "Bounding Boxes (CenterNet)" or "Bounding Boxes (SSD)"
 ```
 
 It uses `preprocessing.scale: 0.5`, `output_stride` 4 (CenterNet) / 8 (SSD, with
@@ -123,7 +123,7 @@ Notes:
 
 ```bash
 sleap-nn train --config config_bbox_centernet_unet.yaml \
-  data_config.train_labels_path=[train.pkg.slp] data_config.val_labels_path=[val.pkg.slp]
+  --labels train.pkg.slp --val-labels val.pkg.slp
 ```
 
 Logged per epoch: `train|val/center_loss, size_loss, offset_loss` (CenterNet) or
@@ -148,8 +148,9 @@ From Python, `sleap_nn.train.train(..., head_configs="bbox_ssd")` builds the sam
 config; it takes `bbox_source=` / `bbox_padding=` and, like `sleap-nn train`, defaults
 `geometry_aug` to rotation, so pass e.g. `geometry_aug="scale"` for a detector.
 
-After training, every split (and `data_config.test_file_path`) is predicted and
-evaluated automatically; metrics are saved as `metrics.<split>.npz/.json` and
+After training, when checkpoints are saved (`trainer_config.save_ckpt: true`),
+every split (and `data_config.test_file_path`) is predicted and evaluated
+automatically; metrics are saved as `metrics.<split>.npz/.json` and
 logged to the wandb summary as `eval/<split>/bbox_*` (plus `predict_fps`). Val and
 test run first. For a large training set, skip the train split
 (`trainer_config.eval.post_train_splits: [val, test]`) or score a sample of it

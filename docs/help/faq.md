@@ -225,11 +225,17 @@ SLEAP-NN uses PyTorch, so it runs on any system where PyTorch is supported. This
     - Use WandB for detailed monitoring
 
 ??? question "Can I resume training?"
-    Yes:
+    Yes. Point `--resume` at the run folder (it picks `last.ckpt`, else `best.ckpt`,
+    and writes to a new `<run_name>-1` folder):
+    ```bash
+    sleap-nn train --resume models/my_run
+    ```
+    Or set the checkpoint in the config yourself:
     ```bash
     sleap-nn train --config config.yaml \
         trainer_config.resume_ckpt_path=/path/to/checkpoint.ckpt
     ```
+    See [Resume & Fine-Tune](../guides/resume-finetune.md).
     Make sure `trainer_config.seed` matches the original run (default: `42`) so the train/val split stays the same. A mismatched seed will produce a different split and may leak training data into validation.
 
 ??? question "How do I use multiple GPUs?"
@@ -251,8 +257,14 @@ SLEAP-NN uses PyTorch, so it runs on any system where PyTorch is supported. This
 
 ??? question "How do I run on specific frames?"
     ```bash
-    sleap-nn predict -i video.mp4 -m models/ --frames 0-100,500-600
+    # One range
+    sleap-nn predict -i video.mp4 -m models/ --frames 0-100
+
+    # Or a comma-separated list
+    sleap-nn predict -i video.mp4 -m models/ --frames 0,10,20,30
     ```
+
+    A range and a list cannot be combined in one `--frames` value.
 
 ??? question "How do I limit detected instances?"
     ```bash

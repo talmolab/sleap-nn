@@ -30,6 +30,34 @@ sleap-nn train --config-dir /path/to/configs --config-name my_config
 
 See the [CLI Reference](../reference/cli.md) for all available parameters.
 
+### Checking a Config First
+
+Add `--dry-run` to check a config before a long run:
+
+```bash
+sleap-nn train --config config.yaml --dry-run
+```
+
+It loads the labels, resolves and validates the config, builds the datasets
+and model, and runs one training batch and one validation batch on a single
+device. It uses the config's own settings, including its data pipeline and
+dataloader workers, but builds the datasets from just one batch's worth of
+frames, so even a cached pipeline takes seconds. Then it prints a summary
+(model type, frame and sample counts and steps per epoch for the full data,
+parameter count, run folder, data pipeline, whether the image cache fits in
+memory) and exits. Config and data errors show up in seconds instead of after
+training has started.
+
+It also checks that the run can write where it will: it writes the configs
+and a checkpoint (and any disk image cache) to a hidden `.dryrun-*` folder in
+`ckpt_dir` (and in `cache_img_path`, if set), then removes them, along with any
+of those folders it had to create. A dry run that is killed partway can leave
+a `.dryrun-*` folder behind, which is safe to delete.
+
+A dry run uses one device, so it doesn't check that multi-GPU setup works.
+
+To resume an interrupted run, see [Resume & Fine-Tune](resume-finetune.md).
+
 ### Using Python API
 
 ```python
@@ -44,6 +72,7 @@ run_training(config=config)
 
 ```python
 import sleap_io as sio
+from omegaconf import OmegaConf
 from sleap_nn.train import run_training
 
 config = OmegaConf.load("config.yaml")
@@ -71,8 +100,9 @@ sleap-nn train --config config.yaml trainer_config.optimizer.lr=0.0005
 # Change batch size
 sleap-nn train --config config.yaml trainer_config.train_data_loader.batch_size=8
 
-# Set training data
-sleap-nn train --config config.yaml "data_config.train_labels_path=[train.slp]"
+# Set training data (and, optionally, validation data)
+sleap-nn train --config config.yaml --labels train.slp
+sleap-nn train --config config.yaml --labels train.slp --val-labels val.slp
 
 # Set number of GPUs
 sleap-nn train --config config.yaml trainer_config.trainer_devices=1
@@ -132,7 +162,7 @@ train(
     head_configs="bottomup",
     use_augmentations_train=True,
     intensity_aug="uniform_noise",
-    geometric_aug=["rotation", "scale"],
+    geometry_aug=["rotation", "scale"],
 )
 ```
 
@@ -144,12 +174,10 @@ Top-down models need two separate training runs. See [Model Types](../reference/
 
 ```bash
 # Train centroid model
-sleap-nn train -d /path/to/configs -c centroid_unet \
-    "data_config.train_labels_path=[labels.pkg.slp]"
+sleap-nn train -d /path/to/configs -c centroid_unet --labels labels.pkg.slp
 
 # Train centered instance model
-sleap-nn train -d /path/to/configs -c centered_instance_unet \
-    "data_config.train_labels_path=[labels.pkg.slp]"
+sleap-nn train -d /path/to/configs -c centered_instance_unet --labels labels.pkg.slp
 ```
 
 ---
@@ -195,8 +223,8 @@ Each training run creates a checkpoint directory with:
 | `training_config.yaml` | Full config with computed values |
 | `labels_gt.train.0.slp` | Training data split (ground truth) |
 | `labels_gt.val.0.slp` | Validation data split (ground truth) |
-| `labels_pr.train.slp` | Predictions on training data |
-| `labels_pr.val.slp` | Predictions on validation data |
+| `labels_pr.train.0.slp` | Predictions on training data |
+| `labels_pr.val.0.slp` | Predictions on validation data |
 | `metrics.train.0.npz` | Training metrics |
 | `metrics.val.0.npz` | Validation metrics |
 | `training_log.csv` | Loss/metrics per epoch |

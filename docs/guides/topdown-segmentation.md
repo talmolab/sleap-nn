@@ -62,11 +62,12 @@ labels.save("poses_masked.pkg.slp", embed=True)   # embed to keep it self-contai
   `trainer_config.eval.enabled: true`, a `SegmentationEvaluationCallback` also logs
   instance-level mask metrics (`eval/val/mask_mean_iou`, `mask_precision`,
   `mask_recall`, `mask_f1`). Training viz overlays the GT mask on the predicted
-  foreground each epoch (`viz/.../gt_mask`).
+  foreground each epoch (wandb key `viz/<split>/predictions`; saved locally as
+  `<split>.gt_mask.<epoch>.<ext>`).
 
 ```bash
 sleap-nn train --config-name config_topdown_centered_instance_segmentation_unet \
-  data_config.train_labels_path=[train.pkg.slp] data_config.val_labels_path=[val.pkg.slp]
+  --labels train.pkg.slp --val-labels val.pkg.slp
 ```
 
 ## Inference
@@ -87,8 +88,9 @@ the crop `scale`/`offset` baked in). Top-down segmentation honors the
 `--fg_threshold`, `--mask_output {mask,polygon,both}`, and `--polygon_epsilon`
 post-processing flags, and adds no new flags. The remaining segmentation flags
 — `--min_mask_area`, `--mask_cleanup`/`--mask_cleanup_radius`, and
-`--full_res_masks` — are **bottom-up-only** (each crop already yields one clean
-mask, so they are no-ops for top-down). Rendering needs no extra wiring:
+`--full_res_masks` — are **ignored for top-down** (each crop already yields one
+clean mask); they apply to bottom-up segmentation, and `--min_mask_area` /
+`--full_res_masks` also to semantic segmentation. Rendering needs no extra wiring:
 
 ```python
 import sleap_io as sio
@@ -112,8 +114,9 @@ sleap-nn predict -i labeled.pkg.slp --model_paths centered_instance_segmentation
 
 ## Evaluation
 
-Post-training evaluation runs automatically (`trainer_config.eval.enabled: true`)
-using mask-IoU matching, equivalent to:
+Post-training evaluation runs automatically when checkpoints are saved
+(`trainer_config.save_ckpt: true`; independent of `trainer_config.eval.enabled`,
+which only controls the per-epoch callback) using mask-IoU matching, equivalent to:
 
 ```bash
 sleap-nn eval --ground_truth_path gt.slp --predicted_path pred.slp --match_method mask
@@ -132,5 +135,5 @@ COCO-style mask AP/AR. `match_threshold` is the minimum IoU in `(0, 1]`.
 
 ## See also
 
-- [Bottom-up segmentation](inference-guide.md) — single-pass, detector-free masks.
+- [Bottom-up segmentation](inference-guide.md#bottom-up-segmentation) — single-pass, detector-free masks.
 - [Centroid-only inference](centroid-only-inference.md) — the centroid stage standalone.

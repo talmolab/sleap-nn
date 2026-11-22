@@ -8,6 +8,7 @@ import sys
 import tempfile
 import shutil
 from datetime import datetime
+from itertools import count
 from pathlib import Path
 from typing import Optional
 
@@ -324,6 +325,156 @@ def _finalize_config(cfg):
     return cfg
 
 
+def _resolve_resume_target(path: str) -> tuple:
+    """Resolve `train --resume` to (run folder, checkpoint), both absolute.
+
+    Accepts a run folder (prefers `last.ckpt`, the most recent epoch, then
+    `best.ckpt`) or a `.ckpt` file inside one. The folder must hold the run's
+    `training_config.yaml`, which the resumed run is built from.
+    """
+    target = Path(path).expanduser().resolve()
+    if target.is_file():
+        if target.suffix != ".ckpt":
+            raise click.UsageError(
+                f"--resume expects a run folder or a .ckpt file, got: {path}"
+            )
+        run_dir, ckpt = target.parent, target
+    elif target.is_dir():
+        run_dir = target
+        ckpt = next(
+            (
+                run_dir / name
+                for name in ("last.ckpt", "best.ckpt")
+                if (run_dir / name).is_file()
+            ),
+            None,
+        )
+        if ckpt is None:
+            raise click.UsageError(
+                f"No last.ckpt or best.ckpt in {run_dir}, so there is nothing to "
+                "resume from."
+            )
+    else:
+        raise click.UsageError(f"--resume path not found: {path}")
+
+    if not (run_dir / "training_config.yaml").is_file():
+        raise click.UsageError(
+            f"No training_config.yaml in {run_dir}. --resume rebuilds the run from "
+            "the config saved next to the checkpoint; to resume with another "
+            "config, pass it with trainer_config.resume_ckpt_path=<ckpt> instead."
+        )
+    return run_dir, ckpt
+
+
+def _next_run_name(ckpt_dir: Path, run_name: str) -> str:
+    """First of `<run_name>-1`, `<run_name>-2`, ... with no folder in `ckpt_dir`."""
+    for i in count(1):
+        candidate = f"{run_name}-{i}"
+        if not (ckpt_dir / candidate).exists():
+            return candidate
+
+
+def _overrides_key(overrides, key: str) -> bool:
+    """Whether a Hydra override sets `key` (`key=...`, `+key=...`, `++key=...`)."""
+    return any(o.lstrip("+").split("=", 1)[0] == key for o in overrides)
+
+
+def _check_epochs_left(ckpt: Path, max_epochs: int) -> None:
+    """Refuse to resume a checkpoint that already reached `max_epochs`.
+
+    Lightning would start, train nothing, and the run would then fail looking for
+    a `best.ckpt` it never wrote.
+    """
+    import torch
+
+    epoch = torch.load(ckpt, map_location="cpu", weights_only=False).get("epoch")
+    if epoch is not None and epoch + 1 >= max_epochs:
+        raise click.UsageError(
+            f"{ckpt.name} was saved after epoch {epoch + 1} and max_epochs is "
+            f"{max_epochs}, so there is nothing left to train. Raise it, e.g. "
+            f"trainer_config.max_epochs={max(2 * max_epochs, epoch + 2)}."
+        )
+
+
+def _resolve_labels_option(paths, option: str, key: str, overrides) -> list:
+    """Check a `train --labels` / `--val-labels` value; return absolute paths.
+
+    Absolute, so the saved `training_config.yaml` still finds the labels when the
+    run is resumed or evaluated from another directory.
+    """
+    if not paths:
+        return []
+    if _overrides_key(overrides, key):
+        raise click.UsageError(
+            f"Use either {option} or a {key}=... override, not both."
+        )
+    resolved = []
+    for p in paths:
+        path = Path(p).expanduser()
+        if not path.is_file():
+            raise click.UsageError(f"{option} file not found: {p}")
+        resolved.append(path.resolve().as_posix())
+    return resolved
+
+
+def _adjust_train_config(
+    cfg, overrides, resume_target, dry_run: bool, labels=(), val_labels=()
+):
+    """Apply the `train` CLI options to a freshly composed config.
+
+    Labels (`--labels` / `--val-labels`): replace `data_config.train_labels_path`
+    / `val_labels_path` with the (already checked, absolute) paths given.
+
+    Resume: point `resume_ckpt_path` at the checkpoint and write the resumed run
+    to a new `<run_name>-N` folder next to the original, so the original run is
+    never overwritten. Explicit `run_name` / `ckpt_dir` overrides win. The wandb
+    run name is reset to follow the new run name unless the original run set
+    one explicitly (its `initial_config.yaml` says which).
+
+    Dry run: force a single device, since the dry run checks one batch on one
+    device and must not spawn DDP workers.
+    """
+    from omegaconf import OmegaConf
+
+    if labels:
+        OmegaConf.update(
+            cfg, "data_config.train_labels_path", list(labels), force_add=True
+        )
+    if val_labels:
+        OmegaConf.update(
+            cfg, "data_config.val_labels_path", list(val_labels), force_add=True
+        )
+
+    if resume_target is not None:
+        run_dir, ckpt = resume_target
+        cfg.trainer_config.resume_ckpt_path = ckpt.as_posix()
+        if not _overrides_key(overrides, "trainer_config.ckpt_dir"):
+            cfg.trainer_config.ckpt_dir = run_dir.parent.as_posix()
+        if not _overrides_key(overrides, "trainer_config.run_name"):
+            cfg.trainer_config.run_name = _next_run_name(
+                Path(cfg.trainer_config.ckpt_dir), run_dir.name
+            )
+        initial_cfg_path = run_dir / "initial_config.yaml"
+        if (
+            not _overrides_key(overrides, "trainer_config.wandb.name")
+            and OmegaConf.select(cfg, "trainer_config.wandb") is not None
+            and initial_cfg_path.is_file()
+            and OmegaConf.select(
+                OmegaConf.load(initial_cfg_path), "trainer_config.wandb.name"
+            )
+            is None
+        ):
+            cfg.trainer_config.wandb.name = None
+        _check_epochs_left(ckpt, cfg.trainer_config.max_epochs)
+
+    if dry_run and _get_num_devices_from_config(cfg) > 1:
+        logger.info("Dry run: using a single device.")
+        cfg.trainer_config.trainer_devices = 1
+        cfg.trainer_config.trainer_device_indices = None
+
+    return cfg
+
+
 def show_training_help():
     """Display training help information with rich formatting."""
     from rich.console import Console
@@ -345,7 +496,7 @@ sleap-nn train --config <path/to/config.yaml> [overrides]
 | Override | Description |
 |----------|-------------|
 | `trainer_config.max_epochs=100` | Set maximum training epochs |
-| `trainer_config.batch_size=32` | Set batch size |
+| `trainer_config.train_data_loader.batch_size=32` | Set batch size |
 | `trainer_config.save_ckpt=true` | Enable checkpoint saving |
 
 ## Examples
@@ -361,9 +512,22 @@ sleap-nn train --config path/to/config.yaml
 sleap-nn train config.yaml trainer_config.max_epochs=100
 ```
 
-**Resume training:**
+**Train on a different labels file** (replaces the config's labels paths):
 ```bash
-sleap-nn train config.yaml trainer_config.resume_ckpt_path=/path/to/ckpt
+sleap-nn train config.yaml --labels labels.slp
+sleap-nn train config.yaml -l train.slp --val-labels val.slp
+```
+
+**Check a config without training (nothing is written to disk):**
+```bash
+sleap-nn train config.yaml --dry-run
+```
+
+**Resume training** (writes to a new `<run_name>-1` folder next to the original):
+```bash
+sleap-nn train --resume path/to/run_dir
+sleap-nn train --resume path/to/run_dir trainer_config.max_epochs=200
+sleap-nn train --resume path/to/run_dir/best.ckpt
 ```
 
 **Legacy usage (still supported):**
@@ -433,6 +597,43 @@ sleap-nn train --config-dir /path/to/dir --config-name myrun
     hidden=True,
     help="Path to video replacement config YAML (internal use for multi-GPU).",
 )
+@click.option(
+    "--labels",
+    "-l",
+    multiple=True,
+    metavar="SLP",
+    help="Training labels (.slp), replacing data_config.train_labels_path. "
+    "Can be specified multiple times.",
+)
+@click.option(
+    "--val-labels",
+    multiple=True,
+    metavar="SLP",
+    help="Validation labels (.slp), replacing data_config.val_labels_path. "
+    "Without it, the config's validation labels are used, or a "
+    "validation_fraction split of the training labels if it has none. "
+    "Can be specified multiple times.",
+)
+@click.option(
+    "--resume",
+    type=str,
+    default=None,
+    metavar="RUN_DIR_OR_CKPT",
+    help="Resume a previous run: a run folder (uses its last.ckpt, else best.ckpt) "
+    "or a .ckpt file. Uses that run's training_config.yaml (overrides still "
+    "apply) and writes to a new folder <run_name>-1 next to it, leaving the "
+    "original run untouched.",
+)
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    default=False,
+    help="Check the config and data without training: run all setup plus one "
+    "training and one validation batch on a single device, with the config's "
+    "settings on one batch of frames; check the run can write its configs and a "
+    "checkpoint next to the run folder (removed afterwards); and print a summary "
+    "of the run.",
+)
 @click.argument("overrides", nargs=-1, type=click.UNPROCESSED)
 def train(
     config,
@@ -442,6 +643,10 @@ def train(
     video_path_map,
     prefix_map,
     video_config,
+    labels,
+    val_labels,
+    resume,
+    dry_run,
     overrides,
 ):
     """Run training workflow with Hydra config overrides.
@@ -453,11 +658,18 @@ def train(
         sleap-nn train path/to/config.yaml
         sleap-nn train --config path/to/config.yaml trainer_config.max_epochs=100
         sleap-nn train config.yaml trainer_config.trainer_devices=4
+        sleap-nn train config.yaml --labels path/to/labels.slp
+        sleap-nn train --resume path/to/run_dir trainer_config.max_epochs=200
+        sleap-nn train config.yaml --dry-run
     """
     import hydra
     import sleap_io as sio
     from omegaconf import OmegaConf
+    from sleap_nn import _use_training_rank
     from sleap_nn.train import run_training
+
+    # One message per training run, not one per DDP process (also under srun).
+    _use_training_rank()
 
     # Convert overrides to a mutable list
     overrides = list(overrides)
@@ -471,7 +683,20 @@ def train(
     # 1. Positional config path (e.g., sleap-nn train config.yaml)
     # 2. --config flag (e.g., sleap-nn train --config config.yaml)
     # 3. Legacy --config-dir/--config-name flags
-    if config_from_positional:
+    resume_target = None
+    if resume is not None:
+        if config_from_positional or config or config_name:
+            raise click.UsageError(
+                "--resume uses the run's own training_config.yaml; don't pass a "
+                "config too. Use overrides (e.g. trainer_config.max_epochs=200) to "
+                "change settings."
+            )
+        resume_target = _resolve_resume_target(resume)
+        config_dir, config_name = (
+            resume_target[0].as_posix(),
+            "training_config.yaml",
+        )
+    elif config_from_positional:
         config_dir, config_name = split_config_path(config_from_positional)
     elif config:
         config_dir, config_name = split_config_path(config)
@@ -481,6 +706,13 @@ def train(
         # No config provided - show help
         show_training_help()
         return
+
+    labels = _resolve_labels_option(
+        labels, "--labels", "data_config.train_labels_path", overrides
+    )
+    val_labels = _resolve_labels_option(
+        val_labels, "--val-labels", "data_config.val_labels_path", overrides
+    )
 
     # Check video path options early
     # If --video-config is provided (from subprocess), load from file
@@ -506,6 +738,26 @@ def train(
     # Load config to detect device count
     with hydra.initialize_config_dir(config_dir=config_dir, version_base=None):
         cfg = hydra.compose(config_name=config_name, overrides=overrides)
+        cfg = _adjust_train_config(
+            cfg, overrides, resume_target, dry_run, labels, val_labels
+        )
+        # Now that the config is known: a run on one device is its own main process.
+        _use_training_rank(
+            OmegaConf.select(cfg, "trainer_config.trainer_devices", default=None)
+        )
+        # Logged here, not in `_adjust_train_config`: every route below composes
+        # the config again.
+        if resume_target is not None:
+            logger.info(
+                f"Resuming from {cfg.trainer_config.resume_ckpt_path} into new run "
+                f"folder {(Path(cfg.trainer_config.ckpt_dir) / cfg.trainer_config.run_name).as_posix()}"
+            )
+        config_val_labels = OmegaConf.select(cfg, "data_config.val_labels_path")
+        if labels and not val_labels and config_val_labels:
+            logger.info(
+                f"Validating on the config's val_labels_path ({list(config_val_labels)}); "
+                "pass --val-labels to use different validation labels."
+            )
 
         # Validate config
         if not hasattr(cfg, "model_config") or not cfg.model_config:
@@ -536,6 +788,9 @@ def train(
         # Load and finalize config (generate run_name, apply overrides)
         with hydra.initialize_config_dir(config_dir=config_dir, version_base=None):
             cfg = hydra.compose(config_name=config_name, overrides=overrides)
+            cfg = _adjust_train_config(
+                cfg, overrides, resume_target, dry_run, labels, val_labels
+            )
             cfg = _finalize_config(cfg)
 
         # Save finalized config to temp file
@@ -589,6 +844,9 @@ def train(
     # Single GPU (or subprocess worker): run directly
     with hydra.initialize_config_dir(config_dir=config_dir, version_base=None):
         cfg = hydra.compose(config_name=config_name, overrides=overrides)
+        cfg = _adjust_train_config(
+            cfg, overrides, resume_target, dry_run, labels, val_labels
+        )
 
         logger.info("Input config:")
         logger.info("\n" + OmegaConf.to_yaml(cfg))
@@ -631,7 +889,12 @@ def train(
                 for labels in val_labels:
                     labels.replace_filenames(**replace_kwargs)
 
-        run_training(config=cfg, train_labels=train_labels, val_labels=val_labels)
+        run_training(
+            config=cfg,
+            train_labels=train_labels,
+            val_labels=val_labels,
+            dry_run=dry_run,
+        )
 
 
 @cli.command(context_settings=CONTEXT_SETTINGS)
@@ -653,7 +916,7 @@ def train(
     "-o",
     type=str,
     default=None,
-    help="The output filename to use for the predicted data. If not provided, defaults to '[data_path].slp'.",
+    help="The output filename to use for the predicted data. If not provided, defaults to '[data_path stem].predictions.slp' (e.g. video.predictions.slp).",
 )
 @click.option(
     "--device",
@@ -2561,24 +2824,43 @@ def _resolve_data_path(data_path: object) -> "tuple[str, str, bool]":
     return str(p), p.suffix, False
 
 
+def _default_output_base(source_str: str, is_url: bool) -> str:
+    """The input a default output filename is built on.
+
+    A local input's own path, so the output lands next to it. A remote input
+    cannot be written next to, so its URL's basename, which puts the output in the
+    current working directory (``Path()`` would also collapse ``scheme://``).
+    """
+    from pathlib import Path
+    from urllib.parse import urlparse
+
+    if is_url:
+        return Path(urlparse(source_str).path).name or "predictions"
+    return source_str
+
+
 def _default_predictions_path(
     source_str: str, is_url: bool, scoped_video_name: "Optional[str]" = None
 ) -> str:
     """Derive the default ``.slp`` output path from the input source.
 
-    Local inputs write alongside the input (``<data_path>.slp``), matching legacy
-    behavior. Remote inputs cannot be written next to the source, so the output
-    lands in the current working directory under the URL's basename.
+    The input's last extension replaced by ``.predictions.slp`` (``video.mp4`` ->
+    ``video.predictions.slp``, ``labels.pkg.slp`` -> ``labels.pkg.predictions.slp``),
+    the name SLEAP's ``sleap-track`` gives its output
+    (``Path(data_path).with_suffix(".predictions.slp")``) and legacy ``track``'s. A
+    ``--video_index``-scoped run inserts the video's name
+    (``<stem>.<video>.predictions.slp``) so runs on different videos of one
+    project do not overwrite each other. Remote inputs land in the current working
+    directory (see :func:`_default_output_base`).
     """
     from pathlib import Path
-    from urllib.parse import urlparse
 
-    base = (
-        Path(urlparse(source_str).path).name or "predictions" if is_url else source_str
-    )
+    base = _default_output_base(source_str, is_url)
+    # Sliced, not `str(Path(...))`, so the input's own separators are kept.
+    stem = base[: len(base) - len(Path(base).suffix)]
     if scoped_video_name is not None:
-        return f"{Path(base).with_suffix('')}.{scoped_video_name}.predictions.slp"
-    return f"{base}.slp"
+        return f"{stem}.{scoped_video_name}.predictions.slp"
+    return f"{stem}.predictions.slp"
 
 
 def _default_embedding_output_path(
@@ -2593,7 +2875,7 @@ def _default_embedding_output_path(
     SAME convention :func:`~sleap_nn.inference.embedding.predict_embeddings_to_slp`
     uses, and the one default for both the lone and the fused route, so a fused
     run and a two-step run of the same input land on the same filename. Remote
-    inputs go through :func:`_default_predictions_path`, which drops the URL's
+    inputs go through :func:`_default_output_base`, which drops the URL's
     directory part (a URL cannot be written next to, and ``Path()`` would collapse
     ``scheme://``). A ``--video_index``-scoped run inserts the video's name, as
     ``predict`` does (``<input stem>.<video>.tracked.slp``), so runs on different
@@ -2602,8 +2884,7 @@ def _default_embedding_output_path(
     from pathlib import Path
 
     kind = "tracked" if tracking else "embeddings"
-    base = _default_predictions_path(source_str, is_url)
-    stem = base[: -len(".slp")] if base.endswith(".slp") else base
+    stem = _default_output_base(source_str, is_url)
     if scoped_video_name is not None:
         return f"{Path(stem).with_suffix('')}.{scoped_video_name}.{kind}.slp"
     return f"{stem}.{kind}.slp"
@@ -2913,6 +3194,8 @@ def _run_in_memory_new_flow(
         "device": _resolve_device(kwargs.get("device")),
         "batch_size": kwargs.get("batch_size", 4),
         "paf_workers": paf_workers,
+        "upload_batches": bool(kwargs.get("upload_batches")),
+        "memory_format": kwargs.get("memory_format") or "contiguous",
         "peak_threshold": peak_thresh,
         "centroid_threshold": centroid_thresh,
         "keypoint_threshold": peak_thresh,
@@ -3464,6 +3747,8 @@ def _run_stream_to_file(
         "return_confmaps": False,
         "anchor_part": kwargs.get("anchor_part"),
         "paf_workers": paf_workers,
+        "upload_batches": bool(kwargs.get("upload_batches")),
+        "memory_format": kwargs.get("memory_format") or "contiguous",
         # Bottom-up PAF grouping knobs (inert for non-bottom-up models). #583.
         "max_edge_length_ratio": kwargs.get("max_edge_length_ratio", 0.25),
         "dist_penalty_weight": kwargs.get("dist_penalty_weight", 1.0),
@@ -3633,7 +3918,7 @@ def _common_inference_options(f):
             "-o",
             type=str,
             default=None,
-            help="Output filename. Defaults to '[data_path].slp'.",
+            help="Output filename. Defaults to '[data_path stem].predictions.slp' next to the input (e.g. video.mp4 -> video.predictions.slp), as SLEAP's sleap-track names it.",
         ),
         click.option(
             "--output_format",
@@ -3694,6 +3979,27 @@ def _common_inference_options(f):
             type=int,
             default=4,
             help="Number of frames to predict at a time.",
+        ),
+        click.option(
+            "--upload_batches",
+            is_flag=True,
+            default=False,
+            help="With a CUDA device, copy each batch of frames to the GPU before "
+            "preprocessing, so resizing and top-down cropping run on the GPU "
+            "instead of the CPU (2.2x faster for a top-down pair on an A100). "
+            "The GPU resize rounds a few pixels differently (by 1 grey level), so "
+            "results differ slightly from a run without it. `predict` with "
+            "trained checkpoints only.",
+        ),
+        click.option(
+            "--memory_format",
+            type=click.Choice(["contiguous", "channels_last"]),
+            default="contiguous",
+            show_default=True,
+            help="Weight layout of the models. `channels_last` lets cuDNN use its "
+            "fast convolution kernels on NVIDIA GPUs (2.2x faster for a top-down "
+            "pair on an A100, fp32; no change on AMD ROCm). `predict` with trained "
+            "checkpoints only.",
         ),
         click.option(
             "--runtime",

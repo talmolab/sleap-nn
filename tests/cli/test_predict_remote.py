@@ -69,14 +69,39 @@ def test_resolve_data_path_url_slp():
 
 
 def test_default_predictions_path_local():
-    assert _default_predictions_path("/data/v.mp4", False) == "/data/v.mp4.slp"
+    assert _default_predictions_path("/data/v.mp4", False) == "/data/v.predictions.slp"
+
+
+@pytest.mark.parametrize(
+    "data_path",
+    [
+        "/data/v.mp4",
+        "/data/run.v1/clip.avi",
+        "labels.slp",
+        "labels.pkg.slp",
+        "labels.predictions.slp",
+        "/data/frames",
+    ],
+)
+def test_default_predictions_path_matches_sleap_track(data_path):
+    """SLEAP 1.4's `sleap-track` names its default output
+    `Path(data_path).with_suffix(".predictions.slp")`: the LAST extension is
+    replaced (`video.mp4` -> `video.predictions.slp`), as legacy `track` does."""
+    expected = Path(data_path).with_suffix(".predictions.slp")
+    assert Path(_default_predictions_path(data_path, False)) == expected
 
 
 def test_default_predictions_path_url_uses_basename_in_cwd():
-    # Mirrors the local "[data_path].slp" convention: the URL basename (with its
-    # extension) plus ".slp", written in the cwd.
-    assert _default_predictions_path("https://h/x/clip.mp4", True) == "clip.mp4.slp"
-    assert _default_predictions_path("s3://b/p/labels.slp", True) == "labels.slp.slp"
+    # Mirrors the local convention (extension replaced by ".predictions.slp") on
+    # the URL basename, written in the cwd.
+    assert (
+        _default_predictions_path("https://h/x/clip.mp4", True)
+        == "clip.predictions.slp"
+    )
+    assert (
+        _default_predictions_path("s3://b/p/labels.slp", True)
+        == "labels.predictions.slp"
+    )
 
 
 def test_default_predictions_path_scoped():
@@ -159,7 +184,7 @@ def test_predict_remote_video_url_not_path_mangled():
     assert result.exit_code == 0, result.output
     assert mock_predict.call_args[0][0] == url
     # Output defaults to the URL basename in the cwd (cannot write to the host).
-    assert mock_predict.call_args[1]["output_path"] == "clip.mp4.slp"
+    assert mock_predict.call_args[1]["output_path"] == "clip.predictions.slp"
 
 
 def test_predict_remote_slp_url_passes_through():
@@ -175,7 +200,7 @@ def test_predict_remote_slp_url_passes_through():
         )
     assert result.exit_code == 0, result.output
     assert mock_predict.call_args[0][0] == url
-    assert mock_predict.call_args[1]["output_path"] == "labels.slp.slp"
+    assert mock_predict.call_args[1]["output_path"] == "labels.predictions.slp"
 
 
 def test_predict_remote_video_url_with_headers_routes_through_provider():

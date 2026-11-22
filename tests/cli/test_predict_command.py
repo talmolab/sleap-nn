@@ -1373,3 +1373,32 @@ def test_predict_output_over_the_input_pkg_slp_is_refused_before_compute(
     assert result.exit_code == 2, _flat_output(result)
     assert "Refusing to write" in _flat_output(result)
     assert sio.load_slp(str(input_pkg))[0].image is not None
+
+
+def test_predict_default_output_matches_sleap_track(
+    minimal_instance, minimal_instance_single_instance_ckpt, tmp_path
+):
+    """Without -o, predict writes `<data_path stem>.predictions.slp` next to the
+    input, the name `sleap-track` gives (`labels.pkg.slp` -> `labels.pkg.predictions.slp`).
+    """
+    import shutil
+
+    src = tmp_path / "labels.pkg.slp"
+    shutil.copy(minimal_instance, src)
+    result = CliRunner().invoke(
+        cli,
+        [
+            "predict",
+            "-i",
+            str(src),
+            "-m",
+            str(minimal_instance_single_instance_ckpt),
+            "-d",
+            "cpu",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert sorted(p.name for p in tmp_path.iterdir()) == [
+        "labels.pkg.predictions.slp",
+        "labels.pkg.slp",
+    ]

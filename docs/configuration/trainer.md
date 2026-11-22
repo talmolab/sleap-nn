@@ -16,9 +16,9 @@ trainer_config:
 
 | Option | Description | Default |
 |--------|-------------|---------|
-| `max_epochs` | Training epochs | `10` |
+| `max_epochs` | Training epochs | `100` |
 | `save_ckpt` | Save checkpoints | `false` |
-| `ckpt_dir` | Checkpoint directory | `null` |
+| `ckpt_dir` | Folder the run folder is created in | `.` (current directory) |
 | `run_name` | Run folder name | auto-generated |
 
 ---
@@ -185,9 +185,14 @@ Param groups are named (`base` for the neck/decoder/heads, `encoder` or
 
 ### Learning Rate Schedulers
 
-Choose **one** scheduler. If several are set, the priority order is
-`cosine_annealing_warmup` > `linear_warmup_linear_decay` > `multi_step_lr` >
-`step_lr` > `reduce_lr_on_plateau`; they never stack.
+`reduce_lr_on_plateau` is **on by default**: the schema fills it in even when the
+config has no `lr_scheduler` block. Setting another scheduler does not switch it off
+(it stays populated after the merge), but only one scheduler ever runs (they never
+stack), picked in this priority order: `cosine_annealing_warmup` >
+`linear_warmup_linear_decay` > `multi_step_lr` > `step_lr` > `reduce_lr_on_plateau`.
+For a constant learning rate, set `lr_scheduler: null` (or set all five to `null`).
+
+Choose **one** scheduler:
 
 === "Reduce on Plateau"
     ```yaml
@@ -282,9 +287,9 @@ trainer_config:
 
 Early stopping watches the same metric (and mode) as the best checkpoint:
 `model_ckpt.monitor` / `model_ckpt.mode` when set, otherwise the model type's default
-(`val/loss`; the retrieval metric for `embedding`; the box metric for `bbox_*` with
-eval on). An `eval/*` metric is only measured every `eval.frequency` epochs, so
-patience then counts evaluations.
+(`val/loss`, or the `eval.select_metric` metric for `embedding` models and for
+`bbox_*` models with `eval.enabled`). An `eval/*` metric is only measured every
+`eval.frequency` epochs, so patience then counts evaluations.
 
 
 Training writes the resolved `true`/`false` into the saved `training_config.yaml`.
@@ -482,7 +487,7 @@ trainer_config:
 ```yaml
 trainer_config:
   min_train_steps_per_epoch: 200  # Minimum steps
-  train_steps_per_epoch: null     # Exact steps (null=auto); summed over all GPUs
+  train_steps_per_epoch: null     # Steps per epoch (null=one pass); never below the minimum; summed over all GPUs
   enable_progress_bar: true
   seed: 42                        # Random seed (ensures deterministic train/val splits)
 ```
@@ -636,12 +641,13 @@ trainer_config:
 | `trainer_devices` | int/str | `null` | Number of devices or `auto` |
 | `trainer_device_indices` | list | `null` | Specific device indices (e.g., `[0, 2]`) |
 | `trainer_strategy` | str | `auto` | Strategy: `auto`, `ddp`, `fsdp` |
-| `profiler` | str | `null` | PyTorch profiler: `simple`, `advanced`, `pytorch` |
+| `profiler` | str | `null` | Lightning profiler: `simple`, `advanced`, `pytorch` or `passthrough` |
 | `enable_progress_bar` | bool | `true` | Show training progress |
 | `min_train_steps_per_epoch` | int | `200` | Minimum batches per epoch (for `embedding`, P×K batches) |
-| `train_steps_per_epoch` | int | `null` | Exact steps per epoch (null = auto: one pass over the data; for `embedding`, in P×K batches — `min(P, groups in the video)`×K for `sampler.kind: within_video`). With multiple GPUs this counts batches summed over all GPUs: each GPU runs `train_steps_per_epoch / num_gpus` optimizer steps, so an epoch is still one pass over the data (see [Multi-GPU](../guides/multi-gpu.md#steps-per-epoch)) |
+| `train_steps_per_epoch` | int | `null` | Steps per epoch, raised to `min_train_steps_per_epoch` if smaller (null = one pass over the data; for `embedding`, in P×K batches — `min(P, groups in the video)`×K for `sampler.kind: within_video`). With multiple GPUs this counts batches summed over all GPUs: each GPU runs `train_steps_per_epoch / num_gpus` optimizer steps, so an epoch is still one pass over the data (see [Multi-GPU](../guides/multi-gpu.md#steps-per-epoch)) |
 | `visualize_preds_during_training` | bool | `false` | Save prediction visualizations |
 | `keep_viz` | bool | `false` | Keep viz folder after training |
+| `viz_img_format` | str | `png` | Format of the saved viz images: `png` or `jpg` (much smaller files) |
 | `use_wandb` | bool | `false` | Enable WandB logging |
 | `resume_ckpt_path` | str | `null` | Path to checkpoint to resume from |
 | `freeze_schedule` | FreezeScheduleConfig | `null` | Freeze `targets` (selectors, default `[encoder]`) until `unfreeze_at_step` (`null` = whole run) |
@@ -684,8 +690,10 @@ trainer_config:
 
 ### LRSchedulerConfig
 
-Only one scheduler is used. Priority: `cosine_annealing_warmup` >
-`linear_warmup_linear_decay` > `multi_step_lr` > `step_lr` > `reduce_lr_on_plateau`.
+Only one scheduler runs. `reduce_lr_on_plateau` is populated by default; when several
+are set, the first of `cosine_annealing_warmup`, `linear_warmup_linear_decay`,
+`multi_step_lr`, `step_lr`, `reduce_lr_on_plateau` wins. `lr_scheduler: null` (or all
+five `null`) = constant learning rate.
 
 #### ReduceLROnPlateauConfig
 
@@ -759,6 +767,8 @@ Only one scheduler is used. Priority: `cosine_annealing_warmup` >
 |--------|------|---------|-------------|
 | `save_top_k` | int | `1` | Keep N best models |
 | `save_last` | bool | `null` | Also write last.ckpt at the end of every epoch |
+| `monitor` | str | `val/loss` | Metric that picks the best checkpoint: any logged metric, e.g. `eval/val/mask_mean_iou` or `eval/val/fg_mean_cldice` for segmentation with `eval.enabled`. Left at `val/loss`, `embedding` and `bbox_*` models use their model-type default (see `eval.select_metric`). Early stopping follows the same metric and mode |
+| `mode` | str | `min` | `min` or `max`: direction of improvement for `monitor` (use `max` for IoU/clDice). Only read when `monitor` is not `val/loss` |
 
 ### WandBConfig
 
@@ -783,6 +793,7 @@ Only one scheduler is used. Priority: `cosine_annealing_warmup` >
 | `gallery_size` | int | `64` | Maximum validation samples in the gallery panel |
 | `gallery_max_logs` | int | `50` | Approximate maximum gallery events per run |
 | `gallery_labs` | dict | `null` | File name -> lab (or group) shown in gallery captions |
+| `current_run_id` | str | `null` | Set automatically: the WandB run ID of this training run |
 
 ### HardKeypointMiningConfig
 
@@ -805,7 +816,8 @@ Only one scheduler is used. Priority: `cosine_annealing_warmup` >
 | `oks_scale` | float | `null` | OKS scale override (pose models only) |
 | `oks_sigmas` | str / float / list | `null` | Per-node OKS sigmas for post-training eval (`coco`, `crowdpose`, `ochuman`, `provenance`, `auto`, or one per node); overrides `oks_stddev` there |
 | `coco_metrics` | bool | `false` | Add COCOeval-faithful `coco.*` metrics to post-training eval; top-down models then predict with `peak_threshold` 0 and mmpose rescoring. See [COCO-Style Evaluation](../guides/coco-evaluation.md) |
-| `match_threshold` | float | `50.0` | Max distance (px) for centroid matching (centroid models only) |
+| `match_threshold` | float | `50.0` | Centroid models: max matching distance in pixels. Instance segmentation (`bottomup_segmentation`, `centered_instance_segmentation`): minimum mask IoU in `(0, 1]`; values outside that range (including the default) fall back to `0.5` |
+| `select_metric` | str | `rank1` | Metric that selects the best checkpoint and drives early stopping. `embedding`: `rank1`, `mAP`, `auc`, `knn_acc` (higher is better) or `eer` (lower is better). `bbox_*`: `bbox_mAP`, `bbox_AP50`, `bbox_AP75`, `bbox_AR`, `bbox_f1` or `val_loss`; left at the default, detectors use `bbox_mAP` when `enabled`, else `val/loss`. Ignored by other model types |
 | `file_nodes` | dict | `null` | With several validation files: the nodes each file is scored on, keyed by its display name (`data_config.val_names`), as a node list or a name prefix. Unlisted files are scored on the model nodes their skeleton has. See [Per-file validation](../guides/warp-data-path.md#per-file-validation) |
 | `post_train_splits` | list | `null` | Splits the post-training evaluation predicts and scores, any of `val`, `test`, `train` (always run in that order). `null` = all three |
 | `post_train_max_train_frames` | int | `null` | Score only this many random frames (seeded by `seed`) of each train file after training. Val and test always run in full |
@@ -833,8 +845,12 @@ Only one scheduler is used. Priority: `cosine_annealing_warmup` >
 !!! info "Model-Type-Dependent Evaluation"
     SLEAP-NN automatically selects the appropriate evaluation callback based on model type:
 
-    - **Pose models** (single instance, bottom-up, centered instance): Uses OKS/PCK metrics with `oks_stddev` and `oks_scale`
+    - **Pose models** (single instance, bottom-up, centered instance, multi-class): Uses OKS/PCK metrics with `oks_stddev` and `oks_scale`
     - **Centroid models**: Uses distance-based metrics with `match_threshold` for prediction-to-GT matching
+    - **Instance segmentation** (`bottomup_segmentation`, `centered_instance_segmentation`): instance-level mask-IoU metrics, matched at the IoU in `match_threshold`
+    - **Semantic segmentation**: matching-free foreground IoU / clDice / boundary-IoU
+    - **Bounding-box detectors** (`bbox_*`): COCO-style box mAP, AP50/AP75, AR and best F1
+    - **Embedding**: retrieval metrics (`rank1`, `mAP`, `auc`, `knn_acc`, `eer`), computed every `frequency` epochs even when `enabled` is `false`, because they select the checkpoint
 
     See the [Monitoring Guide](../guides/monitoring.md#epoch-end-evaluation) for details.
 
@@ -844,4 +860,4 @@ Only one scheduler is used. Priority: `cosine_annealing_warmup` >
 |--------|------|---------|-------------|
 | `publish_port` | int | `null` | Port for publishing updates |
 | `controller_port` | int | `null` | Port for receiving commands |
-| `controller_polling_timeout` | int | `10` | Polling timeout in microseconds |
+| `controller_polling_timeout` | int | `10` | Polling timeout in microseconds, rounded down to whole milliseconds; values under 1000 check without waiting |

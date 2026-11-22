@@ -6,9 +6,8 @@ the project's standard test fixtures. Treat them as **relative speedups**,
 not absolute ceilings — your numbers will scale with backbone size, video
 resolution, and GPU class.
 
-The bench script that produced these numbers lives at
-`scratch/2026-04-30-inference-refactor-implementation/cuda_bench/run_cuda_bench.py`
-and can be re-run to validate your own setup.
+The numbers come from an internal benchmark run; the script is not part of the
+repository. Time your own setup (see [When to re-benchmark](#when-to-re-benchmark)).
 
 ---
 
@@ -24,14 +23,21 @@ and can be re-run to validate your own setup.
     - **`--device cuda`** — the only flag that matters for large videos.
     - **`--batch_size 4`** is a good starting point; raise to 8 / 16 if
       VRAM allows.
-    - **FP16** delivers the biggest single-flag win (~1.5× on UNets) once
-      it's exposed via the CLI. For now, opt in by constructing the
-      predictor in Python with `use_fp16=True` (see [FP16](#fp16)).
+    - **FP16** delivers the biggest single-flag win (~1.5× on UNets).
+      It has no CLI flag yet; turn it on from Python (see [FP16](#fp16)).
     - **`torch.compile`** adds another ~1.2-1.3×, but pays a 0.5-3 s
-      compile cost — only worth it on long videos. Opt in with
-      `use_compile=True`.
+      compile cost — only worth it on long videos. Also Python-only (see
+      [`torch.compile`](#torchcompile)).
     - **`paf_workers=0`** is the right default. Workers are a net loss
       for typical bottom-up workloads at fixture-checkpoint scale.
+    - **`--upload_batches`** copies each batch to the GPU before
+      preprocessing, so resizing and top-down cropping don't hold up the
+      GPU: about 2× on a top-down pair (see
+      [Batches on the GPU](#batches-on-the-gpu-upload_batches)).
+    - **On NVIDIA, channels-last** (`--memory_format channels_last`)
+      roughly doubled a top-down pair's speed on an A100. It changes
+      results slightly (about as much as TF32 does), not accuracy (see
+      [Channels-last](#channels-last-memory_format)).
 
 ---
 
@@ -91,15 +97,46 @@ inference.
 Enable **CUDA-only**; on MPS the kernels exist but tensor cores don't,
 so there's no speedup (and we warn).
 
+FP16 and `torch.compile` are fields of each model's `TorchBackend`. A
+top-down predictor has two models (`predictor.layer.centroid_layer` and
+`predictor.layer.centered_instance_layer`), so set them on both stages.
+`torch.compile` is applied only when a backend is **built**, so setting
+`use_compile = True` on an existing backend does nothing; build a new backend
+around the same model instead. This helper does both, for any trained-checkpoint
+model type (a tiled model runs its inner layer's backend, so the helper rebuilds
+that one):
+
 ```python
 from sleap_nn.inference import Predictor
+from sleap_nn.inference.layers.backends.torch_backend import TorchBackend
 
-predictor = Predictor.from_model_paths(
-    ["models/my_model/"],
-    device="cuda",
-)
-predictor.layer.backend.use_fp16 = True   # opt-in
+
+def use_fast_backends(predictor, fp16=True, compile=True):
+    """Rebuild every model backend of `predictor` with FP16 / torch.compile."""
+    layer = predictor.layer
+    stages = [
+        getattr(layer, name)
+        for name in ("centroid_layer", "centered_instance_layer")
+        if hasattr(layer, name)
+    ] or [layer]  # top-down has two stages; other model types have one
+    for stage in stages:
+        stage = getattr(stage, "inner", stage)  # tiled layers run `.inner.backend`
+        old = stage.backend
+        stage.backend = TorchBackend(
+            model=old.model,
+            device=old.device,
+            use_fp16=fp16,
+            use_compile=compile,
+            memory_format=old.memory_format,
+        )
+
+
+predictor = Predictor.from_model_paths(["models/my_model/"], device="cuda")
+use_fast_backends(predictor, fp16=True, compile=False)
 ```
+
+This works for trained checkpoints only (an exported ONNX/TensorRT model has
+no `TorchBackend`).
 
 | Reason to enable | Reason to skip |
 |---|---|
@@ -116,7 +153,7 @@ shipping FP16 to production.
 Mode: `reduce-overhead` (CUDA-graph capture), `dynamic=False`.
 
 ```python
-predictor.layer.backend.use_compile = True
+use_fast_backends(predictor, fp16=False, compile=True)  # helper from FP16 above
 ```
 
 | Reason to enable | Reason to skip |
@@ -125,11 +162,102 @@ predictor.layer.backend.use_compile = True
 | Multiple inference passes on the same model in the same process | One-shot inference where you'll never reuse the compiled module |
 
 !!! warning "Static shapes"
-    `dynamic=False` means the compiled graph is locked to one input
-    shape. If your batches have varying spatial dims, set
-    `dynamic=True` (slower but tolerant), or pre-pad to a uniform
-    shape — which the new flow's sizematcher does automatically when
-    `max_height` / `max_width` are set in training config.
+    `dynamic=False` (not configurable) locks the compiled graph to one
+    input shape; a new shape recompiles. Frames of one video share a shape,
+    and setting `max_height` / `max_width` in the training config pads every
+    frame to one size.
+
+### Batches on the GPU (`upload_batches`)
+
+`sleap-nn predict --upload_batches` (or `upload_batches=True` on
+`Predictor.from_model_paths` / `sleap_nn.inference.predict`) copies each
+`uint8` batch from the provider to the GPU the (first) model runs on, before
+`layer.predict`. Without it (the default) the layer gets a numpy batch, and
+the sizematcher, input scaling and top-down crop extraction run on the CPU;
+only the networks run on the GPU. It applies to trained checkpoints in
+`sleap-nn predict`; `sleap-nn track` (the legacy pipeline) and exported
+ONNX/TensorRT models are unchanged. Off a CUDA device it does nothing (and
+logs a warning saying so).
+
+```bash
+sleap-nn predict -i video.mp4 -m models/centroid/ -m models/centered_instance/ \
+    --device cuda --batch_size 16 --upload_batches
+```
+
+Measured on an **NVIDIA A100 40 GB** (torch 2.6, sleap-nn 0.3.3) with a
+top-down pair (centroid at input scale 0.25, output stride 2;
+centered-instance on 320 px crops at scale 0.5, max stride 32, 24
+filters), a 1280×1024 5-animal video, batch 16, fp32:
+
+| | resize | crops | networks + peaks | total ms / frame | fps | GPU busy |
+|---|---:|---:|---:|---:|---:|---:|
+| numpy batch (`upload_batches=False`) | 3.79 | 1.42 | 4.78 | 10.0 | 100 | 38% |
+| uint8 batch on the GPU | 0.04 | 0.07 | 4.50 | 4.6 | 226 | 89% |
+
+Same animals found; 90% of keypoints bit-identical. The rest differ
+because the GPU's `uint8` resize rounds differently from the CPU's: on an
+RTX 6000 Ada, 5–13% of resized pixels came out 1 grey level apart (never
+more). That's why it is opt-in: without it, results are exactly as before.
+
+### Channels-last (`memory_format`)
+
+`sleap-nn predict --memory_format channels_last` (or
+`memory_format="channels_last"` on `Predictor.from_model_paths` /
+`sleap_nn.inference.predict`) stores the weights of every model in the
+composition channels-last (both models of a top-down pair, a tiled layer's
+inner model, ...). cuDNN's fastest convolution kernels on NVIDIA GPUs use
+that layout; with channels-first weights the activations are converted
+around every convolution. Trained checkpoints only: exported ONNX/TensorRT
+models ignore it, with a warning.
+
+```bash
+sleap-nn predict -i video.mp4 -m models/centroid/ -m models/centered_instance/ \
+    --device cuda --batch_size 16 --upload_batches --memory_format channels_last
+```
+
+It is also a `TorchBackend` field (`TorchBackend(memory_format=...)`), and
+setting it on a built backend converts the model right away.
+
+Same A100 and top-down pair as above, batches on the GPU, fps:
+
+| | default layout | channels-last |
+|---|---:|---:|
+| fp32, batch 16 | 226 | 493 |
+| fp32, batch 64 | 190 | 570 |
+| fp32, batch 16, TF32 off | 191 | 251 |
+
+**It changes results slightly.** On Ampere and newer NVIDIA GPUs, PyTorch
+lets cuDNN run fp32 convolutions in TF32 by default
+(`torch.backends.cudnn.allow_tf32`), so the default layout already uses
+TF32, and the channels-last kernels round differently. Over 6,000 frames
+(29,322 animals), compared with the default layout:
+
+| | animals not found again | keypoints moved > 1 px | keypoints bit-identical |
+|---|---:|---:|---:|
+| channels-last | 18 | 3.7% | 0% |
+| default layout with TF32 off | 22 | 3.7% | 0% |
+| channels-last vs default layout, both TF32 off | 1 | 0.18% | 78% |
+
+So channels-last changes results about as much as turning TF32 off does.
+A keypoint that moves by more than 1 px moves by one confidence-map pixel
+(about 3.4 px here); the median keypoint moves 0.006 px. Accuracy is the
+same: on 100 hand-labelled frames, all four (either layout, TF32 on or
+off) had a median error of 3.81–3.83 px and missed the same 8 animals.
+
+There is no bit-identical channels-last mode. With TF32 off it is still
+faster than the default layout with TF32 off (251 vs 191 fps) and much
+closer to it, but not identical: with TF32 off, even changing the batch
+size from 16 to 64 moves 1.8% of keypoints by more than 1 px (no animal
+lost). To turn TF32 off, set `torch.backends.cudnn.allow_tf32 = False` in
+Python before predicting, or run `NVIDIA_TF32_OVERRIDE=0 sleap-nn predict ...`
+(an NVIDIA library setting: same speed as the Python setting, 99% of
+keypoints bit-identical to it).
+
+| Reason to enable | Reason to skip |
+|---|---|
+| NVIDIA GPUs (tensor-core convolutions) | Results must match earlier runs bit for bit |
+| | AMD (ROCm): no difference measured |
+| | CPU / MPS: not measured |
 
 ### `fuse_layers` (Conv-BN fusion)
 
@@ -184,10 +312,10 @@ predictor = Predictor.from_model_paths(
     ["models/centroid/", "models/centered_instance/"],
     device="cuda",
     batch_size=8,
+    upload_batches=True,
+    memory_format="channels_last",  # NVIDIA
 )
-backend = predictor.layer.backend  # or .centroid_layer.backend for top-down
-backend.use_fp16 = True
-backend.use_compile = True
+use_fast_backends(predictor, fp16=True, compile=True)  # helper from FP16 above
 
 labels = predictor.predict("long_video.mp4")
 labels.save("predictions.slp")
@@ -209,7 +337,7 @@ Skip FP16 + compile — both add overhead that dominates short runs.
 sleap-nn predict -i video.mp4 -m models/my_model/ --device mps --batch_size 4
 ```
 
-FP16 silently has no effect on MPS (warning logged). `torch.compile`
+FP16 has no effect on MPS (a warning says so). `torch.compile`
 on MPS is unreliable — the new flow disables it for you with a clear
 warning. Expect ~2-3× speedup over CPU; not 20× like CUDA.
 
@@ -242,16 +370,11 @@ deploying to:
   gains grow; compile cost grows linearly with graph size; `fuse_layers`
   may finally start mattering.
 - **Variable-resolution input** (different videos with different
-  shapes): turn `dynamic=True` on compile or skip it.
+  shapes): skip `torch.compile`. The backend compiles with `dynamic=False`
+  (not configurable), so every new input shape recompiles.
 
-Re-run the bench:
-
-```bash
-SLEAP_NN_REPO=/path/to/sleap-nn \
-  python scratch/2026-04-30-inference-refactor-implementation/cuda_bench/run_cuda_bench.py
-```
-
-Output lands in the same folder as a timestamped log file.
+To compare settings on your own data, time `predictor.predict(...)` on a few
+hundred frames of your video (after one warm-up call) with each setting.
 
 ---
 

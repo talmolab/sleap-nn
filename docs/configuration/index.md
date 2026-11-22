@@ -41,6 +41,15 @@ trainer_config:   # Training settings
   optimizer: {...}
 ```
 
+Alongside the three sections, a config has four top-level fields:
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `name` | str | `""` | Optional name for this config |
+| `description` | str | `""` | Optional description of this config |
+| `sleap_nn_version` | str | installed version | Set automatically: training writes the sleap-nn version that ran it |
+| `filename` | str | `""` | Optional path of this config file (informational; training does not read it) |
+
 ---
 
 ## Usage
