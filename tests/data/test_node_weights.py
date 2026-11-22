@@ -566,3 +566,29 @@ def test_multiclass_track_lookup_stays_aligned(minimal_instance):
     # Only class "b" (index 1) has a class-map peak.
     peaks = sample["class_maps"].reshape(2, -1).amax(dim=-1)
     assert peaks[0] == 0 and peaks[1] > 0.9
+
+
+def test_mask_naming_no_node_in_any_file_raises(minimal_instance):
+    """Renamed nodes with stale provenance entries: an error, not a silent no-op."""
+    renamed = ["renamed/A", "renamed/B"]
+    with pytest.raises(ValueError, match="train on nothing"):
+        _ci_dataset(_labels(minimal_instance, labeled_nodes=renamed))
+    with pytest.raises(ValueError, match="train on nothing"):
+        _frame_datasets(_labels(minimal_instance, labeled_nodes=renamed))
+    # One file with a working mask is enough; the other file only warns.
+    CenteredInstanceDataset(
+        max_stride=8,
+        scale=1.0,
+        confmap_head_config=DictConfig(
+            {"sigma": 1.5, "output_stride": 2, "anchor_part": None}
+        ),
+        crop_size=160,
+        labels=[
+            _labels(minimal_instance, labeled_nodes=renamed),
+            _labels(minimal_instance, labeled_nodes=["A"]),
+        ],
+    )
+    # A file without the key trains every node, so it is not an error either.
+    _ci_dataset(_labels(minimal_instance))
+    # With the mask switched off nothing is weighted, so nothing is checked.
+    _ci_dataset(_labels(minimal_instance, labeled_nodes=renamed), node_loss_mask=False)

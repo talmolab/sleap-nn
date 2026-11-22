@@ -157,3 +157,21 @@ def test_apply_sizematcher_warn_false(caplog):
     image, _ = apply_sizematcher(torch.zeros(1, 3, 300, 400), 256, 256, warn=False)
     assert image.shape[-2:] == (256, 256)
     assert not [r for r in caplog.records if "256x256" in r.message]
+
+
+def test_apply_sizematcher_warn_info(caplog):
+    """``warn="info"`` (prediction) logs one info line per size pair, no warning."""
+    resizing._SIZEMATCHER_WARNED_KEYS.clear()
+    resizing._INFERENCE_RESIZE_NOTED.clear()
+    caplog.clear()
+    for _ in range(3):
+        image, _ = apply_sizematcher(torch.zeros(1, 3, 300, 400), 256, 256, warn="info")
+    assert image.shape[-2:] == (256, 256)
+    noted = [r for r in caplog.records if "256x256" in r.message]
+    assert len(noted) == 1
+    assert noted[0].levelname == "INFO"
+    assert "300x400" in noted[0].message and "slower" not in noted[0].message
+    # Same-size frames are not noted.
+    caplog.clear()
+    apply_sizematcher(torch.zeros(1, 3, 256, 256), 256, 256, warn="info")
+    assert not caplog.records

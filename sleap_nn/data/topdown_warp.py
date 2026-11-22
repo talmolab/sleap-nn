@@ -60,7 +60,9 @@ from sleap_nn.data.instance_cropping import (
     window_corners,
 )
 from sleap_nn.data.node_weights import (
+    LABELED_NODES_KEY,
     UNLABELED_POINTS_MODES,
+    check_some_node_weighted,
     get_labeled_nodes_weights,
     instance_node_weights,
 )
@@ -256,11 +258,30 @@ def build_instance_table(
     }
     n_small = n_few = n_empty = n_no_det = 0
     box_sources = {"gt": 0, "detector": 0} if use_det else {"gt": 0}
+    # Per-file node masks (skeleton order), computed once; a mask that leaves no
+    # node of the model weighted in any file is an error, not an empty dataset.
+    file_sk_weights = [
+        get_labeled_nodes_weights(labels, labels.skeletons[0].node_names)
+        for labels in labels_list
+    ]
+    file_masks = []
+    for labels, w_sk in zip(labels_list, file_sk_weights):
+        if LABELED_NODES_KEY not in (labels.provenance or {}):
+            file_masks.append(None)
+            continue
+        sk_names = labels.skeletons[0].node_names
+        file_masks.append(
+            np.array(
+                [w_sk[sk_names.index(n)] if n in sk_names else 0.0 for n in node_names],
+                dtype=np.float32,
+            )
+        )
+    check_some_node_weighted(file_masks, labels_list)
     for li, labels in enumerate(labels_list):
         sk_names = labels.skeletons[0].node_names
         src = np.array([sk_names.index(n) if n in sk_names else -1 for n in node_names])
         has = src >= 0
-        w_sk = get_labeled_nodes_weights(labels, sk_names)
+        w_sk = file_sk_weights[li]
         source = resolve_bbox_source(labels, bbox_source)
         if source == "masks":
             raise ValueError(

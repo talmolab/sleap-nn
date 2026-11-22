@@ -79,6 +79,7 @@ from sleap_nn.data.utils import (
 )
 from sleap_nn.data.confidence_maps import generate_confmaps, generate_multiconfmaps
 from sleap_nn.data.node_weights import (
+    check_some_node_weighted,
     finite_point_weights,
     get_labeled_nodes_weights,
     frame_node_weights,
@@ -680,6 +681,8 @@ class BaseDataset(Dataset):
             if self.emit_node_weights
             else None
         )
+        if self.file_node_weights is not None:
+            check_some_node_weighted(self.file_node_weights, labels)
         self.use_negative_frames = use_negative_frames
         self.ensure_rgb = ensure_rgb
         self.ensure_grayscale = ensure_grayscale

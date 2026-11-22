@@ -96,9 +96,55 @@ def get_labeled_nodes_weights(
     if weights.sum() == 0:
         logger.warning(
             f"provenance['{LABELED_NODES_KEY}'] matches no skeleton node; every node "
-            "of this file gets zero loss weight."
+            "of this file gets zero loss weight. If the nodes were renamed, rename "
+            f"the entries of provenance['{LABELED_NODES_KEY}'] the same way."
         )
     return weights
+
+
+def check_some_node_weighted(
+    file_weights: Sequence[Optional[np.ndarray]],
+    labels_list: Sequence[Optional[sio.Labels]],
+) -> None:
+    """Raise when the per-file node masks leave every node of every file unweighted.
+
+    With ``provenance["labeled_nodes"]`` naming no node of the skeleton in any file
+    (typically after the skeleton's nodes were renamed and the provenance entries
+    were not), every node of every sample gets zero loss weight and the model
+    would train on nothing.
+
+    Args:
+        file_weights: The ``(n_nodes,)`` mask of each file from
+            :func:`get_labeled_nodes_weights`, ``None`` for files without one.
+        labels_list: The labels files, in the same order (used for the message).
+
+    Raises:
+        ValueError: If at least one file has a mask and every mask is all zeros.
+    """
+    masks = [np.asarray(w) for w in file_weights if w is not None]
+    if not masks or any(m.size and m.sum() > 0 for m in masks):
+        return
+    examples = []
+    for w, labels in zip(file_weights, labels_list):
+        if w is None or labels is None:
+            continue
+        listed = list((labels.provenance or {}).get(LABELED_NODES_KEY, []) or [])
+        names = labels.skeletons[0].node_names if labels.skeletons else []
+        examples.append(
+            f"provenance['{LABELED_NODES_KEY}'] = {listed[:3]}"
+            f"{' ...' if len(listed) > 3 else ''} vs skeleton nodes {names[:3]}"
+            f"{' ...' if len(names) > 3 else ''}"
+        )
+        if len(examples) == 2:
+            break
+    raise ValueError(
+        f"provenance['{LABELED_NODES_KEY}'] leaves every node without loss in every "
+        "training file, so the model would train on nothing ("
+        + "; ".join(examples)
+        + "). The entries must name nodes of the skeleton: if the nodes were "
+        f"renamed, rename provenance['{LABELED_NODES_KEY}'] the same way, or remove "
+        "the key to train every node."
+    )
 
 
 def point_weights(instance: sio.Instance) -> np.ndarray:

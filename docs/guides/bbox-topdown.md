@@ -84,7 +84,17 @@ model_config:
   tight box of its visible keypoints). Train both models with the same two values.
   For a box-scaled model, `sleap-nn predict` warns when they differ (a
   `bbox_source` of `auto` on either side is not compared, since it is resolved per
-  labels file).
+  labels file). A different `bbox_padding` can be deliberate, for example a detector
+  trained on padded boxes so that it does not cut off thin extremities: then every
+  crop at prediction time is larger by about twice the difference (in pixels) than
+  in training, the animal fills it slightly less, and the warning, which states
+  that difference, can be ignored. To remove it, train both models with the same
+  value.
+- **Frames of another size than the model's input.** At prediction time frames are
+  fitted to the `max_height` / `max_width` the model was trained with and the
+  predictions are mapped back; `sleap-nn predict` notes this once per frame size
+  in its log. It is expected, and those values should not be changed for
+  prediction.
 - **`crop_size` sets resolution, not coverage.** Every box is resized to the crop, so
   the crop no longer has to hold the largest animal. Left unset it is the median
   padded box side (rounded up to the backbone's max stride), so a typical animal

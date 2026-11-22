@@ -473,3 +473,13 @@ def test_warp_training_logs_per_file_val_metrics(warp_run):
     assert log["val/loss"].notna().all() and log["eval/val/mOKS"].notna().all()
     mean_oks = log[["eval/minimal_instance/mOKS", "eval/small/mOKS"]].mean(axis=1)
     assert np.allclose(log["eval/macro/mOKS"], mean_oks)
+
+
+def test_warp_mask_naming_no_node_raises(tmp_path):
+    """Stale labeled_nodes entries stop the warp path with the cause, not later."""
+    labels, _ = _labels(tmp_path, labeled=["renamed/" + n for n in NODES])
+    with pytest.raises(ValueError, match="train on nothing"):
+        WarpCenteredInstanceDataset([labels], (64, 48), _head())
+    labels_ok, _ = _labels(tmp_path, name="b", labeled=["head"])
+    ds = WarpCenteredInstanceDataset([labels, labels_ok], (64, 48), _head())
+    assert len(ds) > 0

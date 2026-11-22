@@ -1973,11 +1973,26 @@ def _check_crop_stage(assets: LoadedAssets, model_types: List[str]) -> None:
         if key == "bbox_source" and "auto" in (det_val, crop_val):
             continue  # resolved per labels file; only explicit values compare
         if spec is not None and det_val != crop_val:
+            if key == "bbox_padding":
+                grow = 2 * (float(det_val) - float(crop_val))
+                detail = (
+                    f"the detector's boxes are about {abs(grow):g} px "
+                    f"{'wider and taller' if grow > 0 else 'narrower and shorter'} "
+                    "than the boxes the crop model was trained on, so each animal "
+                    "fills its crop slightly "
+                    f"{'less' if grow > 0 else 'more'} than in training"
+                )
+            else:
+                detail = (
+                    "the two models define boxes differently, so crops are scaled "
+                    "differently from training"
+                )
             logger.warning(
                 f"The detector was trained with data_config.{key}={det_val!r} but "
                 f"the box-scaled centered-instance model with {key}={crop_val!r}: "
-                "their boxes differ, so crops will be scaled differently from "
-                "training."
+                f"{detail}. This is expected only if the two models were trained "
+                f"with different {key} on purpose (see the box-scaled top-down "
+                "guide)."
             )
     if spec is None:
         from sleap_nn.data.instance_centroids import centroid_method_from_config
