@@ -751,3 +751,38 @@ def test_model_trainer_clears_legacy_hidden_points_before_splitting(monkeypatch)
     with pytest.raises(RuntimeError, match="stop after the clean-up"):
         trainer._setup_train_val_labels([a, b], [c])
     assert seen == [a, b, c]
+
+
+def test_clear_legacy_hidden_points_skips_lazy_labels(minimal_instance):
+    """Lazy labels cannot be changed in place: nothing is reported as cleared."""
+    from types import SimpleNamespace
+
+    from sleap_nn.data.providers import clear_legacy_hidden_points
+
+    labels = sio.load_slp(minimal_instance)
+    labels[0].instances[1].points["visible"][:] = False
+    lazy = SimpleNamespace(
+        labeled_frames=labels.labeled_frames, _source_format_id=1.4, is_lazy=True
+    )
+    assert clear_legacy_hidden_points(lazy) == 0
+    assert np.isfinite(labels[0].instances[1].points["xy"]).all()
+
+
+def test_evaluation_clears_legacy_hidden_points(
+    monkeypatch, minimal_instance, tmp_path
+):
+    """Ground truth read by evaluation gets the same clean-up as training."""
+    from sleap_nn import evaluation
+
+    seen = []
+    monkeypatch.setattr(
+        evaluation, "clear_legacy_hidden_points", lambda lb: seen.append(lb) or 0
+    )
+    gt = sio.load_slp(minimal_instance)
+    pred = tmp_path / "pred.slp"
+    sio.save_slp(gt, pred)
+    try:
+        evaluation.run_evaluation(gt, str(pred))
+    except Exception:
+        pass  # only the clean-up of the ground truth matters here
+    assert seen and seen[0] is gt

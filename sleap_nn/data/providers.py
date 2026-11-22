@@ -151,9 +151,8 @@ def instance_points(inst: sio.Instance, supervise_occluded: bool = True) -> np.n
     have coordinates (occluded estimates, COCO ``v=1``; sleap-io >= 0.10) keep
     them; otherwise they are NaN like any other hidden node. Unlabeled nodes and
     nodes without a location are always NaN. Files without occluded estimates
-    (every pre-SLP-3.0 file: hidden points' coordinates are cleared on read, by
-    sleap-io < 0.10 or by :func:`clear_legacy_hidden_points` for training) give
-    exactly ``inst.numpy()``.
+    (every pre-SLP-3.0 file once :func:`clear_legacy_hidden_points` has run, as
+    training and evaluation do) give exactly ``inst.numpy()``.
     """
     return inst.numpy(invisible_as_nan=not supervise_occluded)
 
@@ -168,22 +167,38 @@ def clear_legacy_hidden_points(labels: Optional[sio.Labels]) -> int:
 
     Files older than SLP format 3.0 cannot mark a point as an occluded estimate: a
     hidden point's coordinates there are whatever was left behind when the node was
-    hidden (the SLEAP GUI keeps the last position), not an estimate. sleap-io < 0.10
-    cleared them on load. A sleap-io that loads old files unchanged reads them as
-    occluded estimates instead, which training would supervise and which would keep
-    an instance whose nodes are all hidden. This restores the old reading for
-    training, in place, only for labels that sleap-io reports as loaded from a file
-    older than format 3.0; labels from a format 3.0 file, or built in memory, are
-    left alone.
+    hidden (the SLEAP GUI keeps the last position), not an estimate. sleap-io 0.9
+    kept them in ``points["xy"]`` but hid them from ``Instance.numpy()`` and
+    ``is_empty``, which is all sleap-nn 0.3 read. A sleap-io that loads old files
+    unchanged and reads such points as occluded estimates would make training keep
+    instances whose nodes are all hidden and supervise hidden nodes at their stale
+    positions, and evaluation score ground truth there. This restores the 0.3
+    reading, in place, for labels that sleap-io reports as loaded from a file older
+    than format 3.0 (its ``_source_format_id``); labels from a format 3.0 file, or
+    built in memory, are left alone, as are lazily loaded labels (with a warning:
+    their points cannot be changed in place).
+
+    Limits: the source format describes the file's layout, not where its
+    coordinates came from: an old file re-saved in format 3.0 keeps its stale
+    positions as occluded estimates, and occluded estimates saved in the old layout
+    are cleared on reload.
 
     Args:
-        labels: Labels as loaded (before any split, which drops the source format).
+        labels: Labels as loaded.
 
     Returns:
         The number of points whose coordinates were cleared.
     """
     source = getattr(labels, "_source_format_id", None) if labels is not None else None
     if source is None or float(source) >= _OCCLUDED_ESTIMATE_FORMAT_ID:
+        return 0
+    if getattr(labels, "is_lazy", False):
+        logger.warning(
+            "Labels read lazily from an SLP file older than format "
+            f"{_OCCLUDED_ESTIMATE_FORMAT_ID:g}: the stored coordinates of hidden "
+            "points cannot be cleared in place and may be read as occluded "
+            "estimates; load the file eagerly to train or evaluate on it."
+        )
         return 0
     cleared = 0
     for lf in labels.labeled_frames:
