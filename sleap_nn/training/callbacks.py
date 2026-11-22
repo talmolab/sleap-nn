@@ -1,8 +1,10 @@
 """Custom Callback modules for Lightning Trainer."""
 
 import math
+import random
 import zmq
 import jsonpickle
+import numpy as np
 import torch
 from dataclasses import dataclass
 from typing import Callable, List, Optional, Sequence, Union
@@ -4039,6 +4041,37 @@ class BalancedSamplerResume(Callback):
             return
         for dl, state in zip(loaders, states):
             dl.load_state_dict(state)
+
+
+class ResumeReseed(Callback):
+    """Seed the random generators for the resumed epoch when a run is resumed.
+
+    On one device without an epoch-aware sampler, the train loader shuffles with
+    the global torch random generator, and the augmentations draw from the global
+    generators too. A resumed run seeds them again with ``trainer_config.seed``,
+    so without this its first epoch replays the first epoch of the original run
+    (same order, same augmentation draws), its second the second, and so on.
+
+    When training starts from a checkpoint (``current_epoch`` above 0), this seeds
+    ``random``, numpy and torch with ``seed + current_epoch``. The resumed epochs
+    then differ from the ones already trained; they are not the ones an
+    uninterrupted run would draw. A run that is not resumed is unchanged.
+    """
+
+    def __init__(self, seed: int):
+        """Initialize with the run's ``trainer_config.seed``."""
+        super().__init__()
+        self.seed = int(seed)
+
+    def on_train_start(self, trainer, pl_module) -> None:
+        """Reseed before the first resumed epoch draws its order."""
+        epoch = int(trainer.current_epoch)
+        if epoch <= 0:
+            return
+        seed = (self.seed + epoch) % (2**32)
+        random.seed(seed)
+        np.random.seed(seed)
+        torch.manual_seed(seed)  # also seeds every CUDA device
 
 
 class EmbeddingEvaluationCallback(Callback):

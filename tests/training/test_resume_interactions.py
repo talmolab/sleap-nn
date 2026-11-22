@@ -357,21 +357,14 @@ def test_cli_resume_with_freeze_schedule_and_ema(frames_config, monkeypatch):
     assert before.encoder_names <= before.ema_names
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason=(
-        "On one device without `balanced_sampler`, the train loader shuffles with "
-        "the global torch RNG, which a resumed run seeds again with "
-        "`trainer_config.seed`: its first epoch replays the original run's first "
-        "epoch (order and augmentation draws), its second the second, and so on."
-    ),
-)
 def test_resume_does_not_replay_the_first_epochs_order(frames_config, monkeypatch):
     """The first resumed epoch must not train in the first epoch's order again.
 
-    (Stronger, and what the epoch-aware samplers above already do: it should be
-    the order epoch 1 of an uninterrupted run draws.)
+    On one device without `balanced_sampler`, the train loader shuffles with the
+    global torch RNG, which a resumed run seeds again with `trainer_config.seed`;
+    `ResumeReseed` seeds it for the resumed epoch. (Not checked: that it is the
+    order epoch 1 of an uninterrupted run draws, which the epoch-aware samplers
+    above give and the global RNG cannot.)
     """
     cfg = frames_config
     first = _train(cfg, _OrderRecorder(), monkeypatch, run_name="orig", max_epochs=1)
