@@ -243,3 +243,37 @@ def test_multi_class_bottomup_precision_through_the_cli(
     assert result.output.count("does not reproduce its fp32 graph") == int(warned)
     if want == "fp32":
         assert meta["precision_requested"] == "fp16" and "precision_fallback" in meta
+
+
+@pytest.mark.parametrize("strongly_typed", [False, True])
+def test_fp16_engine_keeps_the_absent_peak_sentinel(
+    minimal_instance_centroid_ckpt, tmp_path, strongly_typed
+):
+    """Value outputs hold the graph's -1e9 for absent peaks, not -65504 or inf."""
+    from .conftest import _has_tensorrt
+
+    if not (torch.cuda.is_available() and _has_tensorrt()):
+        pytest.skip("needs CUDA and TensorRT")
+    import tensorrt as trt
+
+    if strongly_typed and not hasattr(
+        trt.NetworkDefinitionCreationFlag, "STRONGLY_TYPED"
+    ):
+        pytest.skip("this TensorRT has no strongly typed networks")
+    from sleap_nn.export.cli import export
+    from sleap_nn.inference.layers.backends import TensorRTBackend
+
+    out = tmp_path / "x"
+    args = [str(minimal_instance_centroid_ckpt), "-o", str(out), "--format"]
+    args += ["tensorrt", "--precision", "fp16", "--device", "cuda"]
+    args += ["--max-batch-size", "2"] + (["--strongly-typed"] if strongly_typed else [])
+    result = CliRunner().invoke(export, args)
+    assert result.exit_code == 0, result.output + str(result.exception)
+    meta = json.loads((out / "model.trt.metadata.json").read_text())
+    if meta["precision"] != "fp16":
+        pytest.skip("no fast fp16 on this GPU")
+    backend = TensorRTBackend(engine_path=str(out / "model.trt"), device="cuda")
+    vals = backend(torch.zeros(1, 1, 384, 384, dtype=torch.uint8, device="cuda"))[
+        "centroid_vals"
+    ]
+    assert torch.all(vals == -1e9), vals

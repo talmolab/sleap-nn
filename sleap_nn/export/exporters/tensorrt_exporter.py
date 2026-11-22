@@ -692,8 +692,18 @@ def _export_tensorrt_onnx(
     elif precision == "fp16":
         if builder.platform_has_fast_fp16:
             config.set_flag(trt.BuilderFlag.FP16)
+            # fp16 cannot hold a value beyond 65504: the layers that read or compute
+            # one (the 1e9 sentinels for absent peaks) stay fp32, as on the strongly
+            # typed path, so the outputs keep the value instead of an inf.
+            held = _hold_fp32_beyond_fp16_range(network, onnx_path, trt)
+            if held:
+                config.set_flag(trt.BuilderFlag.PREFER_PRECISION_CONSTRAINTS)
+            info["fp16_fp32_layers"] = held
             if verbose:
-                print("  Enabled FP16 mode")
+                print(
+                    f"  Enabled FP16 mode ({held} layers holding values beyond fp16's "
+                    "range kept in fp32)"
+                )
         else:
             info["precision_built"] = "fp32"
             logger.warning(
@@ -707,6 +717,10 @@ def _export_tensorrt_onnx(
                 else "fp32 (no fast fp16)"
             )
         }
+        if info.get("fp16_fp32_layers"):
+            info["precision_by_scope"][
+                "layers reading values beyond fp16's range"
+            ] = "fp32"
     elif precision == "bf16":
         # bf16 kernels where faster, with fp32's exponent range (fp16 can overflow
         # in large-activation transformers). Weak typing: TensorRT 10.x.
@@ -818,6 +832,81 @@ def _export_tensorrt_onnx(
         print(f"  Engine size: {os.path.getsize(engine_path) / 1e6:.2f} MB")
 
     return engine_path
+
+
+def _hold_fp32_beyond_fp16_range(network, onnx_path: Path, trt) -> int:
+    """Keep the layers that read or compute values beyond fp16's range in fp32.
+
+    TensorRT 10's builder flags (weak typing) may run any layer in fp16, where a
+    constant beyond 65504 (e.g. the -1e9 sentinel that masks absent peaks) becomes
+    inf, and so do the outputs computed from it. The float tensors holding such
+    values are found on the ONNX graph
+    (:func:`~sleap_nn.export.exporters.onnx_precision.beyond_fp16_range_tensors`, the
+    rule of the strongly typed rewrite), matched to the parsed network by tensor
+    name, plus the network's own constant layers beyond that range (the parser turns
+    a fill value into a constant and a broadcast), and followed downstream through the
+    network; every layer reading or writing one is pinned to fp32 (precision and float
+    output types). Shape layers are left alone.
+
+    Args:
+        network: The parsed ``tensorrt.INetworkDefinition``.
+        onnx_path: The ONNX file it was parsed from.
+        trt: The ``tensorrt`` module.
+
+    Returns:
+        The number of layers pinned.
+    """
+    import onnx
+
+    from sleap_nn.export.exporters.onnx_precision import beyond_fp16_range_tensors
+
+    import numpy as np
+
+    model = onnx.load(str(onnx_path))
+    held = beyond_fp16_range_tensors(model)
+    if not held:
+        return 0
+    # The parser makes constants of its own (an ONNX fill value becomes a constant
+    # layer plus a broadcast): seed those holding such values too.
+    for i in range(network.num_layers):
+        layer = network.get_layer(i)
+        if layer.type != trt.LayerType.CONSTANT:
+            continue
+        try:
+            layer.__class__ = trt.IConstantLayer  # the Python API's downcast
+            w = layer.weights
+            a = np.asarray(w.numpy() if hasattr(w, "numpy") else w)
+        except Exception:  # noqa: BLE001 -- weights not readable: judged by name
+            continue
+        if a.dtype.kind == "f" and a.size:
+            # Finite values beyond fp16's range; float32's max is the parser's stand-in
+            # for "no bound" (a Clip without max), not a value.
+            a = np.abs(a[np.isfinite(a)].astype(np.float32))
+            a = a[a < np.finfo(np.float32).max]
+            if a.size and float(a.max()) > 65504.0:
+                held.add(layer.get_output(0).name)
+    float_types = {trt.float32, getattr(trt, "float16", None)} - {None}
+    pinned = set()
+    changed = True
+    while changed:  # layers are in parse order; repeat in case one is not
+        changed = False
+        for i in range(network.num_layers):
+            layer = network.get_layer(i)
+            if i in pinned or layer.type == trt.LayerType.SHAPE:
+                continue
+            ins = [layer.get_input(j) for j in range(layer.num_inputs)]
+            outs = [layer.get_output(j) for j in range(layer.num_outputs)]
+            names = {t.name for t in ins + outs if t is not None}
+            if not names & held:
+                continue
+            float_outs = [j for j, t in enumerate(outs) if t.dtype in float_types]
+            layer.precision = trt.float32
+            for j in float_outs:
+                layer.set_output_type(j, trt.float32)
+                held.add(outs[j].name)
+            pinned.add(i)
+            changed = True
+    return len(pinned)
 
 
 def _export_tensorrt_jit(

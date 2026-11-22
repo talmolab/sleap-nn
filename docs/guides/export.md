@@ -113,6 +113,11 @@ How the reduced precisions are built depends on the TensorRT version:
 
 - **TensorRT 10.x** (default): builder flags (weak typing): TensorRT picks fp16 / bf16
   kernels where they are faster, and sleap-nn holds the fp32 layers above in fp32.
+  Under fp16 it also holds in fp32 the few layers that read or compute a value beyond
+  fp16's range (the -1e9 sentinels for absent peaks: the same rule as the strongly
+  typed path below), so value outputs such as `centroid_vals` / `peak_vals` keep -1e9
+  where no peak was found instead of -65504 or -inf (`fp16_fp32_layers` in the
+  metadata).
 - **TensorRT 11** removed those flags: every network is strongly typed, and each
   tensor runs in the type the graph gives it. sleap-nn then writes the precision into
   the graph it hands TensorRT ("strong typing"): it converts the chosen nodes'
