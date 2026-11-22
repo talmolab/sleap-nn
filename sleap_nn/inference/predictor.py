@@ -139,6 +139,11 @@ def _torch_backends(layer: Any) -> List[TorchBackend]:
     return found
 
 
+def _is_cuda(device: Any) -> bool:
+    """Whether ``device`` (a string, a ``torch.device`` or ``None``) is a CUDA one."""
+    return device is not None and torch.device(device).type == "cuda"
+
+
 def _safe_num_frames(provider: Any) -> int:
     """Return ``provider.num_frames()`` or ``-1`` if unavailable/unknown.
 
@@ -1327,14 +1332,16 @@ def _restore_source_order(
     labels.labeled_frames.sort(key=key)
 
 
-def _enable_frames_on_gpu(layer: Any) -> None:
-    """``frames_on_gpu``: frames go to the GPU before stage 1 (top-down only)."""
-    if not isinstance(layer, TopDownLayer):
-        raise ValueError(
-            "frames_on_gpu needs a top-down pipeline (a centroid model or box "
-            "detector with a crop model)."
-        )
-    layer.frames_on_gpu = True
+def _resolve_upload_batches(upload_batches: bool, frames_on_gpu: bool) -> bool:
+    """``upload_batches`` after its deprecated alias ``frames_on_gpu`` (logs once)."""
+    if not frames_on_gpu:
+        return upload_batches
+    logger.warning(
+        "frames_on_gpu is now upload_batches: the frames are uploaded for every "
+        "pipeline (see upload_batches). frames_on_gpu is a deprecated alias and "
+        "will be removed in a later release."
+    )
+    return True
 
 
 @attrs.define
@@ -1366,15 +1373,22 @@ class Predictor:
             :meth:`predict` runs the tracker on the resulting
             ``sio.Labels`` (requires ``make_labels=True``) before
             returning.
-        upload_batches: When ``True`` and the layer's (first) model runs on a
-            CUDA device, each numpy batch from the provider is copied to that
+        upload_batches: When ``True`` and a model of the layer runs on a CUDA
+            device, each batch of frames from the provider is copied to that
             GPU (still ``uint8``) before ``layer.predict``, so resizing and
             top-down cropping run on the GPU instead of the CPU (2.2x faster
             for a top-down pair on an A100; peak finding is on the GPU either
-            way). The GPU's ``uint8`` resize rounds some pixels the other way
-            by 1 grey level, so results differ slightly from the default
-            ``False``, which hands the layer the numpy batch. Off a CUDA device
-            it has no effect (with a logged warning).
+            way). It works for every pipeline: one-stage models, top-down
+            pairs (a centroid model or a box detector first) and network-only
+            export folders given as model paths. A streamed part stage
+            (``part_stage``) cuts its crops from the same GPU copy, and
+            :func:`~sleap_nn.inference.run.open_stream` uploads each pushed
+            frame the same way. The GPU's ``uint8`` resize rounds some
+            pixels the other way by 1 grey level, so results are not
+            bit-identical to the default ``False``, which hands the layer the
+            batch as the provider gave it (a box near the score threshold can
+            move, and with it an instance). Without a CUDA model it has no
+            effect (with a logged warning).
 
     Notes:
         Keeps no state across calls — same predictor can be reused on
@@ -1437,16 +1451,19 @@ class Predictor:
             )
         if self.upload_batches:
             # Upload to the device the (first) model runs on, not
-            # ``self.device``: a layer built by hand may live elsewhere.
+            # ``self.device``: a layer built by hand may live elsewhere. When
+            # that model is not on CUDA but a later one is (a hand-built pair
+            # with stage 1 on the CPU), the frames go to that later model's GPU.
             backends = _torch_backends(self.layer)
-            device = backends[0].device if backends else self.device
-            if device is not None and torch.device(device).type == "cuda":
+            devices = [b.device for b in backends] or [self.device]
+            device = next((d for d in devices if _is_cuda(d)), devices[0])
+            if _is_cuda(device):
                 self._upload_device = str(device)
             else:
                 logger.warning(
                     f"upload_batches=True has no effect on device={device}: it "
-                    "copies frames to a CUDA device running a trained "
-                    "checkpoint."
+                    "copies frames to a CUDA device a model of the pipeline "
+                    "runs on."
                 )
 
     @property
@@ -1507,9 +1524,9 @@ class Predictor:
         strip_prefix: Optional[Union[bool, str]] = None,
         precision: str = "32",
         export_runtime: str = "auto",
-        frames_on_gpu: bool = False,
         upload_batches: bool = False,
         memory_format: str = "contiguous",
+        frames_on_gpu: bool = False,
     ) -> "Predictor":
         """Build a :class:`Predictor` from one or more checkpoint paths.
 
@@ -1623,24 +1640,28 @@ class Predictor:
                 detector export), which then stands in for that checkpoint:
                 ``"auto"`` (``model.trt`` if present, else ``model.onnx``),
                 ``"onnx"`` or ``"tensorrt"``. Checkpoint entries ignore it.
-            frames_on_gpu: Top-down pipelines only: move each batch of frames to
-                the GPU before stage 1, so the stage-1 resize / letterbox and the
-                crops' frame-size match run there instead of on the CPU (off by
-                default). Results are not bit-identical to the CPU resize: a
-                ``uint8`` resize on the GPU rounds some pixels one grey level
-                differently, which can move a box near the score threshold (and
-                with it an instance). Without a CUDA model the frames stay on the
-                CPU, with a warning.
-            upload_batches: Copy each ``uint8`` batch to the GPU before
-                preprocessing when ``device`` is CUDA (faster; results differ
-                slightly from the default ``False``). See :class:`Predictor`.
+            upload_batches: Copy each ``uint8`` batch of frames to the GPU
+                before preprocessing when ``device`` is CUDA, so the resize /
+                letterbox, the crops' frame-size match and the cropping run
+                there instead of on the CPU (off by default). Every pipeline,
+                network-only export folders among ``model_paths`` included; a
+                streamed part stage reads the same GPU copy. Results are not
+                bit-identical to the CPU resize: a ``uint8`` resize on the GPU
+                rounds some pixels one grey level differently, which can move
+                a box near the score threshold (and with it an instance).
+                Without a CUDA model the frames stay on the CPU, with a
+                warning. See :class:`Predictor`.
             memory_format: Weight layout of every model in the composition:
                 ``"contiguous"`` (default) or ``"channels_last"`` (faster cuDNN
                 convolutions on NVIDIA GPUs). See :class:`TorchBackend`.
+            frames_on_gpu: Deprecated alias of ``upload_batches`` (``True``
+                turns it on, with a warning); will be removed in a later
+                release.
         """
         from sleap_nn.inference.loaders import load_model_assets
         from sleap_nn.system_info import get_startup_info_string
 
+        upload_batches = _resolve_upload_batches(upload_batches, frames_on_gpu)
         logger.info(get_startup_info_string())
 
         from sleap_nn.inference.exported_network import EXPORT_RUNTIME
@@ -1773,16 +1794,6 @@ class Predictor:
             spec.append(f"min_mask_area={min_mask_area}")
             spec.append(f"full_res_masks={full_res_masks}")
             spec.append(f"mask_output={mask_output}")
-        if frames_on_gpu:
-            _enable_frames_on_gpu(layer)
-            if getattr(layer, "_frames_device", lambda: None)() is None:
-                logger.warning(
-                    "frames_on_gpu=True, but no stage of this model runs on CUDA: "
-                    "the frames stay on the CPU (the option has no effect)."
-                )
-                spec.append("frames_on_gpu=True (no CUDA model: frames stay on CPU)")
-            else:
-                spec.append("frames_on_gpu=True")
         logger.info("Loaded inference model | " + " | ".join(spec))
 
         return cls(**kwargs)
@@ -2793,8 +2804,8 @@ class Predictor:
     # Internals
     # ──────────────────────────────────────────────────────────────────
 
-    def _batch_images(self, batch: Batch) -> Any:
-        """Return ``batch.images``, copied to the model's GPU if ``upload_batches``.
+    def _upload_images(self, images: Any) -> Any:
+        """Return ``images``, copied to the model's GPU if ``upload_batches``.
 
         Providers yield ``uint8`` numpy frames. Handed to a layer as numpy,
         they stay on the CPU through preprocessing (sizematcher, input
@@ -2802,11 +2813,27 @@ class Predictor:
         backend's forward. Copying the ``uint8`` batch first moves that work
         to the GPU and copies the fewest bytes (before any float
         conversion).
+
+        A numpy array is copied to the upload device; a tensor that is not on
+        it yet is moved there (one already there is returned as it is). Dtype
+        and layout are kept: the layers take channels-last or channels-first
+        frames. With ``upload_batches`` off, or without a CUDA model, the
+        input is returned untouched. Whatever reads the frames afterwards (the
+        layer, a streamed part stage) gets the object this returns, so the
+        upload happens once.
         """
-        images = batch.images
-        if self._upload_device is not None and isinstance(images, np.ndarray):
-            images = torch.from_numpy(images).to(self._upload_device, non_blocking=True)
+        device = self._upload_device
+        if device is None:
+            return images
+        if isinstance(images, np.ndarray):
+            return torch.from_numpy(images).to(device, non_blocking=True)
+        if isinstance(images, torch.Tensor):
+            return images.to(device, non_blocking=True)
         return images
+
+    def _batch_images(self, batch: Batch) -> Any:
+        """``batch.images`` as the layer gets them (see :meth:`_upload_images`)."""
+        return self._upload_images(batch.images)
 
     def _batch_iter(
         self,
@@ -2874,15 +2901,6 @@ class Predictor:
             # ``upload_batches`` copies the batch to the GPU here, so the layer and
             # the part stage below both read the same copy.
             images = self._batch_images(batch)
-            if self.part_stage is not None and getattr(layer, "frames_on_gpu", False):
-                # Upload once: the part stage cuts its crops from the same copy.
-                device = layer._frames_device()
-                if device is not None and isinstance(
-                    images, (np.ndarray, torch.Tensor)
-                ):
-                    images = layer.centroid_layer._to_4d_tensor(images).to(
-                        device, non_blocking=True
-                    )
             outputs = layer.predict(images, **kwargs)
             outputs = pipeline(outputs)
             if self.part_stage is not None:

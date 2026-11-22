@@ -1437,6 +1437,14 @@ def _run_inference_impl(**kwargs):
         raise click.UsageError(
             "--write-interval is only meaningful together with --stream-to-file."
         )
+    if kwargs.pop("frames_on_gpu", False):
+        # The old name of --upload_batches: same effect on every route below.
+        logger.warning(
+            "--frames_on_gpu is now --upload_batches: the frames are uploaded "
+            "for every pipeline (see --upload_batches). --frames_on_gpu is a "
+            "deprecated alias and will be removed in a later release."
+        )
+        kwargs["upload_batches"] = True
 
     if "model_paths" in kwargs and kwargs["model_paths"]:
         kwargs["model_paths"] = list(kwargs["model_paths"])
@@ -3227,7 +3235,6 @@ def _run_in_memory_new_flow(
         "fg_threshold": kwargs.get("fg_threshold", 0.5),
         "bbox_nms_iou": kwargs.get("bbox_nms_iou"),
         "flip_test": kwargs.get("flip_test", False),
-        "frames_on_gpu": kwargs.get("frames_on_gpu", False),
         # Every route: export directories among several --model_paths (network-only
         # exports, box detectors) and a --part_model export run on this runtime.
         "runtime": (kwargs.get("runtime") or "auto").lower(),
@@ -3759,7 +3766,6 @@ def _run_stream_to_file(
         "fg_threshold": kwargs.get("fg_threshold", 0.5),
         "bbox_nms_iou": kwargs.get("bbox_nms_iou"),
         "flip_test": kwargs.get("flip_test", False),
-        "frames_on_gpu": kwargs.get("frames_on_gpu", False),
         **_node_filter_kwargs(kwargs),
         "min_mask_area": kwargs.get("min_mask_area", 0),
         "center_nms_kernel": kwargs.get("center_nms_kernel", 3),
@@ -3985,11 +3991,16 @@ def _common_inference_options(f):
             is_flag=True,
             default=False,
             help="With a CUDA device, copy each batch of frames to the GPU before "
-            "preprocessing, so resizing and top-down cropping run on the GPU "
+            "preprocessing, so resizing (the detector's resize / letterbox, the "
+            "crops' frame-size match) and top-down cropping run on the GPU "
             "instead of the CPU (2.2x faster for a top-down pair on an A100). "
-            "The GPU resize rounds a few pixels differently (by 1 grey level), so "
-            "results differ slightly from a run without it. `predict` with "
-            "trained checkpoints only.",
+            "Works for every pipeline built from --model_paths (trained "
+            "checkpoints and network-only export folders); with --part_streaming "
+            "the part model cuts its crops from the same GPU copy. Results are "
+            "not bit-identical to the CPU resize: a uint8 resize on the GPU "
+            "rounds some pixels one grey level differently, which can move a box "
+            "near the score threshold. `predict` only; ignored, with a warning, "
+            "for a single exported model directory and without a CUDA device.",
         ),
         click.option(
             "--memory_format",
@@ -4432,13 +4443,10 @@ def _common_inference_options(f):
             "frames_on_gpu",
             is_flag=True,
             default=False,
+            hidden=True,
             help=(
-                "Top-down pipelines only: move each batch of frames to the GPU "
-                "before stage 1, so the detector's resize / letterbox and the "
-                "crops' frame-size match run there instead of on the CPU. Results "
-                "are not bit-identical to the CPU resize: a uint8 resize on the GPU "
-                "rounds some pixels one grey level differently, which can move a box "
-                "near the score threshold."
+                "[DEPRECATED] Alias of --upload_batches (turns it on, with a "
+                "warning); will be removed in a later release."
             ),
         ),
         click.option(

@@ -170,14 +170,19 @@ use_fast_backends(predictor, fp16=False, compile=True)  # helper from FP16 above
 ### Batches on the GPU (`upload_batches`)
 
 `sleap-nn predict --upload_batches` (or `upload_batches=True` on
-`Predictor.from_model_paths` / `sleap_nn.inference.predict`) copies each
-`uint8` batch from the provider to the GPU the (first) model runs on, before
-`layer.predict`. Without it (the default) the layer gets a numpy batch, and
-the sizematcher, input scaling and top-down crop extraction run on the CPU;
-only the networks run on the GPU. It applies to trained checkpoints in
-`sleap-nn predict`; `sleap-nn track` (the legacy pipeline) and exported
-ONNX/TensorRT models are unchanged. Off a CUDA device it does nothing (and
-logs a warning saying so).
+`Predictor.from_model_paths` / `sleap_nn.inference.predict` /
+`sleap_nn.inference.open_stream`) copies each `uint8` batch from the
+provider to the GPU the (first) model runs on, before `layer.predict`. Without
+it (the default) the layer gets a numpy batch, and the sizematcher, input
+scaling and top-down crop extraction run on the CPU; only the networks run on
+the GPU. It applies to every pipeline built from model paths in
+`sleap-nn predict`: one-stage models, top-down pairs (a centroid model or a box
+detector first), and network-only export folders passed as model paths. A
+streamed part stage (`--part_streaming`) cuts its crops from the same GPU copy,
+and `open_stream` uploads each pushed frame once in the same way.
+`sleap-nn track` (the legacy pipeline) and a single exported ONNX/TensorRT
+model directory are unchanged (the option is ignored there, with a warning).
+Off a CUDA device it does nothing (and logs a warning saying so).
 
 ```bash
 sleap-nn predict -i video.mp4 -m models/centroid/ -m models/centered_instance/ \
