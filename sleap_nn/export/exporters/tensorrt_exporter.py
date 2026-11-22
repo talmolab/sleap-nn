@@ -729,8 +729,13 @@ def _export_tensorrt_onnx(
             info["fp16_fp32_layers"] = held
             if verbose:
                 print(
-                    f"  Enabled FP16 mode ({held} layers holding values beyond fp16's "
-                    "range kept in fp32)"
+                    "  Enabled FP16 mode"
+                    + (
+                        f" ({held} layers holding values beyond fp16's range kept in "
+                        "fp32)"
+                        if held
+                        else ""
+                    )
                 )
         else:
             info["precision_built"] = "fp32"
@@ -901,11 +906,10 @@ def _hold_fp32_beyond_fp16_range(network, onnx_path: Path, trt) -> int:
     Returns:
         The number of layers pinned.
     """
+    import numpy as np
     import onnx
 
     from sleap_nn.export.exporters.onnx_precision import beyond_fp16_range_tensors
-
-    import numpy as np
 
     model = onnx.load(str(onnx_path))
     held = beyond_fp16_range_tensors(model)
