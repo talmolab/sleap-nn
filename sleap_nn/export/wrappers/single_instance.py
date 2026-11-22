@@ -11,6 +11,7 @@ from torch import nn
 from sleap_nn.export.wrappers.base import (
     BaseExportWrapper,
     antialiased_resize,
+    resize_taps,
     resized_size_rule,
 )
 
@@ -51,7 +52,7 @@ class SingleInstanceONNXWrapper(BaseExportWrapper):
         self.peak_threshold = peak_threshold
         if input_scale != 1.0:
             p, q, exact = resized_size_rule(input_scale)
-            self._resize_rule = (p, q)
+            self._resize_rule = (p, q, resize_taps(p, q))
             if not exact:
                 logger.warning(
                     f"input_scale {input_scale}: no fraction reproduces Python's "

@@ -13,6 +13,7 @@ import torch.nn.functional as F
 from sleap_nn.export.wrappers.base import (
     MAX_RESIZE_INPUT,
     antialiased_resize,
+    resize_taps,
     resized_size_rule,
 )
 from sleap_nn.export.wrappers.single_instance import SingleInstanceONNXWrapper
@@ -33,12 +34,12 @@ def test_size_rule_without_an_exact_fraction():
 
 
 @pytest.mark.parametrize("scale", [0.5, 0.25, 0.37, 0.8, 1.5])
-@pytest.mark.parametrize("hw", [(64, 64), (97, 131), (10, 13), (240, 320)])
+@pytest.mark.parametrize("hw", [(64, 64), (97, 131), (32, 37), (240, 320)])
 def test_matches_antialiased_interpolate(scale, hw):
     torch.manual_seed(0)
     x = torch.rand(2, 3, *hw)
     p, q, _ = resized_size_rule(scale)
-    got = antialiased_resize(x, p, q)
+    got = antialiased_resize(x, p, q, resize_taps(p, q))
     want = F.interpolate(
         x,
         size=(int(hw[0] * scale), int(hw[1] * scale)),
@@ -113,3 +114,23 @@ def test_single_instance_graph_tensorrt_can_parse_and_follows_the_frame_size(tmp
         image = torch.from_numpy(rng.integers(0, 256, (2, 3, *hw), dtype=np.uint8))
         peaks = session.run(["peaks"], {"image": image.numpy()})[0]
         np.testing.assert_array_equal(peaks, _reference_peaks(image, 0.5).numpy())
+
+
+def test_a_frame_that_scales_to_zero_pixels_gives_one():
+    """int(1 * 0.5) is 0: the graph returns one pixel instead of dividing by zero."""
+    p, q, _ = resized_size_rule(0.5)
+    out = antialiased_resize(torch.rand(1, 1, 1, 9), p, q, resize_taps(p, q))
+    assert out.shape == (1, 1, 1, 4)
+
+
+def test_inexact_scale_warns(caplog):
+    from loguru import logger
+
+    seen = []
+    sink = logger.add(lambda m: seen.append(str(m)), level="WARNING")
+    try:
+        SingleInstanceONNXWrapper(torch.nn.Identity(), input_scale=0.7)
+        SingleInstanceONNXWrapper(torch.nn.Identity(), input_scale=0.5)
+    finally:
+        logger.remove(sink)
+    assert len(seen) == 1 and "one pixel" in seen[0]
