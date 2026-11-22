@@ -357,14 +357,18 @@ def test_cli_resume_with_freeze_schedule_and_ema(frames_config, monkeypatch):
     assert before.encoder_names <= before.ema_names
 
 
-def test_resume_does_not_replay_the_first_epochs_order(frames_config, monkeypatch):
-    """The first resumed epoch must not train in the first epoch's order again.
+@pytest.mark.parametrize("reseed", [False, True])
+def test_resume_replays_the_first_epochs_order_unless_reseeded(
+    frames_config, monkeypatch, reseed
+):
+    """Default: the first resumed epoch trains in the first epoch's order again.
 
     On one device without `balanced_sampler`, the train loader shuffles with the
-    global torch RNG, which a resumed run seeds again with `trainer_config.seed`;
-    `ResumeReseed` seeds it for the resumed epoch. (Not checked: that it is the
-    order epoch 1 of an uninterrupted run draws, which the epoch-aware samplers
-    above give and the global RNG cannot.)
+    global torch RNG, which a resumed run seeds again with `trainer_config.seed`,
+    as in earlier releases. `trainer_config.reseed_on_resume: true` (opt-in) seeds
+    it for the resumed epoch instead. (Not checked: that it is the order epoch 1
+    of an uninterrupted run draws, which the epoch-aware samplers above give and
+    the global RNG cannot.)
     """
     cfg = frames_config
     first = _train(cfg, _OrderRecorder(), monkeypatch, run_name="orig", max_epochs=1)
@@ -375,11 +379,12 @@ def test_resume_does_not_replay_the_first_epochs_order(frames_config, monkeypatc
         run_name="orig-1",
         max_epochs=2,
         resume_ckpt_path=_last_ckpt(cfg, "orig"),
+        reseed_on_resume=reseed,
     )
     # One pass over the eight frames per epoch; the resumed run ran epoch 1 only.
     if sorted(first.epochs[0]) != list(range(_N_FRAMES)) or list(resumed.epochs) != [1]:
         raise RuntimeError(f"Unexpected runs: {first.epochs}, {resumed.epochs}")
-    assert resumed.epochs[1] != first.epochs[0]
+    assert (resumed.epochs[1] != first.epochs[0]) is reseed
 
 
 def test_resume_continues_the_balanced_sampler(frames_config, monkeypatch):

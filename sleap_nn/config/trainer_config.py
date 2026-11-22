@@ -937,6 +937,7 @@ class TrainerConfig:
         ckpt_dir: (str) Directory path where the `<run_name>` folder is created. **Default**: `"."` (the working dir)
         run_name: (str) Name of the current run. The ckpts will be created in `<ckpt_dir>/<run_name>`. If `None`, a run name is generated with `<timestamp>_<head_name>`. *Default*: `None`.
         resume_ckpt_path: (str) Path to `.ckpt` file from which training is resumed. *Default*: `None`.
+        reseed_on_resume: (bool) When training resumes from `resume_ckpt_path`, seed `random`, numpy and torch with `seed + current_epoch` before the first resumed epoch. Without it a resumed run is seeded with `seed` again, so on one device (without `balanced_sampler`) its first epoch repeats the original run's first epoch: the same order and the same augmentation draws. Off by default, so a resumed run trains as in earlier releases. *Default*: `False`.
         wandb: (Only if use_wandb is True, else skip this)
         optimizer_name: (str) Optimizer to be used. One of ["Adam", "AdamW"]. *Default*: `"Adam"`.
         optimizer: create an optimizer configuration
@@ -986,6 +987,7 @@ class TrainerConfig:
     ckpt_dir: Optional[str] = "."
     run_name: Optional[str] = None
     resume_ckpt_path: Optional[str] = None
+    reseed_on_resume: bool = False
     wandb: WandBConfig = field(factory=WandBConfig)
     optimizer_name: str = field(
         default="Adam",

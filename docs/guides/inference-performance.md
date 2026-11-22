@@ -180,8 +180,9 @@ the GPU. It applies to every pipeline built from model paths in
 detector first), and network-only export folders passed as model paths. A
 streamed part stage (`--part_streaming`) cuts its crops from the same GPU copy,
 and `open_stream` uploads each pushed frame once in the same way.
-`sleap-nn track` (the legacy pipeline) and a single exported ONNX/TensorRT
-model directory are unchanged (the option is ignored there, with a warning).
+A single exported ONNX/TensorRT model directory is unchanged (the option is
+ignored there, with a warning). The legacy `sleap-nn track` command has no
+such option.
 Off a CUDA device it does nothing (and logs a warning saying so).
 
 ```bash

@@ -4052,7 +4052,8 @@ class ResumeReseed(Callback):
     so without this its first epoch replays the first epoch of the original run
     (same order, same augmentation draws), its second the second, and so on.
 
-    When training starts from a checkpoint (``current_epoch`` above 0), this seeds
+    Added when ``trainer_config.reseed_on_resume`` is on (off by default). When
+    training starts from a checkpoint (``current_epoch`` above 0), this seeds
     ``random``, numpy and torch with ``seed + current_epoch``. The resumed epochs
     then differ from the ones already trained; they are not the ones an
     uninterrupted run would draw. A run that is not resumed is unchanged.

@@ -3530,13 +3530,16 @@ class ModelTrainer:
         resume_seed = OmegaConf.select(self.config, "trainer_config.seed", default=None)
         if (
             OmegaConf.select(
+                self.config, "trainer_config.reseed_on_resume", default=False
+            )
+            and OmegaConf.select(
                 self.config, "trainer_config.resume_ckpt_path", default=None
             )
             is not None
             and resume_seed is not None
         ):
-            # A resumed run is seeded again with `seed`; without this its first
-            # epoch would replay the original run's first epoch.
+            # Opt-in: a resumed run is seeded again with `seed`, so without this
+            # its first epoch replays the original run's first epoch.
             callbacks.append(ResumeReseed(resume_seed))
         freeze_cfg = OmegaConf.select(
             self.config, "trainer_config.freeze_schedule", default=None

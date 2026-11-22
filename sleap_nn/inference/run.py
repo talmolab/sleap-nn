@@ -632,9 +632,9 @@ def _build_predictor(
             build_kwargs["max_instances"] = max_instances
         if upload_batches:
             logger.warning(
-                "upload_batches is ignored for an exported model directory; "
-                "it applies to trained checkpoints only (and to network-only "
-                "exports passed as model paths)."
+                "upload_batches is ignored for the exported model directory "
+                "(it applies to trained checkpoints and to network-only exports "
+                "passed as model paths; a --part_model checkpoint still uses it)."
             )
         if memory_format != "contiguous":
             logger.warning(

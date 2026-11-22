@@ -146,7 +146,7 @@ def test_predict_export_dir_ignores_upload_batches_with_warning(caplog):
     ) as mock_export:
         predict("video.mp4", export_dir="/exp", device="cpu", upload_batches=True)
     assert "upload_batches" not in mock_export.call_args.kwargs
-    assert "upload_batches is ignored for an exported model directory" in caplog.text
+    assert "upload_batches is ignored for the exported model directory" in caplog.text
 
 
 @pytest.mark.parametrize(
