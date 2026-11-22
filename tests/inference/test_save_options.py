@@ -261,7 +261,14 @@ def test_round_trip_v2_and_default(tmp_path):
     save_predictions(_predicted_labels(), v2, slp_version="v2")
     save_predictions(_predicted_labels(), default)
     assert _format_id(v2) < 3.0
-    assert _format_id(default) >= 3.0
+    # The default is sleap-io's: SLP 3.0 on a sleap-io without `slp_version`; the
+    # old layout (whenever the content fits, as here) on one with it ("auto").
+    from sleap_nn.inference.save_options import _save_slp_parameters
+
+    if "slp_version" in _save_slp_parameters():
+        assert _format_id(default) < 3.0
+    else:
+        assert _format_id(default) >= 3.0
     back = sio.load_slp(str(v2), open_videos=False)
     np.testing.assert_allclose(back[0].instances[0].numpy(), [[10, 20], [30, 40]])
 

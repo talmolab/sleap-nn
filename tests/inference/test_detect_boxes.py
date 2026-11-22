@@ -558,7 +558,12 @@ def test_detect_boxes_save_options(tmp_path):
             slp_version="v3",
             compression="gzip",
         )
-    assert calls[0] == {"embed": False}
+    from sleap_nn.inference.save_options import _save_slp_parameters
+
+    # Unset: nothing new on a sleap-io without `slp_version`; pinned to "v3" on one
+    # with it, so that its "auto" cannot drop the box scores.
+    pinned = {"slp_version": "v3"} if "slp_version" in _save_slp_parameters() else {}
+    assert calls[0] == {"embed": False, **pinned}
     assert calls[1]["compression"] == "gzip"
     with h5py.File(out) as f:
         assert float(f["metadata"].attrs["format_id"]) >= 3.0

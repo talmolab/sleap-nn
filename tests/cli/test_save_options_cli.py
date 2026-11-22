@@ -228,7 +228,14 @@ def test_in_memory_real_v2_round_trip(tmp_path):
         result = CliRunner().invoke(cli, base + ["-o", str(out), *extra])
         assert result.exit_code == 0, result.output
     assert _format_id(v2) < 3.0
-    assert _format_id(default) >= 3.0
+    # The default is sleap-io's: SLP 3.0 on a sleap-io without `slp_version`; the
+    # old layout (whenever the content fits, as here) on one with it ("auto").
+    from sleap_nn.inference.save_options import _save_slp_parameters
+
+    if "slp_version" in _save_slp_parameters():
+        assert _format_id(default) < 3.0
+    else:
+        assert _format_id(default) >= 3.0
     a = sio.load_slp(str(v2), open_videos=False)
     b = sio.load_slp(str(default), open_videos=False)
     assert [len(lf.instances) for lf in a] == [len(lf.instances) for lf in b]
