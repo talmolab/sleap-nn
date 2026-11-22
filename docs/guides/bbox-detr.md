@@ -255,12 +255,12 @@ Worked examples:
 RF-DETR's own fine-tuning advice applies: if training does not converge, halve the
 learning rate.
 
-Another `bbox_detr` model works as the source the same way, e.g. a human detector
-to start a mouse detector. Its backbone must have the same shape (same preset).
+Another `bbox_detr` model works as the source the same way, e.g. a person detector
+to start a detector for another species. Its backbone must have the same shape (same preset).
 
-### Our human detector (two stages)
+### Example: a person detector in two stages
 
-The human detector trains in two stages on DINOv3 ViT-B/16 at 704 px, letterboxed:
+The sample person-detector recipe trains in two stages on DINOv3 ViT-B/16 at 704 px, letterboxed:
 
 1. [`config_bbox_detr_dinov3_b_person.yaml`](https://github.com/talmolab/sleap-nn/blob/main/docs/sample_configs/config_bbox_detr_dinov3_b_person.yaml):
    fresh projector and 4-layer decoder on the person boxes of Objects365 +

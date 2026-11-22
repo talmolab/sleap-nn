@@ -5129,7 +5129,7 @@ def import_rfdetr(model, output_dir, revision, overwrite):
     "--detection_chunks",
     type=str,
     default=None,
-    help="Directory of chunk_*.npz files of the human project's detector pass.",
+    help="Directory of chunk_*.npz files written by a chunked detector pass.",
 )
 @click.option(
     "--image_list",

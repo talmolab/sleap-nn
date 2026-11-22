@@ -13,12 +13,11 @@ ground-truth people and writes a copy of the labels with the boxes added.
   tiles for very wide frames (:class:`TileSpec`, JRDB's 3760 x 480 panoramas);
 * a COCO detection-results JSON matched by ``image_id`` or file name
   (:func:`load_coco_detections`);
-* the raw chunk files of the human project's D-FINE pass
+* the raw chunk files of an earlier, chunked detector pass
   (``dets/<model>/<set>/chunk_*.npz`` + its image list;
   :func:`load_detection_chunks`), so existing detections can be replayed.
 
-**Matching** (:func:`match_detections`, a port of the human project's
-``detector/match.py``): per frame, Hungarian matching on IoU between the
+**Matching** (:func:`match_detections`): per frame, Hungarian matching on IoU between the
 detections scoring at least ``score_threshold`` (0.3) and the ground-truth people,
 keeping pairs with IoU above ``min_iou`` (0.1). Ground-truth people
 (:func:`gt_people`) are every non-crowd user box of the person category (people
@@ -202,7 +201,7 @@ def load_detection_chunks(
     image_list: Union[str, Path],
     detector: Optional[str] = None,
 ) -> FrameDetections:
-    """Detections from the human project's resumable detector pass (``detect.py``).
+    """Detections from an earlier, resumable chunked detector pass.
 
     ``chunk_dir`` holds ``chunk_*.npz`` files with flat per-detection arrays
     ``img_idx`` (index into ``image_list``), ``boxes`` (xyxy, raw-pixel
@@ -582,7 +581,7 @@ def detect_with_layer(
 
 
 # ---------------------------------------------------------------------------
-# Matching (a port of the human project's detector/match.py)
+# Matching
 # ---------------------------------------------------------------------------
 
 

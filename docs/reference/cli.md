@@ -690,8 +690,8 @@ above `--min_iou` are kept. Match statistics go into
 | `--overwrite` | | Replace an existing output | Flag | `false` |
 
 ```bash
-# A mouse detector over a pose project (boxes named "mouse")
-sleap-nn detect-boxes -i train.pkg.slp -m models/mouse_detr --category mouse
+# A box detector over a pose project's labels (boxes named "animal")
+sleap-nn detect-boxes -i train.pkg.slp -m models/detector --category animal
 
 # Person detections already in a COCO results JSON
 sleap-nn detect-boxes -i coco_val2017.slp --detections dets.json
