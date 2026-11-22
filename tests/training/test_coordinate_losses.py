@@ -14,9 +14,11 @@ from sleap_nn.training.coordinate_losses import (
     CoordinateLosses,
     KeypointAutoencoder,
     build_coordinate_losses,
+    check_not_saved_decoded_config,
     consistency_loss,
     dataset_config,
     decoded_loss,
+    label_node_names,
     latent_names,
     load_keypoint_autoencoder,
     setup_coordinate_losses,
@@ -192,6 +194,18 @@ def test_coordinate_losses_module_reads_the_batch():
         module(maps, {"instance": torch.zeros(2, 1, 2, 2)})
 
 
+def test_term_under_bf16_autocast_is_float32():
+    proj = np.full((2, 2), 0.5, np.float32)
+    module = CoordinateLosses("consistency", 1.0, proj, output_stride=2)
+    maps = _gaussian_maps([(10.0, 6.0), (20.0, 14.0)], 16, 16, stride=2)
+    maps = maps.to(torch.bfloat16).requires_grad_(True)
+    with torch.autocast("cpu", dtype=torch.bfloat16):
+        term = module(maps, {})
+    assert term.dtype == torch.float32
+    term.backward()
+    assert torch.isfinite(maps.grad.float()).all() and maps.grad.abs().sum() > 0
+
+
 # ------------------------------------------------------------- autoencoder
 
 
@@ -352,10 +366,20 @@ def test_setup_decoded_resolves_the_latent_head(latent_ae, tmp_path):
         cfg.trainer_config[key] = value
         with pytest.raises(ValueError, match=match):
             setup_coordinate_losses(cfg, [skel])
+    for monitor in ("val/macro/loss", "val/fileA/loss"):
+        cfg = _setup_cfg(latent_ae, ["A", "B"], decoded=0.01)
+        cfg.trainer_config.model_ckpt = {"monitor": monitor}
+        with pytest.raises(ValueError, match="no per-file"):
+            setup_coordinate_losses(cfg, [skel])
+    # The W&B gallery stays on (it draws the decoded points); post-training
+    # evaluation is turned off.
     cfg = _setup_cfg(latent_ae, ["A", "B"], decoded=0.01)
     cfg.trainer_config.use_wandb = True
-    with pytest.raises(ValueError, match="gallery"):
-        setup_coordinate_losses(cfg, [skel])
+    setup_coordinate_losses(cfg, [skel])
+    assert list(cfg.trainer_config.eval.post_train_splits) == []
+    assert label_node_names(cfg, [skel]) == ["A", "B"]
+    with pytest.raises(ValueError, match="data_head is set"):
+        check_not_saved_decoded_config(cfg)
 
 
 def test_unset_block_is_dropped_and_changes_nothing(config):
@@ -445,7 +469,9 @@ def _plain_reload_and_predict(run_dir, minimal_instance):
         str(minimal_instance),
         model_paths=[str(run_dir)],
         device="cpu",
-        peak_threshold=-10.0,  # two training steps: the maps are still below 0
+        # Two training steps leave plain maps below 0; decoded-term maps have no
+        # fixed height at all, so their documented threshold is very low.
+        peak_threshold=-1e9,
     )
     insts = [i for lf in labels for i in lf.predicted_instances]
     assert insts
@@ -534,3 +560,145 @@ def test_old_config_trains_and_saves_as_before(config, tmp_path):
         text = (tmp_path / "plain" / name).read_text()
         assert "coordinate_losses" not in text
     assert not any("coord" in k for k in trainer.trainer.callback_metrics)
+
+
+def _labels_copy(src, dst, symmetric=False, labeled_nodes=None):
+    """``minimal_instance`` with A <-> B symmetric and/or a ``labeled_nodes`` mask."""
+    labels = sio.load_slp(str(src))
+    if symmetric:
+        labels.skeletons[0].add_symmetry("A", "B")
+    if labeled_nodes is not None:
+        labels.provenance["labeled_nodes"] = list(labeled_nodes)
+    labels.save(str(dst), embed=True)
+    return str(dst)
+
+
+def _with_labels(cfg, path):
+    cfg.data_config.train_labels_path = [path]
+    cfg.data_config.val_labels_path = [path]
+    return cfg
+
+
+@pytest.mark.parametrize("term", ["consistency", "decoded"])
+def test_run_training_entry_point(term, config, tmp_path, midpoint_ae, latent_ae):
+    """`sleap_nn.train.run_training` (what `sleap-nn train` runs), including the
+    post-training step, completes with each term."""
+    from sleap_nn.train import run_training
+
+    ae = midpoint_ae if term == "consistency" else latent_ae
+    cfg = _e2e_config(config, tmp_path, term, {"autoencoder": ae, term: 0.01})
+    run_training(cfg)
+    saved = OmegaConf.load(tmp_path / term / "training_config.yaml")
+    assert (tmp_path / term / "best.ckpt").exists()
+    if term == "decoded":
+        assert list(saved.trainer_config.eval.post_train_splits) == []
+
+
+def test_flip_augmentation_end_to_end(
+    config, tmp_path, minimal_instance, midpoint_ae, latent_ae
+):
+    """Flips on a symmetric skeleton: both terms train, the loader swaps the
+    channels the setup check assumes, and a lopsided autoencoder is refused."""
+    from sleap_nn.data.custom_datasets import get_train_val_datasets
+    from sleap_nn.training.model_trainer import ModelTrainer
+
+    path = _labels_copy(minimal_instance, tmp_path / "sym.pkg.slp", symmetric=True)
+
+    def flip_cfg(name, block):
+        cfg = _with_labels(_e2e_config(config, tmp_path, name, block), path)
+        cfg.data_config.preprocessing.crop_size = 160  # both points in the crop
+        geo = cfg.data_config.augmentation_config.geometric
+        geo.rotation_min = geo.rotation_max = 0.0
+        geo.flip_p = 1.0
+        return cfg
+
+    for name, block in [
+        ("fc", {"autoencoder": midpoint_ae, "consistency": 0.01}),
+        ("fd", {"autoencoder": latent_ae, "decoded": 0.01}),
+    ]:
+        trainer = ModelTrainer.get_model_trainer_from_config(flip_cfg(name, block))
+        trainer.train()
+        term = f"train/coord_{name == 'fc' and 'consistency' or 'decoded'}"
+        assert torch.isfinite(trainer.trainer.callback_metrics[term])
+
+    # Every training crop is flipped: B - A mirrors to (dx, -dy) only when the
+    # loader also swaps A and B (without the swap it would be (-dx, dy)).
+    flipped, plain = get_train_val_datasets(
+        trainer.val_labels, trainer.val_labels, trainer.config
+    )
+    assert len(plain) > 0
+    for i in range(len(plain)):
+        assert torch.isfinite(plain[i]["instance"]).all()
+        d0 = plain[i]["instance"][0, 1] - plain[i]["instance"][0, 0]
+        d1 = flipped[i]["instance"][0, 1] - flipped[i]["instance"][0, 0]
+        assert torch.allclose(d1, d0 * torch.tensor([1.0, -1.0]), atol=1e-3)
+
+    lopsided = _save_ae(tmp_path / "lop.npz", [[0.8, 0.2]], [[1.0], [1.0]], ["A", "B"])
+    trainer_cfg = flip_cfg("fl", {"autoencoder": lopsided, "consistency": 0.01})
+    with pytest.raises(ValueError, match="does not commute"):
+        ModelTrainer.get_model_trainer_from_config(trainer_cfg).train()
+
+
+def test_decoded_term_uses_labeled_nodes(config, tmp_path, minimal_instance, latent_ae):
+    """A file's `labeled_nodes` provenance reaches the decoded term as weights."""
+    from sleap_nn.training.model_trainer import ModelTrainer
+
+    path = _labels_copy(minimal_instance, tmp_path / "a.pkg.slp", labeled_nodes=["A"])
+    block = {"autoencoder": latent_ae, "decoded": 0.01}
+    cfg = _with_labels(_e2e_config(config, tmp_path, "ln", block), path)
+    cfg.data_config.preprocessing.crop_size = 160  # both points in the crop
+    trainer = ModelTrainer.get_model_trainer_from_config(cfg)
+    trainer.train()
+    lm = trainer.lightning_model.eval()
+    sample = trainer.trainer.val_dataloaders.dataset[0]
+    assert sample["node_weights"].tolist() == [[1.0, 0.0]]
+    batch = {k: v[None] for k, v in sample.items() if torch.is_tensor(v)}
+    with torch.no_grad():
+        maps = lm.forward(batch["instance_image"])
+        term = lm.coord_losses(maps, batch)
+        q = lm.coord_losses.points(maps)
+    y = batch["instance"].reshape(1, -1, 2)
+    assert torch.isfinite(y).all()  # B has a location; only its weight is 0
+    only_a = decoded_loss(q, lm.coord_losses.matrix, y, torch.tensor([[1.0, 0.0]]))
+    both = decoded_loss(q, lm.coord_losses.matrix, y)
+    assert term.item() == pytest.approx(only_a.item(), rel=1e-5)
+    assert term.item() != pytest.approx(both.item(), rel=1e-3)
+
+
+def test_decoded_gallery_draws_decoded_points(config, tmp_path, latent_ae):
+    """The W&B gallery is allowed for the decoded term and draws the soft-argmax
+    latent points decoded into the labelled channels."""
+    from sleap_nn.training import gallery
+    from sleap_nn.training.model_trainer import ModelTrainer
+
+    block = {"autoencoder": latent_ae, "decoded": 0.01}
+    trainer = ModelTrainer.get_model_trainer_from_config(
+        _e2e_config(config, tmp_path, "gal", block)
+    )
+    trainer.train()
+    lm = trainer.lightning_model.eval()
+    images = trainer.trainer.val_dataloaders.dataset[0]["instance_image"][None]
+    pts, vals = gallery.predict_keypoints(lm, images)
+    with torch.no_grad():
+        q = lm.coord_losses.points(lm.forward(images))
+    expected = torch.einsum("tl,bld->btd", lm.coord_losses.matrix, q).numpy()
+    assert pts.shape == (1, 2, 2) and np.allclose(pts, expected, atol=1e-4)
+    assert (vals == 1).all()
+    # Model nodes for the gallery's per-file lists are the labelled channels.
+    assert trainer._viz_file_nodes() == (None, None, None)
+    trainer.config.trainer_config.use_wandb = True
+    callback = trainer._gallery_callback()
+    assert callback is not None
+
+
+def test_restart_from_saved_decoded_config_is_refused(config, tmp_path, latent_ae):
+    from sleap_nn.training.model_trainer import ModelTrainer
+
+    block = {"autoencoder": latent_ae, "decoded": 0.01}
+    ModelTrainer.get_model_trainer_from_config(
+        _e2e_config(config, tmp_path, "first", block)
+    ).train()
+    saved = OmegaConf.load(tmp_path / "first" / "training_config.yaml")
+    saved.trainer_config.run_name = "again"
+    with pytest.raises(ValueError, match="data_head is set"):
+        ModelTrainer.get_model_trainer_from_config(saved).train()

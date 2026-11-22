@@ -100,7 +100,11 @@ from sleap_nn.config.training_job_config import verify_training_cfg
 from sleap_nn.config.trainer_config import fixed_length_lr_schedule
 from sleap_nn.training.optim import migrate_encoder_lr_options
 from sleap_nn.training.distillation import attach_distillation
-from sleap_nn.training.coordinate_losses import setup_coordinate_losses
+from sleap_nn.training.coordinate_losses import (
+    check_not_saved_decoded_config,
+    label_node_names,
+    setup_coordinate_losses,
+)
 from sleap_nn.training.callbacks import (
     ProgressReporterZMQ,
     TrainingControllerZMQ,
@@ -984,7 +988,7 @@ class ModelTrainer:
         names = self._val_file_names()
         if names is None:
             return None
-        model_nodes = list(self.skeletons[0].node_names)
+        model_nodes = label_node_names(self.config, self.skeletons)
         file_nodes = OmegaConf.select(
             self.config, "trainer_config.eval.file_nodes", default=None
         )
@@ -2401,6 +2405,7 @@ class ModelTrainer:
     def setup_config(self):
         """Compute config parameters."""
         logger.info("Setting up config...")
+        check_not_saved_decoded_config(self.config)
 
         # Early stopping / plateau defaults follow the LR schedule; the encoder
         # LR knobs move from the backbone config to `trainer_config.optimizer`.
@@ -2630,7 +2635,7 @@ class ModelTrainer:
         """
         if not self.skeletons:
             return None, None, None
-        model_nodes = list(self.skeletons[0].node_names)
+        model_nodes = label_node_names(self.config, self.skeletons)
 
         def own_nodes(labels_list):
             out = []
@@ -2715,7 +2720,7 @@ class ModelTrainer:
 
         kwargs = {}
         if kind == "keypoints" and self.skeletons:
-            model_nodes = list(self.skeletons[0].node_names)
+            model_nodes = label_node_names(self.config, self.skeletons)
             train_nodes, val_nodes, _ = self._viz_file_nodes()
             kwargs = dict(
                 train_file_nodes=train_nodes,

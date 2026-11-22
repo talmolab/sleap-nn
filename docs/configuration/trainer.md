@@ -537,7 +537,7 @@ weight:
 trainer_config:
   coordinate_losses:
     autoencoder: /models/keypoint_ae.npz  # W_enc (L x J), W_dec (J x L), names
-    consistency: 0.001    # add |P - W_dec W_enc P|_1 to the confmap loss
+    consistency: 0.0001   # add |P - W_dec W_enc P|_1 to the confmap loss
     # decoded: 0.01       # or: predict the L latent points, loss |W_dec Q - Y|_1
     soft_argmax_beta: 20.0
 ```
@@ -832,9 +832,9 @@ Experimental. See [Coordinate Losses](../guides/coordinate-losses.md).
 |--------|------|---------|-------------|
 | `autoencoder` | str | required | `.npz` with `W_enc` (L x J), `W_dec` (J x L), `names` (J channel names) and optionally `latent_partner` (each latent point's left/right partner). Rows of both matrices must sum to 1 |
 | `consistency` | float | `0.0` | Weight of the L1 distance between `P` and `W_dec W_enc P`, for the soft-argmax coordinates of the head's channels (which must be the autoencoder's channels, any order); added to the confidence-map loss |
-| `decoded` | float | `0.0` | Weight of the L1 distance between `W_dec Q` and the labels `Y`: the head predicts the L latent points (`latent_00`, ...), compared after decoding with the channels each sample labels; the whole loss |
+| `decoded` | float | `0.0` | Weight of the L1 distance between `W_dec Q` and the labels `Y`: the head predicts the L latent points (`latent_00`, ...), compared after decoding with the channels each sample labels; the whole loss. Predict such a model with a very low `peak_threshold` (the latent maps' height is not fixed) |
 | `soft_argmax_beta` | float | `20.0` | Inverse temperature of the soft-argmax (`softmax(beta * map)`) |
-| `soft_argmax_window` | int | `null` | Soft-argmax over the grid cells within this many cells of each map's maximum (`null`: whole map) |
+| `soft_argmax_window` | int | `null` | Soft-argmax over the grid cells within this many cells of each map's maximum (`null`: whole map); about `3 * sigma` (the head's `sigma` is in grid cells) |
 | `data_head` | dict | `null` | Set by training for `decoded`: the labelled channels' head settings the data loader uses. Leave unset |
 
 Exactly one of `consistency` and `decoded` must be above 0.

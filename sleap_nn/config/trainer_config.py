@@ -931,7 +931,9 @@ class CoordinateLossesConfig:
       being the soft-argmax latent points and ``Y`` the labelled coordinates
       (weighted by the per-node weights). The saved model is a plain
       centered-instance model that predicts the latent points; decode them with
-      ``W_dec``. No confidence-map loss is computed.
+      ``W_dec``. No confidence-map loss is computed, so the latent maps' height
+      is arbitrary: predict with a very low ``peak_threshold`` (e.g. ``-1e9``).
+      Post-training evaluation is turned off for this term.
 
     Off unless set; runs without it save nothing new in ``training_config.yaml``.
 
@@ -952,9 +954,10 @@ class CoordinateLossesConfig:
             ``20.0``.
         soft_argmax_window: (int) Run the soft-argmax only over the grid cells
             within this many cells of each map's maximum (``None``: the whole map,
-            as in Sun et al. 2018). A window of about three times the head's
-            ``sigma`` with ``soft_argmax_beta: 10`` locates Gaussian peaks to about
-            0.2 cells even on noisy maps. *Default*: ``None``.
+            as in Sun et al. 2018). A window of about ``3 * sigma`` cells (the
+            head's ``sigma`` is in grid cells) with ``soft_argmax_beta: 10``
+            locates Gaussian peaks to about 0.2 cells even on noisy maps.
+            *Default*: ``None``.
         data_head: (dict) Filled in by training for the ``decoded`` term: the head
             settings the data loader uses (``part_names`` of the labelled channels
             and the anchor settings), since the saved head describes the latent

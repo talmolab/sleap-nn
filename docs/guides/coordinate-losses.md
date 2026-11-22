@@ -43,9 +43,11 @@ as in the targets). It is computed only when a coordinate loss is configured.
   peak below a grid cell and rounds the estimate towards the grid.
 - `soft_argmax_window` (default `null`, the whole map) restricts the softmax to the
   cells within that many grid cells of each map's maximum. On Gaussian maps
-  (`consistency`), a window of about three times the head's `sigma` with
+  (`consistency`), a window of about `3 * sigma` cells with
   `soft_argmax_beta: 10` locates peaks to about 0.2 grid cells even on noisy
-  maps. For `decoded`, where the maps are learned only through their
+  maps. The head's `sigma` is already in grid cells: the targets are Gaussians
+  with a standard deviation of `sigma * output_stride` input pixels, i.e.
+  `sigma` cells. For `decoded`, where the maps are learned only through their
   soft-argmax, the whole map (the default) gives a gradient everywhere.
 
 ## The autoencoder file
@@ -73,7 +75,7 @@ model_config:
 trainer_config:
   coordinate_losses:
     autoencoder: /models/keypoint_ae.npz
-    consistency: 0.001
+    consistency: 0.0001
     soft_argmax_beta: 10.0
     soft_argmax_window: 8
 ```
@@ -83,8 +85,23 @@ trainer_config:
 - The confidence-map loss is unchanged; `loss` and `train/loss` log it alone,
   and `val/loss` (checkpoint selection) stays the confidence-map loss.
 - `train/coord_consistency` and `val/coord_consistency` log the unweighted term
-  (mean `|dx| + |dy|` per channel, in crop pixels). Scale the weight
-  accordingly: confidence-map losses are of the order of `1e-3`.
+  (mean `|dx| + |dy|` per channel, in crop pixels).
+- **Choosing the weight.** Compare gradients, not loss values: the
+  confidence-map loss is a mean over every map cell, the term a mean over
+  channels in pixels. On synthetic maps (a 201-channel autoencoder, Gaussian
+  maps off by about 2 px, plus noise), the weight that makes the term's gradient
+  on the maps as large as the confidence-map loss's was about `1e-4` for 128 px
+  crops (`9e-5` over the whole map at `soft_argmax_beta: 20`, `2e-4` with a
+  window and `beta: 10`) and about 3 times smaller for 256 px crops; the output
+  stride changed it little at the same Gaussian width in pixels. The term is in
+  input pixels, so input scaling changes it in proportion. Sweep around those
+  values (for example `1e-5` to `1e-3`) on validation data.
+- **The term's floor.** An autoencoder does not reproduce every pose exactly, so
+  the term is not 0 on perfect predictions (about 1 px per channel for a
+  201-channel autoencoder even on poses its own decoder produced). A large
+  weight pulls correct predictions off their labels towards the autoencoder's
+  poses. Check the floor on labelled poses (`|Y - W_dec W_enc Y|_1`) before
+  choosing the weight.
 - The term is computed on every sample except negative frames.
 
 ## Decoded coordinates
@@ -112,18 +129,35 @@ trainer_config:
 - The saved model is a plain `centered_instance` model whose head predicts the
   latent points: `training_config.yaml` has the latent names as `part_names`, a
   skeleton of the latent points (with `latent_partner` as its symmetries) and no
-  anchor part. `sleap-nn predict` returns the latent points; decode them with
-  `W_dec` to get the autoencoder's channels. The peaks are found the usual way
-  (maximum plus refinement), which matches the soft-argmax only where the learned
-  maps have a single peak.
+  anchor part. `sleap-nn predict` returns the latent points (with a low peak
+  threshold, below); decode them with `W_dec` to get the autoencoder's channels.
+  The peaks are found the usual way (maximum plus refinement), which matches the
+  soft-argmax only where the learned maps have a single peak.
+- **Prediction needs a low peak threshold.** `softmax(beta * map)` does not
+  change when a constant is added to the map, and no other loss sets the latent
+  maps' height, so their peak values are arbitrary and can be below the default
+  threshold (`0.2`) or below 0. Points under the threshold are dropped, and
+  decoding needs every latent point, so predict with a threshold below every
+  peak, for example `sleap-nn predict ... --peak_threshold -1e9`. The point
+  scores of such a prediction are those arbitrary map heights, not confidences.
+- The W&B prediction gallery (on with `use_wandb`) draws the soft-argmax latent
+  points decoded into the labelled channels, which is what the loss compares
+  with the labels.
 - The labelled channels' head settings are kept in
-  `coordinate_losses.data_head` of the saved config. To train again, start from
-  the original config, not the saved one.
+  `coordinate_losses.data_head` of the saved config. Training from that saved
+  config is refused with a message saying so; start from the run's
+  `initial_config.yaml` or the original config.
+- Post-training evaluation is off for this term: training sets
+  `trainer_config.eval.post_train_splits: []` (and logs it), since the predicted
+  latent points share no node with the labels.
 - Not available with this term: distillation, online hard keypoint mining,
   epoch-end evaluation (`trainer_config.eval.enabled`), prediction plots
-  (`visualize_preds_during_training`) and the W&B prediction gallery
-  (`trainer_config.wandb.gallery`), which all pair predicted and labelled channels
-  one to one. Training refuses these combinations.
+  (`visualize_preds_during_training`), and per-file validation-loss checkpoint
+  monitors (`model_ckpt.monitor: val/macro/loss` or `val/<file>/loss`; only
+  `val/loss` is logged). Training refuses these combinations.
+- The data loader still renders confidence maps of the labelled channels, which
+  this term does not use (extra loader time and memory for many channels;
+  `preprocessing.gpu_confmaps: true` on the fast top-down data path avoids it).
 
 ## Augmentation
 

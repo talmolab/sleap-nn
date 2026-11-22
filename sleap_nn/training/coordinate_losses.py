@@ -419,8 +419,12 @@ def coordinate_losses_mode(config: DictConfig) -> Optional[str]:
     return "decoded" if float(cfg.get("decoded", 0.0) or 0.0) > 0 else "consistency"
 
 
-def _drop_unset_block(config: Optional[DictConfig]) -> None:
-    """Remove an unset (``null``) block so the saved config has no new key."""
+def drop_unset_coordinate_losses(config: Optional[DictConfig]) -> None:
+    """Remove an unset (``null``) block so a saved config has no new key.
+
+    Training calls it through `setup_coordinate_losses`; other writers of a
+    ``training_config.yaml`` built from the schema call it before saving.
+    """
     if config is None:
         return
     trainer = OmegaConf.select(config, "trainer_config", default=None)
@@ -532,14 +536,69 @@ def _check_decoded_compatible(config: DictConfig) -> None:
             "term's head predicts latent points; set "
             "visualize_preds_during_training: false."
         )
-    if sel("trainer_config.use_wandb", False) and sel(
-        "trainer_config.wandb.gallery", True
-    ):
+    monitor = str(sel("trainer_config.model_ckpt.monitor", "val/loss") or "")
+    parts = monitor.split("/")
+    if len(parts) >= 3 and parts[0] == "val" and parts[-1] == "loss":
         _refuse(
-            "the prediction gallery pairs predicted and labelled channels, but the "
-            "decoded term's head predicts latent points; set "
-            "trainer_config.wandb.gallery: false."
+            f"model_ckpt.monitor={monitor!r}: the decoded term logs no per-file "
+            "validation loss (only val/loss, the weighted decoded term, and "
+            "val/coord_decoded); monitor val/loss."
         )
+
+
+def check_not_saved_decoded_config(config: DictConfig) -> None:
+    """Refuse to train from a config saved by a decoded-term run.
+
+    That config describes the trained latent-point model (for prediction): its
+    head lists the latent points, and the labelled channels' head settings sit
+    in ``coordinate_losses.data_head``. Run by the trainer before the head is
+    checked against the labels, so the error names the cause.
+    """
+    cfg = coordinate_losses_config(config)
+    if cfg is None or cfg.get("data_head", None) is None:
+        return
+    _refuse(
+        "data_head is set, so this config was saved by a run with the decoded term "
+        "and describes the latent-point model it trained (for prediction). To "
+        "train again, start from that run's original config (initial_config.yaml), "
+        "or copy data_head's settings back into "
+        "model_config.head_configs.centered_instance.confmaps, restore the "
+        "labels' skeleton in data_config.skeletons and remove data_head."
+    )
+
+
+def label_node_names(
+    config: DictConfig, skeletons: Sequence[sio.Skeleton]
+) -> List[str]:
+    """Names of the channels the labels and the batches carry.
+
+    The model's skeleton nodes, except with the decoded term, whose model
+    predicts latent points while the batches (and the gallery's drawn points,
+    see `decoded_keypoints`) carry the labelled channels.
+    """
+    if coordinate_losses_mode(config) == "decoded":
+        data_head = coordinate_losses_config(config).get("data_head", None)
+        if data_head is not None:
+            return list(data_head.part_names)
+    return list(skeletons[0].node_names) if skeletons else []
+
+
+def decoded_keypoints(module: nn.Module, confmaps: torch.Tensor):
+    """Decoded keypoints of a decoded-term training module, or ``None``.
+
+    For a centered-instance module training the decoded term: the soft-argmax
+    latent points decoded into the labelled channels, ``(B, T, 2)`` crop pixels,
+    i.e. exactly what the loss compares with the labels. ``None`` for any other
+    module, which then draws its own peaks.
+    """
+    coord = getattr(module, "coord_losses", None)
+    if coord is None or coord.mode != "decoded":
+        return None
+    with (
+        torch.no_grad(),
+        torch.autocast(device_type=confmaps.device.type, enabled=False),
+    ):
+        return torch.einsum("tl,bld->btd", coord.matrix, coord.points(confmaps))
 
 
 def setup_coordinate_losses(
@@ -582,8 +641,8 @@ def setup_coordinate_losses(
 
     cfg = coordinate_losses_config(config)
     if cfg is None:
-        _drop_unset_block(config)
-        _drop_unset_block(initial_config)
+        drop_unset_coordinate_losses(config)
+        drop_unset_coordinate_losses(initial_config)
         return skeletons
     model_type = get_model_type_from_cfg(config)
     if model_type != "centered_instance":
@@ -652,6 +711,15 @@ def setup_coordinate_losses(
                 "left/right pairs, or set flip_p: 0."
             )
 
+    eval_cfg = OmegaConf.select(config, "trainer_config.eval", default=None)
+    if eval_cfg is not None:
+        with open_dict(eval_cfg):
+            eval_cfg.post_train_splits = []
+        logger.info(
+            "Coordinate losses (decoded): post-training evaluation is off "
+            "(trainer_config.eval.post_train_splits: []): the model predicts "
+            "latent points, which share no node with the labels."
+        )
     data_head = {
         "part_names": names,
         "anchor_part": head.get("anchor_part", None),

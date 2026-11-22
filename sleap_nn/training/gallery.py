@@ -252,7 +252,10 @@ def predict_boxes(module, images, score_threshold: float = 0.05):
 def predict_keypoints(module, images):
     """Crop keypoints of a top-down centered-instance module, every node predicted.
 
-    Uses the module's own peak finder settings (refinement, DARK sigma, stride) with
+    A module training the experimental decoded coordinate loss
+    (``trainer_config.coordinate_losses.decoded``) returns its soft-argmax latent
+    points decoded into the labelled channels (values 1), as trained. Others use
+    the module's own peak finder settings (refinement, DARK sigma, stride) with
     threshold 0, so every node gets a location and the error is not lowered by
     abstaining on hard points.
 
@@ -266,9 +269,16 @@ def predict_keypoints(module, images):
     import torch
     from sleap_nn.inference.peak_finding import find_global_peaks
 
+    from sleap_nn.training.coordinate_losses import decoded_keypoints
+
     layer = module.instance_peaks_inf_layer
     with torch.no_grad():
         cms = module.forward(images).float()
+        decoded = decoded_keypoints(module, cms)
+        if decoded is not None:
+            # Experimental decoded coordinate loss: the head predicts latent
+            # points; draw them decoded into the labelled channels.
+            return decoded.cpu().numpy(), np.ones(decoded.shape[:2], np.float32)
         pts, vals = find_global_peaks(
             cms,
             threshold=0.0,
