@@ -277,14 +277,69 @@ def test_from_model_paths_precision_sets_autocast_on_every_stage(ckpts, n_backen
     """``precision="bf16"`` reaches both stages of a top-down model; "32" none."""
     if not all(c.exists() for c in ckpts):
         pytest.skip("checkpoint fixtures not present")
+    from loguru import logger
+
     paths = [str(c) for c in ckpts]
-    p = Predictor.from_model_paths(paths, device="cpu", precision="bf16")
+    messages = []
+    sink = logger.add(messages.append, format="{message}", level="INFO")
+    try:
+        p = Predictor.from_model_paths(paths, device="cpu", precision="bf16")
+        p32 = Predictor.from_model_paths(paths, device="cpu")
+    finally:
+        logger.remove(sink)
     backends = _torch_backends(p.layer)
     assert len(backends) == n_backends
     assert all(b.autocast_dtype == torch.bfloat16 for b in backends)
-
-    p32 = Predictor.from_model_paths(paths, device="cpu")
     assert all(b.autocast_dtype is None for b in _torch_backends(p32.layer))
+
+    # Autocast runs on CUDA only: off it, one warning for the whole build (not
+    # one per model), and none for the default precision.
+    off_cuda = [m for m in messages if "has no effect on device=cpu" in m]
+    assert len(off_cuda) == 1
+    assert "precision='bf16'" in off_cuda[0]
+    loaded = [m for m in messages if "Loaded inference model" in m]
+    assert "precision=bf16" in loaded[0]
+    assert "precision" not in loaded[1]
+
+
+def test_precision_scope_warning():
+    """Where a precision other than "32" does nothing, one warning says so.
+
+    Off CUDA nothing runs under autocast; on CUDA an exported (ONNX/TensorRT)
+    graph standing in for a checkpoint keeps the precision it was exported with.
+    """
+    from types import SimpleNamespace
+
+    from loguru import logger
+
+    from sleap_nn.inference.exported_network import ExportedNetwork
+    from sleap_nn.inference.predictor import _warn_precision_scope
+
+    graph = ExportedNetwork.__new__(ExportedNetwork)  # no file to load
+    torch.nn.Module.__init__(graph)
+    exported = SimpleNamespace(model=graph)
+    checkpoint = SimpleNamespace(model=torch.nn.Conv2d(1, 1, 1))
+
+    def warnings_for(device, backends):
+        messages = []
+        sink = logger.add(messages.append, format="{message}", level="WARNING")
+        try:
+            _warn_precision_scope("fp16", device, backends)
+        finally:
+            logger.remove(sink)
+        return [str(m) for m in messages]
+
+    assert warnings_for("cuda", [checkpoint, checkpoint]) == []
+    assert warnings_for(torch.device("cuda:1"), [checkpoint]) == []
+
+    (mixed,) = warnings_for("cuda:0", [exported, checkpoint])
+    assert "1 of the 2 models here are exported" in mixed
+    (all_exported,) = warnings_for("cuda", [exported, exported])
+    assert "has no effect here: every model is an exported" in all_exported
+
+    for device in ("cpu", "mps"):
+        (off_cuda,) = warnings_for(device, [exported, checkpoint])
+        assert f"precision='fp16' has no effect on device={device}" in off_cuda
 
 
 def test_from_model_paths_rejects_unknown_precision():
@@ -293,3 +348,26 @@ def test_from_model_paths_rejects_unknown_precision():
         pytest.skip("checkpoint fixture not present")
     with pytest.raises(ValueError, match="precision"):
         Predictor.from_model_paths([str(SINGLE_CKPT)], device="cpu", precision="16")
+
+
+def test_autocast_precision_is_recorded_only_when_used():
+    """Provenance names the autocast dtype of CUDA models, nothing for fp32/CPU."""
+    import torch
+
+    from sleap_nn.inference.layers.backends.torch_backend import TorchBackend
+    from sleap_nn.inference.predictor import _autocast_precision_used
+
+    def backend(dtype, device):
+        b = object.__new__(TorchBackend)
+        b.autocast_dtype, b.device = dtype, device
+        return b
+
+    assert _autocast_precision_used(None) is None
+    assert _autocast_precision_used([backend(None, "cuda:0")]) is None
+    assert _autocast_precision_used([backend(torch.bfloat16, "cpu")]) is None
+    cuda_bf16 = [backend(torch.bfloat16, "cuda:0")]
+    assert _autocast_precision_used(cuda_bf16) == "bf16"
+    assert (
+        _autocast_precision_used(cuda_bf16, [backend(torch.float16, "cuda")])
+        == "bf16,fp16"
+    )

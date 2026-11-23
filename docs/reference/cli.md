@@ -338,13 +338,15 @@ exist there: they are ignored without a warning. `--boxes`, `--nodes` / `--node_
 `--upload_batches` and `--memory_format` are ignored with a warning (both work
 for network-only export folders passed as `--model_paths`). `--max_instances`, `--min_instance_peaks`,
 `--min_line_scores`, `--centroid_output`, `--paf-workers`, the filters and tracking
-still apply. See [Running exported models](../guides/inference-guide.md#running-exported-models-onnxtensorrt).
+still apply. `--precision bf16` / `fp16` is refused: an exported model keeps the
+precision it was exported with. See [Running exported models](../guides/inference-guide.md#running-exported-models-onnxtensorrt).
 
 | Option | Description | Values | Default |
 |--------|-------------|--------|---------|
 | `--runtime` | Exported-model runtime; `auto` prefers TensorRT on a CUDA device and takes ONNX otherwise (ignored for checkpoints) | `auto`, `onnx`, `tensorrt` | `auto` |
 | `--upload_batches` | CUDA: copy each batch of frames to the GPU before preprocessing, so the resize / letterbox, the crops' frame-size match and the cropping run there instead of on the CPU. Every pipeline built from `--model_paths` (checkpoints and network-only export folders); with `--part_streaming` the part model cuts its crops from the same GPU copy. Results are not bit-identical to the CPU resize. Ignored, with a warning, for a single exported model directory. See [Performance](../guides/inference-performance.md#batches-on-the-gpu-upload_batches) | Flag | `false` |
 | `--memory_format` | Model weight layout of every checkpoint model, the part model included; `channels_last` is faster on NVIDIA GPUs (ignored, with a warning, for an exported model directory) | `contiguous`, `channels_last` | `contiguous` |
+| `--precision` | CUDA: `bf16` / `fp16` run every model's forward pass under `torch.autocast` (weights and outputs stay fp32); `32` is strict fp32. Results differ slightly from fp32. No effect on CPU / MPS, with a warning. Checkpoints only: refused when every model is exported (an exported model keeps the precision it was exported with). See [Performance](../guides/inference-performance.md#reduced-precision-precision) | `32`, `bf16`, `fp16` | `32` |
 | `--paf-workers` | CPU worker processes for bottom-up PAF grouping (`0` = in-process). `--cpu-workers` is a deprecated alias | `INT` | `0` |
 
 ### Examples
@@ -394,7 +396,7 @@ grouping, filtering and classic-tracker options above, plus `--gui` and
 `--queue_maxsize` (size of the frame-buffer queue, default `32`). It does
 **not** support:
 
-- exported ONNX/TensorRT models (`--runtime`), `--upload_batches`, `--memory_format`, `--paf-workers`, `--stream-to-file`
+- exported ONNX/TensorRT models (`--runtime`), `--upload_batches`, `--memory_format`, `--precision`, `--paf-workers`, `--stream-to-file`
 - `--centroid_peak_threshold`, the `--peak-conf-threshold` alias (use `--peak_threshold`) and `--filter_min_centroid_distance`
 - centroid-only output, segmentation, box detectors and SAM masks
 - the modern MOT trackers (`--tracker` and its options), `--link_tracklets`, `--appearance_weight` / `--euclidean_scale`

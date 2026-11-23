@@ -441,6 +441,20 @@ def _attach_box_source(
     return source, "given"
 
 
+def _part_stage_precision(precision: str, device: Any) -> str:
+    """``precision`` for the part model, built after the pose predictor.
+
+    Off CUDA ``precision`` does nothing and the pose predictor's build has
+    logged that; the part model is then built at ``"32"`` (the same fp32 forward)
+    so the warning is not logged a second time.
+    """
+    import torch
+
+    if precision != "32" and torch.device(device).type != "cuda":
+        return "32"
+    return precision
+
+
 def _build_predictor(
     *,
     device,
@@ -653,7 +667,7 @@ def _build_predictor(
             part_crop_rule,
             device=device,
             batch_size=batch_size,
-            precision=precision,
+            precision=_part_stage_precision(precision, device),
             node_filter=part_node_filter,
             strip_prefix=part_strip_prefix,
             peak_threshold=part_peak_threshold,
@@ -783,8 +797,11 @@ def predict(
         batch_size: Frames per batch.
         precision: ``"32"`` (strict fp32, the default), ``"bf16"`` or ``"fp16"``:
             run the model forward under ``torch.autocast`` with that dtype
-            (CUDA only). Checkpoint models only; exported models keep the
-            precision they were exported with.
+            (CUDA only; on another device it has no effect and a warning is
+            logged). Results differ slightly from fp32. Checkpoint models only;
+            exported models keep the precision they were exported with
+            (``export_dir`` raises, a network-only export among ``model_paths``
+            is left as exported, with a warning).
         runtime: Runtime for an exported model: ``"auto"`` (prefer TensorRT,
             fall back to ONNX), ``"onnx"``, or ``"tensorrt"``. Ignored when
             ``model_paths`` is given (checkpoints).
@@ -1171,7 +1188,7 @@ def predict(
             part_crop_rule,
             device=device,
             batch_size=batch_size,
-            precision=precision,
+            precision=_part_stage_precision(precision, device),
             node_filter=part_node_filter,
             strip_prefix=part_strip_prefix,
             peak_threshold=part_peak_threshold,

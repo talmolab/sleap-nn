@@ -355,15 +355,16 @@ def _rescaled_file(labels, out_dir, name, hw, nodes):
     )
 
 
-@pytest.fixture(scope="module")
-def warp_run(tmp_path_factory, pytestconfig):
-    """A tiny warp-trained model on two files with different skeletons and sizes."""
+def _two_file_warp_config(tmp, pytestconfig):
+    """A tiny warp training config on two files with different skeletons and sizes.
+
+    Returns the config (balanced batches, one sample per file) and the path of the
+    first file.
+    """
     from pathlib import Path
 
-    from sleap_nn.training.model_trainer import ModelTrainer
     from tests.fixtures.datasets import config as config_fixture
 
-    tmp = tmp_path_factory.mktemp("warp_run")
     data_dir = Path(pytestconfig.rootdir) / "tests/assets/datasets"
     pkg = data_dir / "minimal_instance.pkg.slp"
     small = _rescaled_file(sio.load_slp(pkg), tmp, "small", (288, 240), "ABC")
@@ -399,6 +400,16 @@ def warp_run(tmp_path_factory, pytestconfig):
     tc.run_name = "warp"
     tc.visualize_preds_during_training = True
     tc.eval = {"enabled": True, "frequency": 1}
+    return cfg, pkg
+
+
+@pytest.fixture(scope="module")
+def warp_run(tmp_path_factory, pytestconfig):
+    """A tiny warp-trained model on two files with different skeletons and sizes."""
+    from sleap_nn.training.model_trainer import ModelTrainer
+
+    tmp = tmp_path_factory.mktemp("warp_run")
+    cfg, pkg = _two_file_warp_config(tmp, pytestconfig)
     ModelTrainer.get_model_trainer_from_config(cfg).train()
     return {"dir": tmp / "warp", "pkg": pkg, "tmp": tmp}
 
@@ -473,3 +484,61 @@ def test_warp_training_logs_per_file_val_metrics(warp_run):
     assert log["val/loss"].notna().all() and log["eval/val/mOKS"].notna().all()
     mean_oks = log[["eval/minimal_instance/mOKS", "eval/small/mOKS"]].mean(axis=1)
     assert np.allclose(log["eval/macro/mOKS"], mean_oks)
+
+
+# --------------------------------------------------------------------------- #
+# Dry run
+# --------------------------------------------------------------------------- #
+@pytest.mark.parametrize(
+    "balanced_sampler",
+    [None, {"counts": [1, 1]}, {"per_sample": True, "weights": [3, 1]}],
+    ids=["shuffled", "counts", "per-sample"],
+)
+def test_warp_dry_run(tmp_path, pytestconfig, balanced_sampler):
+    """A dry run of a warp config takes one training and one validation batch from
+    the warp datasets, with the configured batch composition, and writes nothing."""
+    from tests.utils.dry_run import dry_run
+
+    cfg, _ = _two_file_warp_config(tmp_path, pytestconfig)
+    cfg.trainer_config.balanced_sampler = balanced_sampler
+    trainer = dry_run(cfg, tmp_path)
+    loaders = trainer.trainer.train_dataloader, trainer.trainer.val_dataloaders
+    assert all(isinstance(x.dataset, WarpCenteredInstanceDataset) for x in loaders)
+    assert isinstance(loaders[0], BalancedDataLoader) == (balanced_sampler is not None)
+    if balanced_sampler is not None:
+        # The batch the step trained on is the sampler's: its position moved on.
+        assert loaders[0].state_dict() == {"position": 1}
+    assert torch.isfinite(trainer.trainer.callback_metrics["train/loss"])
+
+
+@pytest.mark.xfail(
+    strict=True,
+    raises=ValueError,
+    reason="A dry run cuts every labels file to its first batch of labeled frames. "
+    "When the dataset keeps no instance of those frames (here `instance_filter` "
+    "drops them), the file has no sample left and the balanced sampler refuses "
+    "it, although the whole file trains.",
+)
+def test_warp_dry_run_when_a_files_first_frames_have_no_kept_instance(
+    tmp_path, pytestconfig
+):
+    from tests.utils.dry_run import dry_run
+
+    cfg, pkg = _two_file_warp_config(tmp_path, pytestconfig)
+    cfg.data_config.instance_filter = {"min_labeled_nodes": 2}
+    first, second = (sio.load_slp(p) for p in cfg.data_config.train_labels_path)
+    lf = second[0]
+
+    def one_node_frame():
+        pts = lf.instances[0].numpy().copy()
+        pts[1:] = np.nan
+        inst = sio.Instance.from_numpy(pts, skeleton=second.skeletons[0])
+        return sio.LabeledFrame(video=lf.video, frame_idx=0, instances=[inst])
+
+    # More frames than a batch: the cut takes the two the filter empties.
+    second = sio.Labels(
+        [one_node_frame(), one_node_frame(), lf],
+        skeletons=second.skeletons,
+        videos=second.videos,
+    )
+    dry_run(cfg, tmp_path, train_labels=[first, second], val_labels=[first, second])

@@ -1318,22 +1318,37 @@ def _select_export_layer(
 _AUTOCAST_DTYPES = {"bf16": torch.bfloat16, "fp16": torch.float16}
 
 
-def _set_autocast_precision(layer: Any, precision: str) -> None:
+def _set_autocast_precision(layer: Any, precision: str) -> List[TorchBackend]:
     """Set ``autocast_dtype`` on every ``TorchBackend`` reachable from ``layer``.
 
     Composed layers (top-down, box-seeded, multi-stage) hold their stage layers
     and backends as attributes, so this walks the ``sleap_nn.inference`` objects
     reachable through instance attributes (and lists / tuples / dicts of them).
+
+    Returns:
+        The backends it set (none for ``precision="32"``).
     """
     from sleap_nn.inference.layers.backends.torch_backend import TorchBackend
 
+    found: List[TorchBackend] = []
     if precision == "32":
-        return
+        return found
     if precision not in _AUTOCAST_DTYPES:
         raise ValueError(
             f"precision must be '32', 'bf16' or 'fp16'; got {precision!r}."
         )
     dtype = _AUTOCAST_DTYPES[precision]
+    for backend in _reachable_torch_backends(layer):
+        backend.autocast_dtype = dtype
+        found.append(backend)
+    return found
+
+
+def _reachable_torch_backends(layer: Any) -> List[TorchBackend]:
+    """Every ``TorchBackend`` reachable from ``layer`` (see ``_set_autocast_precision``)."""
+    from sleap_nn.inference.layers.backends.torch_backend import TorchBackend
+
+    found: List[TorchBackend] = []
     seen: set = set()
     stack = [layer]
     while stack:
@@ -1342,7 +1357,7 @@ def _set_autocast_precision(layer: Any, precision: str) -> None:
             continue
         seen.add(id(obj))
         if isinstance(obj, TorchBackend):
-            obj.autocast_dtype = dtype
+            found.append(obj)
             continue
         if isinstance(obj, (list, tuple)):
             stack.extend(obj)
@@ -1352,6 +1367,71 @@ def _set_autocast_precision(layer: Any, precision: str) -> None:
             obj, "__dict__"
         ):
             stack.extend(vars(obj).values())
+    return found
+
+
+def _autocast_precision_used(*layers: Any) -> Optional[str]:
+    """``"bf16"`` / ``"fp16"`` if a CUDA model of ``layers`` runs under autocast.
+
+    ``None`` for fp32 (the default) and off CUDA, where autocast is not applied,
+    so a default run's provenance has no such key.
+    """
+    names = {v: k for k, v in _AUTOCAST_DTYPES.items()}
+    used = set()
+    for layer in layers:
+        if layer is None:
+            continue
+        for backend in _reachable_torch_backends(layer):
+            dtype = getattr(backend, "autocast_dtype", None)
+            if dtype is not None and "cuda" in str(getattr(backend, "device", "")):
+                used.add(names.get(dtype, str(dtype)))
+    return ",".join(sorted(used)) or None
+
+
+def _warn_precision_scope(
+    precision: str, device: Any, backends: List[TorchBackend]
+) -> None:
+    """Say (once per build) where a ``precision`` other than ``"32"`` does nothing.
+
+    ``precision`` runs each model's forward under ``torch.autocast``, which
+    :class:`TorchBackend` enters on CUDA devices only, and which does not reach
+    inside an exported (ONNX/TensorRT) graph standing in for a checkpoint.
+
+    Args:
+        precision: The value asked for (``"bf16"`` or ``"fp16"`` here).
+        device: Device the models were loaded on.
+        backends: The backends :func:`_set_autocast_precision` set.
+    """
+    from sleap_nn.inference.exported_network import ExportedNetwork
+
+    if torch.device(device).type != "cuda":
+        logger.warning(
+            f"precision={precision!r} has no effect on device={device}: it runs "
+            "the models under torch.autocast, on CUDA devices only. Predicting "
+            "in fp32."
+        )
+        return
+
+    def exported(backend: TorchBackend) -> bool:
+        modules = getattr(backend.model, "modules", None)
+        return callable(modules) and any(
+            isinstance(m, ExportedNetwork) for m in modules()
+        )
+
+    n_exported = sum(exported(backend) for backend in backends)
+    if n_exported and n_exported == len(backends):
+        logger.warning(
+            f"precision={precision!r} has no effect here: every model is an "
+            "exported (ONNX/TensorRT) graph, which keeps the precision it was "
+            "exported with. It applies to models loaded from trained checkpoints."
+        )
+    elif n_exported:
+        logger.warning(
+            f"precision={precision!r} applies to the models loaded from trained "
+            f"checkpoints only: {n_exported} of the {len(backends)} models here "
+            "are exported (ONNX/TensorRT) graphs and keep the precision they were "
+            "exported with."
+        )
 
 
 def _restore_source_order(
@@ -1664,8 +1744,11 @@ class Predictor:
                 compute.
             precision: ``"32"`` (the default; strict fp32), ``"bf16"`` or
                 ``"fp16"``: run every model's forward under ``torch.autocast``
-                with that dtype (CUDA only; ignored on CPU / MPS). Outputs are
-                cast back to fp32 before postprocessing.
+                with that dtype (CUDA only; no effect on CPU / MPS, with a
+                logged warning). Outputs are cast back to fp32 before
+                postprocessing, and results differ slightly from fp32. A
+                network-only export directory among ``model_paths`` keeps the
+                precision it was exported with (also with a warning).
             boxes: Seed a top-down crop model's stage 1 from boxes instead of a
                 centroid model or detector: ``"gt"`` (the GT boxes of a ``.slp``
                 source, scored 1) or ``"given"`` (each frame's
@@ -1773,7 +1856,9 @@ class Predictor:
             layer = _seed_from_boxes(
                 layer, loaded, model_types, device, boxes, box_score_threshold
             )
-        _set_autocast_precision(layer, precision)
+        autocast_backends = _set_autocast_precision(layer, precision)
+        if precision != "32":
+            _warn_precision_scope(precision, device, autocast_backends)
         for backend in _torch_backends(layer):
             backend.memory_format = memory_format
 
@@ -2087,6 +2172,17 @@ class Predictor:
         if exported:
             # Which runtime and precision each exported graph actually ran.
             provenance["exported_models"] = exported
+        try:
+            part = getattr(self.part_stage, "part_predictor", None)
+            autocast = _autocast_precision_used(
+                self.layer, part.layer if part is not None else None
+            )
+        except Exception:  # noqa: BLE001 -- provenance must never fail a run
+            autocast = None
+        if autocast is not None:
+            # `precision="bf16"` / `"fp16"` on CUDA: the checkpoint models ran
+            # under autocast (no key for fp32, the default).
+            provenance["autocast_precision"] = autocast
         _add_part_exports(provenance, part_exported)  # a streaming --part_model
         return provenance
 
