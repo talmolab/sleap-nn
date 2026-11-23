@@ -22,6 +22,7 @@ Three usage tiers:
 from __future__ import annotations
 
 import copy
+import json
 from pathlib import Path
 from typing import (
     TYPE_CHECKING,
@@ -1109,6 +1110,30 @@ def _resolve_export_runtime(export_dir: Path, runtime: str) -> tuple[str, Path]:
     )
 
 
+def _refuse_network_only_export_dir(export_dir: Path, metadata_path: Path) -> None:
+    """Refuse a ``--network-only`` crop export given as an export directory.
+
+    Its graph returns raw confidence maps; the crops before it and the peak
+    finding after it are the checkpoint pipeline's, which runs it from model
+    paths. Box detector exports (network-only by construction) are decoded on the
+    host by the export-directory route and stay accepted there.
+    """
+    from sleap_nn.inference.exported_network import _NETWORK_ONLY_TYPES
+
+    try:
+        meta = json.loads(metadata_path.read_text())
+    except (OSError, ValueError):
+        return
+    if meta.get("network_only") and meta.get("model_type") not in _NETWORK_ONLY_TYPES:
+        raise ValueError(
+            f"{export_dir} is a network-only export (`sleap-nn export "
+            "--network-only`): its graph returns raw confidence maps and stands in "
+            "for its checkpoint. Pass it as a model path instead of an export "
+            "directory: `Predictor.from_model_paths([...])`, "
+            "`predict(model_paths=[...])`, or `sleap-nn predict -m`."
+        )
+
+
 def _build_export_backend(runtime: str, model_path: Path, device: str):
     """Construct the right ``ModelBackend`` for an exported model file."""
     if runtime == "onnx":
@@ -1820,7 +1845,9 @@ class Predictor:
 
         Args:
             export_dir: Directory containing ``export_metadata.json`` +
-                ``model.onnx`` or ``model.trt``.
+                ``model.onnx`` or ``model.trt``. A ``--network-only`` crop-model
+                export is refused: it stands in for its checkpoint, so pass it
+                to :meth:`from_model_paths` instead.
             runtime: ``"auto"`` (prefer TRT), ``"onnx"``, or ``"tensorrt"``.
             device: Device string.
             batch_size: Default batch size.
@@ -1854,6 +1881,7 @@ class Predictor:
                 f"export_metadata.json not found at {metadata_path}. "
                 f"Pass a directory written by `sleap_nn export`."
             )
+        _refuse_network_only_export_dir(export_dir, metadata_path)
         metadata = ExportMetadata.load(metadata_path)
 
         runtime, model_path = _resolve_export_runtime(export_dir, runtime)
