@@ -97,7 +97,10 @@ from sleap_nn.config_generator.architecture_estimates import (
     compute_suggested_tile_overlap,
 )
 from sleap_nn.training.utils import get_gpu_memory
-from sleap_nn.config.training_job_config import verify_training_cfg
+from sleap_nn.config.training_job_config import (
+    config_without_unused_keys,
+    verify_training_cfg,
+)
 from sleap_nn.config.trainer_config import fixed_length_lr_schedule
 from sleap_nn.training.optim import migrate_encoder_lr_options
 from sleap_nn.training.distillation import attach_distillation
@@ -879,7 +882,14 @@ class ModelTrainer:
         padding = OmegaConf.select(self.config, "data_config.bbox_padding", default=0.0)
         for label_list in label_lists:
             for labels in label_list or []:
-                add_bboxes_to_labels(labels, source=source, padding=padding)
+                add_bboxes_to_labels(
+                    labels,
+                    source=source,
+                    padding=padding,
+                    ignore_category=OmegaConf.select(
+                        self.config, "data_config.ignore_box_category"
+                    ),
+                )
 
     # Metric-name segments a val file's display name may not take: they would
     # collide with the pooled (`eval/val/*`) and macro (`*/macro/*`) keys.
@@ -1082,7 +1092,8 @@ class ModelTrainer:
         leaf = bbox_head_leaf(self.model_type, head_configs)
         if leaf.categories is None:
             leaf.categories = labels_bbox_categories(
-                self.train_labels + self.val_labels
+                self.train_labels + self.val_labels,
+                OmegaConf.select(self.config, "data_config.ignore_box_category"),
             )
             logger.info(f"Bounding-box categories: {list(leaf.categories)}")
         if self.model_type == "bbox_ssd" and leaf.anchor_sizes is None:
@@ -2930,6 +2941,15 @@ class ModelTrainer:
             ckpt_monitor = self.config.trainer_config.model_ckpt.monitor
             ckpt_mode = self.config.trainer_config.model_ckpt.mode
             self._check_per_file_monitor(ckpt_monitor)
+        if ckpt_monitor == "val/loss" and OmegaConf.select(
+            self.config, "data_config.val_negative_frames", default=False
+        ):
+            logger.warning(
+                "data_config.val_negative_frames is on and checkpoints and early "
+                "stopping follow val/loss, which batches of negative frames inflate "
+                "(as does reduce_lr_on_plateau). Prefer trainer_config.eval.enabled "
+                "with a box metric (eval/val/bbox_*)."
+            )
 
         if self.config.trainer_config.save_ckpt:
             ckpt_dirpath = (
@@ -4093,10 +4113,12 @@ class ModelTrainer:
         if dry_run:
             # The run's two config files, written where the real run writes them.
             OmegaConf.save(
-                self._initial_config, (dry_run_dir / "initial_config.yaml").as_posix()
+                config_without_unused_keys(self._initial_config),
+                (dry_run_dir / "initial_config.yaml").as_posix(),
             )
             OmegaConf.save(
-                self.config, (dry_run_dir / "training_config.yaml").as_posix()
+                config_without_unused_keys(self.config),
+                (dry_run_dir / "training_config.yaml").as_posix(),
             )
 
         # save config only in rank 0 process
@@ -4111,7 +4133,7 @@ class ModelTrainer:
             self.config.sleap_nn_version = sleap_nn.__version__
 
             OmegaConf.save(
-                self._initial_config,
+                config_without_unused_keys(self._initial_config),
                 (Path(ckpt_path) / "initial_config.yaml").as_posix(),
             )
 
@@ -4155,7 +4177,7 @@ class ModelTrainer:
                 )
 
             OmegaConf.save(
-                self.config,
+                config_without_unused_keys(self.config),
                 (
                     Path(self.config.trainer_config.ckpt_dir)
                     / self.config.trainer_config.run_name

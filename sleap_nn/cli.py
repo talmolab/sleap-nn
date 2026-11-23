@@ -3624,6 +3624,19 @@ def _run_in_memory_new_flow(
         predict_kwargs["model_paths"] = None
         predict_kwargs["export_dir"] = export_dir
         predict_kwargs["runtime"] = (kwargs.get("runtime") or "auto").lower()
+        keep_threshold = False
+        _ctx = click.get_current_context(silent=True)
+        if _ctx is not None and "peak_threshold" in _ctx.params:
+            from click.core import ParameterSource
+
+            # A lone exported box detector decodes on the host: a --peak_threshold
+            # typed on the command line is its score threshold, as next to a pose
+            # model. The option always has a value (default 0.2), so only a typed
+            # one may replace the threshold stored at export. `--bbox_nms_iou`
+            # defaults to None and is forwarded whenever it is set.
+            keep_threshold = _ctx.get_parameter_source(
+                "peak_threshold"
+            ) == ParameterSource.COMMANDLINE and _is_box_detector_dir(export_dir)
         for _k in (
             "peak_threshold",
             "centroid_threshold",
@@ -3645,6 +3658,8 @@ def _run_in_memory_new_flow(
             "preprocess_config",
             "centroid_only",
         ):
+            if _k == "peak_threshold" and keep_threshold:
+                continue
             predict_kwargs.pop(_k, None)
 
     # `-o` naming a file the input reads its frames from (e.g. the input .pkg.slp)
@@ -4312,7 +4327,10 @@ def _common_inference_options(f):
         ),
         click.option(
             "--precision",
-            type=click.Choice(["32", "fp32", "bf16", "fp16"], case_sensitive=False),
+            type=click.Choice(
+                ["32", "fp32", "bf16", "fp16", "bf16-encoder", "fp16-encoder"],
+                case_sensitive=False,
+            ),
             default="32",
             show_default=True,
             callback=lambda _ctx, _param, value: (
@@ -4327,7 +4345,9 @@ def _common_inference_options(f):
             "emulate it slowly). No effect on CPU / MPS (a warning says so). "
             "The output file records it (`autocast_precision`). `predict` "
             "with trained checkpoints only: an exported model keeps the precision "
-            "it was exported with.",
+            "it was exported with. Experimental: `bf16-encoder` / `fp16-encoder` "
+            "run only each model's encoder under autocast and every layer after it "
+            "(decoder, heads, a DETR detector's box head) in fp32.",
         ),
         click.option(
             "--runtime",
@@ -4440,9 +4460,9 @@ def _common_inference_options(f):
             type=float,
             default=None,
             help="Class-wise IoU-NMS threshold for bounding-box detectors "
-            "(bbox_centernet / bbox_ssd). Default: 0.45 for SSD, off for "
-            "CenterNet; 1.0 disables it. --peak_threshold is the detection "
-            "score threshold and --max_instances the per-frame cap.",
+            "(bbox_centernet / bbox_ssd / bbox_detr). Default: 0.45 for SSD, off "
+            "for CenterNet and DETR; 1.0 disables it. --peak_threshold is the "
+            "detection score threshold and --max_instances the per-frame cap.",
         ),
         click.option(
             "--fg_threshold",

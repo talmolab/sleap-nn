@@ -112,6 +112,39 @@ class TrainingJobConfig:
         return config_omegaconf
 
 
+#: Experimental keys left out of a saved config while they hold their default, as
+#: ``(parent path, key, default)``: a config that does not use them saves the same
+#: ``training_config.yaml`` / ``initial_config.yaml`` as before they existed, so
+#: releases without them can still read it.
+UNSAVED_DEFAULT_KEYS = (
+    ("data_config", "val_negative_frames", False),
+    ("data_config", "ignore_box_category", None),
+    ("data_config", "ignore_box_min_cover", 0.5),
+    ("trainer_config.balanced_sampler", "frame_weight_key", None),
+)
+
+
+def config_without_unused_keys(config: DictConfig) -> DictConfig:
+    """``config`` without the :data:`UNSAVED_DEFAULT_KEYS` that hold their default.
+
+    For writing a config to disk. Returns ``config`` itself when there is nothing
+    to leave out; otherwise a plain (unstructured) copy.
+    """
+    drop = [
+        (parent, key)
+        for parent, key, default in UNSAVED_DEFAULT_KEYS
+        if (node := OmegaConf.select(config, parent, default=None)) is not None
+        and key in node
+        and node[key] == default
+    ]
+    if not drop:
+        return config
+    out = OmegaConf.create(OmegaConf.to_container(config, resolve=False))
+    for parent, key in drop:
+        del OmegaConf.select(out, parent)[key]
+    return out
+
+
 def verify_training_cfg(cfg: DictConfig) -> DictConfig:
     """Get sleap-nn training config from a DictConfig object.
 

@@ -1126,6 +1126,7 @@ def _select_export_layer(
     min_line_scores: float = 0.25,
     peak_conf_threshold: Optional[float] = None,
     export_dir: Optional[Path] = None,
+    bbox_nms_iou: Optional[float] = None,
 ):
     """Dispatch on ``metadata.model_type`` to build the right export adapter."""
     from sleap_nn.inference.layers.exported import (
@@ -1236,6 +1237,9 @@ def _select_export_layer(
             model_type,
             cfg.model_config.head_configs,
             score_threshold=score,
+            # As on the checkpoint path (`bbox_nms_iou`): None keeps the style's
+            # default suppression.
+            iou_threshold="default" if bbox_nms_iou is None else bbox_nms_iou,
             max_detections=max_instances,
         )
         return ExportedBBoxLayer(
@@ -1273,23 +1277,57 @@ def _set_autocast_precision(layer: Any, precision: str) -> List[TorchBackend]:
     and backends as attributes, so this walks the ``sleap_nn.inference`` objects
     reachable through instance attributes (and lists / tuples / dicts of them).
 
+    ``"bf16-encoder"`` / ``"fp16-encoder"`` (experimental) also set
+    ``autocast_scope="encoder"``: only each model's encoder runs under autocast
+    (:func:`~sleap_nn.inference.layers.backends.torch_backend.autocast_forward`).
+    An exported (ONNX/TensorRT) backend keeps scope ``"all"``: autocast does not
+    reach inside it, and ``_warn_precision_scope`` says so, as for ``bf16``.
+
     Returns:
         The backends it set (none for ``precision="32"``).
+
+    Raises:
+        ValueError: For an unknown ``precision``, or an ``-encoder`` precision on
+            a checkpoint model with no recognisable encoder.
     """
-    from sleap_nn.inference.layers.backends.torch_backend import TorchBackend
+    from sleap_nn.inference.layers.backends.torch_backend import (
+        TorchBackend,
+        supports_encoder_autocast,
+    )
 
     found: List[TorchBackend] = []
     if precision == "32":
         return found
-    if precision not in _AUTOCAST_DTYPES:
+    name, _, scope = precision.partition("-")
+    if name not in _AUTOCAST_DTYPES or scope not in ("", "encoder"):
         raise ValueError(
-            f"precision must be '32', 'bf16' or 'fp16'; got {precision!r}."
+            "precision must be '32', 'bf16', 'fp16', 'bf16-encoder' or "
+            f"'fp16-encoder'; got {precision!r}."
         )
-    dtype = _AUTOCAST_DTYPES[precision]
+    dtype = _AUTOCAST_DTYPES[name]
     for backend in _reachable_torch_backends(layer):
+        encoder_scope = bool(scope) and not _is_exported_backend(backend)
+        if encoder_scope and not supports_encoder_autocast(backend.model):
+            raise ValueError(
+                f"precision={precision!r} runs only each model's encoder under "
+                f"autocast, and this {type(backend.model).__name__} has no "
+                "backbone that supports it. Use "
+                f"precision={name!r} (the whole forward) instead."
+            )
+        # The scope first: its check (`use_compile`) must fail before the dtype
+        # is set, so a caught error leaves the backend as it was.
+        backend.autocast_scope = "encoder" if encoder_scope else "all"
         backend.autocast_dtype = dtype
         found.append(backend)
     return found
+
+
+def _is_exported_backend(backend: TorchBackend) -> bool:
+    """Whether ``backend`` runs an exported (ONNX/TensorRT) graph, not a checkpoint."""
+    from sleap_nn.inference.exported_network import ExportedNetwork
+
+    modules = getattr(backend.model, "modules", None)
+    return callable(modules) and any(isinstance(m, ExportedNetwork) for m in modules())
 
 
 def _reachable_torch_backends(layer: Any) -> List[TorchBackend]:
@@ -1332,7 +1370,10 @@ def _autocast_precision_used(*layers: Any) -> Optional[str]:
         for backend in _reachable_torch_backends(layer):
             dtype = getattr(backend, "autocast_dtype", None)
             if dtype is not None and "cuda" in str(getattr(backend, "device", "")):
-                used.add(names.get(dtype, str(dtype)))
+                name = names.get(dtype, str(dtype))
+                if getattr(backend, "autocast_scope", "all") != "all":
+                    name = f"{name}-{backend.autocast_scope}"
+                used.add(name)
     return ",".join(sorted(used)) or None
 
 
@@ -1350,8 +1391,6 @@ def _warn_precision_scope(
         device: Device the models were loaded on.
         backends: The backends :func:`_set_autocast_precision` set.
     """
-    from sleap_nn.inference.exported_network import ExportedNetwork
-
     if torch.device(device).type != "cuda":
         logger.warning(
             f"precision={precision!r} has no effect on device={device}: it runs "
@@ -1360,13 +1399,7 @@ def _warn_precision_scope(
         )
         return
 
-    def exported(backend: TorchBackend) -> bool:
-        modules = getattr(backend.model, "modules", None)
-        return callable(modules) and any(
-            isinstance(m, ExportedNetwork) for m in modules()
-        )
-
-    n_exported = sum(exported(backend) for backend in backends)
+    n_exported = sum(_is_exported_backend(backend) for backend in backends)
     if n_exported and n_exported == len(backends):
         logger.warning(
             f"precision={precision!r} has no effect here: every model is an "
@@ -1685,6 +1718,9 @@ class Predictor:
                 postprocessing, and results differ slightly from fp32. A
                 network-only export directory among ``model_paths`` keeps the
                 precision it was exported with (also with a warning).
+                ``"bf16-encoder"`` / ``"fp16-encoder"`` (experimental): only
+                each model's encoder runs under autocast; the decoder and heads
+                (a DETR detector's projector, decoder and box head) run in fp32.
             boxes: Seed a top-down crop model's stage 1 from boxes instead of a
                 centroid model or detector: ``"gt"`` (the GT boxes of a ``.slp``
                 source, scored 1) or ``"given"`` (each frame's
@@ -1889,6 +1925,7 @@ class Predictor:
         min_line_scores: float = 0.25,
         peak_conf_threshold: Optional[float] = None,
         emit_centroid: str = "instance",
+        bbox_nms_iou: Optional[float] = None,
     ) -> "Predictor":
         """Build a :class:`Predictor` from an exported ONNX/TensorRT directory.
 
@@ -1917,6 +1954,9 @@ class Predictor:
                 (``sio.PredictedCentroid``), or ``"both"``. Honored only for
                 ``ExportedCentroidLayer``; mirrors ``from_model_paths`` so the
                 exported runtime matches the checkpoint path.
+            bbox_nms_iou: Box detector exports: class-wise IoU-NMS threshold, as
+                ``from_model_paths(bbox_nms_iou=...)``; ``None`` keeps the
+                detector style's default. Ignored for other exports.
         """
         from sleap_nn.export.metadata import ExportMetadata
 
@@ -1950,6 +1990,7 @@ class Predictor:
             min_line_scores=min_line_scores,
             peak_conf_threshold=resolved_peak_conf,
             export_dir=export_dir,
+            bbox_nms_iou=bbox_nms_iou,
         )
 
         skeleton = _skeleton_from_export(export_dir, metadata)
