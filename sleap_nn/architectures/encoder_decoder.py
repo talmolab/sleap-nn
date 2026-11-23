@@ -535,7 +535,10 @@ class SimpleUpsamplingBlock(nn.Module):
                 and idx == self.norm_act_layers
                 and feature is not None
             ):
-                if x.shape[-2:] != feature.shape[-2:]:
+                # Traced (exported) graphs always resize to the skip feature's size,
+                # read when the graph runs: the size check would be frozen at the
+                # traced size (a resize to the same size changes nothing).
+                if torch.jit.is_tracing() or x.shape[-2:] != feature.shape[-2:]:
                     x = F.interpolate(
                         x,
                         size=feature.shape[-2:],
@@ -546,7 +549,10 @@ class SimpleUpsamplingBlock(nn.Module):
             elif (
                 self.up_interpolate and idx == 1 and feature is not None
             ):  # Right after upsampling or convtranspose2d.
-                if x.shape[-2:] != feature.shape[-2:]:
+                # Traced (exported) graphs always resize to the skip feature's size,
+                # read when the graph runs: the size check would be frozen at the
+                # traced size (a resize to the same size changes nothing).
+                if torch.jit.is_tracing() or x.shape[-2:] != feature.shape[-2:]:
                     x = F.interpolate(
                         x,
                         size=feature.shape[-2:],
