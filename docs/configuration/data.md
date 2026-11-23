@@ -386,7 +386,7 @@ generator uses the input's short side and 2/3 to 1x of it).
 | `flip_p` | float | `0.5` | Horizontal flip probability |
 | `vflip_p` | float | `0.0` | Vertical flip probability (not in RF-DETR) |
 | `rot90_p` | float | `0.0` | Probability of a 90 degree rotation, either direction (not in RF-DETR); boxes stay exact |
-| `zoom_out_p` | float | `0.0` | Probability of zooming out: the training frame, once fitted to the input size, is shrunk by a factor drawn log-uniformly from `[zoom_out_min, zoom_out_max]` and placed at a random offset, so animals appear smaller than in the source. Also `bbox_centernet` / `bbox_ssd` (after the size matcher, `scale` and padding; before `intensity` / `geometric`) |
+| `zoom_out_p` | float | `0.0` | Probability of zooming out: the training frame, once fitted to the input size, is shrunk by a factor drawn log-uniformly from `[zoom_out_min, zoom_out_max]` and placed at a random offset, so animals appear smaller than in the source (see [Zoom-out](../guides/bbox-detr.md#zoom-out)). Also `bbox_centernet` / `bbox_ssd` (after the size matcher, `scale` and padding; before `intensity` / `geometric`) |
 | `zoom_out_min` | float | `0.4` | Smallest zoom-out factor |
 | `zoom_out_max` | float | `1.0` | Largest zoom-out factor |
 | `zoom_out_canvas` | str | `zero` | What the shrunk frame is placed on: `zero` (black) or `frame` (another random training frame fitted to the same size, with its boxes; those covered half or more by the shrunk frame are dropped, the rest clipped to outside it). `frame` doubles the boxes a sample can hold |

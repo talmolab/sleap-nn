@@ -112,8 +112,9 @@ workspace, `--verify/--no-verify`), see the
 How the reduced precisions are built depends on the TensorRT version:
 
 !!! warning "Experimental: TensorRT 11 and strongly typed engines"
-    The strongly typed path (every build on TensorRT 11, and `--strongly-typed` on
-    TensorRT 10.x) may change in a later release without a deprecation period. The
+    The strongly typed path (every build on TensorRT 11, `--strongly-typed` on
+    TensorRT 10.x, and the default fp16 build of plain-ViT backbones on TensorRT 10.13
+    and later) may change in a later release without a deprecation period. The
     test suite stubs TensorRT, so these engines are checked by hand on a GPU, on few
     model types. Compare its engines against an `fp32` export on your own data before
     relying on them.
@@ -172,9 +173,10 @@ the whole graph runs in bf16.
 #### fp16 for ViT backbones: `--fp32-attention-logits`
 
 !!! warning "Experimental"
-    `--fp32-attention-logits` may change or be removed in a later release without a
-    deprecation period. It was measured on DINOv3 ViT-B models on one GPU and
-    TensorRT version only (below).
+    The switches `--fp32-attention-logits` and `--no-fp32-attention-logits` may change
+    or be removed in a later release without a deprecation period. The default for
+    plain-ViT backbones (below) is a fix for broken fp16 engines; it was measured on
+    DINOv3 ViT-B models on one GPU only (below).
 
 Plain `fp16` engines of DINOv3 ViT-B models fail: two keypoint models kept 17-44% of
 their keypoints within 0.5 px of fp32, and a `bbox_detr` detector loses boxes, on

@@ -13,15 +13,15 @@ otherwise.
 - **sleap-io 0.10 is required** (was `>=0.9.3,<0.10`).
   sleap-io 0.10 reads both `.slp` file layouts: the one SLEAP 1.x and sleap-io 0.9
   write, and the newer format 3.0, which stores separate *labelled* and *visible*
-  flags per point. With nothing set, a file whose content fits the old layout is
-  written in it, so SLEAP 1.x and sleap-io 0.9 open it; a file that needs format 3.0
-  is written as 3.0, with a warning. Centroid-only output fits the old layout.
-  `sleap-nn detect-boxes` always writes 3.0, because each box keeps its matching
-  score.
-- **Save options.** `predict`, `track` and `detect-boxes` take `--slp_version
-  {auto,v2,v3}`, `--image_format`, `--image_quality`, `--compression` and
-  `--unlabeled_as` to choose the layout and how embedded frames are stored. The
-  defaults give the behaviour above.
+  flags per point. Which layout `sleap-nn` writes by default is sleap-io's default
+  (see `--slp_version` below); `--slp_version v2` writes the old layout, which SLEAP
+  1.x and sleap-io 0.9 open. `sleap-nn detect-boxes` always writes 3.0, because each
+  box keeps its matching score.
+- **Save options.** `predict`, `track` and `detect-boxes` take `--slp_version`
+  (`auto`, `v2`, `v3`; `detect-boxes`: `auto` or `v3`), `--compression` and
+  `--unlabeled_as`; `predict` also takes `--image_format` and `--image_quality` for
+  the frames it embeds. Left unset, `--slp_version` saves as `auto`, which leaves the
+  layout to sleap-io.
 - **Default output name of `sleap-nn predict`.** Without `-o`, `sleap-nn predict -i
   video.mp4` now writes `video.predictions.slp`, as SLEAP's `sleap-track` does (0.3.5
   wrote `video.mp4.slp`, and `labels.slp.slp` for a `labels.slp` input). Who:
@@ -70,9 +70,10 @@ otherwise.
   box, else the padded box of its located keypoints) and crops user instances only,
   also when a `.slp` frame filter (`--only_labeled_frames`, `--only_predicted_frames`,
   `--exclude_user_labeled`, `--only_suggested_frames`) or `--stream-to-file` is given,
-  and also for a `LabelsProvider` or `VideoSelection` passed in Python (development
-  builds of 0.4 cropped tight boxes of the visible keypoints on those routes, and
-  could crop predicted instances). Who: these command lines and callers that build
+  and also for a `LabelsProvider` or `VideoSelection` passed in Python (0.3.5 and
+  development builds of 0.4 cropped tight boxes of the visible keypoints on those
+  routes, and could crop predicted instances). Who: users of a box-scaled crop model
+  or `--boxes gt` with a frame filter or `--stream-to-file`, and callers that build
   their own provider; a caller who wants other boxes can set `instance_box_fn` on the
   provider.
 - **`--frames` ignored with a frame filter now warns.** On a `.slp` without
@@ -170,8 +171,9 @@ otherwise.
   and their training files may carry any skeletons.
 - **Hidden points of old files are cleared before training.** In `.slp` files older
   than format 3.0 a hidden point keeps the coordinates it had when it was hidden.
-  sleap-io 0.10 loads such files as stored; sleap-nn clears those coordinates (and
-  marks visible points without coordinates as hidden) on the training and validation
+  Whether or not sleap-io loads such files as stored, sleap-nn clears those
+  coordinates (and marks visible points without coordinates as hidden) on the
+  training and validation
   labels, on test files in post-training evaluation and on the ground truth of
   `sleap-nn eval`, so they are read as absent, as in 0.3.5. Labels from format 3.0
   files and labels built in memory are left as they are. `Labels` passed to the
@@ -195,9 +197,9 @@ otherwise.
 
 - **W&B prediction gallery.** With W&B on, `trainer_config.wandb.gallery: true` (the
   default) logs a fixed panel of validation predictions next to the ground truth at
-  every validation, for box detectors, top-down and bottom-up pose models, plus a few augmented
-  training samples (new `viz/gallery/*` keys and uploads). Turn it off with
-  `gallery: false`. See [WandB logging](../configuration/trainer.md#wandb-logging).
+  every validation, for box detectors, centered-instance and bottom-up models, plus a
+  few augmented training samples (new `viz/gallery/*` keys and uploads). Turn it off
+  with `gallery: false`. See [WandB logging](../configuration/trainer.md#wandb-logging).
 - **Throughput metrics.** Training logs `perf/*` (samples per second, data wait, GPU
   idle share, peak memory, learning rates) every 50 steps; set
   `trainer_config.throughput_log_every_n_steps: 0` to turn it off. Rows of
@@ -209,12 +211,13 @@ otherwise.
   the default `--precision fp16`, a model (or a top-down bundle) with a plain-ViT
   backbone (DINOv2 / v3, CLIP, SigLIP, MAE ..., and the windowed DINOv2 backbone of
   `bbox_detr`) keeps each attention block's logits product in fp32, because plain
-  fp16 engines of these models move keypoints and lose boxes. On TensorRT 10 such a
+  fp16 engines of DINOv3 ViT-B models were measured to move keypoints and lose boxes
+  (other ViTs are untested). On TensorRT 10 such a
   build is strongly typed: the export folder also holds
   `tensorrt_graph/model.fp16.onnx`, and `model.trt.metadata.json` says `typing:
   strong` and gains keys. Below TensorRT 10.13, or on a GPU without fast fp16, the old
   build is kept (with a warning below 10.13). Old behaviour:
-  `--no-fp32-attention-logits`. See
+  `--no-fp32-attention-logits` (experimental). See
   [fp16 for ViT backbones](export.md#fp16-for-vit-backbones-fp32-attention-logits).
 - **TensorRT 10 fp16 engines of models that find peaks** (centroid, bottom-up,
   top-down bundles) hold -1e9 in the empty slots of their value outputs, as the ONNX
