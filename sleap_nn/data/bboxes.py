@@ -19,6 +19,10 @@ Shared by the ``bbox_*`` detection model types (``bbox_centernet``, ``bbox_ssd``
   :func:`collate_set_targets`). The matching decoders live in
   :mod:`sleap_nn.inference.bbox`.
 * **Crowd regions** (:func:`is_crowd_bbox`) are never ground truth.
+* **Ignore boxes** (experimental, ``bbox_detr``): boxes of the category named by
+  ``data_config.ignore_box_category`` ride the same augmentation as the others
+  with class id :data:`IGNORE_BOX_CLASS` and become a separate target
+  (``ignore_bboxes``), never an object.
 
 Box coordinates are ``(x1, y1, x2, y2)`` in pixels, with the same convention as
 pose keypoints (a pixel's center is at its integer coordinate).
@@ -40,6 +44,10 @@ from torchvision.ops import box_iou
 from sleap_nn.config.model_config import DEFAULT_BBOX_CATEGORY
 
 BBOX_SOURCES = ("auto", "bboxes", "instances", "masks")
+
+#: Class id an ignore box (``data_config.ignore_box_category``) carries through the
+#: augmentation chain, next to the real boxes' ``0..C-1`` (``-1`` pads).
+IGNORE_BOX_CLASS = -2
 
 
 # ---------------------------------------------------------------------------
@@ -80,14 +88,17 @@ def bbox_category_name(box: sio.BoundingBox) -> str:
     return str(name) if name else DEFAULT_BBOX_CATEGORY
 
 
-def labels_bbox_categories(labels_list: Sequence[sio.Labels]) -> List[str]:
+def labels_bbox_categories(
+    labels_list: Sequence[sio.Labels], ignore_category: Optional[str] = None
+) -> List[str]:
     """Ordered category names of the user boxes in ``labels_list`` (first seen first).
 
     Returns ``["object"]`` when no box carries a category, so a class-agnostic
-    dataset gets a single-class detector.
+    dataset gets a single-class detector. ``ignore_category`` (the ignore boxes'
+    category) is never one of them.
     """
     names: List[str] = []
-    seen = set()
+    seen = {ignore_category} if ignore_category is not None else set()
     for labels in labels_list:
         for lf in labels:
             for box in frame_user_bboxes(lf):
@@ -98,17 +109,24 @@ def labels_bbox_categories(labels_list: Sequence[sio.Labels]) -> List[str]:
     return names or [DEFAULT_BBOX_CATEGORY]
 
 
-def resolve_bbox_source(labels: sio.Labels, source: str = "auto") -> str:
+def resolve_bbox_source(
+    labels: sio.Labels, source: str = "auto", ignore_category: Optional[str] = None
+) -> str:
     """Resolve ``data_config.bbox_source`` for one labels file.
 
     ``auto`` picks ``bboxes`` when the file carries any user box, else ``instances``
-    when it carries any user pose instance, else ``masks``.
+    when it carries any user pose instance, else ``masks``. Boxes of
+    ``ignore_category`` (``data_config.ignore_box_category``) do not count.
     """
     if source not in BBOX_SOURCES:
         raise ValueError(f"bbox_source must be one of {BBOX_SOURCES}, got {source!r}.")
     if source != "auto":
         return source
-    if any(frame_user_bboxes(lf) for lf in labels):
+    if any(
+        bbox_category_name(b) != ignore_category
+        for lf in labels
+        for b in frame_user_bboxes(lf)
+    ):
         return "bboxes"
     if any(lf.has_user_instances for lf in labels):
         return "instances"
@@ -158,7 +176,10 @@ def _derived_frame_bboxes(
 
 
 def add_bboxes_to_labels(
-    labels: sio.Labels, source: str = "auto", padding: float = 0.0
+    labels: sio.Labels,
+    source: str = "auto",
+    padding: float = 0.0,
+    ignore_category: Optional[str] = None,
 ) -> str:
     """Give every frame of ``labels`` its ground-truth boxes for ``source``, in place.
 
@@ -172,17 +193,27 @@ def add_bboxes_to_labels(
         source: One of ``auto``, ``bboxes``, ``instances``, ``masks`` (see
             :func:`resolve_bbox_source`).
         padding: Pixels added on every side of derived boxes.
+        ignore_category: Experimental. User boxes of this category
+            (``data_config.ignore_box_category``) are kept next to the derived
+            boxes and do not make ``auto`` resolve to ``bboxes``.
 
     Returns:
         The resolved source.
     """
-    resolved = resolve_bbox_source(labels, source)
+    resolved = resolve_bbox_source(labels, source, ignore_category)
     if resolved == "bboxes":
         return resolved
     n_boxes = 0
     for lf in labels:
         derived = _derived_frame_bboxes(lf, resolved, padding)
-        lf.bboxes = [b for b in lf.bboxes if b.is_predicted] + derived
+        ignore = [
+            b
+            for b in lf.bboxes
+            if ignore_category is not None
+            and not b.is_predicted
+            and bbox_category_name(b) == ignore_category
+        ]
+        lf.bboxes = [b for b in lf.bboxes if b.is_predicted] + derived + ignore
         n_boxes += len(derived)
     logger.info(
         f"Derived {n_boxes} ground-truth boxes from {resolved} "
@@ -240,6 +271,7 @@ def frame_bbox_arrays(
     lf: sio.LabeledFrame,
     categories: Sequence[str],
     skipped: Optional[Counter] = None,
+    ignore_category: Optional[str] = None,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """A frame's user boxes as ``(n, 4)`` float32 xyxy and ``(n,)`` int64 class ids.
 
@@ -247,23 +279,28 @@ def frame_bbox_arrays(
     detector trained on a file that also boxes faces, hands or crowds sees only the
     people. Two exceptions keep class-agnostic training working: with
     ``categories == ["object"]`` every box is class 0, and with any single category
-    a box WITHOUT a category is class 0.
+    a box WITHOUT a category is class 0. Boxes of ``ignore_category`` (experimental)
+    are never objects: they come last, with class id :data:`IGNORE_BOX_CLASS`.
 
     Args:
         lf: The labeled frame.
         categories: Ordered class names.
         skipped: If given, counts the skipped boxes by category name.
+        ignore_category: Category of the ignore boxes (``None``: none).
     """
     index = {name: i for i, name in enumerate(categories)}
     class_agnostic = list(categories) == [DEFAULT_BBOX_CATEGORY]
     single_class = len(categories) == 1
-    xyxy, classes = [], []
+    xyxy, classes, ignore = [], [], []
     for box in frame_user_bboxes(lf):
         if box.is_rotated:
             x1, y1, x2, y2 = box.bounds
         else:
             x1, y1, x2, y2 = box.xyxy
         name = bbox_category_name(box)
+        if ignore_category is not None and name == ignore_category:
+            ignore.append([x1, y1, x2, y2])
+            continue
         if class_agnostic or (single_class and name == DEFAULT_BBOX_CATEGORY):
             cls = 0
         else:
@@ -274,6 +311,8 @@ def frame_bbox_arrays(
             continue
         xyxy.append([x1, y1, x2, y2])
         classes.append(cls)
+    xyxy.extend(ignore)
+    classes.extend([IGNORE_BOX_CLASS] * len(ignore))
     return (
         np.asarray(xyxy, dtype=np.float32).reshape(-1, 4),
         np.asarray(classes, dtype=np.int64),
@@ -328,13 +367,17 @@ def instance_hull(
 
 
 def frame_bbox_hulls(
-    lf: sio.LabeledFrame, categories: Sequence[str], min_points: int = 4
+    lf: sio.LabeledFrame,
+    categories: Sequence[str],
+    min_points: int = 4,
+    ignore_category: Optional[str] = None,
 ) -> np.ndarray:
     """Point hulls of a frame's user boxes, for copy-paste augmentation.
 
     Same boxes in the same order as :func:`frame_bbox_arrays`; each row is the convex
     hull of the box's linked instance's points inside it (:func:`instance_hull`), all
-    NaN for a box with no linked instance or too few points.
+    NaN for a box with no linked instance or too few points, and for an ignore box
+    (``ignore_category``), which is never pasted.
 
     Returns:
         ``(n, HULL_VERTICES, 2)`` float32.
@@ -342,9 +385,12 @@ def frame_bbox_hulls(
     index = {name: i for i, name in enumerate(categories)}
     class_agnostic = list(categories) == [DEFAULT_BBOX_CATEGORY]
     single_class = len(categories) == 1
-    hulls = []
+    hulls, n_ignore = [], 0
     for box in frame_user_bboxes(lf):
         name = bbox_category_name(box)
+        if ignore_category is not None and name == ignore_category:
+            n_ignore += 1
+            continue
         if not (class_agnostic or (single_class and name == DEFAULT_BBOX_CATEGORY)):
             if index.get(name) is None:
                 continue
@@ -354,6 +400,7 @@ def frame_bbox_hulls(
             hulls.append(np.full((HULL_VERTICES, 2), np.nan, dtype=np.float32))
         else:
             hulls.append(instance_hull(inst.numpy(), xyxy, min_points=min_points))
+    hulls.extend([np.full((HULL_VERTICES, 2), np.nan, dtype=np.float32)] * n_ignore)
     return np.asarray(hulls, dtype=np.float32).reshape(-1, HULL_VERTICES, 2)
 
 
@@ -908,16 +955,29 @@ def collate_set_targets(batch: Dict) -> List[Dict[str, torch.Tensor]]:
 
     Returns:
         ``B`` dicts with ``labels`` ``(n_i,)`` int64 and ``boxes`` ``(n_i, 4)``
-        normalized ``cxcywh``, on the batch's device.
+        normalized ``cxcywh``, on the batch's device. When the batch carries
+        ignore boxes (``ignore_bboxes`` / ``num_ignore``), each dict also has
+        ``ignore_boxes`` ``(m_i, 4)`` normalized ``cxcywh``.
     """
     counts = batch["set_count"].reshape(-1).tolist()
-    return [
+    targets = [
         {
             "labels": batch["set_labels"][i, :n].long(),
             "boxes": batch["set_boxes"][i, :n],
         }
         for i, n in enumerate(counts)
     ]
+    if "num_ignore" in batch:
+        # Ignore boxes (`data_config.ignore_box_category`): xyxy pixels of the
+        # sample's frame -> normalized cxcywh, like the targets.
+        h, w = batch["image"].shape[-2:]
+        size = batch["ignore_bboxes"].new_tensor([w, h, w, h])
+        for i, m in enumerate(batch["num_ignore"].reshape(-1).tolist()):
+            xyxy = batch["ignore_bboxes"][i, :m].float() / size
+            targets[i]["ignore_boxes"] = torch.cat(
+                [(xyxy[:, :2] + xyxy[:, 2:]) / 2, xyxy[:, 2:] - xyxy[:, :2]], dim=-1
+            )
+    return targets
 
 
 def bbox_head_leaf(model_type: str, head_configs):

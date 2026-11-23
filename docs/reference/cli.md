@@ -193,7 +193,7 @@ Unset values come from the model's training config.
 | `--min_instance_peaks` | Bottom-up | Drop instances with fewer peaks than this | `FLOAT` | `0` |
 | `--min_line_scores` | Bottom-up | Minimum line score (−1 to 1) to connect two peaks | `FLOAT` | `0.25` |
 | `--bbox_nms_iou` | Box detectors | Class-wise IoU-NMS threshold; `1.0` disables. See [Bounding boxes](../guides/bbox-detection.md) | `FLOAT` | `0.45` (SSD), off (CenterNet) |
-| `--boxes` | Top-down | Seed a top-down crop model (pass it alone) from boxes instead of a centroid model or detector: `gt`, a COCO detection results `.json`, or a `.slp` whose frames carry `PredictedBoundingBox`es (a `bbox_*` detector's output, or the input itself). Needs a `.slp` input. See [COCO-Style Evaluation](../guides/coco-evaluation.md) | `gt`, `PATH` | None (off) |
+| `--boxes` | Top-down | Seed a top-down crop model (pass it alone) from boxes instead of a centroid model or detector: `gt`, a COCO detection results `.json`, or a `.slp` whose frames carry `PredictedBoundingBox`es (a `bbox_*` detector's output, or the input itself). Needs a `.slp` input. Without `--rescore`, a pose instance's score is its box's score (1 with `gt`); `--rescore` multiplies it by the mean keypoint score. See [COCO-Style Evaluation](../guides/coco-evaluation.md) | `gt`, `PATH` | None (off) |
 | `--box_score_threshold` | Top-down | With `--boxes <file>`: drop boxes scoring below this | `FLOAT` | `0` |
 | `--part_model` | Part stage | A part model (centered-instance crop model) run after the pose model on square crops built from each predicted instance's keypoints by `--part_crop_rule`; its points are appended to that instance. See [Part stage](../guides/part-stage.md) | `PATH` | None (no part stage) |
 | `--part_crop_rule` | Part stage | A `.json` / `.yaml` crop rule for `--part_model`: `center`, `reference`, `reference_fallback`, `scale`, `fallback`, `fallback_scale`, `min_half_side`, and the per-video floor `session_floor` / `session_min_boxes` (see [The crop rule](../guides/part-stage.md#the-crop-rule)) | `PATH` | None |
@@ -258,7 +258,7 @@ video `N`, and the filters keep those of them that match.
 | `--filter_overlapping_method` | Overlap measure | `iou`, `oks` | `iou` |
 | `--filter_overlapping_threshold` | Similarity above which the lower-scoring instance is dropped | `FLOAT` (0.0-1.0) | `0.8` |
 | `--filter_min_centroid_distance` | Centroid-only de-duplication radius in pixels (use instead of `--filter_overlapping` for centroids) | `FLOAT` | `0` (off) |
-| `--rescore` / `--no-rescore` | Instance score = stage-1 score (box score / centroid value) × mean of keypoint scores above `--rescore_threshold` | Flag | on with `--boxes`, else off |
+| `--rescore` / `--no-rescore` | Instance score = stage-1 score (box score / centroid value) × mean of keypoint scores above `--rescore_threshold` (the COCO/mmpose protocol for `--boxes` runs) | Flag | off, also with `--boxes` |
 | `--rescore_threshold` | Keypoint-score threshold for `--rescore` | `FLOAT` | `0.2` |
 | `--oks_nms` | Drop an instance whose OKS with a higher-scoring instance in the frame exceeds this (mmpose `oks_nms`, per-node sigmas, mean crop-window area) | `FLOAT` | `0` (off) |
 | `--oks_sigmas` | Per-node sigmas for `--oks_nms` | `coco`, `crowdpose`, `ochuman`, `FLOAT` or a comma list | by node name |
@@ -354,7 +354,7 @@ precision it was exported with. See [Running exported models](../guides/inferenc
 | `--upload_batches` | CUDA: copy each batch to the GPU before resizing/cropping (checkpoints only). See [Performance](../guides/inference-performance.md#batches-on-the-gpu-upload_batches) | Flag | `false` |
 | `--frames_on_gpu` | Top-down pipelines only: move each batch of frames to the GPU before stage 1, so the detector's resize / letterbox and the crops' frame-size match run there instead of on the CPU. Results are not bit-identical to the CPU resize | Flag | `false` |
 | `--memory_format` | Model weight layout; `channels_last` is faster on NVIDIA GPUs (checkpoints only) | `contiguous`, `channels_last` | `contiguous` |
-| `--precision` | CUDA: `bf16` / `fp16` run every model's forward pass under `torch.autocast` (weights and outputs stay fp32); `32` is strict fp32. Results differ slightly from fp32. No effect on CPU / MPS, with a warning. Checkpoints only: refused when every model is exported (an exported model keeps the precision it was exported with). See [Performance](../guides/inference-performance.md#reduced-precision-precision) | `32`, `bf16`, `fp16` | `32` |
+| `--precision` | CUDA: `bf16` / `fp16` run every model's forward pass under `torch.autocast` (weights and outputs stay fp32); `32` is strict fp32. Results differ slightly from fp32. No effect on CPU / MPS, with a warning. Checkpoints only: refused when every model is exported (an exported model keeps the precision it was exported with). Experimental: `bf16-encoder` / `fp16-encoder` run only each model's encoder under autocast and the decoder and heads in fp32. See [Performance](../guides/inference-performance.md#reduced-precision-precision) | `32`, `bf16`, `fp16`, `bf16-encoder`, `fp16-encoder` | `32` |
 | `--paf-workers` | CPU worker processes for bottom-up PAF grouping (`0` = in-process). `--cpu-workers` is a deprecated alias | `INT` | `0` |
 
 ### Examples

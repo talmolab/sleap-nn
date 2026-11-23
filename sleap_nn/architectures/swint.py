@@ -15,6 +15,7 @@ from sleap_nn.architectures.encoder_decoder import Decoder, SimpleConvBlock
 from sleap_nn.architectures.common import (
     FreezableEncoderMixin,
     MaxPool2dWithSamePadding,
+    run_encoder,
 )
 
 from torchvision.utils import _log_api_usage_once
@@ -201,6 +202,9 @@ class SwinTWrapper(FreezableEncoderMixin, nn.Module):
         Inherits all attributes from torch.nn.Module.
     """
 
+    #: Runs its encoder through `run_encoder` (`encoder_autocast` applies).
+    supports_encoder_autocast = True
+
     def __init__(
         self,
         model_type: str,
@@ -386,7 +390,7 @@ class SwinTWrapper(FreezableEncoderMixin, nn.Module):
             x: Outputs a dictionary with `outputs` and `strides` containing the output
             at different strides.
         """
-        enc_output = self.enc(x)
+        enc_output = run_encoder(self.enc, x)
         x, features = enc_output[-1], enc_output[::2]
         features = features[::-1]
 

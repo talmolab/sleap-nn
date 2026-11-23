@@ -1,10 +1,96 @@
 """Common utilities for architecture and model building."""
 
-from typing import List
+import contextlib
+import threading
+from typing import Any, Callable, Dict, Iterator, List, Optional
 
 import torch
 from torch import nn
 from torch.nn import functional as F
+
+#: The active encoder-autocast request (see :func:`encoder_autocast`), or ``None``.
+_ENCODER_AUTOCAST: Optional[Dict[str, Any]] = None
+#: Guards changes to :data:`_ENCODER_AUTOCAST`.
+_ENCODER_AUTOCAST_LOCK = threading.Lock()
+
+
+@contextlib.contextmanager
+def encoder_autocast(device_type: str, dtype: torch.dtype) -> Iterator[Dict[str, Any]]:
+    """Ask the backbones run in this block to run their encoders under autocast.
+
+    Experimental (``sleap-nn predict --precision bf16-encoder``). Backbones that
+    support it (``supports_encoder_autocast = True``) run their encoder through
+    :func:`run_encoder`, which enters ``torch.autocast(device_type, dtype)`` for
+    the encoder only and casts its outputs back to fp32, so every layer after it
+    runs in fp32. Outside this block :func:`run_encoder` is a plain call.
+
+    The request belongs to the thread that made it: models run in other threads
+    meanwhile run as without it, and only one thread can hold a request at a
+    time (a second thread's ``encoder_autocast`` raises until the first exits).
+    Requests nest within a thread.
+
+    Yields:
+        A dict whose ``"calls"`` counts the encoder calls that ran under it.
+
+    Raises:
+        RuntimeError: If another thread holds a request.
+    """
+    global _ENCODER_AUTOCAST
+    owner = threading.get_ident()
+    with _ENCODER_AUTOCAST_LOCK:
+        previous = _ENCODER_AUTOCAST
+        if previous is not None and previous["owner"] != owner:
+            raise RuntimeError(
+                "Encoder-only autocast is already active in another thread; run "
+                "encoder-only reduced precision from one thread at a time."
+            )
+        state = {"device_type": device_type, "dtype": dtype, "calls": 0}
+        state["owner"] = owner
+        _ENCODER_AUTOCAST = state
+    try:
+        yield state
+    finally:
+        with _ENCODER_AUTOCAST_LOCK:
+            _ENCODER_AUTOCAST = previous
+
+
+def outputs_to_float32(out: Any) -> Any:
+    """``out`` (a tensor or nested list / tuple / dict of them) with half floats as fp32."""
+    if isinstance(out, torch.Tensor):
+        return out.float() if out.dtype in (torch.float16, torch.bfloat16) else out
+    if isinstance(out, dict):  # also a `transformers` ModelOutput: set in place
+        for key in list(out.keys()):
+            out[key] = outputs_to_float32(out[key])
+        return out
+    if isinstance(out, list):
+        return [outputs_to_float32(v) for v in out]
+    if isinstance(out, tuple):
+        items = [outputs_to_float32(v) for v in out]
+        return type(out)(*items) if hasattr(out, "_fields") else type(out)(items)
+    return out
+
+
+def encoder_autocast_requested() -> bool:
+    """Whether an :func:`encoder_autocast` request is active (in any thread)."""
+    return _ENCODER_AUTOCAST is not None
+
+
+def run_encoder(fn: Callable, *args, **kwargs) -> Any:
+    """``fn(*args, **kwargs)``: a backbone's encoder computation.
+
+    A plain call, except inside :func:`encoder_autocast` in the thread that made
+    the request, where it runs under that autocast and returns its outputs cast
+    to fp32.
+    """
+    state = _ENCODER_AUTOCAST
+    if state is None:
+        return fn(*args, **kwargs)
+    if state["owner"] != threading.get_ident():
+        return fn(*args, **kwargs)  # another thread's request
+    state["calls"] += 1  # only the owner thread counts
+    with torch.autocast(device_type=state["device_type"], dtype=state["dtype"]):
+        out = fn(*args, **kwargs)
+    return outputs_to_float32(out)
 
 
 class FreezableEncoderMixin:
@@ -29,6 +115,11 @@ class FreezableEncoderMixin:
 
     #: Set by ``freeze_encoder``; read by ``train``.
     freeze: bool = False
+
+    #: The backbone runs its encoder through :func:`run_encoder`, so
+    #: :func:`encoder_autocast` (experimental) applies to it. Subclasses that do
+    #: set it to ``True``.
+    supports_encoder_autocast: bool = False
 
     def encoder_modules(self) -> List[nn.Module]:
         """Return the modules that make up the encoder (default: ``[self.enc]``)."""

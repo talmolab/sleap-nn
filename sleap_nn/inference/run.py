@@ -718,6 +718,13 @@ def _build_predictor(
                 f"memory_format={memory_format!r} is ignored for an exported "
                 "model directory; it applies to trained checkpoints only."
             )
+        if _is_box_detector_export(export_dir):
+            # A lone exported box detector decodes on the host, like the same
+            # export next to a pose model: the score and NMS thresholds apply.
+            if peak_threshold is not None:
+                build_kwargs["peak_conf_threshold"] = peak_threshold
+            if bbox_nms_iou is not None:
+                build_kwargs["bbox_nms_iou"] = bbox_nms_iou
         predictor = Predictor.from_export_dir(export_dir, **build_kwargs)
 
     part_stream = None
@@ -867,7 +874,9 @@ def predict(
             logged). Results differ slightly from fp32. Checkpoint models only;
             exported models keep the precision they were exported with
             (``export_dir`` raises, a network-only export among ``model_paths``
-            is left as exported, with a warning).
+            is left as exported, with a warning). ``"bf16-encoder"`` /
+            ``"fp16-encoder"`` (experimental) run only each model's encoder
+            under autocast and everything after it in fp32.
         runtime: Runtime for an exported model: ``"auto"`` (prefer TensorRT,
             fall back to ONNX), ``"onnx"``, or ``"tensorrt"``. Ignored when
             ``model_paths`` is given (checkpoints).

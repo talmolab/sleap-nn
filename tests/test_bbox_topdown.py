@@ -7,6 +7,8 @@ crops, the trainer's crop sizing, and the detector -> crop model pipelines
 GT-box fallback and the combinations that must be refused.
 """
 
+from pathlib import Path
+
 import numpy as np
 import pytest
 import sleap_io as sio
@@ -1280,7 +1282,7 @@ def test_box_seeding_refusals(trained_pair, minimal_instance):
 
 
 def test_predict_cli_with_boxes_slp(trained_pair, minimal_instance, tmp_path):
-    """sleap-nn predict --boxes boxes.slp copies the boxes, rescores, and evals."""
+    """sleap-nn predict --boxes boxes.slp --rescore copies the boxes, rescores, evals."""
     from click.testing import CliRunner
 
     from sleap_nn.cli import cli
@@ -1300,6 +1302,9 @@ def test_predict_cli_with_boxes_slp(trained_pair, minimal_instance, tmp_path):
         "0",
         "--oks_nms",
         "0.9",
+        "--rescore",
+        "--rescore_threshold",
+        "0",
         "--device",
         "cpu",
         "-o",
@@ -1309,13 +1314,15 @@ def test_predict_cli_with_boxes_slp(trained_pair, minimal_instance, tmp_path):
     assert result.exit_code == 0, result.output
     lf = sio.load_slp(out)[0]
     assert len(lf.instances) == 2
-    # Rescoring is on by default with --boxes: box score x mean keypoint score.
+    # With --rescore: box score x mean keypoint score (above 0 here, so the tiny
+    # model's low peaks count).
     for inst in lf.instances:
         box = next(b for b in lf.bboxes if b.instance is inst)
         vals = inst.numpy(scores=True)[:, 2]
-        above = vals[vals > 0.2]
-        kpt = above.mean() if above.size else 0.0
-        assert inst.score == pytest.approx(box.score * kpt, rel=1e-4)
+        above = vals[vals > 0]
+        assert above.size
+        assert inst.score == pytest.approx(box.score * above.mean(), rel=1e-4)
+        assert 0 < inst.score < box.score
     result = CliRunner().invoke(
         cli,
         ["eval", "-g", str(minimal_instance), "-p", str(out), "--coco"],
@@ -1329,6 +1336,80 @@ def test_predict_cli_with_boxes_slp(trained_pair, minimal_instance, tmp_path):
     video_args[2] = "video.mp4"
     result = CliRunner().invoke(cli, video_args)
     assert result.exit_code != 0 and "needs a .slp input" in result.output
+
+
+def _instance_scores_and_points(path):
+    """Each predicted instance's score and points, in file order."""
+    lf = sio.load_slp(str(path))[0]
+    insts = [i for i in lf.instances if isinstance(i, sio.PredictedInstance)]
+    return (
+        np.array([i.score for i in insts]),
+        np.stack([i.numpy(scores=True) for i in insts]),
+    )
+
+
+@pytest.mark.parametrize("mode", ["default", "rescore", "no_rescore", "threshold_only"])
+def test_predict_cli_boxes_rescore_matches_python(
+    trained_pair, minimal_instance, tmp_path, mode
+):
+    """`predict --boxes gt` rescores only with --rescore, as Python's predict.
+
+    Without the flag (or with --no-rescore) the command line gives the instance
+    scores of ``predict(..., boxes="gt")``; with it, those of the same call with
+    ``FilterConfig(rescore_keypoint_threshold=...)``. A --rescore_threshold without
+    --rescore changes nothing and says so.
+    """
+    from click.testing import CliRunner
+    from loguru import logger
+
+    from sleap_nn.cli import cli
+    from sleap_nn.inference.filters import FilterConfig
+    from sleap_nn.inference.run import predict
+
+    model = trained_pair["ci_bbox"].as_posix()
+    common = dict(model_paths=[model], device="cpu", peak_threshold=0.0, boxes="gt")
+    plain_ref = tmp_path / "plain_ref.slp"
+    predict(str(minimal_instance), output_path=str(plain_ref), **common)
+    rescored_ref = tmp_path / "rescored_ref.slp"
+    # Threshold 0 so the tiny model's low peaks still count and scores are not 0.
+    predict(
+        str(minimal_instance),
+        filter_config=FilterConfig(rescore_keypoint_threshold=0.0),
+        output_path=str(rescored_ref),
+        **common,
+    )
+    plain_scores, plain_points = _instance_scores_and_points(plain_ref)
+    rescored_scores, _ = _instance_scores_and_points(rescored_ref)
+    assert len(plain_scores) == 2
+    np.testing.assert_allclose(plain_scores, 1.0)  # GT boxes score 1.
+    # Rescored: box score 1 x mean of the keypoint scores above 0.
+    vals = plain_points[..., 2]
+    kpt = np.array([v[v > 0].mean() for v in vals])
+    np.testing.assert_allclose(rescored_scores, kpt, rtol=1e-5)
+    assert np.all((rescored_scores > 0) & (rescored_scores < 1))
+
+    out = tmp_path / "cli.slp"
+    args = ["predict", "-i", str(minimal_instance), "-m", model, "--boxes", "gt"]
+    args += ["--peak_threshold", "0", "--device", "cpu", "-o", str(out)]
+    args += {
+        "default": [],
+        "rescore": ["--rescore", "--rescore_threshold", "0"],
+        "no_rescore": ["--no-rescore"],
+        "threshold_only": ["--rescore_threshold", "0"],
+    }[mode]
+    messages = []
+    handler_id = logger.add(lambda m: messages.append(str(m)), level="WARNING")
+    try:
+        result = CliRunner().invoke(cli, args)
+    finally:
+        logger.remove(handler_id)
+    assert result.exit_code == 0, result.output
+    scores, points = _instance_scores_and_points(out)
+    expected = rescored_scores if mode == "rescore" else plain_scores
+    np.testing.assert_allclose(scores, expected, rtol=1e-5, atol=1e-6)
+    np.testing.assert_allclose(points, plain_points, rtol=1e-5, atol=1e-4)
+    warned = any("--rescore_threshold has no effect" in m for m in messages)
+    assert warned == (mode == "threshold_only")
 
 
 def _export(src, dst, *args):
@@ -1472,6 +1553,286 @@ def test_predict_runtime_reaches_every_export_directory(
     )
     assert result.exit_code != 0
     assert "TensorRT model not found" in str(result.exception) + result.output
+
+
+@pytest.fixture(scope="module")
+def lone_det_export(trained_pair, tmp_path_factory):
+    """The session's CenterNet detector, exported once for the lone-detector tests."""
+    pytest.importorskip("onnxruntime")
+    return _export(trained_pair["det"], tmp_path_factory.mktemp("lone_det") / "det")
+
+
+def _lone_detector_boxes(det, data, out, *extra):
+    """Run ``sleap-nn predict`` on a lone exported detector; (score, xyxy) per box."""
+    from click.testing import CliRunner
+
+    from sleap_nn.cli import cli
+
+    result = CliRunner().invoke(
+        cli,
+        ["predict", "-i", str(data), "-m", Path(det).as_posix()]
+        + ["--device", "cpu", "-o", str(out), *extra],
+    )
+    assert result.exit_code == 0, result.output
+    boxes = [
+        (float(b.score), tuple(float(v) for v in b.xyxy))
+        for lf in sio.load_slp(out)
+        for b in lf.bboxes
+    ]
+    return sorted(boxes, reverse=True)
+
+
+def test_lone_exported_detector_takes_the_thresholds(
+    trained_pair, lone_det_export, minimal_instance, tmp_path
+):
+    """A lone exported box detector decodes with a typed --peak_threshold / --bbox_nms_iou.
+
+    Without the flags it keeps the score threshold stored at export (0.2 by default)
+    and the detector style's default suppression (none for CenterNet), as before.
+    """
+
+    def run(name, *extra):
+        return _lone_detector_boxes(
+            lone_det_export, minimal_instance, tmp_path / f"{name}.slp", *extra
+        )
+
+    def scores(boxes):
+        return [s for s, _ in boxes]
+
+    def flat(boxes):
+        return [v for s, box in boxes for v in (s, *box)]
+
+    # A typed threshold of 0 keeps every candidate the decoder ranks.
+    everything = run("all", "--peak_threshold", "0.0")
+    all_scores = scores(everything)
+    distinct = sorted(set(all_scores))
+    assert len(distinct) >= 2
+
+    # Without the flags: the exported threshold (0.2), exactly as before.
+    kept_by_default = [s for s in all_scores if s >= 0.2]
+    assert len(kept_by_default) < len(everything)
+    assert scores(run("default")) == pytest.approx(kept_by_default)
+
+    # A typed score threshold between the two best scores keeps the best only.
+    thr = (distinct[-2] + distinct[-1]) / 2
+    expected = [s for s in all_scores if s >= thr]
+    assert 0 < len(expected) < len(everything)
+    assert scores(run("typed", "--peak_threshold", repr(thr))) == pytest.approx(
+        expected
+    )
+
+    # The untyped cut is the threshold stored at export, whatever it is: an export
+    # made with `--peak-threshold` between the two best scores keeps the best only,
+    # and a typed threshold still replaces it.
+    stored = _export(
+        trained_pair["det"], tmp_path / "det_stored", "--peak-threshold", repr(thr)
+    )
+
+    def run_stored(name, *extra):
+        return scores(
+            _lone_detector_boxes(
+                stored, minimal_instance, tmp_path / f"{name}.slp", *extra
+            )
+        )
+
+    assert run_stored("stored_default") == pytest.approx(expected)
+    assert run_stored("stored_typed", "--peak_threshold", "0.0") == pytest.approx(
+        all_scores
+    )
+
+    # A typed suppression threshold. 1.0 disables it (as CenterNet's default does); a
+    # low one keeps the best box and only boxes the unsuppressed run also has. Whether
+    # it removes any of this toy detector's boxes depends on what it learned (its boxes
+    # may not overlap), so suppression itself is checked on built outputs below
+    # (`test_lone_exported_detector_suppresses_overlapping_boxes`).
+    nms_off = run("nms_off", "--peak_threshold", "0.0", "--bbox_nms_iou", "1.0")
+    assert flat(nms_off) == pytest.approx(flat(everything))
+    suppressed = run("nms", "--peak_threshold", "0.0", "--bbox_nms_iou", "0.05")
+    assert 0 < len(suppressed) <= len(everything)
+    assert flat(suppressed[:1]) == pytest.approx(flat(everything[:1]))
+    for box in suppressed:
+        assert any(flat([box]) == pytest.approx(flat([other])) for other in everything)
+
+
+# Scores of the three boxes `_use_overlapping_detector_outputs` builds: the first two
+# overlap (IoU 0.5), the third overlaps neither.
+_BUILT_SCORES = (0.9, 0.6, 0.4)
+
+
+def _use_overlapping_detector_outputs(monkeypatch):
+    """Feed a lone exported CenterNet detector's decoder three built boxes.
+
+    The exported graph still runs; only its head outputs are replaced, before the
+    detector's own decoder (score threshold, IoU suppression) and the coordinate
+    mapping, so the thresholds are applied by the code under test to boxes whose
+    overlap is fixed by construction rather than learned.
+    """
+    from sleap_nn.inference.layers.bbox import ExportedBBoxLayer
+
+    postprocess = ExportedBBoxLayer.postprocess
+
+    def built(self, raw_out, info):
+        assert self.decoder.model_type == "bbox_centernet"
+        heat = torch.zeros_like(raw_out["BBoxCenterHead"])
+        size = torch.zeros_like(raw_out["BBoxSizeHead"])
+        _, _, h, w = heat.shape
+        # Room for the three boxes inside the grid (this fixture's frames are not
+        # letterboxed, so none reaches into padding and gets clipped).
+        assert h >= 16 and w >= 32, (h, w)
+        y = h // 2
+        # Two 6x6-cell boxes 2 cells apart (IoU 24 / 48 = 0.5), as separate peaks of
+        # the 3x3 peak NMS; a third one far from both.
+        for x, score in zip((w // 4, w // 4 + 2, 3 * w // 4), _BUILT_SCORES):
+            heat[:, 0, y, x] = score
+            size[:, :, y, x] = 6.0
+        out = dict(raw_out, BBoxCenterHead=heat, BBoxSizeHead=size)
+        if out.get("BBoxOffsetHead") is not None:
+            out["BBoxOffsetHead"] = torch.zeros_like(out["BBoxOffsetHead"])
+        return postprocess(self, out, info)
+
+    monkeypatch.setattr(ExportedBBoxLayer, "postprocess", built)
+
+
+@pytest.fixture
+def overlapping_detector_outputs(monkeypatch):
+    """:func:`_use_overlapping_detector_outputs` for one test."""
+    _use_overlapping_detector_outputs(monkeypatch)
+
+
+def test_lone_exported_detector_suppresses_overlapping_boxes(
+    lone_det_export, minimal_instance, tmp_path, overlapping_detector_outputs
+):
+    """A typed --bbox_nms_iou suppresses a lone exported detector's overlapping boxes."""
+
+    def scores(name, *extra):
+        boxes = _lone_detector_boxes(
+            lone_det_export, minimal_instance, tmp_path / f"{name}.slp", *extra
+        )
+        return [s for s, _ in boxes]
+
+    high, low, apart = _BUILT_SCORES
+    # CenterNet's default: no suppression.
+    assert scores("default") == pytest.approx([high, low, apart])
+    assert scores("off", "--bbox_nms_iou", "1.0") == pytest.approx([high, low, apart])
+    # Below the pair's IoU (0.5) the weaker of the two goes; above it both stay.
+    assert scores("low", "--bbox_nms_iou", "0.3") == pytest.approx([high, apart])
+    assert scores("high", "--bbox_nms_iou", "0.7") == pytest.approx([high, low, apart])
+    # The score threshold applies as well.
+    assert scores("both", "--peak_threshold", "0.5", "--bbox_nms_iou", "0.3") == (
+        pytest.approx([high])
+    )
+
+
+def _lone_detector_decoder(monkeypatch, det, data, out, *flags):
+    """Run a lone exported detector on the command line; what reached its decoder.
+
+    Returns the two threshold keywords ``Predictor.from_export_dir`` was called with
+    (only those present) and the decoder it built.
+    """
+    from sleap_nn.inference.predictor import Predictor
+
+    seen = {}
+    build = Predictor.from_export_dir.__func__
+
+    def spy(cls, export_dir, **kwargs):
+        seen.update(kwargs)
+        predictor = build(cls, export_dir, **kwargs)
+        seen["decoder"] = predictor.layer.decoder
+        return predictor
+
+    monkeypatch.setattr(Predictor, "from_export_dir", classmethod(spy))
+    _lone_detector_boxes(det, data, out, *flags)
+    decoder = seen.pop("decoder")
+    typed = {k: seen[k] for k in ("peak_conf_threshold", "bbox_nms_iou") if k in seen}
+    return typed, decoder
+
+
+@pytest.mark.parametrize(
+    "flags, expected",
+    [
+        ((), {}),
+        (("--peak_threshold", "0.6"), {"peak_conf_threshold": 0.6}),
+        (("--bbox_nms_iou", "0.3"), {"bbox_nms_iou": 0.3}),
+        (
+            ("--peak_threshold", "0.2", "--bbox_nms_iou", "0.3"),
+            {"peak_conf_threshold": 0.2, "bbox_nms_iou": 0.3},
+        ),
+    ],
+)
+def test_lone_exported_detector_forwards_only_typed_thresholds(
+    lone_det_export, minimal_instance, tmp_path, monkeypatch, flags, expected
+):
+    """Only thresholds typed on the command line reach the lone detector's decoder."""
+    typed, decoder = _lone_detector_decoder(
+        monkeypatch, lone_det_export, minimal_instance, tmp_path / "o.slp", *flags
+    )
+    assert typed == pytest.approx(expected)
+    assert decoder.score_threshold == pytest.approx(
+        expected.get("peak_conf_threshold", 0.2)
+    )
+    assert decoder.iou_threshold == expected.get("bbox_nms_iou")
+
+
+@pytest.mark.parametrize("flags, iou", [((), 0.45), (("--bbox_nms_iou", "0.3"), 0.3)])
+def test_lone_exported_ssd_detector_suppression(
+    config, minimal_instance, tmp_path, monkeypatch, flags, iou
+):
+    """An SSD detector's default suppression (0.45) stays unless --bbox_nms_iou is typed."""
+    pytest.importorskip("onnxruntime")
+    from sleap_nn.training.model_trainer import ModelTrainer
+
+    cfg = _train_config(config, tmp_path, "bbox_ssd", "det_ssd")
+    cfg.trainer_config.max_epochs = 2
+    ModelTrainer.get_model_trainer_from_config(cfg).train()
+    det = _export(tmp_path / "det_ssd", tmp_path / "det_ssd_export")
+    typed, decoder = _lone_detector_decoder(
+        monkeypatch, det, minimal_instance, tmp_path / "o.slp", *flags
+    )
+    assert typed == ({"bbox_nms_iou": iou} if flags else {})
+    assert decoder.iou_threshold == pytest.approx(iou)
+    assert decoder.score_threshold == pytest.approx(0.2)
+
+
+def test_lone_exported_detector_thresholds_from_python(
+    lone_det_export, minimal_instance, monkeypatch
+):
+    """The Python calls take the same two thresholds for a lone exported detector."""
+    from sleap_nn.inference.predictor import Predictor
+    from sleap_nn.inference.run import predict
+
+    p = Predictor.from_export_dir(lone_det_export, runtime="onnx", device="cpu")
+    assert p.layer.decoder.score_threshold == pytest.approx(0.2)
+    assert p.layer.decoder.iou_threshold is None
+    p = Predictor.from_export_dir(
+        lone_det_export,
+        runtime="onnx",
+        device="cpu",
+        peak_conf_threshold=0.5,
+        bbox_nms_iou=0.123,
+    )
+    assert p.layer.decoder.score_threshold == pytest.approx(0.5)
+    assert p.layer.decoder.iou_threshold == pytest.approx(0.123)
+
+    def n_boxes(peak_threshold=0.0, **kwargs):
+        labels = predict(
+            str(minimal_instance),
+            export_dir=str(lone_det_export),
+            device="cpu",
+            peak_threshold=peak_threshold,
+            **kwargs,
+        )
+        return sum(len(lf.bboxes) for lf in labels)
+
+    # On the trained detector, a smoke check only: whether a low IoU threshold
+    # removes a box depends on what the toy detector learned.
+    assert 0 < n_boxes(bbox_nms_iou=0.05) <= n_boxes()
+    # On built outputs (scores 0.9, 0.6, 0.4; the first two overlap with IoU 0.5),
+    # both thresholds reach `predict`'s decoder.
+    _use_overlapping_detector_outputs(monkeypatch)
+    assert n_boxes() == 3
+    assert n_boxes(bbox_nms_iou=0.3) == 2
+    assert n_boxes(peak_threshold=0.5) == 2
+    assert n_boxes(peak_threshold=0.5, bbox_nms_iou=0.3) == 1
 
 
 def test_lone_network_only_export_runs_as_its_checkpoint(

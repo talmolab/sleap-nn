@@ -603,6 +603,18 @@ class LightningModel(L.LightningModule):
             from sleap_nn.data.custom_datasets import detr_multi_scale_sizes
 
             lightning_model.multi_scale_sizes = detr_multi_scale_sizes(config)
+            cover = float(
+                OmegaConf.select(
+                    config, "data_config.ignore_box_min_cover", default=0.5
+                )
+            )
+            lightning_model.criterion.ignore_min_cover = cover
+            if OmegaConf.select(config, "data_config.ignore_box_category") is not None:
+                # The box metrics ignore detections by the loss's rule.
+                lightning_model.ignore_metric_rule = {
+                    "ignore_cover": cover,
+                    "ignore_cover_of": "detection",
+                }
 
         return lightning_model
 
@@ -5506,14 +5518,17 @@ class _BBoxLightningModel(LightningModel):
                     "pred_classes": classes[i][valid].numpy(),
                 }
             )
-            self.val_ground_truth.append(
-                {
-                    "video_idx": int(batch["video_idx"][i]),
-                    "frame_idx": int(batch["frame_idx"][i]),
-                    "gt_bboxes": gt_boxes[i, :n_gt].numpy(),
-                    "gt_classes": gt_classes[i, :n_gt].numpy(),
-                }
-            )
+            gt = {
+                "video_idx": int(batch["video_idx"][i]),
+                "frame_idx": int(batch["frame_idx"][i]),
+                "gt_bboxes": gt_boxes[i, :n_gt].numpy(),
+                "gt_classes": gt_classes[i, :n_gt].numpy(),
+            }
+            if "num_ignore" in batch:
+                # Ignore boxes: a detection covering one is neither hit nor miss.
+                n_ign = int(batch["num_ignore"][i])
+                gt["gt_ignore_bboxes"] = batch["ignore_bboxes"][i, :n_ign].cpu().numpy()
+            self.val_ground_truth.append(gt)
 
     def _viz_heatmap(self, dec_in: Dict[str, torch.Tensor]) -> Optional[np.ndarray]:
         """An ``(h, w, C)`` map to overlay in the visualization, if the style has one."""

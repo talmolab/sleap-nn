@@ -759,6 +759,13 @@ class BalancedSamplerConfig:
         overlap_min: (float) Overlap of two labelled boxes, as a share of the
             smaller box, that makes a frame count for `overlap_weight`.
             *Default*: `0.25`.
+        frame_weight_key: (str) **Experimental.** `bbox_*` models with
+            `per_sample` only: read each training frame's relative sampling weight
+            within its file from the labelled frame's metadata under this key
+            (`LabeledFrame.metadata[key]`, a number >= 0; frames without it weigh
+            `1`). Each file's share of the samples is unchanged; combines with
+            `overlap_weight` by multiplying. Not written to `training_config.yaml`
+            while `None`. *Default*: `None`.
     """
 
     counts: Optional[List[int]] = None
@@ -768,6 +775,7 @@ class BalancedSamplerConfig:
     overlap_min: float = field(
         default=0.25, validator=[validators.gt(0), validators.le(1)]
     )
+    frame_weight_key: Optional[str] = None
 
 
 @define

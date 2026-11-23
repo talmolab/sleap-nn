@@ -615,6 +615,14 @@ def _run_bbox_split_eval(
             bbox_padding=float(
                 OmegaConf.select(config, "data_config.bbox_padding", default=0.0)
             ),
+            ignore_box_category=OmegaConf.select(
+                config, "data_config.ignore_box_category", default=None
+            ),
+            ignore_box_min_cover=float(
+                OmegaConf.select(
+                    config, "data_config.ignore_box_min_cover", default=0.5
+                )
+            ),
         )
     except Exception as e:  # noqa: BLE001 — eval is best-effort post-training.
         logger.warning(f"Skipping bbox eval on `{d_name}`: {e}")

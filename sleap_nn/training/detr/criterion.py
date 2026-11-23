@@ -100,6 +100,35 @@ def _indices_to(
     return [[(next(parts), next(parts)) for _ in layer] for layer in all_indices]
 
 
+def _queries_in_ignore_boxes(
+    pred_boxes: torch.Tensor,
+    targets: List[Dict[str, torch.Tensor]],
+    min_cover: float,
+) -> Optional[torch.Tensor]:
+    """``(B, Q)``: queries whose predicted box lies mostly inside an ignore box.
+
+    A query's box lies inside an ignore box (``targets[i]["ignore_boxes"]``,
+    normalized ``cxcywh``) when their intersection is at least ``min_cover`` of
+    the query box's area. ``None`` when no target has an ignore box.
+    """
+    if not any(len(t.get("ignore_boxes", ())) for t in targets):
+        return None
+    pred = box_cxcywh_to_xyxy(pred_boxes.detach().float())
+    covered = torch.zeros(pred.shape[:2], dtype=torch.bool, device=pred.device)
+    for i, t in enumerate(targets):
+        ign = t.get("ignore_boxes")
+        if ign is None or not len(ign):
+            continue
+        ign = box_cxcywh_to_xyxy(ign.to(device=pred.device, dtype=pred.dtype))
+        lt = torch.maximum(pred[i, :, None, :2], ign[None, :, :2])
+        rb = torch.minimum(pred[i, :, None, 2:], ign[None, :, 2:])
+        inter = (rb - lt).clamp(min=0).prod(-1)  # (Q, M)
+        area = (pred[i, :, 2:] - pred[i, :, :2]).clamp(min=0).prod(-1)
+        share = inter.max(-1).values / area.clamp(min=1e-12)
+        covered[i] = share >= min_cover
+    return covered
+
+
 @register_loss_term("labels")
 def loss_labels(
     criterion: "SetCriterion",
@@ -115,6 +144,12 @@ def loss_labels(
     ``t`` and negative weight ``1 - t``. Every other (query, class) entry has
     positive weight 0 and negative weight ``p^gamma``. The weighted BCE is summed
     over queries and classes and divided by ``num_boxes``.
+
+    Ignore boxes (experimental; ``ignore_boxes`` in a target, from
+    ``data_config.ignore_box_category``): a query that matches no target and whose
+    predicted box lies inside an ignore box by at least ``criterion.
+    ignore_min_cover`` of its own area gets negative weight 0 for every class,
+    so it is neither pushed towards background nor towards an object.
     """
     logits = outputs["pred_logits"]
     idx = _matched_query_index(indices)
@@ -135,6 +170,12 @@ def loss_labels(
     t = t.clamp(min=0.01).detach().to(logits.dtype)
     pos_weights[pos_index] = t
     neg_weights[pos_index] = 1 - t
+    ignored = _queries_in_ignore_boxes(
+        outputs["pred_boxes"], targets, getattr(criterion, "ignore_min_cover", 0.5)
+    )
+    if ignored is not None:
+        ignored[idx] = False  # matched queries keep their terms
+        neg_weights = neg_weights * (~ignored)[..., None].to(neg_weights.dtype)
 
     # -pos * log(p) - neg * log(1 - p), with log(1 - p) = logsigmoid(x) - x.
     loss = neg_weights * logits - F.logsigmoid(logits) * (pos_weights + neg_weights)
@@ -204,7 +245,13 @@ class SetCriterion(nn.Module):
         focal_gamma: Gamma of the IA-BCE negative weight ``p^gamma``.
         group_detr: Number of query groups used in training. Evaluation (with
             ``self.training == False``) matches a single group.
+        ignore_min_cover: Experimental. Share of an unmatched query's predicted
+            box that must lie inside an ignore box (``ignore_boxes`` in its
+            target) for the query to get no background loss (see
+            :func:`loss_labels`). Only read when targets carry ignore boxes.
     """
+
+    ignore_min_cover: float = 0.5
 
     def __init__(
         self,
@@ -307,7 +354,8 @@ class SetCriterion(nn.Module):
                 ``pred_boxes`` ``(B, Q, 4)`` normalized ``cxcywh``, and optionally
                 ``aux_outputs`` (list of such dicts) and ``enc_outputs`` (one dict).
             targets: ``B`` dicts with ``labels`` ``(N_i,)`` and ``boxes``
-                ``(N_i, 4)`` normalized ``cxcywh``.
+                ``(N_i, 4)`` normalized ``cxcywh``, and optionally
+                ``ignore_boxes`` ``(M_i, 4)`` (never matched or counted).
             num_boxes: The loss normalizer. ``None`` (default): :meth:`num_boxes`,
                 all-reduced across ranks when ``torch.distributed`` is initialized.
 
