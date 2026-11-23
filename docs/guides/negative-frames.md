@@ -43,6 +43,7 @@ data_config:
 |--------|------|---------|-------------|
 | `use_negative_frames` | `bool` | `false` | Include all user-confirmed negative frames in training |
 | `negative_loss_weight` | `float` | `1.0` | Multiplier on per-sample loss for negatives. Values > 1 amplify the negative gradient signal; < 1 dampen it. Must be > 0. |
+| `val_negative_frames` | `bool` | `false` | **Experimental**, box detectors (`bbox_*`) only: also keep the validation labels' negative frames in the validation set (see [Experimental training options](bbox-detection.md#experimental-training-options)) |
 
 ### Python API
 

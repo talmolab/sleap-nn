@@ -487,6 +487,52 @@ class PoseStream:
             self._outputs, videos=videos, keep_empty_frames=True
         )
 
-    def save(self, path: str, video: Union[Any, Sequence[Any], None] = None) -> None:
-        """Write the frames pushed so far to a ``.slp`` file (needs ``keep=True``)."""
-        self.labels(video).save(str(path), embed=False)
+    def save(
+        self,
+        path: str,
+        video: Union[Any, Sequence[Any], None] = None,
+        *,
+        slp_version: Optional[str] = None,
+        image_format: Optional[str] = None,
+        image_quality: Optional[int] = None,
+        compression: Optional[str] = None,
+        unlabeled_as: Optional[str] = None,
+    ) -> None:
+        """Write the frames pushed so far to a ``.slp`` file (needs ``keep=True``).
+
+        Frames are never embedded. The save options default to ``None``, which
+        passes nothing to sleap-io (its defaults apply).
+
+        Args:
+            path: Destination ``.slp`` path.
+            video: As in :meth:`labels`.
+            slp_version: File layout: ``"v2"`` (SLP 2.x, read by older sleap-io
+                and SLEAP releases), ``"v3"`` (SLP 3.0) or ``"auto"``.
+            image_format: Format of embedded frames; frames are not embedded
+                here, so setting it only warns.
+            image_quality: Quality of re-encoded embedded frames; as
+                ``image_format``, it only warns here.
+            compression: ``"gzip"`` or ``"lzf"`` compression of the table
+                columns.
+            unlabeled_as: ``"error"`` or ``"absent"``: what a ``"v2"`` save does
+                with points that are not labeled.
+
+        Raises:
+            ValueError: If a save option is invalid or not supported by the
+                installed sleap-io.
+        """
+        from sleap_nn.inference.save_options import (
+            explain_unlabeled_points,
+            slp_save_kwargs,
+        )
+
+        extra = slp_save_kwargs(
+            slp_version=slp_version,
+            image_format=image_format,
+            image_quality=image_quality,
+            compression=compression,
+            unlabeled_as=unlabeled_as,
+            embeds_frames=False,
+        )
+        with explain_unlabeled_points():
+            self.labels(video).save(str(path), embed=False, **extra)

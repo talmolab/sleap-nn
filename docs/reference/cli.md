@@ -151,6 +151,11 @@ URL's file name.
 | `--embed` | Embed images in the `.slp`: `true` (self-contained `.pkg.slp`-style file), `auto` (only if the input was an embedded `.pkg.slp`), `false` (reference the source media) | `auto`, `true`, `false` | `false` |
 | `--restore_source_videos` | When a `.pkg.slp` input is not re-embedded, reference the original source videos instead of the `.pkg.slp` | Flag | `false` |
 | `--save_embeddings` | Write each detection's re-ID vector into the `.slp` (see [Embedding tracking](../guides/embedding-tracking.md)) | `none`, `slp` | `none` |
+| `--slp_version` | File layout of the `.slp`: `v2` (the SLP 2.x layout older sleap-io and SLEAP releases open), `v3` (SLP 3.0) or `auto`. `auto` passes nothing to a sleap-io without its own `slp_version` option, such as 0.10.0, so the file is SLP 3.0; a sleap-io with its own `slp_version` option writes the 2.x layout when the content allows. See [Choosing the file layout and frame format](../guides/inference-guide.md#choosing-the-file-layout-and-frame-format) | `auto`, `v2`, `v3` | unset (as `auto`) |
+| `--image_format` | Format of embedded frames (with `--embed true` or `auto`). With `--embed false` it warns before any model loads and has no effect; `--stream-to-file` and the re-ID embedding route, which never embed frames, refuse it | `png`, `jpg`, `jpeg`, `hdf5` | sleap-io's default |
+| `--image_quality` | Quality of re-encoded embedded frames: JPEG quality with `--image_format jpg`, PNG compression level with `--image_format png`. Applies, warns or is refused as `--image_format` | `0`-`100` (jpg), `0`-`9` (png) | sleap-io's default |
+| `--compression` | Compress the `.slp` tables (smaller file, slower reads) | `gzip`, `lzf` | sleap-io's default (none) |
+| `--unlabeled_as` | With `--slp_version v2`: what to do with points that are not labeled, which that layout cannot store: `error` refuses to write, `absent` writes them as hidden points (with a warning) | `error`, `absent` | sleap-io's default (`error`) |
 | `--stream-to-file` | Stream predictions to this `.slp` path, dropping heavy tensors per batch (lower memory). Not combinable with `--tracking` or exported models | `PATH` | None |
 | `--write-interval` | With `--stream-to-file`: frames buffered between conversions | `INT` | `500` |
 | `--gui` | Print JSON progress lines (for the SLEAP GUI) instead of a progress bar | Flag | `false` |
@@ -351,7 +356,7 @@ precision it was exported with. See [Running exported models](../guides/inferenc
 | `--runtime` | Exported-model runtime; `auto` prefers TensorRT on a CUDA device and takes ONNX otherwise (ignored for checkpoints) | `auto`, `onnx`, `tensorrt` | `auto` |
 | `--upload_batches` | CUDA: copy each batch of frames to the GPU before preprocessing, so the resize / letterbox, the crops' frame-size match and the cropping run there instead of on the CPU. Every pipeline built from `--model_paths` (checkpoints and network-only export folders); with `--part_streaming` the part model cuts its crops from the same GPU copy. Results are not bit-identical to the CPU resize. Ignored, with a warning, for a single exported model directory. See [Performance](../guides/inference-performance.md#batches-on-the-gpu-upload_batches) | Flag | `false` |
 | `--memory_format` | Model weight layout of every checkpoint model, the part model included; `channels_last` is faster on NVIDIA GPUs (ignored, with a warning, for an exported model directory) | `contiguous`, `channels_last` | `contiguous` |
-| `--precision` | CUDA: `bf16` / `fp16` run every model's forward pass under `torch.autocast` (weights and outputs stay fp32); `32` is strict fp32. Results differ slightly from fp32. No effect on CPU / MPS, with a warning. Checkpoints only: refused when every model is exported (an exported model keeps the precision it was exported with). See [Performance](../guides/inference-performance.md#reduced-precision-precision) | `32`, `bf16`, `fp16` | `32` |
+| `--precision` | CUDA: `bf16` / `fp16` run every model's forward pass under `torch.autocast` (weights and outputs stay fp32); `32` is strict fp32. Results differ slightly from fp32. No effect on CPU / MPS, with a warning. Checkpoints only: refused when every model is exported (an exported model keeps the precision it was exported with). Experimental: `bf16-encoder` / `fp16-encoder` run only each model's encoder under autocast and the decoder and heads in fp32. See [Performance](../guides/inference-performance.md#reduced-precision-precision) | `32`, `bf16`, `fp16`, `bf16-encoder`, `fp16-encoder` | `32` |
 | `--paf-workers` | CPU worker processes for bottom-up PAF grouping (`0` = in-process). `--cpu-workers` is a deprecated alias | `INT` | `0` |
 
 ### Examples
@@ -406,6 +411,10 @@ grouping, filtering and classic-tracker options above, plus `--gui` and
 - centroid-only output, segmentation, box detectors and SAM masks
 - the modern MOT trackers (`--tracker` and its options), `--link_tracklets`, `--appearance_weight` / `--euclidean_scale`
 - `--output_format`, `--embed`, `--restore_source_videos`, `--save_embeddings`, remote inputs (`--headers`, `--stream-mode`)
+
+It does take the `.slp` save options `--slp_version`, `--compression` and
+`--unlabeled_as` (see [Output Options](#output-options)). It refuses
+`--image_format` and `--image_quality`, since `track` never embeds frames.
 
 The default output name is the same as `predict`'s (`video.mp4` →
 `video.predictions.slp`). Differences in behavior:
@@ -697,6 +706,11 @@ above `--min_iou` are kept. Match statistics go into
 | `--save_detections` | | Also write the raw detections as a COCO results JSON | `PATH` | `None` |
 | `--dry_run` | | Print match statistics only | Flag | `false` |
 | `--overwrite` | | Replace an existing output | Flag | `false` |
+| `--slp_version` | | File layout of the output: `v3` or `auto`, both SLP 3.0. `v2` is not offered: each box keeps its matching score as box metadata, which only SLP 3.0 stores | `auto`, `v3` | unset (SLP 3.0) |
+| `--compression` | | Compress the output's tables | `gzip`, `lzf` | sleap-io's default (none) |
+| `--image_format` | | Refused: the output embeds no frames | `png`, `jpg`, `jpeg`, `hdf5` | unset |
+| `--image_quality` | | Refused, as `--image_format` | `INT` | unset |
+| `--unlabeled_as` | | Only matters for a 2.x save, so it has no effect here | `error`, `absent` | sleap-io's default |
 
 ```bash
 # A mouse detector over a pose project (boxes named "mouse")

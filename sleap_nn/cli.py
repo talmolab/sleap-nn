@@ -66,6 +66,168 @@ def _parse_int_list(ctx, param, value):
         )
 
 
+_SLP_VERSION_HELP = (
+    "File layout of the output .slp: 'v2' (the SLP 2.x layout that older "
+    "sleap-io and SLEAP releases can open), 'v3' (SLP 3.0) or 'auto'. 'auto' "
+    "passes nothing to a sleap-io without its own slp_version option, such as "
+    "sleap-io 0.10.0, so the file is SLP 3.0; a sleap-io with its own "
+    "slp_version option writes the 2.x layout when the content allows. "
+    "Default: unset, which saves as 'auto' does."
+)
+
+# `detect-boxes` output keeps each box's matching score, which only SLP 3.0
+# stores, so it does not offer `v2` (the Python call refuses it too).
+_DETECT_BOXES_SLP_VERSION_HELP = (
+    "File layout of the output .slp: 'v3' or 'auto'. Both write SLP 3.0, which "
+    "keeps each box's matching score; the SLP 2.x layout cannot, so 'v2' is not "
+    "offered. Default: unset (SLP 3.0)."
+)
+
+# The save options that only shape embedded frames.
+_IMAGE_SAVE_OPTIONS = ("image_format", "image_quality")
+
+
+def _slp_save_option_list(
+    slp_versions=("auto", "v2", "v3"), slp_version_help: str = _SLP_VERSION_HELP
+) -> list:
+    """The ``.slp`` file-layout and frame-format options (all default to ``None``).
+
+    Shared by every command that writes a ``.slp``; ``None`` passes nothing to
+    sleap-io, so a command run without them saves exactly as before.
+    """
+    return [
+        click.option(
+            "--slp_version",
+            type=click.Choice(list(slp_versions), case_sensitive=False),
+            default=None,
+            help=slp_version_help,
+        ),
+        click.option(
+            "--image_format",
+            type=click.Choice(["png", "jpg", "jpeg", "hdf5"], case_sensitive=False),
+            default=None,
+            help="Format of frames embedded in the output .slp: 'png', 'jpg' "
+            "(or 'jpeg') or 'hdf5' (raw pixels). Only applies when frames are "
+            "embedded (predict's in-memory route with --embed true or auto); "
+            "with --embed false it warns and has no effect, and routes that never "
+            "embed frames (--stream-to-file, the re-ID embedding route, track, "
+            "detect-boxes) refuse it. Default: sleap-io's default.",
+        ),
+        click.option(
+            "--image_quality",
+            type=int,
+            default=None,
+            help="Quality of re-encoded embedded frames: JPEG quality 0-100 with "
+            "--image_format jpg, or PNG compression level 0-9 with --image_format "
+            "png. Applies where --image_format does. Default: sleap-io's default.",
+        ),
+        click.option(
+            "--compression",
+            type=click.Choice(["gzip", "lzf"], case_sensitive=False),
+            default=None,
+            help="Compress the tables of the output .slp ('gzip' or 'lzf') for a "
+            "smaller file that reads more slowly. Default: sleap-io's default "
+            "(uncompressed).",
+        ),
+        click.option(
+            "--unlabeled_as",
+            type=click.Choice(["error", "absent"], case_sensitive=False),
+            default=None,
+            help="What a --slp_version v2 save does with points that are not "
+            "labeled, which that layout cannot store: 'error' (refuse to write) or "
+            "'absent' (write them as hidden points, with a warning). Default: "
+            "sleap-io's default ('error').",
+        ),
+    ]
+
+
+def _slp_save_options(f):
+    """Add the ``.slp`` save options (see :func:`_slp_save_option_list`)."""
+    for d in reversed(_slp_save_option_list()):
+        f = d(f)
+    return f
+
+
+def _detect_boxes_save_options(f):
+    """The ``.slp`` save options for ``detect-boxes``: no ``--slp_version v2``."""
+    for d in reversed(
+        _slp_save_option_list(("auto", "v3"), _DETECT_BOXES_SLP_VERSION_HELP)
+    ):
+        f = d(f)
+    return f
+
+
+def _refuse_image_save_options(kwargs: dict, route: str, why: str) -> None:
+    """Refuse ``--image_format`` / ``--image_quality`` on a route that never embeds.
+
+    Args:
+        kwargs: The command's parameters.
+        route: The route, completing "... not supported <route>".
+        why: Why that route never embeds frames.
+
+    Raises:
+        click.UsageError: If either option is set.
+    """
+    given = [f"--{n}" for n in _IMAGE_SAVE_OPTIONS if kwargs.get(n) is not None]
+    if not given:
+        return
+    one = len(given) == 1
+    raise click.UsageError(
+        f"{' / '.join(given)} {'is' if one else 'are'} not supported {route}: "
+        f"{why}, and {'it only shapes' if one else 'they only shape'} embedded "
+        "frames."
+    )
+
+
+def _warn_unused_save_options_early(kwargs: dict) -> None:
+    """Warn, before any model loads, about save options this run cannot use.
+
+    With only ``--output_format analysis_h5`` no ``.slp`` is written, so every
+    set save option is unused; with ``--embed false`` no frames are embedded, so
+    ``--image_format`` / ``--image_quality`` are unused. The unused options are
+    then cleared from ``kwargs``, so the save does not warn a second time.
+    """
+    from sleap_nn.inference.save_options import (
+        SAVE_OPTION_NAMES,
+        unused_options_message,
+    )
+
+    formats = {str(f).lower() for f in (kwargs.get("output_format") or ("slp",))}
+    if "slp" not in formats:
+        unused = [n for n in SAVE_OPTION_NAMES if kwargs.get(n) is not None]
+        reason = "--output_format analysis_h5 writes no .slp"
+        applies_to = "only to .slp output"
+    elif str(kwargs.get("embed") or "false").lower() == "false":
+        unused = [n for n in _IMAGE_SAVE_OPTIONS if kwargs.get(n) is not None]
+        reason = "--embed is false, so no frames are embedded"
+        applies_to = "only to embedded frames"
+    else:
+        return
+    if unused:
+        logger.warning(
+            unused_options_message([f"--{n}" for n in unused], applies_to, reason)
+        )
+        for name in unused:
+            kwargs[name] = None
+
+
+def _set_slp_save_options(kwargs: dict) -> dict:
+    """The ``.slp`` save options set in ``kwargs``, validated (unset ones left out).
+
+    Raises:
+        click.UsageError: If an option is invalid or the installed sleap-io cannot
+            take it.
+    """
+    from sleap_nn.inference.save_options import save_options_from, slp_save_kwargs
+
+    opts = {k: v for k, v in save_options_from(kwargs).items() if v is not None}
+    try:
+        slp_save_kwargs(**opts)
+    except ValueError as e:
+        raise click.UsageError(str(e)) from e
+    return opts
+
+
 class _CommaFloatTuple(click.ParamType):
     """Click type parsing a comma-separated float list into a tuple.
 
@@ -1333,6 +1495,7 @@ def train(
     default=0,
     help="IOU to use when culling instances *after* tracking. (default: 0)",
 )
+@_slp_save_options
 @click.option(
     "--gui",
     is_flag=True,
@@ -1389,6 +1552,17 @@ def track(**kwargs):
     kwargs.pop("sam_disjointify_masks", None)
     kwargs.pop("sam3_model_id", None)
     kwargs.pop("overlay_path", None)
+    # The .slp save options: only the ones set are passed on. `track` never
+    # embeds frames, so the frame-format options are refused before inference.
+    from sleap_nn.inference.save_options import SAVE_OPTION_NAMES
+
+    _refuse_image_save_options(
+        kwargs, "by `track`", "it never embeds frames in its output"
+    )
+    save_options = _set_slp_save_options(kwargs)
+    for name in SAVE_OPTION_NAMES:
+        kwargs.pop(name, None)
+    kwargs.update(save_options)
 
     return run_inference(**kwargs)
 
@@ -1460,6 +1634,8 @@ def _run_inference_impl(**kwargs):
     _check_tracker_flags(kwargs)
     # `--precision` where no trained checkpoint would run under it, on every route.
     _check_precision_flag(kwargs)
+    # The .slp save options, checked before any model loads.
+    _set_slp_save_options(kwargs)
 
     # ── Embedding (re-ID) path: persist appearance vectors into a .slp ──
     # An `embedding` model emits appearance vectors, not poses/masks, so it does not go
@@ -2513,6 +2689,11 @@ _EMBEDDING_ROUTE_HONORED_OPTIONS = frozenset(
         "save_embeddings",
         "tracking",
         "restore_source_videos",
+        # The .slp save options, forwarded to the embedding writer. (Not
+        # --image_format / --image_quality: this route never embeds frames.)
+        "slp_version",
+        "compression",
+        "unlabeled_as",
         # Read for remote `.slp` inputs / rejected with their own message earlier.
         "headers",
         "stream_mode",
@@ -2550,6 +2731,10 @@ _EMBEDDING_ROUTE_OPTION_REASONS = {
     "anchor_part": "crop centering comes from the trained config",
     "output_format": "the embedding route writes a .slp only",
     "embed": "the embedding route writes a .slp only",
+    "image_format": "the embedding route's .slp references the source video; "
+    "frames are not embedded",
+    "image_quality": "the embedding route's .slp references the source video; "
+    "frames are not embedded",
     "video_dataset": "the embedding route reads detections from a .slp, not a video",
     "peak_threshold": "the embedding route detects nothing; it embeds existing detections",
 }
@@ -2566,6 +2751,16 @@ _FUSED_OUTPUT_OPTIONS = {
     ),
     "embed": (
         lambda v: str(v or "false").lower() != "false",
+        "the embedding route's .slp references the source video; frames are not "
+        "embedded",
+    ),
+    "image_format": (
+        lambda v: v is not None,
+        "the embedding route's .slp references the source video; frames are not "
+        "embedded",
+    ),
+    "image_quality": (
+        lambda v: v is not None,
         "the embedding route's .slp references the source video; frames are not "
         "embedded",
     ),
@@ -2815,6 +3010,7 @@ def _run_embeddings(
             tracker_config=tracker_config,
             restore_source_videos=bool(kwargs.get("restore_source_videos", False)),
             remote_kwargs=remote_kwargs or None,
+            **_set_slp_save_options(kwargs),
         )
     except EmbeddingInputError as e:
         raise click.UsageError(str(e)) from e
@@ -3175,6 +3371,10 @@ def _run_in_memory_new_flow(
                 "subset frames, or pre-filter the .slp."
             )
 
+    # Save options this run cannot use: warn now, not after the whole pass.
+    if save_output:
+        _warn_unused_save_options_early(kwargs)
+
     # ── Tracking-only retrack: no model_paths, --tracking on a .slp ────
     if not kwargs.get("model_paths") and kwargs.get("tracking"):
         return _run_retrack_only(kwargs, Predictor)
@@ -3382,6 +3582,9 @@ def _run_in_memory_new_flow(
         predict_kwargs["sam3_model_id"] = kwargs.get("sam3_model_id", "facebook/sam3")
         predict_kwargs["overlay_path"] = kwargs.get("overlay_path")
 
+    # The .slp save options: only the ones set are passed on.
+    predict_kwargs.update(_set_slp_save_options(kwargs))
+
     preprocess_config = _build_preprocess_config(kwargs)
     if preprocess_config is not None:
         predict_kwargs["preprocess_config"] = preprocess_config
@@ -3442,6 +3645,19 @@ def _run_in_memory_new_flow(
         predict_kwargs["model_paths"] = None
         predict_kwargs["export_dir"] = export_dir
         predict_kwargs["runtime"] = (kwargs.get("runtime") or "auto").lower()
+        keep_threshold = False
+        _ctx = click.get_current_context(silent=True)
+        if _ctx is not None and "peak_threshold" in _ctx.params:
+            from click.core import ParameterSource
+
+            # A lone exported box detector decodes on the host: a --peak_threshold
+            # typed on the command line is its score threshold, as next to a pose
+            # model. The option always has a value (default 0.2), so only a typed
+            # one may replace the threshold stored at export. `--bbox_nms_iou`
+            # defaults to None and is forwarded whenever it is set.
+            keep_threshold = _ctx.get_parameter_source(
+                "peak_threshold"
+            ) == ParameterSource.COMMANDLINE and _is_box_detector_dir(export_dir)
         for _k in (
             "peak_threshold",
             "centroid_threshold",
@@ -3463,6 +3679,8 @@ def _run_in_memory_new_flow(
             "preprocess_config",
             "centroid_only",
         ):
+            if _k == "peak_threshold" and keep_threshold:
+                continue
             predict_kwargs.pop(_k, None)
 
     # `-o` naming a file the input reads its frames from (e.g. the input .pkg.slp)
@@ -3597,6 +3815,7 @@ def _run_retrack_only(kwargs: dict, predictor_cls) -> "object":
         embed=kwargs.get("embed") or "false",
         restore_source_videos=kwargs.get("restore_source_videos", False),
         save_embedding_vectors=kwargs.get("save_embedding_vectors"),
+        **_set_slp_save_options(kwargs),
     )
     return out
 
@@ -3833,6 +4052,12 @@ def _run_stream_to_file(
             "no embedding and .pkg.slp references preserved. Drop "
             "--stream-to-file to control embedding."
         )
+    _refuse_image_save_options(
+        kwargs,
+        "with --stream-to-file",
+        "the incremental writer never embeds frames (drop --stream-to-file and "
+        "pass --embed true to embed them)",
+    )
     if not kwargs.get("model_paths"):
         raise click.UsageError("--model_paths is required for --stream-to-file.")
     data_path = kwargs.get("data_path")
@@ -3960,6 +4185,7 @@ def _run_stream_to_file(
             remote_kwargs=remote_kwargs or None,
         )
 
+    save_options = _set_slp_save_options(kwargs)
     if kwargs.get("gui"):
         return _run_guarded(
             lambda: predictor.predict_to_file(
@@ -3967,6 +4193,7 @@ def _run_stream_to_file(
                 path=str(stream_to_file),
                 write_interval=write_interval,
                 progress_callback=_gui_progress_callback(),
+                **save_options,
             ),
             gui=True,
         )
@@ -3980,6 +4207,7 @@ def _run_stream_to_file(
                 path=str(stream_to_file),
                 write_interval=write_interval,
                 progress_callback=cb,
+                **save_options,
             ),
             gui=False,
         )
@@ -4065,6 +4293,7 @@ def _common_inference_options(f):
             "original pre-embedding source video files, when recorded. "
             "Ignored when embedding.",
         ),
+        *_slp_save_option_list(),
         click.option(
             "--save_embeddings",
             "save_embeddings",
@@ -4123,7 +4352,10 @@ def _common_inference_options(f):
         ),
         click.option(
             "--precision",
-            type=click.Choice(["32", "fp32", "bf16", "fp16"], case_sensitive=False),
+            type=click.Choice(
+                ["32", "fp32", "bf16", "fp16", "bf16-encoder", "fp16-encoder"],
+                case_sensitive=False,
+            ),
             default="32",
             show_default=True,
             callback=lambda _ctx, _param, value: (
@@ -4138,7 +4370,9 @@ def _common_inference_options(f):
             "emulate it slowly). No effect on CPU / MPS (a warning says so). "
             "The output file records it (`autocast_precision`). `predict` "
             "with trained checkpoints only: an exported model keeps the precision "
-            "it was exported with.",
+            "it was exported with. Experimental: `bf16-encoder` / `fp16-encoder` "
+            "run only each model's encoder under autocast and every layer after it "
+            "(decoder, heads, a DETR detector's box head) in fp32.",
         ),
         click.option(
             "--runtime",
@@ -4252,9 +4486,9 @@ def _common_inference_options(f):
             type=float,
             default=None,
             help="Class-wise IoU-NMS threshold for bounding-box detectors "
-            "(bbox_centernet / bbox_ssd). Default: 0.45 for SSD, off for "
-            "CenterNet; 1.0 disables it. --peak_threshold is the detection "
-            "score threshold and --max_instances the per-frame cap.",
+            "(bbox_centernet / bbox_ssd / bbox_detr). Default: 0.45 for SSD, off "
+            "for CenterNet and DETR; 1.0 disables it. --peak_threshold is the "
+            "detection score threshold and --max_instances the per-frame cap.",
         ),
         click.option(
             "--fg_threshold",
@@ -5373,6 +5607,7 @@ def import_rfdetr(model, output_dir, revision, overwrite):
 @click.option(
     "--overwrite", is_flag=True, default=False, help="Replace an existing output."
 )
+@_detect_boxes_save_options
 def detect_boxes(**kwargs):
     """Write detector boxes into a training labels file (detector-box crops).
 
@@ -5385,6 +5620,10 @@ def detect_boxes(**kwargs):
     pose instance. Train on it with `preprocessing.crop_bbox_source: detector`.
     Match statistics go into provenance["detector_boxes"] and <output>.json.
 
+    The output is written in the SLP 3.0 layout, which keeps each box's matching
+    score, so `--slp_version` takes only `v3` or `auto`. The output embeds no
+    frames, so `--image_format` / `--image_quality` are refused.
+
     Examples:
         sleap-nn detect-boxes -i coco_val2017.slp -m models/rfdetr-medium
 
@@ -5393,6 +5632,11 @@ def detect_boxes(**kwargs):
         sleap-nn detect-boxes -i jrdb_train.slp -m models/person --tile_width 640
     """
     from sleap_nn.inference.detect_boxes import TileSpec, detect_boxes as run
+    from sleap_nn.inference.save_options import save_options_from
+
+    _refuse_image_save_options(
+        kwargs, "by `detect-boxes`", "its output never embeds frames"
+    )
 
     tiling = None
     if kwargs["tile_width"] is not None:
@@ -5426,6 +5670,7 @@ def detect_boxes(**kwargs):
             save_detections=kwargs["save_detections"],
             dry_run=kwargs["dry_run"],
             overwrite=kwargs["overwrite"],
+            **{k: v for k, v in save_options_from(kwargs).items() if v is not None},
         )
     except (FileExistsError, ValueError) as e:
         raise click.ClickException(str(e)) from e
