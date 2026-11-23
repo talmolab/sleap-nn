@@ -718,6 +718,13 @@ def _build_predictor(
                 f"memory_format={memory_format!r} is ignored for an exported "
                 "model directory; it applies to trained checkpoints only."
             )
+        if _is_box_detector_export(export_dir):
+            # A lone exported box detector decodes on the host, like the same
+            # export next to a pose model: the score and NMS thresholds apply.
+            if peak_threshold is not None:
+                build_kwargs["peak_conf_threshold"] = peak_threshold
+            if bbox_nms_iou is not None:
+                build_kwargs["bbox_nms_iou"] = bbox_nms_iou
         predictor = Predictor.from_export_dir(export_dir, **build_kwargs)
 
     part_stream = None

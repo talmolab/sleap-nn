@@ -335,6 +335,10 @@ jobs:
               tests/test_bbox_topdown.py::test_network_only_exports_in_checkpoint_pipeline \
               tests/test_bbox_topdown.py::test_network_only_refusals \
               tests/test_bbox_topdown.py::test_predict_runtime_reaches_every_export_directory \
+              tests/test_bbox_topdown.py::test_lone_exported_detector_takes_the_thresholds \
+              tests/test_bbox_topdown.py::test_lone_exported_detector_forwards_only_typed_thresholds \
+              tests/test_bbox_topdown.py::test_lone_exported_detector_thresholds_from_python \
+              tests/test_bbox_topdown.py::test_lone_exported_ssd_detector_suppression \
               tests/test_bbox_topdown.py::test_lone_network_only_export_runs_as_its_checkpoint \
               tests/test_bbox_detr_training.py::test_bbox_detr_train_predict_eval \
               -v --durations=10 --cov=sleap_nn --cov-report=xml

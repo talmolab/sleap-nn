@@ -1126,6 +1126,7 @@ def _select_export_layer(
     min_line_scores: float = 0.25,
     peak_conf_threshold: Optional[float] = None,
     export_dir: Optional[Path] = None,
+    bbox_nms_iou: Optional[float] = None,
 ):
     """Dispatch on ``metadata.model_type`` to build the right export adapter."""
     from sleap_nn.inference.layers.exported import (
@@ -1236,6 +1237,9 @@ def _select_export_layer(
             model_type,
             cfg.model_config.head_configs,
             score_threshold=score,
+            # As on the checkpoint path (`bbox_nms_iou`): None keeps the style's
+            # default suppression.
+            iou_threshold="default" if bbox_nms_iou is None else bbox_nms_iou,
             max_detections=max_instances,
         )
         return ExportedBBoxLayer(
@@ -1921,6 +1925,7 @@ class Predictor:
         min_line_scores: float = 0.25,
         peak_conf_threshold: Optional[float] = None,
         emit_centroid: str = "instance",
+        bbox_nms_iou: Optional[float] = None,
     ) -> "Predictor":
         """Build a :class:`Predictor` from an exported ONNX/TensorRT directory.
 
@@ -1949,6 +1954,9 @@ class Predictor:
                 (``sio.PredictedCentroid``), or ``"both"``. Honored only for
                 ``ExportedCentroidLayer``; mirrors ``from_model_paths`` so the
                 exported runtime matches the checkpoint path.
+            bbox_nms_iou: Box detector exports: class-wise IoU-NMS threshold, as
+                ``from_model_paths(bbox_nms_iou=...)``; ``None`` keeps the
+                detector style's default. Ignored for other exports.
         """
         from sleap_nn.export.metadata import ExportMetadata
 
@@ -1982,6 +1990,7 @@ class Predictor:
             min_line_scores=min_line_scores,
             peak_conf_threshold=resolved_peak_conf,
             export_dir=export_dir,
+            bbox_nms_iou=bbox_nms_iou,
         )
 
         skeleton = _skeleton_from_export(export_dir, metadata)
