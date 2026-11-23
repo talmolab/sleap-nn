@@ -439,3 +439,77 @@ def test_an_export_with_post_processing_is_refused_with_a_clear_error(tmp_path):
     (fused / "export_metadata.json").write_text('{"model_type": "centered_instance"}')
     with pytest.raises(ValueError, match="network-only"):
         load_model_assets([str(fused)], device="cpu")
+
+
+def _export_folder(tmp_path, name, metadata, graphs=("model.onnx",), configs=None):
+    """A hand-built export folder: metadata, graph files, training configs."""
+    import json
+
+    d = tmp_path / name
+    d.mkdir()
+    for dest in configs if configs is not None else ["training_config.yaml"]:
+        shutil.copy(CENTERED_CKPT / "training_config.yaml", d / dest)
+    (d / "export_metadata.json").write_text(json.dumps(metadata))
+    for g in graphs:
+        (d / g).write_bytes(b"")
+    return d
+
+
+def test_a_fused_export_bundle_among_model_paths_gets_the_export_message(tmp_path):
+    """An exported top-down bundle has no training_config.yaml of its own.
+
+    It is named for what it is (an export with its post-processing in the graph),
+    not as a folder missing its config.
+    """
+    if not CENTROID_CKPT.exists():
+        pytest.skip("checkpoint fixture not present")
+    bundle = _export_folder(
+        tmp_path,
+        "bundle",
+        {"model_type": "topdown"},
+        configs=[
+            "training_config_centroid.yaml",
+            "training_config_centered_instance.yaml",
+        ],
+    )
+    with pytest.raises(ValueError, match="among several model paths"):
+        load_model_assets([str(CENTROID_CKPT), str(bundle)], device="cpu")
+
+
+def test_a_single_fused_export_model_path_is_pointed_at_export_dir(tmp_path):
+    """One fused export as the only model path: run it as an export directory."""
+    if not CENTERED_CKPT.exists():
+        pytest.skip("checkpoint fixture not present")
+    fused = _export_folder(tmp_path, "fused", {"model_type": "centered_instance"})
+    for path in (fused, fused / "training_config.yaml"):
+        with pytest.raises(ValueError, match="export_dir=") as err:
+            load_model_assets([str(path)], device="cpu")
+        assert "among several" not in str(err.value)
+
+
+def test_an_export_without_its_graph_file_says_so(tmp_path):
+    """A network-only export whose model file is missing is not called fused."""
+    if not CENTROID_CKPT.exists():
+        pytest.skip("checkpoint fixture not present")
+    meta = {"model_type": "centered_instance", "network_only": True}
+    missing = _export_folder(tmp_path, "missing", meta, graphs=())
+    with pytest.raises(ValueError, match="no model.onnx or model.trt") as err:
+        load_model_assets([str(CENTROID_CKPT), str(missing)], device="cpu")
+    assert "post-processing" not in str(err.value)
+
+
+def test_checkpoints_and_network_only_exports_are_not_refused(tmp_path):
+    """The early check leaves alone every folder the loader can run."""
+    from sleap_nn.inference.loaders import _refuse_unloadable_export
+
+    meta = {"model_type": "centered_instance", "network_only": True}
+    net = _export_folder(tmp_path, "net", meta)
+    both = _export_folder(tmp_path, "both", {"model_type": "centered_instance"})
+    (both / "best.ckpt").write_bytes(b"")
+    legacy = _export_folder(
+        tmp_path, "legacy", {"model_type": "centered_instance"}, configs=[]
+    )
+    (legacy / "best_model.h5").write_bytes(b"")
+    for d in (net, both, legacy, CENTERED_CKPT, tmp_path / "absent"):
+        for n_paths in (None, 1, 2):
+            _refuse_unloadable_export(str(d), n_paths=n_paths)

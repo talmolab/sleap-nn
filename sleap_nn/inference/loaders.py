@@ -187,6 +187,53 @@ def _apply_ckpt_overrides(
         module.load_state_dict(ckpt["state_dict"], strict=False)
 
 
+def _refuse_unloadable_export(model_dir: str, n_paths: Optional[int] = None) -> None:
+    """Stop, saying what to do, on an export folder the loader cannot run.
+
+    Runs before the folder's training config is read, so the message names the
+    folder's kind (an export bundle has no ``training_config.yaml`` of its own).
+    A folder holding ``best.ckpt`` (or a SLEAP ``best_model.h5``) loads its
+    checkpoint and a folder holding a network-only export runs it; neither is
+    refused here.
+
+    Args:
+        model_dir: A resolved model directory.
+        n_paths: How many model paths were given (``1`` names the export-directory
+            route as the way to run a fused export), or ``None`` if unknown.
+    """
+    from sleap_nn.inference.exported_network import _holds_network_export
+
+    d = Path(model_dir)
+    if not d.is_dir() or (d / "best.ckpt").exists() or (d / "best_model.h5").exists():
+        return
+    if not (d / "export_metadata.json").exists():
+        return
+    if not ((d / "model.onnx").exists() or (d / "model.trt").exists()):
+        raise ValueError(
+            f"{model_dir} holds export_metadata.json but no model.onnx or model.trt "
+            "(and no best.ckpt): copy the graph file back next to the metadata, "
+            "re-export the model, or pass its checkpoint directory."
+        )
+    if _holds_network_export(d):
+        return
+    if n_paths == 1:
+        raise ValueError(
+            f"{model_dir} is an exported model with its post-processing in the "
+            "graph; as a model path (also as a part model and in open_stream) an "
+            "export must be network-only (`sleap-nn export --network-only`, box "
+            "detectors always are). To run it on its own, pass it as an export "
+            f"directory: `sleap-nn predict -m {model_dir}`, or from Python "
+            "`predict(..., export_dir=...)` / `Predictor.from_export_dir(...)`."
+        )
+    raise ValueError(
+        f"{model_dir} is an exported model with its post-processing in the "
+        "graph; among several model paths (and in open_stream) an export "
+        "must be network-only (`sleap-nn export --network-only`, box "
+        "detectors always are). Pass the checkpoint directory, or run a "
+        "single exported model directory on its own."
+    )
+
+
 def _load_lightning_module(
     cls: type,
     ckpt_dir: str,
@@ -207,6 +254,7 @@ def _load_lightning_module(
         is_network_export,
     )
 
+    _refuse_unloadable_export(ckpt_dir)
     config, is_legacy = _load_training_config(ckpt_dir)
     backbone_type = _detect_backbone_type(config)
     if is_network_export(ckpt_dir):
@@ -223,17 +271,6 @@ def _load_lightning_module(
 
     if not is_legacy:
         ckpt_path = (Path(ckpt_dir) / "best.ckpt").as_posix()
-        d = Path(ckpt_dir)
-        if not (d / "best.ckpt").exists() and (d / "export_metadata.json").exists():
-            # An export with its post-processing in the graph (exported without
-            # --network-only) cannot stand in for a checkpoint among model paths.
-            raise ValueError(
-                f"{ckpt_dir} is an exported model with its post-processing in the "
-                "graph; among several model paths (and in open_stream) an export "
-                "must be network-only (`sleap-nn export --network-only`, box "
-                "detectors always are). Pass the checkpoint directory, or run a "
-                "single exported model directory on its own."
-            )
         module = cls.load_from_checkpoint(
             checkpoint_path=ckpt_path,
             map_location=device,
@@ -1648,6 +1685,8 @@ def load_model_assets(
     # detection/dispatch (the builders below index back into model_paths and join
     # `best.ckpt` onto it). #575.
     model_paths = [resolve_model_dir(mp) for mp in model_paths]
+    for mp in model_paths:
+        _refuse_unloadable_export(mp, n_paths=len(model_paths))
 
     model_types: List[str] = []
     configs: List[Any] = []
