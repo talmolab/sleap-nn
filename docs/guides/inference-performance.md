@@ -166,9 +166,10 @@ animal found, a number that changes from batch to batch. The top-down
 layer therefore reserves one crop per centroid slot (`batch_size ×
 max_instances`) up front, and the instance model compiles once for the
 whole run. A video's last, smaller batch is padded too, instead of
-compiling again. Without `max_instances` the slot count is the most
-centroids found in one frame so far, so the instance model compiles again
-each time that maximum rises. In the fp32 run below without
+compiling again. Without `max_instances` the crops are padded to the
+batch size times the most animals found in one frame so far (centroids,
+or boxes from a box detector), so the instance model compiles again each
+time that maximum rises. In the fp32 run below without
 `max_instances`, it compiled twice (the second time when a frame first
 held 6 detections) and then ran at 628 fps, against 709 with
 `max_instances=5`: the crops were padded to 6 per frame instead of 5.
