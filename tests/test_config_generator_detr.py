@@ -509,7 +509,7 @@ def test_bbox_detr_sample_configs_verify(name):
 
 def test_mouse_sample_matches_the_rules():
     """The mouse sample's documented numbers follow the generator's rules."""
-    cfg = OmegaConf.load(SAMPLE_DIR / "config_bbox_detr_dinov3_s_mouse.yaml")
+    cfg = OmegaConf.load(SAMPLE_DIR / "config_bbox_detr_dinov3_s_animals.yaml")
     pre = cfg.data_config.preprocessing
     # sleap-mice_hc: 1280 x 1024, sqrt(w * h) p5 79 px / median 173 px, + 2 x 9 px.
     res = recommend_detr_resolution(1024, 1280, 79 + 18, 173 + 18)

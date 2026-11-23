@@ -1,7 +1,7 @@
 """Crops built from an earlier stage's keypoints: a part stage after top-down pose.
 
-Some body parts leave the crop a top-down pose model sees -- a mouse's tail lies
-outside the body box the detector and the body model use. A *part model* is a
+Some body parts leave the crop a top-down pose model sees -- a long tail, say,
+lies outside the body box the detector and the body model use. A *part model* is a
 second centered-instance model trained on crops around such a part (e.g. a square
 centered on the tail base). At inference its crops have to come from the body
 model's predictions, so detector, body and part run as one pipeline::
@@ -22,8 +22,8 @@ A :class:`KeypointCropRule` turns each predicted instance into one square box:
   ``fallback_scale`` x half the extent's longer side; ``"skip"`` makes no box;
 * optionally (``session_floor``, off by default), a floor on the half side of
   ``session_floor`` x the median half side of the rule's boxes in the same video
-  (see :func:`session_floors`), about the same center. A short reference (a mouse
-  rearing or seen nose-on, whose ears nearly cover the tail base) otherwise makes
+  (see :func:`session_floors`), about the same center. A short reference (an
+  animal rearing or seen end-on, so that its reference points nearly overlap) otherwise makes
   a crop too small to hold the part.
 
 The part model then runs on those boxes through the box-seeded top-down route

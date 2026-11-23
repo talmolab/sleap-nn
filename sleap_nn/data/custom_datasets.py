@@ -6079,7 +6079,7 @@ class DetrBBoxDataset(BBoxDataset):
             and float(detr_aug.get("zoom_out_p", 0.0) or 0.0) > 0
         )
         if self._carries_classes:
-            # A frame zoomed out onto another training frame keeps the visible mice of
+            # A frame zoomed out onto another training frame keeps the visible animals of
             # both, so a sample holds up to twice the largest per-frame box count.
             self.max_instances = 2 * int(self.max_instances)
             if hasattr(self.target_encoder, "max_targets"):

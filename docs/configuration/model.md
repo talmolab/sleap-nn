@@ -446,7 +446,7 @@ Notes:
   backbone, `preprocessing.scale: 1.0` with `max_height` / `max_width` as the input
   size, and usually RF-DETR's augmentation (`augmentation_config.detr`). See the
   [DETR box detector guide](../guides/bbox-detr.md) and
-  [`config_bbox_detr_dinov3_s_mouse.yaml`](https://github.com/talmolab/sleap-nn/blob/main/docs/sample_configs/config_bbox_detr_dinov3_s_mouse.yaml).
+  [`config_bbox_detr_dinov3_s_animals.yaml`](https://github.com/talmolab/sleap-nn/blob/main/docs/sample_configs/config_bbox_detr_dinov3_s_animals.yaml).
 - With `trainer_config.eval.enabled: true`, the best checkpoint and early stopping
   follow `eval/val/bbox_mAP` (see `eval.select_metric`).
 - See the [Bounding-box detection guide](../guides/bbox-detection.md) and the sample

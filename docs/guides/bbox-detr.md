@@ -63,9 +63,9 @@ sleap-nn train detector.yaml
 ```
 
 Or start from the sample config
-[`config_bbox_detr_dinov3_s_mouse.yaml`](https://github.com/talmolab/sleap-nn/blob/main/docs/sample_configs/config_bbox_detr_dinov3_s_mouse.yaml),
-which explains each value. It was written for the SLEAP paper's 2-mouse dataset
-(1,180 training frames at 1280 x 1024). The parts that matter:
+[`config_bbox_detr_dinov3_s_animals.yaml`](https://github.com/talmolab/sleap-nn/blob/main/docs/sample_configs/config_bbox_detr_dinov3_s_animals.yaml),
+which explains each value. It was written for a small dataset of two animals per
+frame (1,180 training frames at 1280 x 1024). The parts that matter:
 
 ```yaml
 data_config:
@@ -120,8 +120,8 @@ use (see [Pretrained Backbones](pretrained-backbones.md) for offline use).
 
 **Boxes.** A pose project has no boxes, so they are derived from the poses:
 the tight box of each instance's visible nodes, plus `bbox_padding` pixels on
-every side. Keypoints sit inside the animal's outline (a mouse's snout, ears and
-tail base do not reach its flanks), so a little padding makes the box cover the
+every side. Keypoints sit inside the animal's outline (the nose, ears and tail base
+of an animal seen from above do not reach its flanks), so a little padding makes the box cover the
 body. Use the same `bbox_source` and `bbox_padding` in the centered-instance
 model of a top-down pair: its crops are then the same boxes the detector learns.
 
@@ -146,8 +146,8 @@ config generator's rule (`recommend_detr_resolution`):
 
 | Dataset | Frames | Animals (p5 / median, padded) | Input | Small / median animal |
 |---|---|---|---|---|
-| SLEAP mice HC (2 mice) | 1280 x 1024 | 97 / 191 px | 640 x 512 | 3.0 / 6.0 tokens |
-| MABe 2023 (2 mice) | 720 x 480 | 79 / 104 px | 448 x 320 | 3.1 / 4.0 tokens |
+| A small arena (2 animals) | 1280 x 1024 | 97 / 191 px | 640 x 512 | 3.0 / 6.0 tokens |
+| A home cage (2 animals) | 720 x 480 | 79 / 104 px | 448 x 320 | 3.1 / 4.0 tokens |
 | A large arena (6 animals) | 3934 x 3490 | 87 / 169 px | needs 2170; capped at 1280 x 1152 | 1.8 / 3.4 tokens |
 
 Compute cost grows with the number of tokens (global attention: with the square
@@ -220,13 +220,13 @@ model_config:
     path: models/rfdetr-medium
     # Optional: seed new classes from related source classes, {target: source}.
     # node_map:
-    #   mouse: cat
+    #   animal: cat
   backbone_config:
     dinov2_windowed: {...}       # as in the imported model's training_config.yaml
   head_configs:
     bbox_detr:
       detr:
-        categories: [mouse]      # "mouse" is new: its row starts fresh
+        categories: [animal]     # "animal" is new: its row starts fresh
         dec_layers: 4
         num_queries: 300         # RF-DETR's; fewer and its query embeddings start fresh
         num_select: 300
@@ -342,7 +342,7 @@ side, resized to the input size.
 
 ## Small datasets
 
-Advice for a few hundred to a few thousand labeled frames, as in the mouse sample:
+Advice for a few hundred to a few thousand labeled frames, as in the two-animal sample:
 
 - **Train long.** The RF-DETR paper says small datasets need more than 100 epochs.
   The sample uses 200 (one epoch = one pass over the frames,

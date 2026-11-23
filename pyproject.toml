@@ -349,5 +349,5 @@ check-hidden = true
 # `mot` = multi-object tracking (sleap_nn/tracking/mot, MOT metrics).
 # `te` = a module alias (`tensorrt_exporter as te`) and a teacher-crop variable in tests;
 # `fo` = an output HDF5 file handle; `dfine` = the D-FINE detector's name;
-# `mabe` = the MABe benchmark dataset.
-ignore-words-list = 'fpr,mot,te,fo,dfine,mabe'
+# `mabe` = the MABe benchmark dataset; `bu` = a bottom-up variable name in tests.
+ignore-words-list = 'fpr,mot,te,fo,dfine,mabe,bu'
