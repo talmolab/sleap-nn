@@ -8,7 +8,11 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 
-from sleap_nn.export.wrappers.base import BaseExportWrapper
+from sleap_nn.export.wrappers.base import (
+    BaseExportWrapper,
+    antialiased_resize,
+    input_scale_resize_rule,
+)
 
 
 class BottomUpONNXWrapper(BaseExportWrapper):
@@ -56,6 +60,7 @@ class BottomUpONNXWrapper(BaseExportWrapper):
         self.max_edge_length_ratio = max_edge_length_ratio
         self.dist_penalty_weight = dist_penalty_weight
         self.input_scale = input_scale
+        self._resize_rule = input_scale_resize_rule(input_scale)
         self.peak_threshold = peak_threshold
 
         edge_src = torch.tensor([e[0] for e in skeleton_edges], dtype=torch.long)
@@ -73,12 +78,11 @@ class BottomUpONNXWrapper(BaseExportWrapper):
         Peak detection and PAF scoring are performed on GPU within this wrapper.
         """
         image = self._normalize_uint8(image)
+        # Resize by input_scale as checkpoint inference does: antialiased, to
+        # (int(H * scale), int(W * scale)) of each frame, with H and W read from the
+        # input's shape when the graph runs (``antialiased_resize``).
         if self.input_scale != 1.0:
-            height = int(image.shape[-2] * self.input_scale)
-            width = int(image.shape[-1] * self.input_scale)
-            image = F.interpolate(
-                image, size=(height, width), mode="bilinear", align_corners=False
-            )
+            image = antialiased_resize(image, *self._resize_rule)
 
         batch_size, _, height, width = image.shape
 

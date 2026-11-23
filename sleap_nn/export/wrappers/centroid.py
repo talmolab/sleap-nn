@@ -6,9 +6,12 @@ from typing import Dict
 
 import torch
 from torch import nn
-from torch.nn import functional as F
 
-from sleap_nn.export.wrappers.base import BaseExportWrapper
+from sleap_nn.export.wrappers.base import (
+    BaseExportWrapper,
+    antialiased_resize,
+    input_scale_resize_rule,
+)
 
 
 class CentroidONNXWrapper(BaseExportWrapper):
@@ -38,17 +41,17 @@ class CentroidONNXWrapper(BaseExportWrapper):
         self.max_instances = max_instances
         self.output_stride = output_stride
         self.input_scale = input_scale
+        self._resize_rule = input_scale_resize_rule(input_scale)
         self.peak_threshold = peak_threshold
 
     def forward(self, image: torch.Tensor) -> Dict[str, torch.Tensor]:
         """Run centroid inference and return fixed-size outputs."""
         image = self._normalize_uint8(image)
+        # Resize by input_scale as checkpoint inference does: antialiased, to
+        # (int(H * scale), int(W * scale)) of each frame, with H and W read from the
+        # input's shape when the graph runs (``antialiased_resize``).
         if self.input_scale != 1.0:
-            height = int(image.shape[-2] * self.input_scale)
-            width = int(image.shape[-1] * self.input_scale)
-            image = F.interpolate(
-                image, size=(height, width), mode="bilinear", align_corners=False
-            )
+            image = antialiased_resize(image, *self._resize_rule)
 
         confmaps = self._extract_tensor(self.model(image), ["centroid", "confmap"])
         peaks, values, valid = self._find_topk_peaks(

@@ -238,12 +238,18 @@ The export's metadata and copied `training_config.yaml` describe the kept nodes.
 sleap-nn export models/bottomup -o exports/bottomup --format both
 ```
 
-A single-instance model with an input scale resizes each frame inside the graph,
-antialiased like checkpoint inference. The resize is built from gathers and sums
-(TensorRT's parser takes no antialiased `Resize`), and its output size follows the
-frame's size, as `int(size * input_scale)` does on the checkpoint path. For the few
-scales whose double rounding no fraction reproduces (0.7, 0.35, ...) the export warns
-that the resized size can differ by one pixel for some frame sizes.
+A model with an input scale other than 1 (single-instance, centroid,
+centered-instance, bottom-up, multi-class and top-down models) resizes each frame,
+or each top-down crop, inside the graph, antialiased like checkpoint inference. The
+resize is built from gathers and sums (TensorRT's parser takes no antialiased
+`Resize`), and its output size follows the input's size, as `int(size * input_scale)`
+does on the checkpoint path. For the few scales whose double rounding no fraction
+reproduces (0.7, 0.35, ...) the export warns that the resized size can differ by one
+pixel for some frame sizes. The resize costs more than a plain one: on the CPU, from
+a few per cent of the graph's time for a typical UNet on 1024 x 1024 frames to about
+20% on 1080p RGB frames, more for very small models; a few per cent with TensorRT.
+Box detectors apply their input scale outside the graph, and network-only exports
+take inputs that are already resized.
 
 ### Top-Down
 
