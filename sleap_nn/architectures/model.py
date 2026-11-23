@@ -46,6 +46,26 @@ from sleap_nn.architectures.detr import (
 import torchvision.transforms.v2.functional as F
 from sleap_nn.config.model_config import DEFAULT_BBOX_CATEGORY, ssd_level_strides
 
+# Backbones whose pooling ("same" padding) and decoder skip resizes decide their
+# padding from the frame size in Python: a trace freezes those decisions.
+_STRIDE_PADDED_BACKBONES = ("unet", "convnext", "swint")
+
+
+def _pad_to_stride_traced(x: torch.Tensor, max_stride: int) -> torch.Tensor:
+    """Zero-pad ``x`` at the bottom and right to a multiple of ``max_stride``.
+
+    The traced counterpart of the checkpoint pipeline's ``apply_pad_to_stride``. The
+    pad amounts are shape arithmetic with no Python branch, so a traced graph (ONNX,
+    TensorRT) keeps them dependent on the frame size: every pooling layer then sees
+    a size divisible by its stride, where the padding decisions frozen at trace time
+    are right. The pad is zero, and the values unchanged, for frames that are already
+    a multiple of ``max_stride``.
+    """
+    h, w = x.shape[-2], x.shape[-1]
+    pad_h = (max_stride - h % max_stride) % max_stride
+    pad_w = (max_stride - w % max_stride) % max_stride
+    return torch.nn.functional.pad(x, (0, pad_w, 0, pad_h))
+
 
 def get_backbone(
     backbone: str, backbone_config: DictConfig, spatial_heads: bool = False
@@ -395,6 +415,11 @@ class Model(nn.Module):
             elif x.shape[-3] == 3:
                 # convert rgb to grayscale
                 x = F.rgb_to_grayscale(x, num_output_channels=1)
+
+        if self.backbone_type in _STRIDE_PADDED_BACKBONES and (
+            torch.jit.is_tracing() or torch.onnx.is_in_onnx_export()
+        ):
+            x = _pad_to_stride_traced(x, int(self.backbone_config.max_stride))
 
         backbone_outputs = self.backbone(x)
         if self.model_type == "bbox_detr":

@@ -485,7 +485,7 @@ for a multi-class top-down pair).
 ## Limitations
 
 - **TensorRT engines are GPU-specific** - Regenerate for different hardware
-- **Image size** - ONNX graphs keep batch, height and width dynamic, except for RoPE (rotary-embedding ViT) backbones, which export with a static height/width. TensorRT shape profiles allow inputs up to 2x the export height/width (clamped to the static size for RoPE backbones)
+- **Image size** - ONNX graphs keep batch, height and width dynamic, except for RoPE (rotary-embedding ViT) backbones, which export with a static height/width. TensorRT shape profiles allow inputs up to 2x the export height/width (clamped to the static size for RoPE backbones). UNet, ConvNeXt and SwinT graphs zero-pad each frame (after the input scale) at the bottom and right to a multiple of the backbone's `max_stride`, as checkpoint inference does, so UNet and ConvNeXt graphs match the checkpoint at any frame size; a SwinT graph is right only at sizes that pad to the size it was traced at
 - **Bottom-up grouping on CPU** - PAF matching can't be GPU-accelerated
 - **No segmentation export** - Segmentation model types are not exportable yet (see [Not Exportable Yet](#not-exportable-yet))
 - **Standalone centered-instance takes crops** - For full-frame inference export a combined top-down bundle (a standalone *centroid* model exports fine — see [Standalone Centroid](#standalone-centroid)), or export it `--network-only` and run it inside `sleap-nn predict` (see [Detector + box-scaled top-down](#detector-box-scaled-top-down-part-stage-network-only-exports))
