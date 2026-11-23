@@ -1,4 +1,5 @@
-"""Exported UNet / ConvNeXt graphs pad frames to the backbone's max stride at run time.
+"""Exported UNet / ConvNeXt / SwinT / pretrained graphs pad the network input to the
+backbone's max stride at run time.
 
 The pooling layers' "same" padding and the decoder's skip resizes are decided from
 the frame size in Python, so a trace freezes them. Before the fix a graph traced at
@@ -218,6 +219,25 @@ def test_full_wrapper_matches_checkpoint_at_odd_sizes(tmp_path):
             want = reference(x)
         np.testing.assert_allclose(peaks, want["peaks"].numpy(), atol=1e-4)
         np.testing.assert_allclose(vals, want["peak_vals"].numpy(), atol=1e-5)
+
+
+@pytest.mark.parametrize("hw", [(64, 64), (61, 70)])
+def test_numerical_check_compares_like_for_like(hw, tmp_path):
+    """``numerical_check`` runs its eager reference with the graph's padding."""
+    pytest.importorskip("onnxruntime")
+    pytest.importorskip("onnx")
+    from sleap_nn.export.exporters import export_to_onnx
+
+    wrapper = NetworkONNXWrapper(_unet(), ["SingleInstanceConfmapsHead"]).eval()
+    export_to_onnx(
+        wrapper,
+        tmp_path / "m.onnx",
+        input_shape=(1, 1, *hw),
+        input_names=["image"],
+        output_names=["SingleInstanceConfmapsHead"],
+        verify=False,
+        numerical_check=True,
+    )
 
 
 def test_eager_forward_is_not_padded():

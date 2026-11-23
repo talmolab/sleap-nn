@@ -5,6 +5,7 @@ parameters required to construct the actual model. This allows for easy querying
 model configuration without actually instantiating the model itself.
 """
 
+import contextlib
 from typing import Dict, List, Optional, Tuple, Union
 import numpy as np
 import torch
@@ -50,6 +51,24 @@ from sleap_nn.config.model_config import DEFAULT_BBOX_CATEGORY, ssd_level_stride
 # Backbones whose pooling ("same" padding) and decoder skip resizes decide their
 # padding from the frame size in Python: a trace freezes those decisions.
 _STRIDE_PADDED_BACKBONES = ("unet", "convnext", "swint", "pretrained")
+
+
+_PAD_EAGER_LIKE_EXPORT = False
+
+
+@contextlib.contextmanager
+def padded_like_export():
+    """Run eager forwards with the input padding an exported graph applies.
+
+    A parity check of an exported graph against the eager model (``export_to_onnx(
+    numerical_check=True)``) runs its reference forward inside this, so both pad.
+    """
+    global _PAD_EAGER_LIKE_EXPORT
+    previous, _PAD_EAGER_LIKE_EXPORT = _PAD_EAGER_LIKE_EXPORT, True
+    try:
+        yield
+    finally:
+        _PAD_EAGER_LIKE_EXPORT = previous
 
 
 def _pad_to_stride_traced(x: torch.Tensor, max_stride: int) -> torch.Tensor:
@@ -419,13 +438,17 @@ class Model(nn.Module):
 
         # Traced graphs (ONNX, TensorRT, ``torch.jit.trace``) pad the network input to
         # the max stride, as checkpoint inference does on the host, so they stay right
-        # at every frame size. Embedding models are left out: their crops are fixed
-        # size and standardized before the network, where a pad would not match the
-        # checkpoint path.
+        # at every frame size. Left out: embedding models (fixed-size crops,
+        # standardized before the network, where a pad would not match the checkpoint
+        # path) and ``bbox_detr`` (exported at a fixed, already padded size).
         if (
             self.backbone_type in _STRIDE_PADDED_BACKBONES
-            and self.model_type != "embedding"
-            and (torch.jit.is_tracing() or torch.onnx.is_in_onnx_export())
+            and self.model_type not in ("embedding", "bbox_detr")
+            and (
+                _PAD_EAGER_LIKE_EXPORT
+                or torch.jit.is_tracing()
+                or torch.onnx.is_in_onnx_export()
+            )
         ):
             x = _pad_to_stride_traced(x, int(self.backbone_config.max_stride))
 
