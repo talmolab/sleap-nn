@@ -95,7 +95,7 @@ sleap-nn predict -i coco_val2017.slp -m models/centered_instance/ \
 
 | Parameter | Description | Default |
 |-----------|-------------|---------|
-| `--rescore` / `--no-rescore` | Instance score = stage-1 score (box score / centroid value) × mean of keypoint scores above `--rescore_threshold` | on with `--boxes`, else off |
+| `--rescore` / `--no-rescore` | Instance score = stage-1 score (box score / centroid value) × mean of keypoint scores above `--rescore_threshold` | off, also with `--boxes` |
 | `--rescore_threshold` | Keypoint-score threshold for `--rescore` | `0.2` |
 | `--oks_nms` | Drop an instance whose OKS with a higher-scoring instance in the frame exceeds this (mmpose `oks_nms`, per-node sigmas, mean crop-window area) | `0` (off) |
 | `--oks_sigmas` | Per-node sigmas for `--oks_nms` | by node name |

@@ -1959,11 +1959,18 @@ def _build_filter_config(kwargs: dict) -> "object":
     min_mean_node_score = float(kwargs.get("filter_min_mean_node_score") or 0.0)
     min_instance_score = float(kwargs.get("filter_min_instance_score") or 0.0)
     min_centroid_distance = float(kwargs.get("filter_min_centroid_distance") or 0.0)
-    rescore = kwargs.get("rescore")
-    if rescore is None:
-        # COCO protocol for box-seeded runs: score = box score x keypoint score.
-        rescore = kwargs.get("boxes") is not None
-    rescore_threshold = float(kwargs.get("rescore_threshold", 0.2)) if rescore else None
+    # Off unless asked for, with or without --boxes, as in the Python ``predict``.
+    rescore = bool(kwargs.get("rescore"))
+    threshold = kwargs.get("rescore_threshold")
+    if rescore:
+        rescore_threshold = 0.2 if threshold is None else float(threshold)
+    else:
+        rescore_threshold = None
+        if threshold is not None:
+            logger.warning(
+                "--rescore_threshold has no effect without --rescore (rescoring is "
+                "off by default, also with --boxes); pass --rescore to rescore."
+            )
     oks_nms = float(kwargs.get("oks_nms") or 0.0)
     oks_sigmas = parse_oks_sigmas(kwargs.get("oks_sigmas"))
     if not (
@@ -4845,8 +4852,8 @@ def _common_inference_options(f):
                 "a centroid model or detector: 'gt' (the input .slp's GT boxes), a "
                 "COCO detection results .json (matched to frames by image id), or "
                 "a .slp whose frames carry predicted boxes (e.g. a bbox detector's "
-                "output, or the input itself). Needs a .slp input. Turns on "
-                "--rescore unless --no-rescore is given."
+                "output, or the input itself). Needs a .slp input. Add --rescore "
+                "for the COCO/mmpose instance scores."
             ),
         ),
         click.option(
@@ -4913,17 +4920,17 @@ def _common_inference_options(f):
         click.option(
             "--rescore/--no-rescore",
             "rescore",
-            default=None,
+            default=False,
             help=(
                 "COCO/mmpose instance rescoring: score = stage-1 score (box score / "
                 "centroid value) x mean of keypoint scores above "
-                "--rescore_threshold. Default: on with --boxes, else off."
+                "--rescore_threshold. Default: off (also with --boxes)."
             ),
         ),
         click.option(
             "--rescore_threshold",
             type=float,
-            default=0.2,
+            default=None,
             help="Keypoint-score threshold for --rescore. Default: 0.2 (mmpose).",
         ),
         click.option(

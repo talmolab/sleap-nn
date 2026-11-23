@@ -193,7 +193,7 @@ Unset values come from the model's training config.
 | `--min_instance_peaks` | Bottom-up | Drop instances with fewer peaks than this | `FLOAT` | `0` |
 | `--min_line_scores` | Bottom-up | Minimum line score (−1 to 1) to connect two peaks | `FLOAT` | `0.25` |
 | `--bbox_nms_iou` | Box detectors | Class-wise IoU-NMS threshold; `1.0` disables. See [Bounding boxes](../guides/bbox-detection.md) | `FLOAT` | `0.45` (SSD), off (CenterNet) |
-| `--boxes` | Top-down | Seed a top-down crop model (pass it alone) from boxes instead of a centroid model or detector: `gt`, a COCO detection results `.json`, or a `.slp` whose frames carry `PredictedBoundingBox`es (a `bbox_*` detector's output, or the input itself). Needs a `.slp` input. See [COCO-Style Evaluation](../guides/coco-evaluation.md) | `gt`, `PATH` | None (off) |
+| `--boxes` | Top-down | Seed a top-down crop model (pass it alone) from boxes instead of a centroid model or detector: `gt`, a COCO detection results `.json`, or a `.slp` whose frames carry `PredictedBoundingBox`es (a `bbox_*` detector's output, or the input itself). Needs a `.slp` input. Without `--rescore`, a pose instance's score is its box's score (1 with `gt`); `--rescore` multiplies it by the mean keypoint score. See [COCO-Style Evaluation](../guides/coco-evaluation.md) | `gt`, `PATH` | None (off) |
 | `--box_score_threshold` | Top-down | With `--boxes <file>`: drop boxes scoring below this | `FLOAT` | `0` |
 | `--part_model` | Part stage | A part model (centered-instance crop model) run after the pose model on square crops built from each predicted instance's keypoints by `--part_crop_rule`; its points are appended to that instance | `PATH` | None (no part stage) |
 | `--part_crop_rule` | Part stage | A `.json` / `.yaml` `KeypointCropRule` for `--part_model` | `PATH` | None |
@@ -258,7 +258,7 @@ video `N`, and the filters keep those of them that match.
 | `--filter_overlapping_method` | Overlap measure | `iou`, `oks` | `iou` |
 | `--filter_overlapping_threshold` | Similarity above which the lower-scoring instance is dropped | `FLOAT` (0.0-1.0) | `0.8` |
 | `--filter_min_centroid_distance` | Centroid-only de-duplication radius in pixels (use instead of `--filter_overlapping` for centroids) | `FLOAT` | `0` (off) |
-| `--rescore` / `--no-rescore` | Instance score = stage-1 score (box score / centroid value) × mean of keypoint scores above `--rescore_threshold` | Flag | on with `--boxes`, else off |
+| `--rescore` / `--no-rescore` | Instance score = stage-1 score (box score / centroid value) × mean of keypoint scores above `--rescore_threshold` (the COCO/mmpose protocol for `--boxes` runs) | Flag | off, also with `--boxes` |
 | `--rescore_threshold` | Keypoint-score threshold for `--rescore` | `FLOAT` | `0.2` |
 | `--oks_nms` | Drop an instance whose OKS with a higher-scoring instance in the frame exceeds this (mmpose `oks_nms`, per-node sigmas, mean crop-window area) | `FLOAT` | `0` (off) |
 | `--oks_sigmas` | Per-node sigmas for `--oks_nms` | `coco`, `crowdpose`, `ochuman`, `FLOAT` or a comma list | by node name |
