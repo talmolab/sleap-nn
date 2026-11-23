@@ -1611,6 +1611,14 @@ def _run_inference_impl(**kwargs):
         raise click.UsageError(
             "--write-interval is only meaningful together with --stream-to-file."
         )
+    if kwargs.pop("frames_on_gpu", False):
+        # The old name of --upload_batches: same effect on every route below.
+        logger.warning(
+            "--frames_on_gpu is now --upload_batches: the frames are uploaded "
+            "for every pipeline (see --upload_batches). --frames_on_gpu is a "
+            "deprecated alias and will be removed in a later release."
+        )
+        kwargs["upload_batches"] = True
 
     if "model_paths" in kwargs and kwargs["model_paths"]:
         kwargs["model_paths"] = list(kwargs["model_paths"])
@@ -1851,8 +1859,9 @@ def _check_part_stage_flags(kwargs: dict, stream_to_file) -> None:
     mps = kwargs.get("model_paths") or []
     # Directories loaded by the checkpoint loader (several -m, and the part model)
     # load best.ckpt when they hold one: they count as checkpoint directories here.
-    # A single -m keeps its own route (an export directory goes to the exported
-    # route whatever else it holds), so the check there is unchanged.
+    # A single -m keeps its own route: a fused export directory goes to the
+    # exported route whatever else it holds (refused here), a network-only one to
+    # the checkpoint route (accepted: the loader runs best.ckpt if present).
     loaded = set(mps if len(mps) > 1 else []) | {kwargs["part_model"]}
 
     def refused(m):
@@ -3021,14 +3030,17 @@ def _run_embeddings(
 
 
 def _is_crop_network_export(path: str) -> bool:
-    """A ``--network-only`` crop-model export (not a box detector).
+    """A folder holding a ``--network-only`` crop-model export (not a box detector).
 
     It stands in for its checkpoint, so alone (or with ``--boxes``) it takes the
-    checkpoint route, where it fails or runs exactly as the checkpoint would.
+    checkpoint route, where it fails or runs exactly as the checkpoint would. A
+    folder that also holds ``best.ckpt`` takes the same route, where the loader
+    loads the checkpoint: the exported-model route cannot run a network-only graph
+    (it returns raw confidence maps, not peaks).
     """
-    from sleap_nn.inference.exported_network import is_network_export
+    from sleap_nn.inference.exported_network import _holds_network_export
 
-    return is_network_export(path) and not _is_box_detector_dir(path)
+    return _holds_network_export(path) and not _is_box_detector_dir(path)
 
 
 def _is_box_detector_dir(path: str) -> bool:
@@ -3039,18 +3051,26 @@ def _is_box_detector_dir(path: str) -> bool:
 
 
 def _is_export_dir(path: str) -> bool:
-    """True if ``path`` is a directory holding an exported ONNX/TRT model.
+    """True if ``path`` is a directory written by ``sleap-nn export``.
 
-    A single ``--model_paths`` entry that is a directory containing
-    ``model.onnx`` or ``model.trt`` is an exported model and routes to the
-    ONNX/TensorRT runtime instead of checkpoint loading. The exporter writes
-    these artifacts to a dedicated directory (never alongside ``best.ckpt``),
-    so this never misfires on a checkpoint directory.
+    That is a directory holding ``export_metadata.json`` and ``model.onnx`` or
+    ``model.trt``. A single ``--model_paths`` entry that is one routes to the
+    ONNX/TensorRT runtime instead of checkpoint loading (unless it holds a
+    network-only crop export, see :func:`_is_crop_network_export`). An export
+    can be written next to ``best.ckpt`` (``sleap-nn export -o`` the model
+    directory): alone, such a directory still takes the exported route; among
+    several model paths the loader loads its checkpoint. A graph file without
+    the metadata is not an export written by ``sleap-nn export``: the directory
+    is left to the checkpoint loader.
     """
     from pathlib import Path
 
     p = Path(path)
-    return p.is_dir() and ((p / "model.onnx").exists() or (p / "model.trt").exists())
+    return (
+        p.is_dir()
+        and (p / "export_metadata.json").exists()
+        and ((p / "model.onnx").exists() or (p / "model.trt").exists())
+    )
 
 
 # Remote URL schemes sleap-io 0.8.0 can load directly (fsspec for ``.slp``, PyAV
@@ -3476,8 +3496,10 @@ def _run_in_memory_new_flow(
     centroid_thresh = kwargs.get("centroid_peak_threshold") or peak_thresh
 
     # Auto-detect an exported ONNX/TRT model directory: a single --model_paths
-    # entry containing model.onnx/model.trt runs through the exported-model
-    # runtime. Multiple paths are always trained checkpoints (top-down).
+    # entry holding an export with its post-processing in the graph (or a box
+    # detector export) runs through the exported-model runtime. A network-only
+    # crop export takes the checkpoint route (with best.ckpt next to it, the
+    # checkpoint runs). Several paths always go through the checkpoint loader.
     _mps = kwargs["model_paths"]
     export_dir = (
         _mps[0]
@@ -3527,7 +3549,6 @@ def _run_in_memory_new_flow(
         "fg_threshold": kwargs.get("fg_threshold", 0.5),
         "bbox_nms_iou": kwargs.get("bbox_nms_iou"),
         "flip_test": kwargs.get("flip_test", False),
-        "frames_on_gpu": kwargs.get("frames_on_gpu", False),
         # Every route: export directories among several --model_paths (network-only
         # exports, box detectors) and a --part_model export run on this runtime.
         "runtime": (kwargs.get("runtime") or "auto").lower(),
@@ -4086,7 +4107,6 @@ def _run_stream_to_file(
         "fg_threshold": kwargs.get("fg_threshold", 0.5),
         "bbox_nms_iou": kwargs.get("bbox_nms_iou"),
         "flip_test": kwargs.get("flip_test", False),
-        "frames_on_gpu": kwargs.get("frames_on_gpu", False),
         **_node_filter_kwargs(kwargs),
         "min_mask_area": kwargs.get("min_mask_area", 0),
         "center_nms_kernel": kwargs.get("center_nms_kernel", 3),
@@ -4316,11 +4336,16 @@ def _common_inference_options(f):
             is_flag=True,
             default=False,
             help="With a CUDA device, copy each batch of frames to the GPU before "
-            "preprocessing, so resizing and top-down cropping run on the GPU "
+            "preprocessing, so resizing (the detector's resize / letterbox, the "
+            "crops' frame-size match) and top-down cropping run on the GPU "
             "instead of the CPU (2.2x faster for a top-down pair on an A100). "
-            "The GPU resize rounds a few pixels differently (by 1 grey level), so "
-            "results differ slightly from a run without it. `predict` with "
-            "trained checkpoints only.",
+            "Works for every pipeline built from --model_paths (trained "
+            "checkpoints and network-only export folders); with --part_streaming "
+            "the part model cuts its crops from the same GPU copy. Results are "
+            "not bit-identical to the CPU resize: a uint8 resize on the GPU "
+            "rounds some pixels one grey level differently, which can move a box "
+            "near the score threshold. `predict` only; ignored, with a warning, "
+            "for a single exported model directory and without a CUDA device.",
         ),
         click.option(
             "--memory_format",
@@ -4364,7 +4389,8 @@ def _common_inference_options(f):
             "--model_paths (and --part_model): a single exported model, or "
             "network-only exports (`sleap-nn export --network-only`, box detector "
             "exports) standing in for checkpoints in a multi-model pipeline. 'auto' "
-            "prefers TensorRT, falls back to ONNX. Ignored for trained checkpoints.",
+            "prefers TensorRT on a CUDA device and takes ONNX otherwise (or when there is "
+            "no engine). Ignored for trained checkpoints.",
         ),
         click.option(
             "--tracking",
@@ -4787,13 +4813,10 @@ def _common_inference_options(f):
             "frames_on_gpu",
             is_flag=True,
             default=False,
+            hidden=True,
             help=(
-                "Top-down pipelines only: move each batch of frames to the GPU "
-                "before stage 1, so the detector's resize / letterbox and the "
-                "crops' frame-size match run there instead of on the CPU. Results "
-                "are not bit-identical to the CPU resize: a uint8 resize on the GPU "
-                "rounds some pixels one grey level differently, which can move a box "
-                "near the score threshold."
+                "[DEPRECATED] Alias of --upload_batches (turns it on, with a "
+                "warning); will be removed in a later release."
             ),
         ),
         click.option(

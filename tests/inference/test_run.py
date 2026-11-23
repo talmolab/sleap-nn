@@ -146,7 +146,71 @@ def test_predict_export_dir_ignores_upload_batches_with_warning(caplog):
     ) as mock_export:
         predict("video.mp4", export_dir="/exp", device="cpu", upload_batches=True)
     assert "upload_batches" not in mock_export.call_args.kwargs
-    assert "upload_batches is ignored for an exported model directory" in caplog.text
+    assert "upload_batches is ignored for the exported model directory" in caplog.text
+
+
+@pytest.mark.parametrize(
+    "given, upload_batches, memory_format",
+    [
+        ({}, False, "contiguous"),
+        ({"upload_batches": True}, True, "contiguous"),
+        ({"memory_format": "channels_last"}, False, "channels_last"),
+        (
+            {"upload_batches": True, "memory_format": "channels_last"},
+            True,
+            "channels_last",
+        ),
+        ({"frames_on_gpu": True}, True, "contiguous"),  # the deprecated alias
+    ],
+)
+def test_predict_passes_upload_batches_and_memory_format_to_the_factory(
+    caplog, given, upload_batches, memory_format
+):
+    """``predict`` -> ``_build_predictor`` -> ``Predictor.from_model_paths``.
+
+    Both options reach the factory with ``predict``'s values (off / contiguous
+    unless given). ``frames_on_gpu`` is resolved in ``predict``: the factory gets
+    ``upload_batches=True``, never the old name, and one warning is logged.
+    """
+    pred = _mock_predictor()
+    with patch(
+        "sleap_nn.inference.predictor.Predictor.from_model_paths",
+        return_value=pred,
+    ) as mock_factory:
+        predict("video.mp4", model_paths=["/m"], device="cpu", **given)
+    bk = mock_factory.call_args.kwargs
+    assert bk["upload_batches"] is upload_batches
+    assert bk["memory_format"] == memory_format
+    assert "frames_on_gpu" not in bk
+    alias = "frames_on_gpu is now upload_batches"
+    assert caplog.text.count(alias) == ("frames_on_gpu" in given)
+
+
+def test_build_predictor_passes_upload_batches_and_memory_format():
+    """The hop on its own: ``_build_predictor`` hands both to the factory."""
+    import inspect
+
+    from sleap_nn.inference.run import _build_predictor, _predict_defaults
+
+    defaults = _predict_defaults()
+    build = {
+        name: defaults.get(name)
+        for name in inspect.signature(_build_predictor).parameters
+    }
+    build.update(
+        model_paths=["/m"],
+        device="cpu",
+        box_mode=None,
+        upload_batches=True,
+        memory_format="channels_last",
+    )
+    with patch(
+        "sleap_nn.inference.predictor.Predictor.from_model_paths",
+        return_value=_mock_predictor(),
+    ) as mock_factory:
+        _build_predictor(**build)
+    bk = mock_factory.call_args.kwargs
+    assert bk["upload_batches"] is True and bk["memory_format"] == "channels_last"
 
 
 def test_predict_export_dir_ignores_memory_format_with_warning(caplog):
@@ -678,3 +742,48 @@ def test_predict_early_check_refuses_no_more_than_the_save_check(
             device="cpu",
             output_path=str(labels_path),
         )
+
+
+@pytest.mark.parametrize("streaming", [False, True])
+def test_part_stage_gets_memory_format_and_upload_batches(streaming):
+    """The part model is built with the body run's ``memory_format``.
+
+    The two-pass part stage reads its frames again, so it also gets
+    ``upload_batches``; the streamed one cuts its crops from the frames the body
+    predictor already uploaded, so it does not need it.
+    """
+    import sleap_nn.inference.keypoint_crops as kc
+
+    seen = {}
+
+    def factory(paths, **kwargs):
+        seen.update(kwargs)
+        raise RuntimeError("stop after the part model's factory call")
+
+    with (
+        patch.object(kc, "session_floors", return_value={}),
+        patch(
+            "sleap_nn.inference.predictor.Predictor.from_model_paths",
+            side_effect=factory,
+        ),
+    ):
+        with pytest.raises(RuntimeError, match="stop after"):
+            if streaming:
+                kc.build_streaming_part_stage(
+                    MagicMock(),
+                    ["/part"],
+                    {"center": ["a"]},
+                    device="cpu",
+                    memory_format="channels_last",
+                )
+            else:
+                kc.run_part_stage(
+                    MagicMock(),
+                    ["/part"],
+                    {"center": ["a"]},
+                    device="cpu",
+                    memory_format="channels_last",
+                    upload_batches=True,
+                )
+    assert seen["memory_format"] == "channels_last"
+    assert seen.get("upload_batches", False) is (not streaming)

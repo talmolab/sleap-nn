@@ -8,7 +8,8 @@ per-frame boxes, scores and class ids in model-input pixels:
 * :func:`decode_ssd` -- per-anchor class probabilities and decoded deltas,
   thresholded and class-wise IoU-NMSed.
 * :func:`decode_set` -- DETR set predictions: sigmoid scores over queries x
-  classes, the top ``num_select`` pairs, no NMS.
+  classes, the top ``num_select`` pairs, no NMS. :func:`decode_set_keypoints` also
+  returns each detection's keypoints (the experimental keypoint branch).
 
 :class:`BBoxDecoder` binds a style and its parameters (built from a model's head
 config) and is what both the LightningModules (val-time eval) and the inference
@@ -240,6 +241,77 @@ def decode_ssd(
     return _pad_detections(per_frame, max_detections, raw.device)
 
 
+def _set_boxes(
+    pred_boxes: torch.Tensor, queries: torch.Tensor, img_hw: Tuple[int, int]
+) -> torch.Tensor:
+    """The ``(B, k)`` selected queries' boxes as ``xyxy`` input pixels, clipped."""
+    b, k = queries.shape
+    boxes = pred_boxes.float().gather(1, queries[..., None].expand(b, k, 4))
+    cx, cy, w, h = boxes.unbind(-1)
+    boxes = torch.stack([cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2], dim=-1)
+    img_h, img_w = img_hw
+    return _clip_to_image(
+        boxes * boxes.new_tensor([img_w, img_h, img_w, img_h]), img_hw
+    )
+
+
+def _set_detections(
+    boxes: torch.Tensor,
+    scores: torch.Tensor,
+    classes: torch.Tensor,
+    score_threshold: float,
+    max_detections: int,
+    iou_threshold: Optional[float],
+) -> List[torch.Tensor]:
+    """Per frame, the candidates kept as detections, by descending score.
+
+    A candidate is kept when its score reaches ``score_threshold`` and its box has
+    an area; then the optional class-wise IoU-NMS, and at most ``max_detections``.
+
+    Args:
+        boxes: ``(B, k, 4)`` candidate boxes (score-sorted, as from a top-k).
+        scores: ``(B, k)`` their scores.
+        classes: ``(B, k)`` their classes.
+        score_threshold: Minimum detection score.
+        max_detections: Detections kept per frame.
+        iou_threshold: Optional class-wise IoU-NMS threshold.
+
+    Returns:
+        One index tensor into the ``k`` candidates per frame.
+    """
+    out = []
+    for i in range(boxes.shape[0]):
+        keep = (scores[i] >= score_threshold).nonzero().flatten()
+        bx = boxes[i][keep]
+        keep = keep[(bx[:, 2] > bx[:, 0]) & (bx[:, 3] > bx[:, 1])]
+        if iou_threshold is not None and keep.numel():
+            nms = batched_nms(
+                boxes[i][keep].float(),
+                scores[i][keep].float(),
+                classes[i][keep],
+                float(iou_threshold),
+            )
+            keep = keep[nms]
+        keep = keep[: int(max_detections)]
+        out.append(keep[scores[i][keep].argsort(descending=True)])
+    return out
+
+
+def _gather_padded(
+    values: torch.Tensor, kept: List[torch.Tensor], m: int, fill
+) -> torch.Tensor:
+    """``(B, k, ...)`` values at each frame's kept indices, padded to ``m`` slots."""
+    out = torch.full(
+        (values.shape[0], m, *values.shape[2:]),
+        fill,
+        dtype=values.dtype,
+        device=values.device,
+    )
+    for i, keep in enumerate(kept):
+        out[i, : keep.numel()] = values[i][keep]
+    return out
+
+
 def decode_set(
     pred_logits: torch.Tensor,
     pred_boxes: torch.Tensor,
@@ -275,23 +347,89 @@ def decode_set(
     k = min(int(num_select), q * c)
     scores, inds = probs.reshape(b, -1).topk(k, dim=1)
     classes = inds % c
-    boxes = pred_boxes.float().gather(1, (inds // c)[..., None].expand(b, k, 4))
-    cx, cy, w, h = boxes.unbind(-1)
-    boxes = torch.stack([cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2], dim=-1)
-    img_h, img_w = img_hw
-    boxes = _clip_to_image(
-        boxes * boxes.new_tensor([img_w, img_h, img_w, img_h]), img_hw
+    boxes = _set_boxes(pred_boxes, inds // c, img_hw)
+    kept = _set_detections(
+        boxes, scores, classes, score_threshold, max_detections, iou_threshold
     )
-    per_frame = []
-    for i in range(b):
-        keep = scores[i] >= score_threshold
-        bx, sc, cl = _nms(
-            boxes[i][keep], scores[i][keep], classes[i][keep], iou_threshold
+    m = int(max_detections)
+    return (
+        _gather_padded(boxes, kept, m, float("nan")),
+        _gather_padded(scores, kept, m, float("nan")),
+        _gather_padded(classes, kept, m, -1),
+    )
+
+
+def decode_set_keypoints(
+    pred_logits: torch.Tensor,
+    pred_boxes: torch.Tensor,
+    pred_keypoints: torch.Tensor,
+    pred_keypoint_logits: torch.Tensor,
+    img_hw: Tuple[int, int],
+    score_threshold: float = 0.2,
+    num_select: int = 300,
+    max_detections: int = DEFAULT_MAX_DETECTIONS,
+    iou_threshold: Optional[float] = None,
+    visibility_threshold: float = 0.5,
+) -> Tuple[torch.Tensor, ...]:
+    """Decode a keypoint ``bbox_detr``'s set predictions: one detection per query.
+
+    Unlike :func:`decode_set`, a query yields at most one detection, of its
+    highest-scoring class, so each animal gives one instance (its points are the
+    query's). The ``num_select`` best queries are then thresholded, filtered and
+    capped exactly as in :func:`decode_set`; with one class the detections are
+    the same.
+
+    Args:
+        pred_logits: ``(B, Q, C + 1)`` class logits.
+        pred_boxes: ``(B, Q, 4)`` normalized ``cxcywh`` boxes.
+        pred_keypoints: ``(B, Q, K, 2)`` normalized ``xy`` points.
+        pred_keypoint_logits: ``(B, Q, K)`` visibility logits.
+        img_hw: Model-input ``(H, W)``.
+        score_threshold: Minimum detection score.
+        num_select: Queries kept before thresholding.
+        max_detections: Detections kept per frame.
+        iou_threshold: Optional class-wise IoU-NMS.
+        visibility_threshold: Points whose visibility probability is below this
+            are NaN.
+
+    Returns:
+        ``(boxes, scores, classes, points, point_scores)``: as
+        :func:`decode_set`, plus ``points (B, M, K, 2)`` in input pixels and
+        ``point_scores (B, M, K)`` (visibility probabilities), NaN in unused
+        slots.
+    """
+    probs = pred_logits[..., :-1].float().sigmoid()
+    b, q, _ = probs.shape
+    n_kpts = pred_keypoints.shape[-2]
+    best, best_class = probs.max(-1)
+    k = min(int(num_select), q)
+    scores, queries = best.topk(k, dim=1)
+    classes = best_class.gather(1, queries)
+    boxes = _set_boxes(pred_boxes, queries, img_hw)
+    img_h, img_w = img_hw
+    points = (
+        pred_keypoints.float().gather(
+            1, queries[..., None, None].expand(b, k, n_kpts, 2)
         )
-        per_frame.append(
-            (bx[:max_detections], sc[:max_detections], cl[:max_detections])
-        )
-    return _pad_detections(per_frame, max_detections, pred_logits.device)
+        * pred_keypoints.new_tensor([img_w, img_h]).float()
+    )
+    vis = (
+        pred_keypoint_logits.float()
+        .sigmoid()
+        .gather(1, queries[..., None].expand(b, k, n_kpts))
+    )
+    points = points.masked_fill((vis < visibility_threshold)[..., None], float("nan"))
+    kept = _set_detections(
+        boxes, scores, classes, score_threshold, max_detections, iou_threshold
+    )
+    m = int(max_detections)
+    return (
+        _gather_padded(boxes, kept, m, float("nan")),
+        _gather_padded(scores, kept, m, float("nan")),
+        _gather_padded(classes, kept, m, -1),
+        _gather_padded(points, kept, m, float("nan")),
+        _gather_padded(vis, kept, m, float("nan")),
+    )
 
 
 class BBoxDecoder:
@@ -306,7 +444,14 @@ class BBoxDecoder:
         max_detections: Detections kept per frame.
         anchor_encoder: SSD only -- the target encoder that owns the anchors.
         num_select: DETR only -- (query, class) pairs kept before thresholding.
+        num_keypoints: DETR keypoint branch (experimental) -- keypoints per
+            detection; ``0`` for a box detector.
+        visibility_threshold: DETR keypoint branch -- points whose visibility
+            probability is below this are written as missing.
     """
+
+    num_keypoints = 0
+    visibility_threshold = 0.5
 
     def __init__(
         self,
@@ -318,6 +463,8 @@ class BBoxDecoder:
         max_detections: int = DEFAULT_MAX_DETECTIONS,
         anchor_encoder: Optional[SSDTargetEncoder] = None,
         num_select: int = 300,
+        num_keypoints: int = 0,
+        visibility_threshold: float = 0.5,
     ):
         """Initialize the decoder."""
         if model_type not in DEFAULT_NMS_IOU:
@@ -332,6 +479,9 @@ class BBoxDecoder:
         self.max_detections = int(max_detections)
         self.anchor_encoder = anchor_encoder
         self.num_select = int(num_select)
+        if num_keypoints:  # A box detector keeps the class defaults below.
+            self.num_keypoints = int(num_keypoints)
+            self.visibility_threshold = float(visibility_threshold)
 
     @classmethod
     def from_head_configs(
@@ -351,10 +501,23 @@ class BBoxDecoder:
         if iou_threshold == "default":
             iou_threshold = DEFAULT_NMS_IOU[model_type]
         anchor_encoder, output_stride, num_select = None, 1, 300
+        keypoint_kwargs = {}
         if model_type == "bbox_ssd":
             anchor_encoder = get_bbox_target_encoder(model_type, head_configs)
         elif model_type == "bbox_detr":
-            num_select = head_configs.bbox_detr.detr.num_select
+            from sleap_nn.architectures.detr.model import (
+                detr_keypoints_config,
+                detr_num_keypoints,
+            )
+
+            detr = head_configs.bbox_detr.detr
+            num_select = detr.num_select
+            keypoints = detr_keypoints_config(detr)
+            if keypoints is not None:
+                keypoint_kwargs = dict(
+                    num_keypoints=detr_num_keypoints(detr),
+                    visibility_threshold=float(keypoints.visibility_threshold),
+                )
         else:
             output_stride = head_configs.bbox_centernet.center.output_stride
         return cls(
@@ -366,6 +529,35 @@ class BBoxDecoder:
             max_detections=max_detections or DEFAULT_MAX_DETECTIONS,
             anchor_encoder=anchor_encoder,
             num_select=num_select,
+            **keypoint_kwargs,
+        )
+
+    def decode_keypoints(
+        self,
+        outputs: Dict[str, torch.Tensor],
+        img_hw: Tuple[int, int],
+        score_threshold: Optional[float] = None,
+        max_detections: Optional[int] = None,
+    ) -> Tuple[torch.Tensor, ...]:
+        """Decode a keypoint ``bbox_detr``'s outputs: boxes and their keypoints.
+
+        Returns:
+            ``(boxes, scores, classes, points, point_scores)`` in model-input
+            pixels (:func:`decode_set_keypoints`).
+        """
+        thr = self.score_threshold if score_threshold is None else score_threshold
+        k = self.max_detections if max_detections is None else int(max_detections)
+        return decode_set_keypoints(
+            outputs["pred_logits"],
+            outputs["pred_boxes"],
+            outputs["pred_keypoints"],
+            outputs["pred_keypoint_logits"],
+            img_hw=img_hw,
+            score_threshold=thr,
+            num_select=self.num_select,
+            max_detections=k,
+            iou_threshold=self.iou_threshold,
+            visibility_threshold=self.visibility_threshold,
         )
 
     def __call__(

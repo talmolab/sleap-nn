@@ -433,8 +433,8 @@ def test_warmup_boxes_on_the_device_real_boxes_reach(
     """The warm-up feeds the pose and part models as a real frame does.
 
     A real frame's boxes come from the first stage on its device (the card, for a
-    CUDA detector) and the crop windows are computed there; with a part stage and
-    ``frames_on_gpu`` the frame is uploaded once and the part model cuts its crops
+    CUDA detector) and the crop windows are computed there; with
+    ``upload_batches`` the frame is uploaded once and the part model cuts its crops
     from that card copy. If the warm-up handed its dummy boxes or frame over on
     the host, the first real frame would load those GPU operations' code (CUDA
     lazy module loading) and be the slow one (seen with TensorRT engines and
@@ -482,7 +482,7 @@ def test_warmup_boxes_on_the_device_real_boxes_reach(
         part_crop_rule=RULE,
         part_peak_threshold=0.0,
         part_prefix="part/",
-        frames_on_gpu=device == "cuda",  # the real-time settings
+        upload_batches=device == "cuda",  # the real-time settings
     )
     with open_stream(**kw, frame_shape=frames[0].shape) as stream:
         part_id = id(stream._predictor.part_stage.layer)

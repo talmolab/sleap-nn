@@ -28,6 +28,7 @@ data_config:
 | `use_negative_frames` | Include user-confirmed negative frames (see [guide](../guides/negative-frames.md)) | `false` |
 | `negative_loss_weight` | Loss weight multiplier for negative samples | `1.0` |
 | `node_loss_mask` | Per-node loss weights: unlabeled points (sleap-io 0.10 `labeled=False`, e.g. COCO `v=0`) and nodes a file does not label (`provenance["labeled_nodes"]`) get zero loss (see [guide](../guides/partial-labels.md)) | `true` |
+| `merge_skeletons` | **Experimental.** Bottom-up, centroid and single-instance models on files with different skeletons, merged by node name (see [guide](../guides/multi-skeleton-pool.md)) | `false` |
 | `unlabeled_points` | Points with no location (NaN, or outside the image/crop after augmentation): `absent` trains them as absent, `ignore` gives them zero loss | `absent` |
 | `supervise_occluded` | Train occluded points that have estimated coordinates (labeled, not visible; COCO `v=1`) at those coordinates; `false` gives them zero loss | `true` |
 
@@ -273,6 +274,7 @@ data_config:
 | `centroids_from_masks` | str | `null` | Derive `UserCentroid`s from segmentation masks at load time so a mask-only dataset can train a centroid model: `center_of_mass` or `bbox_center`. `null` = off. Frames that already have user centroids are left alone |
 | `identity` | IdentityConfig | `null` | `embedding` only: what the track labels mean, so the objective can validate its positives/negatives. See [IdentityConfig](#identityconfig-identity) |
 | `split` | SplitConfig | `null` | Group-aware train/val split (by frame, video or identity) used instead of the random `validation_fraction` split when `val_labels_path` is not set. See [SplitConfig](#splitconfig-split) |
+| `merge_skeletons` | bool | `false` | **Experimental.** `bottomup`, `centroid` and `single_instance` only: train on files whose skeletons differ. The model's skeleton is the union of the training files' nodes by name (the head's `part_names` when set) with every file's edges and symmetries; nodes a file lacks get zero loss. `false` keeps the same-skeleton check. Saved in `training_config.yaml` only when `true`. See [Frame models on several skeletons](../guides/multi-skeleton-pool.md) |
 
 ### IdentityConfig (`identity`)
 
@@ -325,6 +327,7 @@ Used by the `embedding` model type (see the [embedding tracking guide](../guides
 | `burn_in` | bool | `false` | `embedding` only: burn the instance mask into the crop (background set to `background_fill`) |
 | `background_fill` | str | `black` | `embedding` with `burn_in` only: `black`, `grey`, `mean` or `noise` |
 | `crop_centering` | str | `auto` | `embedding` (mask mode) only: crop center: `auto` (mask center of mass), `mask_com` or `bbox` (mask box midpoint) |
+| `file_scales` | dict | `null` | **Experimental.** `bottomup`, `centroid` and `single_instance` (no tiling) only: one input scale per training or validation file, `{file name: scale}`; a key matches a file by its path, its file name, or its file name up to the first `.` (a key matching more than one file is an error). Frames are resized by it, then padded (not stretched) to `max_height` x `max_width`. Training only; saved only when set. See [Frame models on several skeletons](../guides/multi-skeleton-pool.md#one-input-scale-per-file) |
 
 ### IntensityConfig (augmentation_config.intensity)
 

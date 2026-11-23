@@ -404,6 +404,100 @@ def frame_bbox_hulls(
     return np.asarray(hulls, dtype=np.float32).reshape(-1, HULL_VERTICES, 2)
 
 
+def frame_bbox_keypoints(
+    lf: sio.LabeledFrame,
+    categories: Sequence[str],
+    node_names: Sequence[str],
+    file_weights: np.ndarray,
+    supervise_occluded: bool = True,
+    point_flags: bool = True,
+    return_linked: bool = False,
+    ignore_category: Optional[str] = None,
+) -> np.ndarray:
+    """Points and node weights of a frame's user boxes' instances (keypoint branch).
+
+    Same boxes in the same order as :func:`frame_bbox_arrays`. Each box's linked
+    pose instance (``box.instance``; boxes derived from instances link back to
+    them) gives its points, matched to ``node_names`` by name, and its per-node
+    weights: the file's node mask (``provenance["labeled_nodes"]``) times the
+    point's ``labeled | visible`` flag (:func:`~sleap_nn.data.node_weights.
+    instance_node_weights`, which also restores occluded points' estimated
+    coordinates under ``supervise_occluded``). A node the instance's skeleton does
+    not have, and every node of a box without a linked instance, gets weight 0.
+
+    Args:
+        lf: The labeled frame.
+        categories: Ordered class names (as for :func:`frame_bbox_arrays`).
+        node_names: The model's keypoint names.
+        file_weights: ``(len(node_names),)`` node mask of the frame's file.
+        supervise_occluded: See :mod:`sleap_nn.data.node_weights`.
+        point_flags: Apply the per-point ``labeled | visible`` flags (``False``
+            with ``data_config.node_loss_mask: false``: every node the instance's
+            skeleton has gets weight 1, except occluded estimates without
+            ``supervise_occluded``).
+        return_linked: Also return which boxes are linked to a pose instance.
+        ignore_category: Category of the ignore boxes: as in
+            :func:`frame_bbox_arrays`, they come last, with no points, weight 0 and
+            not linked.
+
+    Returns:
+        ``(n, K, 3)`` float32: ``x``, ``y`` (NaN where unlocated) and the weight;
+        with ``return_linked``, also the ``(n,)`` bool linked mask.
+    """
+    from sleap_nn.data.node_weights import instance_node_weights
+
+    index = {name: i for i, name in enumerate(categories)}
+    class_agnostic = list(categories) == [DEFAULT_BBOX_CATEGORY]
+    single_class = len(categories) == 1
+    node_names = list(node_names)
+    k = len(node_names)
+    out, linked, n_ignore = [], [], 0
+    for box in frame_user_bboxes(lf):
+        name = bbox_category_name(box)
+        if ignore_category is not None and name == ignore_category:
+            n_ignore += 1
+            continue
+        if not (class_agnostic or (single_class and name == DEFAULT_BBOX_CATEGORY)):
+            if index.get(name) is None:
+                continue
+        row = np.full((k, 3), np.nan, dtype=np.float32)
+        row[:, 2] = 0.0
+        inst = getattr(box, "instance", None)
+        linked.append(inst is not None and inst.skeleton is not None)
+        if linked[-1]:
+            own = list(inst.skeleton.node_names)
+            ones = np.ones(len(own), dtype=np.float32)
+            weights, points = instance_node_weights(
+                inst, ones, inst.numpy(), supervise_occluded=supervise_occluded
+            )
+            if not point_flags:
+                pts_arr = inst.points
+                names = getattr(getattr(pts_arr, "dtype", None), "names", None) or ()
+                weights = ones.copy()
+                if not supervise_occluded and "labeled" in names:
+                    occluded = (
+                        np.asarray(pts_arr["labeled"], dtype=bool)
+                        & ~np.asarray(pts_arr["visible"], dtype=bool)
+                        & np.isfinite(np.asarray(pts_arr["xy"])).all(axis=-1)
+                    )
+                    weights[occluded] = 0.0
+            for j, node in enumerate(node_names):
+                if node in own:
+                    i = own.index(node)
+                    row[j, :2] = points[i]
+                    row[j, 2] = weights[i] * float(file_weights[j])
+        out.append(row)
+    for _ in range(n_ignore):
+        row = np.full((k, 3), np.nan, dtype=np.float32)
+        row[:, 2] = 0.0
+        out.append(row)
+        linked.append(False)
+    out = np.asarray(out, dtype=np.float32).reshape(-1, k, 3)
+    if return_linked:
+        return out, np.asarray(linked, dtype=bool)
+    return out
+
+
 def bbox_size_stats(
     labels_list: Sequence[sio.Labels],
     max_hw: Optional[Tuple[Optional[int], Optional[int]]] = None,
@@ -909,14 +1003,31 @@ class SetTargetEncoder:
         self.max_targets = max_targets
 
     def __call__(
-        self, boxes: torch.Tensor, classes: torch.Tensor, img_hw: Tuple[int, int]
+        self,
+        boxes: torch.Tensor,
+        classes: torch.Tensor,
+        img_hw: Tuple[int, int],
+        keypoints: Optional[torch.Tensor] = None,
+        keypoint_weights: Optional[torch.Tensor] = None,
     ) -> Dict[str, torch.Tensor]:
         """Encode ``(n, 4)`` xyxy pixel boxes / ``(n,)`` classes for an ``img_hw`` input.
+
+        Args:
+            boxes: ``(n, 4)`` xyxy boxes in input pixels.
+            classes: ``(n,)`` class ids.
+            img_hw: Model-input ``(H, W)``.
+            keypoints: Experimental keypoint branch: ``(n, K, 2)`` points of each
+                box's instance in input pixels, NaN where a point has no location.
+            keypoint_weights: ``(n, K)`` per-node loss weights of each box's
+                points (required with ``keypoints``).
 
         Returns:
             ``set_boxes (T, 4)`` normalized ``cxcywh`` (zero-padded),
             ``set_labels (T,)`` int64 (``-1``-padded) and ``set_count`` (int64
-            scalar ``n``), with ``T = max_targets`` (``n`` when unset).
+            scalar ``n``), with ``T = max_targets`` (``n`` when unset). With
+            ``keypoints``, also ``set_keypoints (T, K, 2)`` normalized ``xy`` (0
+            where missing), ``set_keypoint_visible (T, K)`` (1 where located) and
+            ``set_keypoint_weights (T, K)`` (0-padded).
         """
         h, w = img_hw
         boxes = boxes.to(torch.float32).reshape(-1, 4)
@@ -939,11 +1050,27 @@ class SetTargetEncoder:
         set_boxes[:n] = cxcywh
         set_labels = torch.full((length,), -1, dtype=torch.int64)
         set_labels[:n] = classes.to(torch.int64).reshape(-1)
-        return {
+        out = {
             "set_boxes": set_boxes,
             "set_labels": set_labels,
             "set_count": torch.tensor(n, dtype=torch.int64),
         }
+        if keypoints is not None:
+            k = keypoints.shape[-2]
+            points = keypoints.to(torch.float32).reshape(n, k, 2) / size[:2]
+            visible = torch.isfinite(points).all(-1)
+            set_points = torch.zeros((length, k, 2), dtype=torch.float32)
+            set_points[:n] = torch.where(
+                visible[..., None], points, torch.zeros_like(points)
+            )
+            set_visible = torch.zeros((length, k), dtype=torch.float32)
+            set_visible[:n] = visible.to(torch.float32)
+            set_weights = torch.zeros((length, k), dtype=torch.float32)
+            set_weights[:n] = keypoint_weights.to(torch.float32).reshape(n, k)
+            out["set_keypoints"] = set_points
+            out["set_keypoint_visible"] = set_visible
+            out["set_keypoint_weights"] = set_weights
+        return out
 
 
 def collate_set_targets(batch: Dict) -> List[Dict[str, torch.Tensor]]:
@@ -957,7 +1084,9 @@ def collate_set_targets(batch: Dict) -> List[Dict[str, torch.Tensor]]:
         ``B`` dicts with ``labels`` ``(n_i,)`` int64 and ``boxes`` ``(n_i, 4)``
         normalized ``cxcywh``, on the batch's device. When the batch carries
         ignore boxes (``ignore_bboxes`` / ``num_ignore``), each dict also has
-        ``ignore_boxes`` ``(m_i, 4)`` normalized ``cxcywh``.
+        ``ignore_boxes`` ``(m_i, 4)`` normalized ``cxcywh``. With the keypoint
+        branch's ``set_keypoints`` in the batch, each dict also has ``keypoints``
+        ``(n_i, K, 2)``, ``keypoint_visible`` and ``keypoint_weights`` ``(n_i, K)``.
     """
     counts = batch["set_count"].reshape(-1).tolist()
     targets = [
@@ -977,6 +1106,11 @@ def collate_set_targets(batch: Dict) -> List[Dict[str, torch.Tensor]]:
             targets[i]["ignore_boxes"] = torch.cat(
                 [(xyxy[:, :2] + xyxy[:, 2:]) / 2, xyxy[:, 2:] - xyxy[:, :2]], dim=-1
             )
+    if "set_keypoints" in batch:  # Experimental keypoint branch.
+        for i, (t, n) in enumerate(zip(targets, counts)):
+            t["keypoints"] = batch["set_keypoints"][i, :n]
+            t["keypoint_visible"] = batch["set_keypoint_visible"][i, :n]
+            t["keypoint_weights"] = batch["set_keypoint_weights"][i, :n]
     return targets
 
 
@@ -995,6 +1129,68 @@ def bbox_head_categories(model_type: str, head_configs) -> List[str]:
     """Ordered class names of a ``bbox_*`` model (``["object"]`` when unset)."""
     categories = bbox_head_leaf(model_type, head_configs).categories
     return list(categories) if categories else [DEFAULT_BBOX_CATEGORY]
+
+
+def bbox_model_skeletons(
+    config, model_type: str, labels_list: Sequence[sio.Labels]
+) -> List[sio.Skeleton]:
+    """The skeletons of a ``bbox_*`` model: none, except with keypoints.
+
+    Box detectors train on boxes only, so their files may carry any skeletons and
+    the model has none. A ``bbox_detr`` with the experimental keypoint branch
+    (``detr.keypoints``) predicts the nodes ``part_names`` (default: the first
+    training file's skeleton's nodes, written into the config), matched by name
+    in every file; its skeleton is those nodes with every edge and symmetry the
+    files have between them.
+
+    Args:
+        config: The training config (``part_names`` is filled in, in place).
+        model_type: The model type.
+        labels_list: The training labels files.
+
+    Returns:
+        ``[]`` or the one keypoint skeleton.
+
+    Raises:
+        ValueError: If keypoints are on and no training file has a skeleton (and
+            ``part_names`` is unset), or ``part_names`` repeats a node.
+    """
+    from omegaconf import OmegaConf
+
+    from sleap_nn.architectures.detr.model import detr_keypoints_config
+    from sleap_nn.data.topdown_warp import merged_skeleton
+
+    if model_type != "bbox_detr":
+        return []
+    keypoints = detr_keypoints_config(
+        OmegaConf.select(config, "model_config.head_configs.bbox_detr.detr")
+    )
+    if keypoints is None:
+        return []
+    names = list(keypoints.part_names or [])
+    if not names:
+        first = next((lb.skeletons[0] for lb in labels_list if lb.skeletons), None)
+        if first is None:
+            raise ValueError(
+                "bbox_detr keypoints need a skeleton: no training file has one; "
+                "set model_config.head_configs.bbox_detr.detr.keypoints.part_names."
+            )
+        names = list(first.node_names)
+        keypoints.part_names = names
+    if len(set(names)) != len(names):
+        raise ValueError(f"bbox_detr keypoints.part_names repeats a node: {names}.")
+    missing = [
+        i
+        for i, lb in enumerate(labels_list)
+        if not set(names) & {n for sk in lb.skeletons for n in sk.node_names}
+    ]
+    if missing:
+        logger.warning(
+            f"Training files {missing} have none of the keypoint nodes; their boxes "
+            "train boxes only."
+        )
+    logger.info(f"bbox_detr keypoints (experimental): {names}")
+    return [merged_skeleton(labels_list, names)]
 
 
 def get_bbox_target_encoder(model_type: str, head_configs):

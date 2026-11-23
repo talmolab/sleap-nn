@@ -239,6 +239,7 @@ def apply_sizematcher(
     max_height: Optional[int] = None,
     max_width: Optional[int] = None,
     warn: Union[bool, str] = True,
+    upscale: bool = True,
 ):
     """Apply scaling and padding to image to (max_height, max_width) shape.
 
@@ -246,6 +247,8 @@ def apply_sizematcher(
     frame to a fixed size by design (e.g. ``bbox_detr``'s letterbox).
     ``warn="info"`` replaces it with a one-time info line, for prediction, where
     the target size is the trained model's and resizing is expected.
+    ``upscale=False`` pads a frame smaller than the target instead of enlarging
+    it (frames that are larger are still shrunk to fit).
     """
     img_height, img_width = image.shape[-2:]
     # pad images to max_height and max_width
@@ -254,17 +257,21 @@ def apply_sizematcher(
     if max_width is None:
         max_width = img_width
     if img_height != max_height or img_width != max_width:
-        if warn == "info":
-            _note_inference_resize(img_height, img_width, max_height, max_width)
-        elif warn:
-            _warn_size_mismatch(img_height, img_width, max_height, max_width)
         eff_scale_ratio = compute_eff_scale(
             (img_height, img_width), (max_height, max_width)
         )
+        if not upscale:
+            eff_scale_ratio = min(eff_scale_ratio, 1.0)
+        if warn and (upscale or eff_scale_ratio != 1.0):
+            if warn == "info":
+                _note_inference_resize(img_height, img_width, max_height, max_width)
+            else:
+                _warn_size_mismatch(img_height, img_width, max_height, max_width)
         target_h = int(round(img_height * eff_scale_ratio))
         target_w = int(round(img_width * eff_scale_ratio))
 
-        image = tvf.resize(image, size=(target_h, target_w))
+        if upscale or (target_h, target_w) != (img_height, img_width):
+            image = tvf.resize(image, size=(target_h, target_w))
 
         pad_height = max_height - target_h
         pad_width = max_width - target_w

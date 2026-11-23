@@ -364,7 +364,8 @@ Advice for a few hundred to a few thousand labeled frames, as in the two-animal 
   (RF-DETR: 16 per step at 1e-4). Halve the LR if the loss spikes or
   `bbox_mAP` stays near 0 after 20-30 epochs.
 - **Start from another detector** when one exists for a similar domain
-  (`init_from`, previous section).
+  (`init_from`, previous section). Whether a detector of another species helps
+  is not settled; compare against a start from the backbone alone.
 
 ## Training augmentation
 
@@ -457,6 +458,87 @@ warp data path's photometric ops, including the experimental appearance ops (gre
 channel shuffle and gain, gamma, invert, down-up, JPEG), to whole detector training
 frames. See [Appearance augmentations](warp-data-path.md#appearance-augmentations).
 
+## Boxes and keypoints in one pass (experimental)
+
+A `bbox_detr` model can also predict each animal's keypoints, so one network gives
+boxes and poses in a single forward pass (no second, top-down stage). Each decoder
+query regresses its keypoints as offsets from its predicted box center, in units of
+the box's width and height, plus one visibility logit per keypoint (box-relative
+keypoint queries in the manner of ED-Pose, Yang et al. 2023, and PETR, Shi et al.
+2022; RF-DETR's keypoint preview models also predict boxes and keypoints in one
+pass). Turn it on with one section:
+
+```yaml
+model_config:
+  head_configs:
+    bbox_detr:
+      detr:
+        keypoints:
+          part_names: null        # null: the first training file's skeleton nodes
+          loss_weight: 5.0
+          visibility_loss_weight: 1.0
+          visibility_threshold: 0.5
+```
+
+What it does:
+
+- **Training.** Hungarian matching stays on boxes. Each matched query gets an L1
+  loss on its located points, divided by the target box's size, and a binary
+  cross-entropy loss on visibility. Both are weighted per node by the
+  [partial-label weights](partial-labels.md): a node a file does not label
+  (`labeled_nodes`, or the per-point `labeled` flag) gets no loss. Each loss is a
+  weighted mean over the batch's points (divided by the summed weights, at least
+  1), so `loss_weight` means the same whether half the boxes have no pose or a file
+  labels half the nodes. The sums are per process: with several GPUs each one
+  averages its own batch (the box losses' normaliser is shared across them). Every decoder layer is supervised (as for the boxes); the
+  encoder proposals are not. The keypoint branch does not train the box: the box
+  is detached where the points are read from it.
+- **Visibility.** The target is 1 when the point is labelled with a location in the
+  model input, else 0. Labelled occluded points with estimated coordinates count as
+  located under `data_config.supervise_occluded: true` (the default) and get no
+  loss under `false`. A point covered by an augmentation (a pasted animal, or the
+  shrunk frame in zoom-out onto another frame) is treated the same way: it keeps its
+  location (default) or loses its weight. Points pushed out of the input (outside
+  a crop or the frame) and labelled points without coordinates are trained as not
+  visible; so are a pasted animal's points that lie outside its box (only its box
+  is pasted), which can happen with drawn boxes that cut off a body part.
+- **Data.** Boxes are linked to pose instances (`box.instance`; boxes derived with
+  `bbox_source: instances` always are), and each box's points ride along with it
+  through every training augmentation: the resize (letterbox or squash), RF-DETR's
+  crop, the mirror flips (with the skeleton's left/right pairs swapped), the 90
+  degree turns, zoom-out (on a black canvas or on another frame, whose animals bring
+  their own points), copy-paste (a pasted animal brings its points) and the stock
+  `geometric` augmentation. A box with no linked instance, or whose instance has no
+  labelled node among `part_names`, trains its box only. A training or validation
+  file with no box that has a pose gets a warning saying which of the two it is,
+  and a training set with none at all is an error (the keypoint branch would train
+  nothing). The resizes scale points as sleap-nn does everywhere (`x * s`, undone
+  as `x / s` at prediction), while the flips and turns map pixel centers
+  (`W - 1 - x`); a scaled and flipped sample therefore carries up to half a pixel
+  of label noise.
+- **Skeleton.** The model's skeleton is `part_names` (by default the nodes of the
+  first training file's skeleton, written into the saved config) with every edge and
+  symmetry the files have between them. Files are matched by node name (integer
+  `labeled_nodes` entries are read against each file's own skeleton); a node a file
+  lacks is unlabelled there.
+- **Prediction.** `sleap-nn predict -m <model_dir>` writes one predicted instance per
+  detection, linked to its box (`box.instance`), with the box score as the instance
+  score and each point's visibility probability as its score. Each query gives at
+  most one detection, of its best category. Points below `visibility_threshold`
+  are written as missing; a detection with no point above it keeps its box but gets
+  no instance. `visibility_threshold` is read from the model's
+  `training_config.yaml` (edit it there; `sleap-nn predict` has no option for it).
+
+Not supported yet: ONNX / TensorRT export of such a model (refused with a message;
+run it from its checkpoint; a detector and top-down model pair is not exportable as
+one bundle for any detector), box distillation into a keypoint student (refused),
+keypoint matching costs, OKS-based losses, and keypoints in the training gallery
+and epoch-end evaluation (which score boxes only). With more than one category, the
+epoch-end box metrics (and the checkpoint they select) still decode (query,
+category) pairs as for a box detector, so one query can count as two detections
+there, while prediction gives one detection per query; with one category the two
+are the same.
+
 ## Configuration reference
 
 All `bbox_detr` keys are in the configuration reference:
@@ -497,13 +579,14 @@ inference up to the runtime's numerics. `--input-dtype uint8` (the other detecto
 convention) is available: the host then resizes the frame in float and rounds it,
 while checkpoint inference resizes it in the frame's own dtype; the canvases differ by
 up to one grey level, and the two-stage query selection (a top-k over many near-tied
-proposals) can turn that into slightly different boxes and scores (on one DINOv3 ViT-B
-detector, 1.5% of boxes at IoU 0.94-0.95 with the checkpoint's box and scores up
-to 0.017 apart -- the same as PyTorch itself on that canvas).
+proposals) can turn that into slightly different boxes and scores (a small share of
+boxes slightly shifted and scores a few hundredths apart -- the same as PyTorch itself
+on that canvas).
 
 ## Limits
 
-- Detection only: no per-query keypoint or mask heads.
+- No per-query mask head; the keypoint head is experimental (see
+  [Boxes and keypoints in one pass](#boxes-and-keypoints-in-one-pass-experimental)).
 - No tiled inference in `sleap-nn predict` (see above).
 - An exported `bbox_detr` with a rotary-position encoder (DINOv3) runs at its
   traced input size only (`max_height` x `max_width`; the host letterboxes or

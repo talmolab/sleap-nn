@@ -385,7 +385,6 @@ def test_torch_backend_cuda_does_not_block_default_use_compile_false():
 # 6. Top-down crops on the stage-2 GPU (CPU frames, CUDA model)
 # ─────────────────────────────────────────────────────────────────────────
 
-ASSETS = Path(__file__).resolve().parents[1] / "assets"
 CENTROID_CKPT = ASSETS / "model_ckpts" / "minimal_instance_centroid"
 CENTERED_CKPT = ASSETS / "model_ckpts" / "minimal_instance_centered_instance"
 
@@ -547,7 +546,9 @@ def test_from_model_paths_precision_on_cuda_warns_nothing(precision, dtype):
 
 
 # ─────────────────────────────────────────────────────────────────────────
-# 7. Predictor.upload_batches: numpy batches copied to the GPU first
+# 7. Predictor.upload_batches: frames copied to the GPU first (every pipeline,
+#    the streamed part stage and open_stream included; frames_on_gpu is its
+#    deprecated alias)
 # ─────────────────────────────────────────────────────────────────────────
 
 TOPDOWN_CKPTS = [
@@ -652,3 +653,132 @@ def test_upload_batches_targets_the_models_gpu():
         predictor.predict_streaming(NumpyProvider(images=images, batch_size=2))
     )
     assert len(outputs) == 1
+
+
+def test_upload_images_moves_tensors_and_keeps_gpu_tensors():
+    """A host tensor is moved to the GPU like an array; a GPU tensor is used as is."""
+    from sleap_nn.inference.predictor import Predictor
+
+    class _Unused:
+        def predict(self, image, **kwargs):
+            raise AssertionError("not called")
+
+    predictor = Predictor(layer=_Unused(), device="cuda", upload_batches=True)
+    frames = torch.arange(2 * 8 * 8, dtype=torch.uint8).reshape(2, 8, 8, 1)
+    for host in (frames, frames.numpy()):
+        on_gpu = predictor._upload_images(host)
+        assert on_gpu.device.type == "cuda" and on_gpu.dtype == torch.uint8
+        assert on_gpu.shape == frames.shape  # layout kept
+        torch.testing.assert_close(on_gpu.cpu(), frames)
+        assert predictor._upload_images(on_gpu) is on_gpu
+    off = Predictor(layer=_Unused(), device="cuda")
+    assert off._upload_images(frames) is frames
+
+
+@pytest.mark.skipif(not SINGLE_CKPT.exists(), reason="single-instance ckpt missing")
+@pytest.mark.parametrize("option", ["upload_batches", "frames_on_gpu"])
+def test_upload_on_a_one_stage_pipeline(option, minimal_instance):
+    """Not only top-down: a single-instance model gets its frames on the GPU.
+
+    ``frames_on_gpu`` (the deprecated alias) used to refuse anything but a
+    top-down pipeline; it now does what ``upload_batches`` does.
+    """
+    import sleap_io as sio
+
+    from sleap_nn.inference.layers.single_instance import SingleInstanceLayer
+    from sleap_nn.inference.predictor import Predictor
+
+    predictor = Predictor.from_model_paths(
+        [str(SINGLE_CKPT)], device="cuda", peak_threshold=0.0, **{option: True}
+    )
+    assert predictor.upload_batches and predictor._upload_device == "cuda"
+    seen = []
+    real = SingleInstanceLayer.predict
+
+    def spy(self, image, *args, **kwargs):
+        seen.append(image)
+        return real(self, image, *args, **kwargs)
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(SingleInstanceLayer, "predict", spy)
+        labels = predictor.predict(sio.load_slp(str(minimal_instance)))
+    assert seen and all(
+        isinstance(image, torch.Tensor)
+        and image.device.type == "cuda"
+        and image.dtype == torch.uint8
+        for image in seen
+    )
+    assert len(labels) >= 1
+
+
+@pytest.mark.skipif(
+    not all(p.exists() for p in TOPDOWN_CKPTS), reason="top-down checkpoints missing"
+)
+@pytest.mark.parametrize("option", ["upload_batches", "frames_on_gpu"])
+def test_stream_uploads_each_frame_once(option, minimal_instance, monkeypatch):
+    """``open_stream`` on CUDA: one GPU copy per push, read by pose and part models.
+
+    Whatever is pushed (an array, a host tensor, a GPU tensor), the pose layer and
+    the part stage get the same ``uint8`` tensor on the card; the warm-up feeds
+    the networks the same way.
+    """
+    import sleap_io as sio
+
+    from sleap_nn.inference.keypoint_crops import StreamingPartStage
+    from sleap_nn.inference.layers.topdown import TopDownLayer
+    from sleap_nn.inference.run import open_stream
+
+    for_layers, for_part = [], []
+    real_predict, real_part = TopDownLayer.predict, StreamingPartStage.__call__
+
+    def spy_predict(self, image, *args, **kwargs):
+        for_layers.append(image)
+        return real_predict(self, image, *args, **kwargs)
+
+    def spy_part(self, images, outputs, video_indices=None):
+        for_part.append(images)
+        return real_part(self, images, outputs, video_indices)
+
+    monkeypatch.setattr(TopDownLayer, "predict", spy_predict)
+    monkeypatch.setattr(StreamingPartStage, "__call__", spy_part)
+
+    def on_card(image):
+        return (
+            isinstance(image, torch.Tensor)
+            and image.device.type == "cuda"
+            and image.dtype == torch.uint8
+        )
+
+    frame = np.asarray(sio.load_slp(str(minimal_instance)).labeled_frames[0].image)
+    frame = np.ascontiguousarray(frame[..., 0] if frame.ndim == 3 else frame)
+    rule = {
+        "center": ["A"],
+        "reference": [["A"], ["B"]],
+        "scale": 1.0,
+        "min_half_side": 4,
+    }
+    with open_stream(
+        [str(p) for p in TOPDOWN_CKPTS],
+        device="cuda",
+        peak_threshold=0.0,
+        centroid_threshold=0.05,
+        max_instances=2,
+        part_model_paths=[str(TOPDOWN_CKPTS[1])],
+        part_crop_rule=rule,
+        part_peak_threshold=0.0,
+        part_prefix="part/",
+        frame_shape=frame.shape,
+        **{option: True},
+    ) as stream:
+        assert stream._predictor.upload_batches
+        assert stream._predictor._upload_device == "cuda"
+        # The warm-up handed every network a frame on the card.
+        assert for_layers and all(on_card(image) for image in for_layers)
+        host = torch.from_numpy(frame)
+        for pushed in (frame, host, host.cuda()):
+            for_layers.clear()
+            for_part.clear()
+            poses = stream.push(pushed)
+            assert len(for_part) == 1 and on_card(for_part[0])
+            assert for_layers and all(image is for_part[0] for image in for_layers)
+            assert poses.points.shape[1:] == (4, 2)

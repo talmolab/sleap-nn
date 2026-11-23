@@ -302,6 +302,7 @@ def _plain(text: str) -> str:
 def test_cli_flip_test_refused_for_export_dir(tmp_path):
     from sleap_nn.cli import cli
 
+    (tmp_path / "export_metadata.json").write_text('{"model_type": "single_instance"}')
     (tmp_path / "model.onnx").write_bytes(b"")
     result = CliRunner().invoke(
         cli, ["predict", "-i", str(SLP), "-m", str(tmp_path), "--flip_test"]

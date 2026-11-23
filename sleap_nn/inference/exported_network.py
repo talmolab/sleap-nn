@@ -13,7 +13,7 @@ only by the runtime's numerics.
 
 The runtime is chosen per load (:data:`EXPORT_RUNTIME`, set by
 ``load_model_assets(export_runtime=...)``): ``"auto"`` prefers ``model.trt`` when the
-directory has one, else ``model.onnx``.
+directory has one and the device is a CUDA one, else ``model.onnx``.
 """
 
 from __future__ import annotations
@@ -130,14 +130,20 @@ class ExportedNetwork(nn.Module):
         # Inputs larger than the graph's batch limit (a TensorRT profile's max)
         # run in chunks; ONNX graphs take any batch.
         self.max_batch = int(meta.get("max_batch_size") or 1)
-        self.runtime, path = _resolve_export_runtime(self.export_dir, runtime)
+        self.runtime, path = _resolve_export_runtime(self.export_dir, runtime, device)
         if self.runtime == "tensorrt" and str(device) == "auto":
             # "auto" picks CUDA when there is one; else the same error as for "cpu".
             device = "cuda" if torch.cuda.is_available() else "cpu"
         if self.runtime == "tensorrt" and not str(device).startswith("cuda"):
+            fix = (
+                "use the ONNX runtime (--runtime onnx)."
+                if (self.export_dir / "model.onnx").exists()
+                else "this directory has no model.onnx: run on a CUDA device, or "
+                "export the ONNX graph too (`sleap-nn export --format both`)."
+            )
             raise ValueError(
                 f"{self.export_dir}: a TensorRT engine runs on CUDA only (device "
-                f"{device!r}); use the ONNX runtime."
+                f"{device!r}); {fix}"
             )
         _check_config_hash(self.export_dir, meta)
         self.backend = _build_export_backend(self.runtime, path, device)

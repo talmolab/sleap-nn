@@ -262,6 +262,17 @@ class PreprocessingConfig:
             own (RF-DETR's preprocessing, needed to reuse its weights), and maps
             predicted boxes back per axis; it needs both `max_height` and `max_width`
             and is only supported for `bbox_detr` models. *Default*: `letterbox`.
+        file_scales: (dict) **Experimental.** One input scale per training or
+            validation file for `bottomup`, `centroid` and `single_instance` models,
+            as `{file name: scale}`. A key matches a file by its path, its file
+            name, or its file name up to the first `"."` (`"a"` for
+            `a.pkg.slp`; a validation split of a file matches that file; a key
+            matching more than one file is an error). Each frame is resized by its
+            file's scale before
+            `scale`, then padded (not stretched) to `max_height` x `max_width`;
+            a frame that is still larger is shrunk to fit. Files not listed keep
+            scale 1. Training only: prediction scales every frame by `scale`.
+            Written to `training_config.yaml` only when set. *Default*: `None`.
     """
 
     ensure_rgb: bool = False
@@ -315,6 +326,20 @@ class PreprocessingConfig:
         default="letterbox",
         validator=lambda instance, attr, value: instance.validate_resize_mode(),
     )
+    file_scales: Optional[Dict[str, float]] = field(
+        default=None,
+        validator=lambda instance, attr, value: instance.validate_file_scales(),
+    )
+
+    def validate_file_scales(self):
+        """`file_scales`: every scale must be a positive number."""
+        for name, value in (self.file_scales or {}).items():
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise ValueError(
+                    f"file_scales[{name!r}] must be a number, got {value!r}."
+                )
+            if not value > 0:
+                raise ValueError(f"file_scales[{name!r}] must be > 0, got {value!r}.")
 
     def validate_resize_mode(self):
         """Validate `resize_mode`; `squash` needs both `max_height` and `max_width`."""
@@ -941,6 +966,18 @@ class DataConfig:
             Never applied to existing `UserBoundingBox` annotations. *Default*: `0.0`.
         instance_filter: (InstanceFilterConfig) Train-time instance filters for
             `crop_pipeline="warp"` (validation keeps every instance). *Default*: `None`.
+        merge_skeletons: (bool) **Experimental.** Train a `bottomup`, `centroid` or
+            `single_instance` model on labels files whose skeletons differ. The
+            model's skeleton is the union of the training files' nodes, matched by
+            name (the head's `part_names` when set, else every node in the order
+            first seen), with every file's edges and symmetries (a bottom-up head's
+            `pafs.edges` replace the edges when set). Each training and validation
+            file's instances are mapped onto it by node name; the nodes a file
+            does not have are marked unlabeled, so with `node_loss_mask` they get
+            zero loss (and a part-affinity edge counts only where the file labels
+            both ends). `False` keeps the check that every file has the same
+            skeleton. Written to `training_config.yaml` only when `True`.
+            *Default*: `False`.
     """
 
     train_labels_path: Optional[List[str]] = None
@@ -986,6 +1023,7 @@ class DataConfig:
     )
     bbox_padding: float = field(default=0.0, validator=validators.ge(0))
     instance_filter: Optional[InstanceFilterConfig] = None
+    merge_skeletons: bool = False
 
 
 def data_mapper(legacy_config: dict) -> DataConfig:

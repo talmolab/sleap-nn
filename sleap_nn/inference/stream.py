@@ -159,6 +159,8 @@ class PoseStream:
     or a torch tensor (a CUDA tensor is used where it is); any memory layout (views
     such as ``frame[..., ::-1]`` are copied to contiguous memory). Anything else
     raises. All frames of a stream have one size; :meth:`reset` starts a new video.
+    With ``upload_batches`` (``open_stream(upload_batches=True)``) a frame that is
+    not on the models' GPU yet is copied there once, before the first stage.
 
     Args:
         predictor: A built :class:`~sleap_nn.inference.predictor.Predictor` (with
@@ -383,19 +385,11 @@ class PoseStream:
     def _staged(self, images: Any) -> Any:
         """The frame as the networks get it (predict's per-batch path).
 
-        With a part stage and ``frames_on_gpu``, the frame is uploaded once and the
-        part stage cuts its crops from that card copy; otherwise it is left as is.
+        With ``upload_batches`` the predictor uploads it once
+        (``Predictor._upload_images``) and every stage, the part stage included,
+        reads that card copy; otherwise it is left as is.
         """
-        layer = self._layer
-        if self._predictor.part_stage is not None and getattr(
-            layer, "frames_on_gpu", False
-        ):
-            device = layer._frames_device()
-            if device is not None:
-                images = layer.centroid_layer._to_4d_tensor(images).to(
-                    device, non_blocking=True
-                )
-        return images
+        return self._predictor._upload_images(images)
 
     def _first_stage_device(self, image: np.ndarray) -> torch.device:
         """The device the top-down first stage returns its centroids / boxes on.
@@ -420,7 +414,7 @@ class PoseStream:
         3 and 4 dummy crops (boxes placed in an empty frame). The pose model's dummy
         boxes are put on the device the first stage hands its boxes on (the card,
         for a GPU detector), and both models get the frame as a real push gives it
-        to them (uploaded once with a part stage and ``frames_on_gpu``), so the crop
+        to them (uploaded once with ``upload_batches``), so the crop
         windows, crops and networks run the same GPU operations as on a real frame
         with animals; otherwise CUDA would load those operations' code on the first
         real frame (lazy module loading) and that frame would be the slow one. The

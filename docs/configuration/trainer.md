@@ -680,6 +680,7 @@ trainer_config:
 | `viz_img_format` | str | `png` | Format of the saved viz images: `png` or `jpg` (much smaller files) |
 | `use_wandb` | bool | `false` | Enable WandB logging |
 | `resume_ckpt_path` | str | `null` | Path to checkpoint to resume from |
+| `reseed_on_resume` | bool | `false` | On resume, seed with `seed + epoch` so the resumed epochs do not repeat the first epochs' order and augmentation draws ([Resume & Fine-Tune](../guides/resume-finetune.md)) |
 | `freeze_schedule` | FreezeScheduleConfig | `null` | Freeze `targets` (selectors, default `[encoder]`) until `unfreeze_at_step` (`null` = whole run) |
 | `distillation` | DistillationConfig | `null` | **Experimental.** Teacher → student (`stage: 1`) or head self-distillation (`stage: 2`); box detectors: stage 1 from a box-detector teacher; see [Distillation](../guides/distillation.md) |
 | `coordinate_losses` | CoordinateLossesConfig | `null` | **Experimental.** Coordinate losses through a frozen linear keypoint autoencoder (`centered_instance` only); see [CoordinateLossesConfig](#coordinatelossesconfig). Left out of the saved `training_config.yaml` when unset |
@@ -696,7 +697,7 @@ trainer_config:
 | `throughput_log_every_n_steps` | int | `50` | `perf/*` throughput window (0 disables) |
 | `confmap_fg_bg_diagnostics` | bool | `null` | Log confmap fg/bg MSE split (`null` = centroid only) |
 | `ema` | EMAConfig | off | Weight EMA; see [EMAConfig](#emaconfig) |
-| `balanced_sampler` | BalancedSamplerConfig | `null` | Per-file batch composition for `crop_pipeline: warp` and the `bbox_*` models: fixed per-file `counts`, or `weights` rounded to the batch size; with `per_sample: true` each sample's file is drawn with probability `weights` instead (any number of files at any batch size); `bbox_*` with `per_sample`: `overlap_weight` (**experimental**; default `1.0`, off) draws frames whose labelled boxes overlap by at least `overlap_min` (default `0.25`) of the smaller box that many times as often within their file. Per-rank streams, resumed from checkpoints. See [Fast top-down data path](../guides/warp-data-path.md#mixing-datasets) |
+| `balanced_sampler` | BalancedSamplerConfig | `null` | Per-file batch composition for `crop_pipeline: warp`, the `bbox_*` models and (experimental) the `bottomup`, `centroid` and `single_instance` models (ignored with tiling, with a warning; see [Frame models on several skeletons](../guides/multi-skeleton-pool.md#balanced-batches)): fixed per-file `counts`, or `weights` rounded to the batch size; with `per_sample: true` each sample's file is drawn with probability `weights` instead (any number of files at any batch size); `bbox_*` with `per_sample`: `overlap_weight` (**experimental**; default `1.0`, off) draws frames whose labelled boxes overlap by at least `overlap_min` (default `0.25`) of the smaller box that many times as often within their file. Per-rank streams, resumed from checkpoints. See [Fast top-down data path](../guides/warp-data-path.md#mixing-datasets) |
 
 ### DataLoaderConfig
 

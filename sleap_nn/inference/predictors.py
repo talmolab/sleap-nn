@@ -13,6 +13,7 @@
     classes in this file will be removed in a future release.
 """
 
+from sleap_nn.data.instance_centroids import primary_anchor_part
 from sleap_nn.data.instance_cropping import crop_hw
 import threading
 import warnings
@@ -882,7 +883,7 @@ class TopDownPredictor(Predictor):
                     self.confmap_config.model_config.head_configs.centered_instance.confmaps.anchor_part
                 )
             anchor_ind = (
-                self.skeletons[0].node_names.index(anch_pt)
+                self.skeletons[0].node_names.index(primary_anchor_part(anch_pt))
                 if anch_pt is not None
                 else None
             )
@@ -3306,7 +3307,7 @@ class TopDownMultiClassPredictor(Predictor):
                     self.confmap_config.model_config.head_configs.multi_class_topdown.confmaps.anchor_part
                 )
             anchor_ind = (
-                self.skeletons[0].node_names.index(anch_pt)
+                self.skeletons[0].node_names.index(primary_anchor_part(anch_pt))
                 if anch_pt is not None
                 else None
             )

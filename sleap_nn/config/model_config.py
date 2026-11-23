@@ -6,8 +6,9 @@ the parameters required to initialize the model config.
 
 from attrs import asdict, define, field, validators
 from sleap_nn.config.utils import oneof
-from typing import Dict, Optional, List
+from typing import Any, Dict, Optional, List
 from loguru import logger
+from omegaconf import ListConfig
 
 
 # Define configuration for each backbone type (unet, convnext, swint) configurations
@@ -682,6 +683,34 @@ class SingleInstanceConfMapsConfig:
     output_stride: int = 1
 
 
+def normalize_anchor_part(value):
+    """A centroid ``anchor_part`` as a node name, or a list of names (experimental).
+
+    ``None`` stays ``None``. A scalar becomes its string, as the field's former
+    ``str`` type did (``1`` -> ``"1"``). A list or tuple becomes a list of strings.
+
+    Raises:
+        ValueError: For an empty list, or a value that is neither a scalar nor a
+            list of names.
+    """
+    if value is None:
+        return None
+    if isinstance(value, (str, int, float, bool)):
+        return str(value)
+    if isinstance(value, (list, tuple, ListConfig)):
+        names = list(value)
+        if not names:
+            raise ValueError(
+                "anchor_part is an empty list; give at least one node name, or null."
+            )
+        if not all(isinstance(n, (str, int, float)) for n in names):
+            raise ValueError(f"anchor_part must list node names, got {value!r}.")
+        return [str(n) for n in names]
+    raise ValueError(
+        f"anchor_part must be a node name or a list of node names, got {value!r}."
+    )
+
+
 @define
 class CentroidConfMapsConfig:
     """Centroid configuration map.
@@ -693,7 +722,16 @@ class CentroidConfMapsConfig:
             anchor part is specified but not visible in the instance. Setting a
             reliable anchor point can significantly improve topdown model
             accuracy as they benefit from a consistent geometry of the body parts
-            relative to the center of the image. Default is None.
+            relative to the center of the image. A scalar is read as a node
+            name (`1` -> `"1"`). **Experimental:** a non-empty list of node names,
+            in order of preference. Only the listed nodes a file labels count
+            (its `labeled_nodes`, set by `data_config.merge_skeletons`; all of
+            them without one): each instance is anchored on the first of those it
+            has located, else on `centroid_fallback`, as with one node. Frames of
+            a file that labels none of them get no centroids and zero loss,
+            instead of a centroid at a fallback location. Prediction treats the
+            first listed node as the anchor; the post-training evaluation uses
+            each file's first labeled one. Default is None.
         centroid_method: (str) How the centroid is derived from the instance's
             points, spelled as in ``sio.Instance.to_centroid``:
             ``"center_of_mass"`` (mean of visible nodes), ``"bbox_center"``
@@ -765,7 +803,7 @@ class CentroidConfMapsConfig:
             `0.5`.
     """
 
-    anchor_part: Optional[str] = None
+    anchor_part: Optional[Any] = field(default=None, converter=normalize_anchor_part)
     centroid_method: Optional[str] = None
     centroid_fallback: Optional[str] = None
     centroid_source: Optional[str] = None
@@ -1763,6 +1801,72 @@ class BBoxSSDConfig:
 
 
 @define
+class DetrKeypointsConfig:
+    """Keypoints per query of a ``bbox_detr`` model (experimental).
+
+    With this section set, the detector predicts boxes and poses in one pass: each
+    decoder query also regresses ``K`` keypoints as offsets from its predicted box
+    center in units of the box's width and height, and ``K`` visibility logits, from
+    the query embedding (box-relative keypoint queries as in ED-Pose, Yang et al.
+    2023, and the keypoint heads of PETR, Shi et al. 2022). Hungarian matching stays
+    on boxes; each matched query gets an L1 loss on its located points (normalized
+    by the target box size) and a binary cross-entropy visibility loss (target:
+    the point is labelled with a location in the input), both weighted by the
+    per-node weights of partial labels and averaged over the summed weights. Boxes
+    without a linked pose instance train boxes only. Prediction writes one instance
+    per query (its best category) on the model's skeleton, linked to its box. Not
+    exportable to ONNX/TensorRT.
+
+    Attributes:
+        part_names: (List[str]) Nodes to predict, matched by name in every training
+            file (a node a file does not have is unlabeled there). ``None``
+            (default) takes the nodes of the first training file's skeleton. The
+            model's skeleton is these nodes with every edge and symmetry the files
+            have between them.
+        loss_weight: (float) Weight of the keypoint L1 loss. *Default*: ``5.0``.
+        visibility_loss_weight: (float) Weight of the visibility loss.
+            *Default*: ``1.0``.
+        visibility_threshold: (float) At prediction, a point whose visibility
+            probability is below this is written as missing. *Default*: ``0.5``.
+    """
+
+    part_names: Optional[List[str]] = None
+    loss_weight: float = field(default=5.0, validator=validators.ge(0))
+    visibility_loss_weight: float = field(default=1.0, validator=validators.ge(0))
+    visibility_threshold: float = field(
+        default=0.5, validator=[validators.ge(0), validators.le(1)]
+    )
+
+
+#: Config keys that are left out of a saved config while they are unset, so a
+#: config that does not use them saves exactly as before they existed.
+UNSET_KEYS_NOT_SAVED = ("model_config.head_configs.bbox_detr.detr.keypoints",)
+
+
+def config_to_save(cfg):
+    """``cfg`` without the unset keys of :data:`UNSET_KEYS_NOT_SAVED`, for saving.
+
+    Returns ``cfg`` itself when none of them is present and unset; otherwise a plain
+    (schema-free) copy without them. Loading the saved file through the schema
+    fills them in again with their defaults.
+    """
+    from omegaconf import OmegaConf
+
+    drop = []
+    for path in UNSET_KEYS_NOT_SAVED:
+        parent, key = path.rsplit(".", 1)
+        node = OmegaConf.select(cfg, parent, default=None)
+        if node is not None and key in node and node[key] is None:
+            drop.append((parent, key))
+    if not drop:
+        return cfg
+    plain = OmegaConf.create(OmegaConf.to_container(cfg, resolve=False))
+    for parent, key in drop:
+        del OmegaConf.select(plain, parent)[key]
+    return plain
+
+
+@define
 class DetrHeadConfig:
     """Detector of a ``bbox_detr`` (RF-DETR-style set prediction) model.
 
@@ -1816,6 +1920,10 @@ class DetrHeadConfig:
             ``lr * encoder_lr_scale * lr_component_decay ** 2`` (times its layer
             decay); everything else (projector, proposals, queries, heads) at
             ``lr``. *Default*: ``0.7``.
+        keypoints: (DetrKeypointsConfig) Experimental: also predict keypoints per
+            query, boxes and poses in one pass (see `DetrKeypointsConfig`).
+            ``None`` (default): a box detector only. Left out of the saved config
+            while unset. *Default*: ``None``.
     """
 
     categories: Optional[List[str]] = None
@@ -1843,6 +1951,7 @@ class DetrHeadConfig:
     lr_component_decay: float = field(
         default=0.7, validator=[validators.gt(0), validators.le(1)]
     )
+    keypoints: Optional[DetrKeypointsConfig] = None
 
 
 @define

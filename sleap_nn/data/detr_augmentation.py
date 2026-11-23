@@ -24,11 +24,22 @@ The "resize to the training size" is ``squash`` (RF-DETR's square resize, both
 axes scaled independently) or ``letterbox`` (one scale to fit, padded on the
 bottom/right), per ``data_config.preprocessing.resize_mode``. Boxes are
 ``(x1, y1, x2, y2)`` edge coordinates in pixels.
+
+Keypoints (the experimental keypoint branch of ``bbox_detr``) ride along: every
+function here takes optional ``points`` ``(n, K, C)`` (``x``, ``y`` in pixels and
+any further channels, such as a per-node weight, carried unchanged), moves them
+with the pixels, and returns them as an extra last element. Points follow sleap-io's
+convention (pixel centers at integer coordinates, as the stock flip assumes), so the
+mirror flips and rotations map ``x`` to ``W - 1 - x``. Points that leave the frame
+(outside a crop) become NaN. The mirror flips reorder the nodes by
+``mirror_order`` (the skeleton's symmetric pairs swapped); rotations keep left and
+right. With ``points=None`` every function computes and returns exactly what it
+did before (the same random draws).
 """
 
 import math
 import random
-from typing import List, Sequence, Tuple
+from typing import List, Optional, Sequence, Tuple
 
 import torch
 import torch.nn.functional as F
@@ -39,6 +50,37 @@ from sleap_nn.data.resizing import apply_sizematcher, compute_squash_scale
 #: RF-DETR's pre-crop shortest sides and crop side range.
 SHORTEST_SIDES = (400, 500, 600)
 CROP_RANGE = (384, 600)
+
+
+def _affine_points(
+    points: torch.Tensor, scale: Tuple[float, float], offset: Tuple[float, float]
+) -> torch.Tensor:
+    """``xy * scale + offset`` on the first two channels of ``(..., C)`` points."""
+    xy = points[..., :2] * points.new_tensor(scale) + points.new_tensor(offset)
+    return torch.cat([xy, points[..., 2:]], dim=-1)
+
+
+def drop_points_outside(points: torch.Tensor, hw: Tuple[int, int]) -> torch.Tensor:
+    """Points off a ``(H, W)`` frame set to NaN (``x``, ``y``).
+
+    On the frame is ``[-0.5, W - 0.5] x [-0.5, H - 0.5]``: the pixels' extent with
+    pixel centers at integer coordinates.
+    """
+    h, w = hw
+    x, y = points[..., 0], points[..., 1]
+    inside = (x >= -0.5) & (x <= w - 0.5) & (y >= -0.5) & (y <= h - 0.5)
+    xy = points[..., :2].masked_fill(~inside[..., None], float("nan"))
+    return torch.cat([xy, points[..., 2:]], dim=-1)
+
+
+def mirror_order(
+    num_nodes: int, symmetric_pairs: Sequence[Tuple[int, int]]
+) -> List[int]:
+    """Node order after a mirror flip: each symmetric pair swapped."""
+    order = list(range(num_nodes))
+    for a, b in symmetric_pairs:
+        order[a], order[b] = order[b], order[a]
+    return order
 
 
 def multi_scale_sizes(
@@ -85,7 +127,11 @@ def resize_batch(image: torch.Tensor, size: Tuple[int, int]) -> torch.Tensor:
 
 
 def resize_frame(
-    image: torch.Tensor, boxes: torch.Tensor, out_hw: Tuple[int, int], mode: str
+    image: torch.Tensor,
+    boxes: torch.Tensor,
+    out_hw: Tuple[int, int],
+    mode: str,
+    points: Optional[torch.Tensor] = None,
 ) -> Tuple[torch.Tensor, torch.Tensor, Tuple[float, float]]:
     """Fit a frame to ``out_hw`` by ``squash`` or ``letterbox``, with its boxes.
 
@@ -102,9 +148,11 @@ def resize_frame(
         out_hw: Output ``(height, width)``.
         mode: ``"squash"`` (resize each axis to fit exactly) or ``"letterbox"``
             (one scale to fit, zero-padded on the bottom/right).
+        points: Optional ``(n, K, C)`` points; those outside the frame become NaN
+            before the resize (as boxes are clipped to it).
 
     Returns:
-        ``(image, boxes, (scale_x, scale_y))``.
+        ``(image, boxes, (scale_x, scale_y))``, plus the points when given.
     """
     in_hw = tuple(image.shape[-2:])
     h, w = in_hw
@@ -129,7 +177,11 @@ def resize_frame(
         sx = sy = float(eff)
     else:
         raise ValueError(f"resize mode must be squash or letterbox, got {mode!r}.")
-    return image, boxes * boxes.new_tensor([sx, sy, sx, sy]), (sx, sy)
+    boxes = boxes * boxes.new_tensor([sx, sy, sx, sy])
+    if points is not None:
+        points = _affine_points(drop_points_outside(points, in_hw), (sx, sy), (0, 0))
+        return image, boxes, (sx, sy), points
+    return image, boxes, (sx, sy)
 
 
 def shortest_side_size(height: int, width: int, size: int) -> Tuple[int, int]:
@@ -146,6 +198,7 @@ def random_resize_crop(
     boxes: torch.Tensor,
     shortest_sides: Sequence[int] = SHORTEST_SIDES,
     crop_range: Tuple[int, int] = CROP_RANGE,
+    points: Optional[torch.Tensor] = None,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """RF-DETR's resize + random square crop (``RandomResize`` + ``RandomSizedCrop``).
 
@@ -159,9 +212,11 @@ def random_resize_crop(
         boxes: ``(n, 4)`` xyxy boxes.
         shortest_sides: Candidate shortest sides of the pre-crop resize.
         crop_range: Inclusive ``(min, max)`` crop side.
+        points: Optional ``(n, K, C)`` points, moved with the crop (those outside
+            it become NaN).
 
     Returns:
-        ``(crop, boxes in crop pixels)``.
+        ``(crop, boxes in crop pixels)``, plus the points when given.
     """
     height, width = image.shape[-2:]
     side = int(shortest_sides[int(torch.randint(len(shortest_sides), ()))])
@@ -171,6 +226,8 @@ def random_resize_crop(
         boxes = boxes * boxes.new_tensor(
             [new_w / width, new_h / height, new_w / width, new_h / height]
         )
+        if points is not None:
+            points = _affine_points(points, (new_w / width, new_h / height), (0, 0))
     height, width = new_h, new_w
 
     min_crop, max_crop = int(crop_range[0]), int(crop_range[1])
@@ -186,40 +243,72 @@ def random_resize_crop(
     left = int(torch.randint(0, width - crop_w + 1, ())) if width > crop_w else 0
     image = image[..., top : top + crop_h, left : left + crop_w]
     boxes = boxes - boxes.new_tensor([left, top, left, top])
+    if points is not None:
+        points = _affine_points(points, (1.0, 1.0), (-left, -top))
+        return image, boxes, drop_points_outside(points, (crop_h, crop_w))
     return image, boxes
 
 
 def hflip(
-    image: torch.Tensor, boxes: torch.Tensor
+    image: torch.Tensor,
+    boxes: torch.Tensor,
+    points: Optional[torch.Tensor] = None,
+    order: Optional[Sequence[int]] = None,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
-    """Mirror an image and its xyxy edge-coordinate boxes left-right."""
+    """Mirror an image and its xyxy edge-coordinate boxes left-right.
+
+    Optional ``(n, K, C)`` ``points`` are mirrored too and their nodes reordered by
+    ``order`` (:func:`mirror_order`; ``None`` keeps them), then returned last.
+    """
     width = image.shape[-1]
     image = image.flip(-1)
     boxes = torch.stack(
         [width - boxes[:, 2], boxes[:, 1], width - boxes[:, 0], boxes[:, 3]], dim=-1
     )
+    if points is not None:
+        points = _affine_points(points, (-1.0, 1.0), (width - 1, 0))
+        if order is not None:
+            points = points[:, list(order)]
+        return image, boxes, points
     return image, boxes
 
 
 def vflip(
-    image: torch.Tensor, boxes: torch.Tensor
+    image: torch.Tensor,
+    boxes: torch.Tensor,
+    points: Optional[torch.Tensor] = None,
+    order: Optional[Sequence[int]] = None,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
-    """Mirror an image and its xyxy edge-coordinate boxes top-bottom."""
+    """Mirror an image and its xyxy edge-coordinate boxes top-bottom.
+
+    Optional ``points`` as for :func:`hflip` (a top-bottom mirror swaps left and
+    right too).
+    """
     height = image.shape[-2]
     image = image.flip(-2)
     boxes = torch.stack(
         [boxes[:, 0], height - boxes[:, 3], boxes[:, 2], height - boxes[:, 1]], dim=-1
     )
+    if points is not None:
+        points = _affine_points(points, (1.0, -1.0), (0, height - 1))
+        if order is not None:
+            points = points[:, list(order)]
+        return image, boxes, points
     return image, boxes
 
 
 def rot90(
-    image: torch.Tensor, boxes: torch.Tensor, clockwise: bool
+    image: torch.Tensor,
+    boxes: torch.Tensor,
+    clockwise: bool,
+    points: Optional[torch.Tensor] = None,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """Rotate an image by 90 degrees with its xyxy edge-coordinate boxes.
 
     The output is ``W x H``. Counterclockwise, the point ``(x, y)`` goes to
-    ``(y, W - x)``; clockwise, to ``(H - y, x)``.
+    ``(y, W - x)``; clockwise, to ``(H - y, x)``. Optional ``(n, K, C)`` points
+    (pixel centers at integer coordinates) go to ``(y, W - 1 - x)`` and
+    ``(H - 1 - y, x)`` (no node swap) and are returned last.
     """
     height, width = image.shape[-2:]
     x1, y1, x2, y2 = boxes.unbind(-1)
@@ -229,6 +318,14 @@ def rot90(
     else:
         image = image.rot90(1, dims=(-2, -1))
         boxes = torch.stack([y1, width - x2, y2, width - x1], dim=-1)
+    if points is not None:
+        x, y = points[..., 0], points[..., 1]
+        xy = (
+            torch.stack([height - 1 - y, x], dim=-1)
+            if clockwise
+            else torch.stack([y, width - 1 - x], dim=-1)
+        )
+        return image, boxes, torch.cat([xy, points[..., 2:]], dim=-1)
     return image, boxes
 
 
@@ -237,6 +334,7 @@ def zoom_out(
     boxes: torch.Tensor,
     factor: float,
     offset: Tuple[float, float],
+    points: Optional[torch.Tensor] = None,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """Shrink a fitted frame by ``factor`` onto a zero canvas of the same size.
 
@@ -246,15 +344,16 @@ def zoom_out(
         factor: Scale in ``(0, 1]``.
         offset: ``(y, x)`` in ``[0, 1]``: where the shrunk frame sits in the free
             space (0 = top / left).
+        points: Optional ``(n, K, C)`` points, moved with the frame.
 
     Returns:
-        ``(image, boxes)``, same size as the input.
+        ``(image, boxes)``, same size as the input, plus the points when given.
     """
     height, width = image.shape[-2:]
     h = max(1, int(round(height * factor)))
     w = max(1, int(round(width * factor)))
     if (h, w) == (height, width):
-        return image, boxes
+        return (image, boxes) if points is None else (image, boxes, points)
     small = tvf.resize(image, size=[h, w], antialias=True)
     canvas = torch.zeros_like(image)
     oy = int(round(offset[0] * (height - h)))
@@ -264,6 +363,8 @@ def zoom_out(
     boxes = boxes * boxes.new_tensor([sx, sy, sx, sy]) + boxes.new_tensor(
         [ox, oy, ox, oy]
     )
+    if points is not None:
+        return canvas, boxes, _affine_points(points, (sx, sy), (ox, oy))
     return canvas, boxes
 
 
@@ -280,6 +381,8 @@ def detr_train_transform(
     rot90_p: float = 0.0,
     zoom_out_p: float = 0.0,
     zoom_out_range: Tuple[float, float] = (0.4, 1.0),
+    points: Optional[torch.Tensor] = None,
+    flip_order: Optional[Sequence[int]] = None,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """RF-DETR's training geometry: resize or resize + crop to ``out_hw``, and flip.
 
@@ -303,25 +406,38 @@ def detr_train_transform(
         zoom_out_p: Probability of :func:`zoom_out` after the fit, by a factor
             drawn log-uniformly from ``zoom_out_range``, at a uniform offset.
         zoom_out_range: ``(min, max)`` zoom-out factor.
+        points: Optional ``(n, K, C)`` points of the boxes' instances (keypoint
+            branch), moved with the frame through every step; those outside a crop
+            or the frame become NaN.
+        flip_order: Node order after a mirror flip (:func:`mirror_order`).
 
     Returns:
-        ``(image, boxes)`` at ``out_hw`` (boxes unclipped).
+        ``(image, boxes)`` at ``out_hw`` (boxes unclipped), plus the points when
+        given. The random draws are the same with or without points.
     """
+    pts = () if points is None else (points,)
+    order = () if points is None else (flip_order,)
     if crop_p > 0 and float(torch.rand(())) < crop_p:
-        image, boxes = random_resize_crop(image, boxes, shortest_sides, crop_range)
+        image, boxes, *pts = random_resize_crop(
+            image, boxes, shortest_sides, crop_range, *pts
+        )
     if flip_p > 0 and float(torch.rand(())) < flip_p:
-        image, boxes = hflip(image, boxes)
+        image, boxes, *pts = hflip(image, boxes, *pts, *order)
     if vflip_p > 0 and float(torch.rand(())) < vflip_p:
-        image, boxes = vflip(image, boxes)
+        image, boxes, *pts = vflip(image, boxes, *pts, *order)
     if rot90_p > 0 and float(torch.rand(())) < rot90_p:
-        image, boxes = rot90(image, boxes, clockwise=bool(float(torch.rand(())) < 0.5))
-    image, boxes, _ = resize_frame(image, boxes, out_hw, mode)
+        image, boxes, *pts = rot90(
+            image, boxes, bool(float(torch.rand(())) < 0.5), *pts
+        )
+    image, boxes, _, *pts = resize_frame(image, boxes, out_hw, mode, *pts)
     if zoom_out_p > 0 and float(torch.rand(())) < zoom_out_p:
         lo, hi = (math.log(float(v)) for v in zoom_out_range)
         factor = math.exp(lo + (hi - lo) * float(torch.rand(())))
         offset = (float(torch.rand(())), float(torch.rand(())))
-        image, boxes = zoom_out(image, boxes, factor, offset)
-    return image, boxes
+        image, boxes, *pts = zoom_out(image, boxes, factor, offset, *pts)
+    if points is None:
+        return image, boxes
+    return image, boxes, pts[0]
 
 
 def hull_mask(

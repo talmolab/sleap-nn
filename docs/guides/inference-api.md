@@ -111,7 +111,7 @@ Selected keyword arguments (all keyword-only):
 | `filter_config` | A `FilterConfig` | `None` |
 | `tracker_config` | A `TrackerConfig` | `None` |
 | `paf_workers` | CPU worker processes for bottom-up PAF grouping | `0` |
-| `upload_batches` | Copy each `uint8` batch to the model's GPU before preprocessing (CUDA) | `False` |
+| `upload_batches` | Copy each `uint8` batch to the model's GPU before preprocessing (CUDA; every pipeline, and a streamed part stage reads the same copy). Not bit-identical to the CPU resize | `False` |
 | `memory_format` | Weight layout of every model: `"contiguous"` or `"channels_last"` (NVIDIA) | `"contiguous"` |
 | `precision` | `"32"` (strict fp32), `"bf16"` or `"fp16"`: every model's forward under `torch.autocast` (CUDA; no effect elsewhere, with a warning) | `"32"` |
 | `centroid_only` | Force centroid-only output | `False` |
@@ -581,7 +581,7 @@ zero rows.
 - **Warm-up.** With `frame_shape=`, `open_stream` runs every network on dummy
   data first (the first stage, then the pose and part models on 1-4 crops, fed
   as a real frame feeds them: boxes on the device the first stage returns them
-  on, the frame on the card with `frames_on_gpu`); without it there is no
+  on, the frame on the card with `upload_batches`); without it there is no
   warm-up and the first frames are slower. Even after it, the first real frame
   with animals takes a little longer than the rest (about 1.5 ms more with
   TensorRT engines and frames on the GPU), because some steps only run when
@@ -604,7 +604,10 @@ zero rows.
 #### Settings for low latency
 
 TensorRT bf16 export folders (`--network-only` for the centered-instance and
-part models) and frames moved to the GPU before the first stage:
+part models) and frames copied to the GPU before the first stage
+(`upload_batches=True`: each pushed frame is uploaded once, and the pose and
+part models cut their crops from that copy; results are not bit-identical to
+the CPU resize):
 
 ```bash
 sleap-nn export models/detector -o low_latency/detector --format tensorrt --precision bf16 --device cuda
@@ -614,7 +617,7 @@ sleap-nn export models/tail -o low_latency/tail --network-only --input-dtype flo
 
 ```python
 stream = open_stream(["low_latency/detector", "low_latency/pose"], runtime="tensorrt",
-                     frames_on_gpu=True, part_model_paths=["low_latency/tail"],
+                     upload_batches=True, part_model_paths=["low_latency/tail"],
                      part_crop_rule="tail_crop_rule.json", frame_shape=(1024, 1280, 3))
 ```
 

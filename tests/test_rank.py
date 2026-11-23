@@ -223,3 +223,48 @@ def test_model_trainer_train_passes_trainer_devices(clean_env):
     )
     assert ModelTrainer.train(fake) == "trained"
     assert seen == [1]
+
+
+def test_every_module_that_copies_rank_is_updated_at_training_start():
+    """Modules that copy ``RANK`` at import are the ones training rewrites.
+
+    ``from sleap_nn import RANK`` binds the value at import. ``_use_training_rank``
+    rewrites the copies of the modules in ``_RANK_COPIES``; a module missing there
+    would keep the import-time rank, so a one-device srun task would write the run
+    folder's files as a worker (or not at all). The copies must also be read at
+    call time: a ``RANK`` in a default argument or at module level is fixed at
+    import and no rewrite reaches it.
+    """
+    import ast
+    from pathlib import Path
+
+    root = Path(sleap_nn.__file__).parent
+    copiers = set()
+    for path in root.rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        imports_rank = any(
+            isinstance(node, ast.ImportFrom)
+            and node.module == "sleap_nn"
+            and any(alias.name == "RANK" for alias in node.names)
+            for node in ast.walk(tree)
+        )
+        if not imports_rank:
+            continue
+        module = ".".join(path.relative_to(root.parent).with_suffix("").parts)
+        copiers.add(module)
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                defaults = node.args.defaults + [
+                    d for d in node.args.kw_defaults if d is not None
+                ]
+                for default in defaults:
+                    names = {n.id for n in ast.walk(default) if isinstance(n, ast.Name)}
+                    assert "RANK" not in names, f"{module}:{node.lineno}"
+        for stmt in tree.body:
+            if isinstance(stmt, (ast.Import, ast.ImportFrom)):
+                continue
+            if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                continue
+            names = {n.id for n in ast.walk(stmt) if isinstance(n, ast.Name)}
+            assert "RANK" not in names, f"{module}:{stmt.lineno} reads RANK at import"
+    assert copiers == set(sleap_nn._RANK_COPIES)

@@ -747,7 +747,7 @@ For detecting instance centers (top-down stage 1).
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `anchor_part` | str | `null` | Anchor node (null = mean of the visible nodes) |
+| `anchor_part` | str or list | `null` | Anchor node (null = mean of the visible nodes). **Experimental:** a non-empty list of nodes, in order of preference: each instance uses the first one its file labels and it has located, else `centroid_fallback` as with one node; frames of a file that labels none of them get zero loss instead of a fallback centroid. Prediction uses the first listed node. See [Frame models on several skeletons](../guides/multi-skeleton-pool.md) |
 | `centroid_method` | str | `null` | How the centroid is computed: `center_of_mass`, `bbox_center`, `geometric_median` or `anchor`. `null` = `anchor` when `anchor_part` is set, else `center_of_mass`. A non-anchor method together with `anchor_part` is an error |
 | `centroid_fallback` | str | `null` | Used when the `anchor_part` node is not visible: `center_of_mass` (what `null` means), `bbox_center` or `geometric_median` |
 | `centroid_source` | str | `null` | Training target: `user` (the labels' `UserCentroid`s; frames with poses but no user centroid are dropped) or `computed` (from keypoints, ignoring user centroids). `null` = `user` if the labels have user centroids, else `computed`, with a warning |
@@ -1096,3 +1096,17 @@ RF-DETR's; the [guide](../guides/bbox-detr.md) gives animal defaults.
 | `focal_alpha` | float | `0.25` | Alpha of the matcher's focal cost and of the IA-BCE soft target |
 | `focal_gamma` | float | `2.0` | Gamma of the matcher's focal cost and of the IA-BCE negative weight |
 | `lr_component_decay` | float | `0.7` | The decoder trains at `lr * lr_component_decay`, the backbone at `lr * encoder_lr_scale * lr_component_decay^2` (times its layer decay), everything else at `lr` |
+| `keypoints` | dict | `null` | Experimental: also predict keypoints per query, boxes and poses in one pass (see below). `null`: a box detector only; left out of the saved config while unset |
+
+### bbox_detr.detr.keypoints (experimental)
+
+Keypoints per query of a `bbox_detr` model (`head_configs.bbox_detr.detr.keypoints`;
+`keypoints: {}` turns them on with these defaults). See the
+[guide](../guides/bbox-detr.md#boxes-and-keypoints-in-one-pass-experimental).
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `part_names` | list | `null` | Nodes to predict, matched by name in every training file. `null` = the nodes of the first training file's skeleton (written into the saved config) |
+| `loss_weight` | float | `5.0` | Weight of the keypoint L1 loss (per point, divided by the target box size; a weighted mean over the batch's located points) |
+| `visibility_loss_weight` | float | `1.0` | Weight of the keypoint visibility loss (binary cross-entropy; a weighted mean over the batch's points) |
+| `visibility_threshold` | float | `0.5` | At prediction, points whose visibility probability is below this are written as missing (set it in the model's `training_config.yaml`) |

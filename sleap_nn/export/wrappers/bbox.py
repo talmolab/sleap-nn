@@ -48,6 +48,11 @@ class BBoxONNXWrapper(BaseExportWrapper):
         super().__init__(model)
         if model_type not in BBOX_EXPORT_OUTPUTS:
             raise ValueError(f"{model_type} is not a bounding-box model type.")
+        if getattr(getattr(model, "detr", None), "num_keypoints", 0):
+            raise ValueError(
+                "Export of a bbox_detr model with keypoints (the experimental "
+                "keypoint branch) is not supported yet; run it from its checkpoint."
+            )
         self.model_type = model_type
 
     def forward(self, image: torch.Tensor) -> Dict[str, torch.Tensor]:
