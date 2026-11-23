@@ -267,8 +267,9 @@ ratios hold for the whole run.
 
 **Fixed-length schedules and early stopping.** `cosine_annealing_warmup`,
 `linear_warmup_linear_decay` and `multi_step_lr` are planned around the run
-length. With one, the saved config shows `reduce_lr_on_plateau: null` (it never
-ran alongside another schedule). Early stopping stays on, as under every
+length. The default `reduce_lr_on_plateau` section stays in the saved config, as in
+v0.3.5, but does not run: only one schedule runs, chosen in priority order (see
+[LRSchedulerConfig](#lrschedulerconfig)). Early stopping stays on, as under every
 schedule, and training warns that it can end the run before the schedule has
 finished: set `early_stopping.stop_training_on_plateau: false` to run the whole
 schedule.

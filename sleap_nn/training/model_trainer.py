@@ -2365,10 +2365,12 @@ class ModelTrainer:
         Early stopping is on under every schedule unless the config turns it off
         (``None`` is read as on). A fixed-length schedule
         (`FIXED_LENGTH_LR_SCHEDULES`) is planned around the run length, so early
-        stopping on with one gets a warning that it can end the run first, and
-        the default ``reduce_lr_on_plateau`` (never combined with another
-        schedule) is nulled. The resolved values are written into the config, so
-        the saved ``training_config.yaml`` shows what ran.
+        stopping on with one gets a warning that it can end the run first. The
+        resolved value is written into the config, so the saved
+        ``training_config.yaml`` shows what ran. The default
+        ``reduce_lr_on_plateau`` section is left in the config, as in v0.3.5: the
+        scheduler is chosen by priority (``LightningModel.configure_optimizers``),
+        so a fixed-length schedule runs and the plateau section is not used.
         """
         trainer_config = self.config.trainer_config
         fixed = fixed_length_lr_schedule(trainer_config.lr_scheduler)
@@ -2384,14 +2386,6 @@ class ModelTrainer:
                 "early_stopping.stop_training_on_plateau: false to run the whole "
                 "schedule."
             )
-        if (
-            fixed is not None
-            and OmegaConf.select(
-                trainer_config, "lr_scheduler.reduce_lr_on_plateau", default=None
-            )
-            is not None
-        ):
-            trainer_config.lr_scheduler.reduce_lr_on_plateau = None
 
     def setup_config(self):
         """Compute config parameters."""

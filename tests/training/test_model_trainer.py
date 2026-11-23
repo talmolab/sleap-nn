@@ -3288,8 +3288,13 @@ def test_training_recipe_knobs_end_to_end(config, tmp_path, caplog):
     for name in ("initial_config.yaml", "training_config.yaml"):
         written = OmegaConf.load(tmp_path / "recipe" / name)
         assert written.trainer_config.early_stopping.stop_training_on_plateau is True
+    # As in v0.3.5 the default plateau section stays in the saved config; the
+    # scheduler that ran is the fixed one (priority order).
     saved = OmegaConf.load(tmp_path / "recipe" / "training_config.yaml")
-    assert saved.trainer_config.lr_scheduler.reduce_lr_on_plateau is None
+    assert saved.trainer_config.lr_scheduler.reduce_lr_on_plateau is not None
+    assert not isinstance(
+        sched_cfg.scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau
+    )
     assert saved.trainer_config.lr_scheduler.multi_step_lr.milestones == [1]
 
 
@@ -3321,7 +3326,9 @@ _PLATEAU = {"reduce_lr_on_plateau": {"patience": 5}}
         {"multi_step_lr": {"milestones": [3]}},
     ],
 )
-def test_fixed_schedule_keeps_unset_early_stopping_on_and_nulls_plateau(fixed, caplog):
+def test_fixed_schedule_keeps_unset_early_stopping_on_and_the_plateau_section(
+    fixed, caplog
+):
     """Early stopping left unset is on under a fixed-length schedule too, warned."""
     from types import SimpleNamespace
 
@@ -3330,7 +3337,8 @@ def test_fixed_schedule_keeps_unset_early_stopping_on_and_nulls_plateau(fixed, c
     tc = holder.config.trainer_config
     assert tc.early_stopping.stop_training_on_plateau is True
     assert "may stop before the schedule ends" in caplog.text
-    assert tc.lr_scheduler.reduce_lr_on_plateau is None
+    # The config is not rewritten (v0.3.5 kept the section; priority picks).
+    assert tc.lr_scheduler.reduce_lr_on_plateau == _PLATEAU["reduce_lr_on_plateau"]
     assert tc.lr_scheduler[next(iter(fixed))] is not None
 
 
