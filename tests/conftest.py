@@ -2,6 +2,7 @@
 
 import gc
 import os
+import sys
 
 import pytest
 
@@ -13,14 +14,15 @@ from tests.fixtures.bbox_models import *
 from tests.fixtures.legacy_sleap_json_configs import *
 from tests.fixtures.predictors import *
 
-# Collect garbage in the test process before every fork (DataLoader workers use fork
-# on Linux). A test can leave a video reader, and with it an FFmpeg decoder and its
-# frame threads, in uncollected cyclic garbage: for example a video provider kept in
-# a MagicMock's recorded calls. A forked worker inherits that garbage but not the
-# decoder's threads; if the worker's own garbage collector frees it, FFmpeg waits for
-# ever for threads that do not exist there, and the test waits for ever for the
-# worker's batch. Collecting before the fork frees such objects here, where their
-# threads exist. (Windows has no fork and no os.register_at_fork.)
+# Collect garbage in the test process before every fork (DataLoader workers use
+# fork on Linux; subprocess's fork, followed at once by exec, is left alone). A test
+# can leave a video reader, and with it an FFmpeg decoder and its frame threads, in
+# uncollected cyclic garbage: for example a video provider kept in a MagicMock's
+# recorded calls. A forked worker inherits that garbage but not the decoder's
+# threads; if the worker's own garbage collector frees it, FFmpeg waits for ever for
+# threads that do not exist there, and the test waits for ever for the worker's
+# batch. Collecting before the fork frees such objects here, where their threads
+# exist. (Windows has no fork and no os.register_at_fork.)
 #
 # Guard: after that collection, any FFmpeg thread ("av:*") still alive belongs to a
 # video reader that is open, not garbage. A forked child that reads through it or
@@ -44,7 +46,22 @@ def _ffmpeg_threads():
     return n
 
 
+def _forking_to_exec():
+    """True when the fork is subprocess's, whose child runs exec right away."""
+    frame = sys._getframe(2)
+    while frame is not None:
+        if (
+            frame.f_code.co_name == "_execute_child"
+            and frame.f_globals.get("__name__") == "subprocess"
+        ):
+            return True
+        frame = frame.f_back
+    return False
+
+
 def _before_fork():
+    if _forking_to_exec():
+        return
     gc.collect()
     n = _ffmpeg_threads()
     if n:
