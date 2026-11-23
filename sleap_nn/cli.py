@@ -1621,8 +1621,9 @@ def _check_part_stage_flags(kwargs: dict, stream_to_file) -> None:
     mps = kwargs.get("model_paths") or []
     # Directories loaded by the checkpoint loader (several -m, and the part model)
     # load best.ckpt when they hold one: they count as checkpoint directories here.
-    # A single -m keeps its own route (an export directory goes to the exported
-    # route whatever else it holds), so the check there is unchanged.
+    # A single -m keeps its own route: a fused export directory goes to the
+    # exported route whatever else it holds (refused here), a network-only one to
+    # the checkpoint route (accepted: the loader runs best.ckpt if present).
     loaded = set(mps if len(mps) > 1 else []) | {kwargs["part_model"]}
 
     def refused(m):
@@ -2764,14 +2765,17 @@ def _run_embeddings(
 
 
 def _is_crop_network_export(path: str) -> bool:
-    """A ``--network-only`` crop-model export (not a box detector).
+    """A folder holding a ``--network-only`` crop-model export (not a box detector).
 
     It stands in for its checkpoint, so alone (or with ``--boxes``) it takes the
-    checkpoint route, where it fails or runs exactly as the checkpoint would.
+    checkpoint route, where it fails or runs exactly as the checkpoint would. A
+    folder that also holds ``best.ckpt`` takes the same route, where the loader
+    loads the checkpoint: the exported-model route cannot run a network-only graph
+    (it returns raw confidence maps, not peaks).
     """
-    from sleap_nn.inference.exported_network import is_network_export
+    from sleap_nn.inference.exported_network import _holds_network_export
 
-    return is_network_export(path) and not _is_box_detector_dir(path)
+    return _holds_network_export(path) and not _is_box_detector_dir(path)
 
 
 def _is_box_detector_dir(path: str) -> bool:
@@ -3185,8 +3189,10 @@ def _run_in_memory_new_flow(
     centroid_thresh = kwargs.get("centroid_peak_threshold") or peak_thresh
 
     # Auto-detect an exported ONNX/TRT model directory: a single --model_paths
-    # entry containing model.onnx/model.trt runs through the exported-model
-    # runtime. Multiple paths are always trained checkpoints (top-down).
+    # entry holding an export with its post-processing in the graph (or a box
+    # detector export) runs through the exported-model runtime. A network-only
+    # crop export takes the checkpoint route (with best.ckpt next to it, the
+    # checkpoint runs). Several paths always go through the checkpoint loader.
     _mps = kwargs["model_paths"]
     export_dir = (
         _mps[0]
