@@ -1636,10 +1636,17 @@ def _check_precision_flag(kwargs: dict) -> None:
         )
 
     def exported(m, alone: bool = False) -> bool:
-        # A single -m export directory takes the exported route whatever else it
-        # holds; among several (and for --part_model) the checkpoint loader
-        # loads best.ckpt when the directory holds one.
-        return _is_export_dir(m) and (alone or not (Path(m) / "best.ckpt").exists())
+        # Among several -m (and for --part_model) the checkpoint loader loads
+        # best.ckpt when the directory holds one. A single -m directory with
+        # best.ckpt takes the exported route, except when its export is a
+        # network-only crop model: then the checkpoint runs.
+        from sleap_nn.inference.exported_network import _holds_network_export
+
+        if not _is_export_dir(m):
+            return False
+        if not (Path(m) / "best.ckpt").exists():
+            return True
+        return alone and not (_holds_network_export(m) and not _is_box_detector_dir(m))
 
     runs_exported = [exported(m, alone=len(mps) == 1) for m in mps]
     if kwargs.get("part_model") is not None:
