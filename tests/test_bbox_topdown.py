@@ -748,23 +748,43 @@ def test_gt_boxes_follow_the_box_rule_for_any_frame_source(
     assert src.instance_box_fn is own_rule
 
 
+@pytest.mark.parametrize("source", ["in_memory", "old_file"])
 def test_gt_box_rule_counts_occluded_keypoints_for_a_caller_built_provider(
-    trained_pair, minimal_instance, monkeypatch
+    trained_pair, minimal_instance, monkeypatch, source
 ):
     """A box-scaled model alone boxes occluded keypoints too, for any frame source.
 
     The model's rule counts a keypoint that is marked not visible but has
-    coordinates; the tight box of the visible keypoints, which a caller-built provider
-    used to get, leaves it out.
+    coordinates (an occluded estimate); the tight box of the visible keypoints,
+    which a caller-built provider used to get, leaves it out. Labels read from an
+    SLP file older than format 3.0 cannot hold occluded estimates: where sleap-nn
+    and sleap-io can tell such labels apart, a hidden point's stored coordinates
+    are stale and do not count.
     """
+    from sleap_nn.data import providers as data_providers
     from sleap_nn.inference.predictor import Predictor
     from sleap_nn.inference.providers import LabelsProvider
 
-    labels = sio.load_slp(minimal_instance)
+    loaded = sio.load_slp(minimal_instance)
+    if source == "in_memory":
+        # Labels built in memory (no source file): occluded estimates are real.
+        labels = sio.Labels(
+            labeled_frames=loaded.labeled_frames,
+            videos=loaded.videos,
+            skeletons=loaded.skeletons,
+        )
+    else:
+        labels = loaded
+        if not (
+            hasattr(data_providers, "has_legacy_hidden_points")
+            and data_providers.has_legacy_hidden_points(labels)
+        ):
+            pytest.skip("this sleap-nn or sleap-io does not tell old-layout files")
     occluded, other = labels[0].instances
     occluded.points["visible"][1] = False
     located = occluded.numpy(invisible_as_nan=False)
     assert np.isnan(occluded.numpy()[1]).all() and np.isfinite(located).all()
+    counted = located if source == "in_memory" else occluded.numpy()[[0]]
 
     pred = Predictor.from_model_paths(
         [trained_pair["ci_bbox"].as_posix()], device="cpu", peak_threshold=0.0
@@ -783,7 +803,7 @@ def test_gt_box_rule_counts_occluded_keypoints_for_a_caller_built_provider(
 
     monkeypatch.setattr(stage_1, "predict", spy)
     expected = [
-        [*(located.min(axis=0) - padding), *(located.max(axis=0) + padding)],
+        [*(counted.min(axis=0) - padding), *(counted.max(axis=0) + padding)],
         list(other.to_bbox(mode="tight", padding=padding).xyxy),
     ]
     for src in (
