@@ -606,26 +606,29 @@ class TestPredictFrameFilterFlagsWarnForNonSlpSource:
             "--only_predicted_frames",
         ],
     )
-    def test_frames_with_slp_filter_refused(
+    def test_frames_with_slp_filter_warns(
         self, minimal_instance, tmp_path, flag, stream
     ):
-        """--frames with a .slp filter (no --video_index) is refused, not dropped."""
+        """--frames with a .slp filter (no --video_index) is reported as ignored."""
+        from loguru import logger
+
         runner = CliRunner()
         args = ["predict", "-i", str(minimal_instance), "-m", "/fake/model"]
         args += ["--frames", "0", flag]
         if stream:
             args += ["--stream-to-file", str(tmp_path / "out.slp")]
-        with (
-            patch("sleap_nn.inference.run.predict") as mock_predict,
-            patch(
-                "sleap_nn.inference.predictor.Predictor.from_model_paths"
-            ) as mock_load,
-        ):
-            result = runner.invoke(cli, args)
-        assert result.exit_code != 0
-        out = _norm_cli_output(result.output)
-        assert "--frames cannot be combined with" in out and flag in out
-        assert not mock_predict.called and not mock_load.called
+        messages = []
+        handler = logger.add(lambda m: messages.append(str(m)), level="WARNING")
+        try:
+            with patch("sleap_nn.inference.run.predict") as mock_predict:
+                mock_predict.return_value = MagicMock()
+                result = runner.invoke(cli, args)
+        finally:
+            logger.remove(handler)
+        assert any("--frames is ignored with" in m and flag in m for m in messages)
+        if not stream:
+            assert result.exit_code == 0, result.output
+            assert mock_predict.called
 
     def test_frames_without_slp_filter_still_passed(self, minimal_instance):
         """--frames alone on a .slp still reaches predict()."""
