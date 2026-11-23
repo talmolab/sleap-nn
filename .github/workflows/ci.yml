@@ -8,6 +8,26 @@ on:
       - "tests/**"
       - ".github/workflows/ci.yml"
       - "pyproject.toml"
+  # Each merge into a release branch that touches these paths is tested on
+  # all systems, macOS included (pull requests into any branch but main skip
+  # macOS; see the test matrix).
+  push:
+    branches: ["release/**"]
+    paths:
+      - "sleap_nn/**"
+      - "tests/**"
+      - ".github/workflows/ci.yml"
+      - "pyproject.toml"
+
+# A new push to a pull request whose base is not main cancels that pull
+# request's older run. Every other run (pull requests into main, and pushes to
+# a release branch) gets a group of its own, keyed on its run id, so nothing
+# there is ever cancelled or held back: a shared group would cancel pending
+# runs even without cancel-in-progress, and a later merge must never cancel
+# the run of an earlier one.
+concurrency:
+  group: ci-${{ github.event_name == 'pull_request' && github.base_ref != 'main' && format('pr-{0}', github.event.pull_request.number) || format('run-{0}', github.run_id) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' && github.base_ref != 'main' }}
 
 jobs:
   lint:
@@ -78,22 +98,26 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: ["ubuntu", "windows", "mac"]  # "self-hosted-gpu" temporarily disabled
-        include:
-          - os: ubuntu
-            runs-on: ubuntu-latest
-          - os: windows
-            runs-on: windows-latest
-          - os: mac
-            # Pinned (not macos-latest) so an image change never silently
-            # moves CI. macos-14 is retired 2026-11-02 (actions/runner-images#13518).
-            runs-on: macos-15
-          # - os: self-hosted-gpu
-          #   runs-on: [self-hosted, puma, gpu, 2xgpu]
+        # Pull requests skip macOS unless their base is main: the hosted macOS
+        # runners queue for up to hours, while Ubuntu and Windows start at
+        # once. Every push to a release branch (each merge that touches the
+        # paths above) runs all three, so release branches are still tested on
+        # macOS after each merge; stacked work (a pull request into a feature
+        # branch) gets that run once it reaches the release branch. Pull
+        # requests into main run all three as before.
+        os: ${{ fromJSON(github.event_name == 'pull_request' && github.base_ref != 'main' && '["ubuntu", "windows"]' || '["ubuntu", "windows", "mac"]') }}
+        # "self-hosted-gpu" temporarily disabled. To turn it back on, add it to
+        # both lists above and to the `runs-on` map below, with the value
+        # ["self-hosted","puma","gpu","2xgpu"]; an os missing from the map
+        # leaves `runs-on` empty and the job errors.
         python: [3.13]
 
     name: Tests (${{ matrix.os }}, Python ${{ matrix.python }})
-    runs-on: ${{ matrix.runs-on }}
+    # The runner for each os. (Not a matrix `include`: an `include` entry for
+    # mac would add the mac job back when the list above leaves it out.)
+    # macos-15 is pinned (not macos-latest) so an image change never silently
+    # moves CI. macos-14 is retired 2026-11-02 (actions/runner-images#13518).
+    runs-on: ${{ fromJSON('{"ubuntu":"ubuntu-latest","windows":"windows-latest","mac":"macos-15"}')[matrix.os] }}
 
     steps:
       - name: Checkout repo
