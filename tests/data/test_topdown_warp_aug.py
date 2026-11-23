@@ -318,6 +318,9 @@ def _first(x):
     return x[0]
 
 
+_DIAG_ARMED = [False]
+
+
 @pytest.mark.parametrize(
     "context",
     [
@@ -331,7 +334,42 @@ def _first(x):
         "spawn",
     ],
 )
-def test_stage_switch_reaches_persistent_workers(tmp_path, context):
+def test_stage_switch_reaches_persistent_workers(tmp_path, context, request):
+    # DIAGNOSTIC, NOT FOR MERGE: print where the forked workers are if they stall.
+    # In each child forked during this test, faulthandler dumps every 30 s to the
+    # job log (pytest's saved copy of the real stderr, inherited by the fork).
+    import faulthandler
+    import os
+    import threading
+
+    from _pytest.faulthandler import fault_handler_stderr_fd_key
+
+    fd = request.config.stash[fault_handler_stderr_fd_key]
+
+    def _arm():
+        if _DIAG_ARMED[0]:
+            os.write(fd, f"[diag] forked child {os.getpid()} armed\n".encode())
+            faulthandler.dump_traceback_later(30, repeat=True, file=fd)
+
+    if context == "fork":
+        os.register_at_fork(after_in_child=_arm)
+    comms = []
+    if os.path.isdir("/proc/self/task"):
+        for t in sorted(os.listdir("/proc/self/task")):
+            try:
+                with open(f"/proc/self/task/{t}/comm") as f:
+                    comms.append(f.read().strip())
+            except OSError:
+                pass
+    os.write(
+        fd,
+        (
+            f"[diag] {context}: parent {os.getpid()} native threads {comms}; "
+            f"python threads {[t.name for t in threading.enumerate()]}\n"
+        ).encode(),
+    )
+    _DIAG_ARMED[0] = context == "fork"
+    request.addfinalizer(lambda: _DIAG_ARMED.__setitem__(0, False))
     labels = _person_labels(tmp_path)
     ds = _stage_ds(labels)
     loader = DataLoader(
