@@ -242,7 +242,8 @@ Choose **one** scheduler:
 
 **Per-step schedules.** `cosine_annealing_warmup` and `linear_warmup_linear_decay`
 update the learning rate once per epoch by default, and the warmup counts whole
-epochs: with the default `warmup_start_lr: 0.0`, the first epoch trains at LR 0.
+epochs: warmup epoch `e` trains at `(e + 1) / (warmup_epochs + 1)` of the way from
+`warmup_start_lr` to the base LR, so epoch 0 is not at `warmup_start_lr`.
 Setting `warmup_steps` (any int, `0` included) switches either schedule to
 per-iteration updates: the warmup lasts `warmup_steps` optimizer steps and the
 decay runs to `max_steps`. When `max_steps` is unset it is the schedule's own
@@ -719,7 +720,7 @@ five `null`) = constant learning rate.
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `warmup_epochs` | int | `5` | Linear warmup epochs |
-| `warmup_start_lr` | float | `0.0` | LR the warmup ramps up from; warmup epoch `e` trains at `(e + 1) / (warmup_epochs + 1)` of the way to the base LR, so epoch 0 is never at this value |
+| `warmup_start_lr` | float | `0.0` | LR the warmup ramps up from; warmup epoch `e` trains at `(e + 1) / (warmup_epochs + 1)` of the way to the base LR, so epoch 0 is never at this value; a per-step warmup (`warmup_steps`) starts at it (step `s` at `s / warmup_steps`) |
 | `eta_min` | float | `0.0` | Minimum LR at end of cosine decay |
 | `max_epochs` | int | `null` | Total epochs (auto from trainer) |
 | `warmup_steps` | int | `null` | Warmup in optimizer steps; any int switches to per-step updates (`warmup_epochs` ignored) |
@@ -730,7 +731,7 @@ five `null`) = constant learning rate.
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `warmup_epochs` | int | `5` | Linear warmup epochs |
-| `warmup_start_lr` | float | `0.0` | LR the warmup ramps up from; warmup epoch `e` trains at `(e + 1) / (warmup_epochs + 1)` of the way to the base LR, so epoch 0 is never at this value |
+| `warmup_start_lr` | float | `0.0` | LR the warmup ramps up from; warmup epoch `e` trains at `(e + 1) / (warmup_epochs + 1)` of the way to the base LR, so epoch 0 is never at this value; a per-step warmup (`warmup_steps`) starts at it (step `s` at `s / warmup_steps`) |
 | `end_lr` | float | `0.0` | Final LR at end of training |
 | `max_epochs` | int | `null` | Total epochs (auto from trainer) |
 | `warmup_steps` | int | `null` | Warmup in optimizer steps; any int switches to per-step updates (`warmup_epochs` ignored) |
