@@ -55,9 +55,10 @@ See the [CLI Reference](../reference/cli.md) for all available parameters.
 
 `sleap-nn predict` runs **both** trained checkpoints and exported ONNX/TensorRT
 models through the same command. If `--model_paths`/`-m` points to an export
-directory (one containing `model.onnx` or `model.trt`, written by
+directory (`export_metadata.json` with `model.onnx` or `model.trt`, written by
 [`sleap-nn export`](export.md)), `predict` auto-detects it and routes to the
-exported-model runtime instead of loading a checkpoint:
+exported-model runtime instead of loading a checkpoint (a network-only crop export
+runs in the checkpoint pipeline instead; see [Export](export.md)):
 
 ```bash
 # Auto-detected export directory
@@ -69,7 +70,7 @@ sleap-nn predict -i video.mp4 -m exports/my_model/ --runtime tensorrt
 
 | Runtime | Behavior |
 |---------|----------|
-| `auto` (default) | Prefer TensorRT, fall back to ONNX |
+| `auto` (default) | Prefer TensorRT on a CUDA device; ONNX otherwise, or when there is no engine |
 | `onnx` | Force the ONNX runtime |
 | `tensorrt` | Force the TensorRT runtime |
 

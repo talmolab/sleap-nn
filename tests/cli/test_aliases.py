@@ -80,12 +80,14 @@ def test_export_predict_subcommand_removed():
 
 
 def test_predict_routes_exported_model_to_export_runtime(tmp_path):
-    """A --model_paths dir containing model.onnx routes predict to the export runtime."""
+    """A --model_paths export dir (metadata + model.onnx) routes to the export runtime."""
     from unittest.mock import MagicMock
 
     export_dir = tmp_path / "exported"
     export_dir.mkdir()
-    # Marker artifact for auto-detection; the actual load is mocked.
+    # Marker artifacts for auto-detection (what `sleap-nn export` writes); the
+    # actual load is mocked.
+    (export_dir / "export_metadata.json").write_text('{"model_type": "bottomup"}')
     (export_dir / "model.onnx").write_bytes(b"")
 
     runner = CliRunner()

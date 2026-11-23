@@ -1,8 +1,10 @@
 """Custom Callback modules for Lightning Trainer."""
 
 import math
+import random
 import zmq
 import jsonpickle
+import numpy as np
 import torch
 from dataclasses import dataclass
 from typing import Callable, List, Optional, Sequence, Union
@@ -4098,6 +4100,80 @@ class LastEpochCheckpoint(ModelCheckpoint):
             every_n_epochs=1,
             enable_version_counter=False,
         )
+
+
+class BalancedSamplerResume(Callback):
+    """Continue the balanced sampler's stream on a resume from an end-of-epoch checkpoint.
+
+    :class:`~sleap_nn.data.topdown_warp.BalancedDataLoader` saves the number of
+    batches it has delivered in every checkpoint (Lightning stores a train loader's
+    ``state_dict`` with the fit loop), but Lightning loads it back only from a
+    checkpoint written in the middle of an epoch (or with ``max_steps`` set).
+    ``last.ckpt`` and ``best.ckpt`` are written once an epoch is over, so a run
+    resumed from them started the stream over and trained on the first epochs'
+    batches again. This loads the saved state at the start of training in that
+    case too. It is the state Lightning itself loads from a mid-epoch checkpoint,
+    so doing both changes nothing, and without a resume this does nothing.
+    """
+
+    def __init__(self):
+        """Initialize with no state to restore."""
+        super().__init__()
+        self._states = None
+
+    def on_load_checkpoint(self, trainer, pl_module, checkpoint) -> None:
+        """Keep the train loader states saved with the checkpoint's fit loop."""
+        fit_loop = checkpoint.get("loops", {}).get("fit_loop", {})
+        self._states = fit_loop.get("state_dict", {}).get("combined_loader")
+
+    def on_train_start(self, trainer, pl_module) -> None:
+        """Load the saved states (before the first batch is drawn)."""
+        from sleap_nn.data.topdown_warp import BalancedDataLoader
+
+        states, self._states = self._states, None
+        if not states:
+            return
+        loaders = [
+            dl
+            for dl in TilingEpochCallback._iter_dataloaders(trainer.train_dataloader)
+            if isinstance(dl, BalancedDataLoader)
+        ]
+        if len(loaders) != len(states):
+            return
+        for dl, state in zip(loaders, states):
+            dl.load_state_dict(state)
+
+
+class ResumeReseed(Callback):
+    """Seed the random generators for the resumed epoch when a run is resumed.
+
+    On one device without an epoch-aware sampler, the train loader shuffles with
+    the global torch random generator, and the augmentations draw from the global
+    generators too. A resumed run seeds them again with ``trainer_config.seed``,
+    so without this its first epoch replays the first epoch of the original run
+    (same order, same augmentation draws), its second the second, and so on.
+
+    Added when ``trainer_config.reseed_on_resume`` is on (off by default). When
+    training starts from a checkpoint (``current_epoch`` above 0), this seeds
+    ``random``, numpy and torch with ``seed + current_epoch``. The resumed epochs
+    then differ from the ones already trained; they are not the ones an
+    uninterrupted run would draw. A run that is not resumed is unchanged.
+    """
+
+    def __init__(self, seed: int):
+        """Initialize with the run's ``trainer_config.seed``."""
+        super().__init__()
+        self.seed = int(seed)
+
+    def on_train_start(self, trainer, pl_module) -> None:
+        """Reseed before the first resumed epoch draws its order."""
+        epoch = int(trainer.current_epoch)
+        if epoch <= 0:
+            return
+        seed = (self.seed + epoch) % (2**32)
+        random.seed(seed)
+        np.random.seed(seed)
+        torch.manual_seed(seed)  # also seeds every CUDA device
 
 
 class EmbeddingEvaluationCallback(Callback):

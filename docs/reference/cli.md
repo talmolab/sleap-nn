@@ -342,18 +342,20 @@ runtime instead of loading a trained checkpoint.
 On an exported model, the peak threshold and refinement, preprocessing
 overrides, checkpoint paths, `--anchor_part`, `--centroid_only`, the PAF options
 `--max_edge_length_ratio` / `--dist_penalty_weight` / `--n_points`, and the
-segmentation and box options were baked in at export time or do not exist there:
-they are ignored without a warning. `--max_instances`, `--min_instance_peaks`,
+segmentation options and `--bbox_nms_iou` were baked in at export time or do not
+exist there: they are ignored without a warning. `--boxes`, `--nodes` / `--node_prefix` and
+`--flip_test` stop with an error on an exported model directory;
+`--upload_batches` and `--memory_format` are ignored with a warning (both work
+for network-only export folders passed as `--model_paths`). `--max_instances`, `--min_instance_peaks`,
 `--min_line_scores`, `--centroid_output`, `--paf-workers`, the filters and tracking
 still apply. `--precision bf16` / `fp16` is refused: an exported model keeps the
 precision it was exported with. See [Running exported models](../guides/inference-guide.md#running-exported-models-onnxtensorrt).
 
 | Option | Description | Values | Default |
 |--------|-------------|--------|---------|
-| `--runtime` | Exported-model runtime; `auto` prefers TensorRT and falls back to ONNX (ignored for checkpoints) | `auto`, `onnx`, `tensorrt` | `auto` |
-| `--upload_batches` | CUDA: copy each batch to the GPU before resizing/cropping (checkpoints only). See [Performance](../guides/inference-performance.md#batches-on-the-gpu-upload_batches) | Flag | `false` |
-| `--frames_on_gpu` | Top-down pipelines only: move each batch of frames to the GPU before stage 1, so the detector's resize / letterbox and the crops' frame-size match run there instead of on the CPU. Results are not bit-identical to the CPU resize | Flag | `false` |
-| `--memory_format` | Model weight layout; `channels_last` is faster on NVIDIA GPUs (checkpoints only) | `contiguous`, `channels_last` | `contiguous` |
+| `--runtime` | Exported-model runtime; `auto` prefers TensorRT on a CUDA device and takes ONNX otherwise (ignored for checkpoints) | `auto`, `onnx`, `tensorrt` | `auto` |
+| `--upload_batches` | CUDA: copy each batch of frames to the GPU before preprocessing, so the resize / letterbox, the crops' frame-size match and the cropping run there instead of on the CPU. Every pipeline built from `--model_paths` (checkpoints and network-only export folders); with `--part_streaming` the part model cuts its crops from the same GPU copy. Results are not bit-identical to the CPU resize. Ignored, with a warning, for a single exported model directory. See [Performance](../guides/inference-performance.md#batches-on-the-gpu-upload_batches) | Flag | `false` |
+| `--memory_format` | Model weight layout of every checkpoint model, the part model included; `channels_last` is faster on NVIDIA GPUs (ignored, with a warning, for an exported model directory) | `contiguous`, `channels_last` | `contiguous` |
 | `--precision` | CUDA: `bf16` / `fp16` run every model's forward pass under `torch.autocast` (weights and outputs stay fp32); `32` is strict fp32. Results differ slightly from fp32. No effect on CPU / MPS, with a warning. Checkpoints only: refused when every model is exported (an exported model keeps the precision it was exported with). Experimental: `bf16-encoder` / `fp16-encoder` run only each model's encoder under autocast and the decoder and heads in fp32. See [Performance](../guides/inference-performance.md#reduced-precision-precision) | `32`, `bf16`, `fp16`, `bf16-encoder`, `fp16-encoder` | `32` |
 | `--paf-workers` | CPU worker processes for bottom-up PAF grouping (`0` = in-process). `--cpu-workers` is a deprecated alias | `INT` | `0` |
 

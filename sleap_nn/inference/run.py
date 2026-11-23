@@ -551,7 +551,6 @@ def _build_predictor(
     mask_output,
     polygon_epsilon,
     flip_test,
-    frames_on_gpu,
     runtime,
     box_mode,
     box_score_threshold,
@@ -663,8 +662,6 @@ def _build_predictor(
         build_kwargs["mask_output"] = mask_output
         build_kwargs["polygon_epsilon"] = polygon_epsilon
         build_kwargs["flip_test"] = flip_test
-        if frames_on_gpu:
-            build_kwargs["frames_on_gpu"] = True
         if runtime != "auto":
             # Network-only export directories among model_paths (`--network-only`
             # or box detector exports) run on this runtime.
@@ -695,11 +692,6 @@ def _build_predictor(
             raise ValueError(
                 "boxes is not supported for exported models; use the checkpoint."
             )
-        if frames_on_gpu:
-            raise ValueError(
-                "frames_on_gpu is not available for exported model directories "
-                "(export_dir); pass network-only exports as model paths instead."
-            )
         # Exported ONNX/TRT models bake most post-processing into the graph at
         # export time; only these construction-time knobs still apply.
         build_kwargs["runtime"] = runtime
@@ -710,8 +702,9 @@ def _build_predictor(
             build_kwargs["max_instances"] = max_instances
         if upload_batches:
             logger.warning(
-                "upload_batches is ignored for an exported model directory; "
-                "it applies to trained checkpoints only."
+                "upload_batches is ignored for the exported model directory "
+                "(it applies to trained checkpoints and to network-only exports "
+                "passed as model paths; a --part_model checkpoint still uses it)."
             )
         if memory_format != "contiguous":
             logger.warning(
@@ -743,6 +736,7 @@ def _build_predictor(
             peak_threshold=part_peak_threshold,
             part_prefix=part_prefix,
             export_runtime=runtime,
+            memory_format=memory_format,
         )
         predictor.part_stage = part_stream
         predictor.skeleton = merged
@@ -790,12 +784,13 @@ def predict(
     polygon_epsilon: float = 0.01,
     # Bounding-box detector knob (construction-time; bbox_* models only)
     bbox_nms_iou: Optional[float] = None,
-    # Copy each uint8 batch to the GPU before preprocessing (CUDA, checkpoints only)
+    # Copy each uint8 batch to the GPU before preprocessing (CUDA; not export_dir)
     upload_batches: bool = False,
     # Weight layout of every model ("channels_last": faster convs on NVIDIA GPUs)
     memory_format: str = "contiguous",
     # Flip-test (construction-time; centered_instance top-down models only)
     flip_test: bool = False,
+    # Deprecated alias of upload_batches (kept so existing scripts keep running)
     frames_on_gpu: bool = False,
     # Top-down stage 1 from given boxes (construction-time; crop models only)
     boxes: Optional[str] = None,
@@ -938,11 +933,17 @@ def predict(
             (``None``: the style default, 0.45 for SSD / off for CenterNet; ``1.0``
             disables it). ``peak_threshold`` is their score threshold and
             ``max_instances`` their per-frame detection cap.
-        upload_batches: Copy each ``uint8`` batch to the GPU before
-            preprocessing when ``device`` is CUDA, so resizing and cropping run
-            there (faster; results differ slightly from the default ``False``).
-            Trained checkpoints only; ignored, with a warning, for an exported
-            model directory.
+        upload_batches: Copy each ``uint8`` batch of frames to the GPU before
+            preprocessing when ``device`` is CUDA, so the resize / letterbox, the
+            crops' frame-size match and the cropping run there instead of on the
+            CPU (off by default). Every pipeline built from ``model_paths``
+            (checkpoints and network-only export folders); with
+            ``part_streaming`` the part stage cuts its crops from the same GPU
+            copy. Results are not bit-identical to the CPU resize: a uint8
+            resize on the GPU rounds some pixels one grey level differently,
+            which can move a box near the score threshold. Without a CUDA model
+            the frames stay on the CPU, with a warning. Ignored, with a warning,
+            for an exported model directory (``export_dir``).
         memory_format: Weight layout of every model: ``"contiguous"`` (default)
             or ``"channels_last"`` (faster cuDNN convolutions on NVIDIA GPUs;
             no change on AMD ROCm). Trained checkpoints only; ignored, with a
@@ -951,13 +952,8 @@ def predict(
             centered-instance model on the mirrored crops and average the
             confmaps (symmetric nodes swapped) before peak finding. Not
             available for exported models (``export_dir``).
-        frames_on_gpu: Top-down pipelines only: move each batch of frames to the
-            GPU before stage 1, so the stage-1 resize / letterbox and the crops'
-            frame-size match run there (off by default). Results are not
-            bit-identical to the CPU resize: a uint8 resize on the GPU rounds some
-            pixels one grey level differently, which can move a box near the score
-            threshold. Without a CUDA model the frames stay on the CPU, with a
-            warning. Not available for ``export_dir``.
+        frames_on_gpu: Deprecated alias of ``upload_batches`` (``True`` turns it
+            on, with a warning); will be removed in a later release.
         boxes: Seed a top-down crop model's stage 1 from boxes instead of a
             centroid model or detector (pass only the crop model). ``"gt"``: the
             GT boxes of the ``.slp`` / ``sio.Labels`` source (score 1). A path to
@@ -1173,7 +1169,10 @@ def predict(
             "emit_centroid='instance' (the default) for tracking."
         )
 
-    # Build predictor
+    # Build predictor (``frames_on_gpu`` is the old name of ``upload_batches``)
+    from sleap_nn.inference.predictor import _resolve_upload_batches
+
+    upload_batches = _resolve_upload_batches(upload_batches, frames_on_gpu)
     predictor, part_stream = _build_predictor(
         device=device,
         batch_size=batch_size,
@@ -1213,7 +1212,6 @@ def predict(
         mask_output=mask_output,
         polygon_epsilon=polygon_epsilon,
         flip_test=flip_test,
-        frames_on_gpu=frames_on_gpu,
         runtime=runtime,
         box_mode=box_mode,
         box_score_threshold=box_score_threshold,
@@ -1290,6 +1288,8 @@ def predict(
             peak_threshold=part_peak_threshold,
             part_prefix=part_prefix,
             export_runtime=runtime,
+            memory_format=memory_format,
+            upload_batches=upload_batches,
         )
 
     if output_path is not None:
@@ -1325,6 +1325,7 @@ def open_stream(
     anchor_part: Optional[str] = None,
     bbox_nms_iou: Optional[float] = None,
     flip_test: bool = False,
+    upload_batches: bool = False,
     frames_on_gpu: bool = False,
     node_filter: Optional[Union[str, List[str]]] = None,
     strip_prefix: Optional[Union[bool, str]] = None,
@@ -1367,7 +1368,11 @@ def open_stream(
         anchor_part: As for :func:`predict`.
         bbox_nms_iou: As for :func:`predict` (box detectors).
         flip_test: As for :func:`predict`.
-        frames_on_gpu: As for :func:`predict`: frames go to the GPU before stage 1.
+        upload_batches: As for :func:`predict`: each pushed frame is copied to the
+            GPU before the first stage (a tensor frame is moved there); the pose
+            and part models read that one copy.
+        frames_on_gpu: Deprecated alias of ``upload_batches`` (``True`` turns it
+            on, with a warning); will be removed in a later release.
         node_filter: As for :func:`predict`.
         strip_prefix: As for :func:`predict`.
         filter_config: As for :func:`predict` (applied to every frame).
@@ -1408,6 +1413,7 @@ def open_stream(
     """
     import torch
 
+    from sleap_nn.inference.predictor import _resolve_upload_batches
     from sleap_nn.inference.stream import PoseStream
 
     if part_model_paths and part_crop_rule is None:
@@ -1439,7 +1445,7 @@ def open_stream(
         max_instances=max_instances,
         bbox_nms_iou=bbox_nms_iou,
         flip_test=flip_test,
-        frames_on_gpu=frames_on_gpu,
+        upload_batches=_resolve_upload_batches(upload_batches, frames_on_gpu),
         runtime=runtime,
         box_mode=None,
         node_filter=node_filter,

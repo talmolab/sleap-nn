@@ -429,6 +429,8 @@ def run_part_stage(
     peak_threshold: Optional[float] = None,
     part_prefix: Optional[str] = None,
     export_runtime: str = "auto",
+    memory_format: str = "contiguous",
+    upload_batches: bool = False,
 ) -> sio.Labels:
     """Run a part model on crops built from ``base``'s predicted keypoints.
 
@@ -445,6 +447,9 @@ def run_part_stage(
         part_prefix: Prefix for the part nodes in the merged skeleton.
         export_runtime: Runtime when the part model is a network-only export
             directory (see ``Predictor.from_model_paths``).
+        memory_format: Weight layout of the part model (as for the body run).
+        upload_batches: Copy each batch of frames to the part model's GPU before
+            cropping (as for the body run).
 
     Returns:
         Merged labels: one instance per body instance, body nodes then part nodes.
@@ -465,6 +470,10 @@ def run_part_stage(
         kwargs["peak_threshold"] = peak_threshold
     if export_runtime != "auto":
         kwargs["export_runtime"] = export_runtime
+    if memory_format != "contiguous":
+        kwargs["memory_format"] = memory_format
+    if upload_batches:
+        kwargs["upload_batches"] = True
     predictor = Predictor.from_model_paths(list(part_model_paths), **kwargs)
     floors = session_floors(base, rule)
     if floors:
@@ -924,11 +933,15 @@ def build_streaming_part_stage(
     peak_threshold: Optional[float] = None,
     part_prefix: Optional[str] = None,
     export_runtime: str = "auto",
+    memory_format: str = "contiguous",
 ) -> Tuple[StreamingPartStage, sio.Skeleton]:
     """``(StreamingPartStage, merged skeleton)`` for a pose predictor's skeleton.
 
     The part model is loaded as :func:`run_part_stage` loads it (``export_runtime``:
-    the runtime when the part model is a network-only export directory); the merged
+    the runtime when the part model is a network-only export directory;
+    ``memory_format``: the part model's weight layout, as for the body run). The
+    part model cuts its crops from the frames the body predictor hands it, so
+    ``upload_batches`` reaches it through the body run. The merged
     skeleton (pose nodes, then the part nodes with ``part_prefix``) is the one
     :func:`merge_part_predictions` would build.
     """
@@ -947,6 +960,8 @@ def build_streaming_part_stage(
         kwargs["peak_threshold"] = peak_threshold
     if export_runtime != "auto":
         kwargs["export_runtime"] = export_runtime
+    if memory_format != "contiguous":
+        kwargs["memory_format"] = memory_format
     part = Predictor.from_model_paths(list(part_model_paths), **kwargs)
     merged, _ = _merged_skeleton(base_skeleton, part.skeleton, part_prefix)
     layer = part._scoped_postprocess_layer(peak_threshold=peak_threshold)

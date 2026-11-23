@@ -410,41 +410,63 @@ def test_bottomup_pipelined_path_keeps_the_part_stage(
     assert all(o.pred_keypoints.shape[2] == 4 for o in outs)
 
 
-def test_frames_on_gpu_without_cuda_warns(
-    caplog, minimal_instance_centroid_ckpt, minimal_instance_centered_instance_ckpt
+@pytest.mark.parametrize("option", ["upload_batches", "frames_on_gpu"])
+def test_upload_without_cuda_warns(
+    caplog,
+    minimal_instance_centroid_ckpt,
+    minimal_instance_centered_instance_ckpt,
+    option,
 ):
+    """Without a CUDA model the frames stay on the CPU, and a warning says so.
+
+    ``frames_on_gpu`` is the deprecated alias of ``upload_batches``: same effect,
+    plus its own warning.
+    """
     from sleap_nn.inference.predictor import Predictor
 
-    Predictor.from_model_paths(
+    predictor = Predictor.from_model_paths(
         [
             str(minimal_instance_centroid_ckpt),
             str(minimal_instance_centered_instance_ckpt),
         ],
         device="cpu",
-        frames_on_gpu=True,
+        **{option: True},
     )
-    assert "no stage of this model runs on CUDA" in caplog.text
-    assert "frames stay on CPU" in caplog.text
+    assert predictor.upload_batches and predictor._upload_device is None
+    assert caplog.text.count("upload_batches=True has no effect on device=cpu") == 1
+    alias = "frames_on_gpu is now upload_batches"
+    assert caplog.text.count(alias) == (option == "frames_on_gpu")
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="needs a CUDA device")
+@pytest.mark.parametrize("option", ["upload_batches", "frames_on_gpu"])
 def test_part_stage_gets_the_gpu_copy_of_the_frames(
     minimal_instance,
     minimal_instance_centroid_ckpt,
     minimal_instance_centered_instance_ckpt,
     monkeypatch,
+    option,
 ):
-    """Both options on: the part stage receives the frames already on the card."""
+    """Upload and part streaming on: the part stage receives the frames already on
+    the card, the very tensor the pose layer got (one upload per batch)."""
+    from sleap_nn.inference.layers.topdown import TopDownLayer
     from sleap_nn.inference.run import predict
 
-    seen = []
+    seen, for_layers = [], []
     real = StreamingPartStage.__call__
+    real_predict = TopDownLayer.predict
 
     def spy(self, images, outputs, video_indices=None):
         seen.append(images.device.type if torch.is_tensor(images) else "numpy")
+        assert any(images is image for image in for_layers)
         return real(self, images, outputs, video_indices)
 
+    def spy_predict(self, image, *args, **kwargs):
+        for_layers.append(image)
+        return real_predict(self, image, *args, **kwargs)
+
     monkeypatch.setattr(StreamingPartStage, "__call__", spy)
+    monkeypatch.setattr(TopDownLayer, "predict", spy_predict)
     ckpts = [
         str(minimal_instance_centroid_ckpt),
         str(minimal_instance_centered_instance_ckpt),
@@ -454,8 +476,8 @@ def test_part_stage_gets_the_gpu_copy_of_the_frames(
         model_paths=ckpts,
         device="cuda",
         peak_threshold=0.0,
-        frames_on_gpu=True,
         part_streaming=True,
+        **{option: True},
         part_model_paths=[ckpts[1]],
         part_crop_rule=RULE,
         part_prefix="part/",

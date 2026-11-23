@@ -120,6 +120,8 @@ from sleap_nn.training.callbacks import (
     BBoxEvaluationCallback,
     TilingEpochCallback,
     AugmentationStageCallback,
+    BalancedSamplerResume,
+    ResumeReseed,
     EncoderFreezeSchedule,
     EmbeddingEvaluationCallback,
     EvalCadenceEarlyStopping,
@@ -3545,6 +3547,29 @@ class ModelTrainer:
         )
         if throughput_every:
             callbacks.append(ThroughputMonitor(log_every_n_steps=throughput_every))
+        if (
+            OmegaConf.select(
+                self.config, "trainer_config.balanced_sampler", default=None
+            )
+            is not None
+        ):
+            # Lightning restores the sampler's position only from a mid-epoch
+            # checkpoint; this covers `last.ckpt` / `best.ckpt` too.
+            callbacks.append(BalancedSamplerResume())
+        resume_seed = OmegaConf.select(self.config, "trainer_config.seed", default=None)
+        if (
+            OmegaConf.select(
+                self.config, "trainer_config.reseed_on_resume", default=False
+            )
+            and OmegaConf.select(
+                self.config, "trainer_config.resume_ckpt_path", default=None
+            )
+            is not None
+            and resume_seed is not None
+        ):
+            # Opt-in: a resumed run is seeded again with `seed`, so without this
+            # its first epoch replays the original run's first epoch.
+            callbacks.append(ResumeReseed(resume_seed))
         freeze_cfg = OmegaConf.select(
             self.config, "trainer_config.freeze_schedule", default=None
         )

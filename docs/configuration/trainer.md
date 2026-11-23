@@ -676,6 +676,7 @@ trainer_config:
 | `viz_img_format` | str | `png` | Format of the saved viz images: `png` or `jpg` (much smaller files) |
 | `use_wandb` | bool | `false` | Enable WandB logging |
 | `resume_ckpt_path` | str | `null` | Path to checkpoint to resume from |
+| `reseed_on_resume` | bool | `false` | On resume, seed with `seed + epoch` so the resumed epochs do not repeat the first epochs' order and augmentation draws ([Resume & Fine-Tune](../guides/resume-finetune.md)) |
 | `freeze_schedule` | FreezeScheduleConfig | `null` | Freeze `targets` (selectors, default `[encoder]`) until `unfreeze_at_step` (`null` = whole run) |
 | `distillation` | DistillationConfig | `null` | Teacher → student (`stage: 1`) or head self-distillation (`stage: 2`); box detectors: stage 1 from a box-detector teacher (experimental); see [Distillation](../guides/distillation.md) |
 | `coordinate_losses` | CoordinateLossesConfig | `null` | Experimental: coordinate losses through a frozen linear keypoint autoencoder (`centered_instance` only); see [CoordinateLossesConfig](#coordinatelossesconfig). Left out of the saved `training_config.yaml` when unset |
