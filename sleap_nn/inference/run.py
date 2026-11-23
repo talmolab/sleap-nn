@@ -867,7 +867,9 @@ def predict(
             logged). Results differ slightly from fp32. Checkpoint models only;
             exported models keep the precision they were exported with
             (``export_dir`` raises, a network-only export among ``model_paths``
-            is left as exported, with a warning).
+            is left as exported, with a warning). ``"bf16-encoder"`` /
+            ``"fp16-encoder"`` (experimental) run only each model's encoder
+            under autocast and everything after it in fp32.
         runtime: Runtime for an exported model: ``"auto"`` (prefer TensorRT,
             fall back to ONNX), ``"onnx"``, or ``"tensorrt"``. Ignored when
             ``model_paths`` is given (checkpoints).
