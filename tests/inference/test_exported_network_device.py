@@ -50,3 +50,10 @@ def test_auto_without_cuda_is_refused_like_cpu(monkeypatch, tmp_path, built):
 def test_cuda_index_is_passed_on(monkeypatch, tmp_path, built):
     ExportedNetwork(_export_dir(tmp_path), runtime="tensorrt", device="cuda:1")
     assert built["device"] == "cuda:1"
+
+
+def test_auto_with_onnx_runtime_keeps_outputs_on_the_cpu(tmp_path, built):
+    d = _export_dir(tmp_path)
+    (d / "model.onnx").write_bytes(b"")
+    net = ExportedNetwork(d, runtime="onnx", device="auto")
+    assert built["device"] == "auto" and net.out_device == torch.device("cpu")

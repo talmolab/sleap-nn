@@ -1,6 +1,6 @@
 """Common utilities for architecture and model building."""
 
-from typing import List, Tuple
+from typing import List
 
 import torch
 from torch import nn
@@ -140,37 +140,6 @@ class MaxPool2dWithSamePadding(nn.MaxPool2d):
         """
         return max((-(-i // s) - 1) * s + (k - 1) * d + 1 - i, 0)
 
-    def _axis_params(self, axis: int) -> Tuple[int, int, int]:
-        """``(kernel, stride, dilation)`` along ``axis`` (0: height, 1: width)."""
-        pick = lambda v: v if type(v) is int else v[axis]  # noqa: E731
-        return pick(self.kernel_size), pick(self.stride), pick(self.dilation)
-
-    def _pad_same_traced(self, x: torch.Tensor) -> torch.Tensor:
-        """The "same" padding of ``forward``, computed from ``x``'s shape at run time.
-
-        Used while tracing (ONNX export). The input is zero-padded by the most any
-        size can need (``(k - 1) * d`` on each side, a constant), then sliced down
-        to the padding its own size needs: the same zeros in the same places as
-        ``F.pad`` with :meth:`_calc_same_pad`'s amounts, so the graph's output
-        equals the eager forward's at every input size.
-        """
-        hw = torch._shape_as_tensor(x)[-2:].to(x.device)
-        for axis, dim in ((0, -2), (1, -1)):
-            k, s, d = self._axis_params(axis)
-            most = (k - 1) * d
-            if most == 0:
-                continue
-            i = hw[axis]
-            # Non-negative operands only: floor and truncating division agree.
-            pad = torch.clamp(((i + s - 1) // s - 1) * s + most + 1 - i, min=0)
-            before = pad // 2
-            pads = [0, 0, 0, 0]
-            pads[2 * (1 - axis) : 2 * (1 - axis) + 2] = [most, most]
-            padded = F.pad(x, pads)
-            keep = torch.arange(most - before, most + i + pad - before, device=x.device)
-            x = torch.index_select(padded, dim, keep)
-        return x
-
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward pass through the MaxPool2dWithSamePadding module.
 
@@ -181,14 +150,9 @@ class MaxPool2dWithSamePadding(nn.MaxPool2d):
             torch.Tensor: Output tensor after applying the MaxPool2d operation.
         """
         padding = self.padding
-        if padding == "same" and torch.jit.is_tracing():
-            # A traced graph (ONNX export) must pad by what its input needs when it
-            # runs, not by what the traced input needed (``pad_h > 0`` would be
-            # frozen into the graph): the same padding, from the shape at run time.
-            x = self._pad_same_traced(x)
-            padding = 0
-        elif padding == "same":
+        if padding == "same":
             ih, iw = x.size()[-2:]
+
             pad_h = self._calc_same_pad(
                 i=ih,
                 k=(
