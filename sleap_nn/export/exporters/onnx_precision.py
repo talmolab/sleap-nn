@@ -369,6 +369,69 @@ def _find_attention_logits(model, max_depth: int = 8) -> dict:
     }
 
 
+def _beyond_fp16_range(g, types: Dict[str, int]) -> Set[str]:
+    """Float tensors that hold (or are computed from) a value beyond fp16's range.
+
+    The graph's constant values are folded (initializers of any size, Constant nodes
+    in every form, ``ConstantOfShape`` fill values, and nodes computed only from
+    constants: an int64 1e9 cast to float, a product of two in-range constants ...);
+    a float constant with a finite |x| > 65504 (e.g. the 1e9 sentinels that mask
+    absent peaks) is such a tensor, and so is every float output of a node that reads
+    one, followed downstream.
+
+    Args:
+        g: An ``onnx.GraphProto``.
+        types: Element type of each tensor (:func:`_tensor_types`).
+
+    Returns:
+        The names of those tensors.
+    """
+    from onnx import TensorProto, numpy_helper
+
+    FLOAT = TensorProto.FLOAT
+    big: Set[str] = set()
+    consts = _constant_values(g)
+    for init in g.initializer:  # every initializer, whatever its size (folding
+        if init.name in consts or init.data_type != FLOAT:  # is capped, not this)
+            continue
+        try:
+            a = numpy_helper.to_array(init)
+        except Exception:  # noqa: BLE001 -- external data not loaded
+            continue
+        a = a[np.isfinite(a)]
+        if a.size and float(np.abs(a).max()) > _FP16_MAX:
+            big.add(init.name)
+
+    for node in g.node:  # a fill value, whatever the (runtime) shape
+        if node.op_type == "ConstantOfShape" and node.output[0] not in consts:
+            for attr in node.attribute:
+                if attr.name == "value" and attr.HasField("t"):
+                    consts[node.output[0]] = numpy_helper.to_array(attr.t)
+    for name, a in consts.items():
+        if types.get(name, FLOAT if a.dtype.kind == "f" else None) != FLOAT:
+            continue
+        a = a[np.isfinite(a)]  # inf / NaN exist in fp16 (NaN fills absent peaks)
+        if a.size and float(np.abs(a).max()) > _FP16_MAX:
+            big.add(name)
+    # Values built from such a constant can stay that large downstream (e.g. a
+    # mask times 1e9, then a max over it): follow them through the float ops.
+    if big:
+        for node in g.node:
+            if any(t in big for t in node.input):
+                big.update(t for t in node.output if t and types.get(t) == FLOAT)
+    return big
+
+
+def beyond_fp16_range_tensors(model) -> Set[str]:
+    """Names of the float tensors of ``model`` holding values beyond fp16's range.
+
+    See :func:`_beyond_fp16_range`. Used to keep the layers computing them in fp32
+    on TensorRT 10's builder-flag (weak typing) fp16 builds, as the strongly typed
+    rewrite (:func:`cast_onnx_precision`) does.
+    """
+    return _beyond_fp16_range(model.graph, _tensor_types(model))
+
+
 def cast_onnx_precision(
     model,
     precision: str,
@@ -429,43 +492,8 @@ def cast_onnx_precision(
             if t and i not in fixed and types.get(t) == FLOAT
         }
 
-    # Values beyond fp16's range (fp16 only): the nodes reading them stay fp32. The
-    # graph's constant values are folded (initializers, Constant nodes in every form,
-    # and nodes computed only from constants: an int64 1e9 cast to float, a product
-    # of two in-range constants ...).
-    big: Set[str] = set()
-    if precision == "fp16":
-        consts = _constant_values(g)
-        from onnx import numpy_helper
-
-        for init in g.initializer:  # every initializer, whatever its size (folding
-            if init.name in consts or init.data_type != FLOAT:  # is capped, not this)
-                continue
-            try:
-                a = numpy_helper.to_array(init)
-            except Exception:  # noqa: BLE001 -- external data not loaded
-                continue
-            a = a[np.isfinite(a)]
-            if a.size and float(np.abs(a).max()) > _FP16_MAX:
-                big.add(init.name)
-
-        for node in g.node:  # a fill value, whatever the (runtime) shape
-            if node.op_type == "ConstantOfShape" and node.output[0] not in consts:
-                for attr in node.attribute:
-                    if attr.name == "value" and attr.HasField("t"):
-                        consts[node.output[0]] = numpy_helper.to_array(attr.t)
-        for name, a in consts.items():
-            if types.get(name, FLOAT if a.dtype.kind == "f" else None) != FLOAT:
-                continue
-            a = a[np.isfinite(a)]  # inf / NaN exist in fp16 (NaN fills absent peaks)
-            if a.size and float(np.abs(a).max()) > _FP16_MAX:
-                big.add(name)
-        # Values built from such a constant can stay that large downstream (e.g. a
-        # mask times 1e9, then a max over it): follow them through the float ops.
-        if big:
-            for node in g.node:
-                if any(t in big for t in node.input):
-                    big.update(t for t in node.output if t and types.get(t) == FLOAT)
+    # Values beyond fp16's range (fp16 only): the nodes reading them stay fp32.
+    big: Set[str] = _beyond_fp16_range(g, types) if precision == "fp16" else set()
 
     # Tensors that control-flow bodies (If / Loop / Scan) read from this graph: they
     # keep an fp32 copy, and an initializer they read is never converted.

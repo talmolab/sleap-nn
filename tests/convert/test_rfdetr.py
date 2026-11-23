@@ -112,6 +112,8 @@ def test_imported_config(tiny_import):
     assert (detr.dec_layers, detr.num_queries, detr.group_detr) == (2, 12, 3)
     assert cfg.model_config.init_weights == "default"
     assert "Imported from RF-DETR checkpoint" in cfg.description
+    # No unset opt-in key in the saved config.
+    assert "coordinate_losses" not in cfg.trainer_config
 
 
 def test_import_refuses_to_overwrite(tiny_import):

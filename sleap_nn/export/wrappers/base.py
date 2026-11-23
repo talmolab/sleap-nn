@@ -10,6 +10,146 @@ from torch.nn import functional as F
 
 from sleap_nn.inference.ops.peaks import morphological_dilation_split
 
+#: Frame heights / widths up to which :func:`resized_size_rule` is checked.
+MAX_RESIZE_INPUT = 1 << 15
+
+
+def resized_size_rule(scale: float) -> Tuple[int, int, bool]:
+    """Integers ``(p, q)`` with ``(n * p) // q == int(n * scale)``, and whether exact.
+
+    The checkpoint path sizes a resized frame with Python's ``int(n * scale)``
+    (double precision). An exported graph computes the size from the input's shape
+    with integer arithmetic, which TensorRT resolves while building (a float product
+    would not floor like the double one: ``int(10 * 0.7)`` is 7, ``10 * 0.7`` in
+    float32 floors to 6). The smallest ``q`` (up to 10,000) whose ``p / q`` gives
+    ``int(n * scale)`` for every ``n`` up to :data:`MAX_RESIZE_INPUT` is used. A
+    scale whose double rounding no fraction reproduces (0.7, 0.35, ...) gets the
+    nearest fraction, and sizes that can differ from ``int(n * scale)`` by one pixel
+    for some ``n`` (``exact`` is ``False``).
+
+    Args:
+        scale: The input scale (> 0).
+
+    Returns:
+        ``(p, q, exact)``.
+    """
+    import math
+    from fractions import Fraction
+
+    import numpy as np
+
+    n = np.arange(MAX_RESIZE_INPUT + 1, dtype=np.int64)
+    want = np.floor(n.astype(np.float64) * scale).astype(np.int64)
+    head = slice(0, 1001)  # most candidates fail early: check small sizes first
+    for q in range(1, 10_001):
+        for p in {math.floor(scale * q), math.ceil(scale * q)}:
+            if (
+                p > 0
+                and np.array_equal((n[head] * p) // q, want[head])
+                and np.array_equal((n * p) // q, want)
+            ):
+                return p, q, True
+    f = Fraction(scale).limit_denominator(10_000)
+    return f.numerator, f.denominator, False
+
+
+#: Smallest frame height / width the resize's tap count is sized for
+#: (:func:`resize_taps`); smaller inputs are resized with fewer taps than they need.
+MIN_RESIZE_INPUT = 32
+
+
+def resize_taps(p: int, q: int) -> int:
+    """Taps per output pixel the resize by ``p / q`` needs, for every input size.
+
+    Output pixel ``i`` of ``O`` from ``N`` input pixels reads at most
+    ``ceil(2 * max(N, O) / O) + 1`` taps (the triangle filter's support is
+    ``max(N / O, 1)`` on each side). The maximum over every ``N`` from
+    :data:`MIN_RESIZE_INPUT` to :data:`MAX_RESIZE_INPUT` is fixed at export, so the
+    graph adds that many gathers one at a time.
+    """
+    import numpy as np
+
+    n = np.arange(MIN_RESIZE_INPUT, MAX_RESIZE_INPUT + 1, dtype=np.int64)
+    out = np.maximum((n * p) // q, 1)
+    big = np.maximum(n, out)
+    return int(((2 * big + out - 1) // out).max()) + 1
+
+
+def _antialiased_resize_last_axis(
+    x: torch.Tensor, out_size: torch.Tensor, n_taps: int
+) -> torch.Tensor:
+    """Antialiased bilinear resize of the last axis of ``x`` to ``out_size``.
+
+    The same weights as ``F.interpolate(..., mode="bilinear", align_corners=False,
+    antialias=True)`` (a triangle filter stretched by the downscale factor, weights
+    renormalized over the taps inside the input), written with integer index
+    arithmetic, gathers and sums, which ONNX Runtime and TensorRT both run (TensorRT
+    parses no antialiased ``Resize``). Output pixel ``i`` of ``O`` from an input of
+    ``N`` pixels is centered at ``(i + 0.5) * N / O``; with ``M = max(N, O)``, tap
+    ``j``'s weight is ``max(0, 1 - |(2j + 1) O - (2i + 1) N| / (2M))``, computed from
+    exact integers, so large coordinates lose no precision in reduced-precision
+    engines. The taps are gathered and added one at a time, so the intermediates are
+    the size of the output.
+
+    Args:
+        x: ``(..., N)`` float tensor.
+        out_size: 0-d ``int64`` tensor, the output length ``O`` (>= 1).
+        n_taps: Taps per output pixel (:func:`resize_taps`).
+
+    Returns:
+        ``(..., O)`` tensor.
+    """
+    # Sizes come from Shape ops (not from data), so TensorRT can resolve every
+    # tensor shape below from the input's shape.
+    n_in = torch._shape_as_tensor(x)[-1].to(x.device)  # N, int64
+    out = out_size.to(device=x.device, dtype=torch.int64)
+    big = torch.maximum(n_in, out)  # M: support * O
+    i = torch.arange(out, device=x.device)  # (O,)
+    # First tap of each output pixel: floor(center - support + 0.5), clamped at 0
+    # (taps before 0 have no weight; clamping keeps the numerator non-negative, so
+    # integer division truncating or flooring gives the same).
+    first = torch.clamp((2 * i + 1) * n_in + out - 2 * big, min=0) // (2 * out)
+    center2 = (2 * i + 1) * n_in  # 2 * O * center, exact
+    span = (2 * big).float()
+    total = None
+    acc = None
+    for k in range(n_taps):
+        tap = first + k  # (O,)
+        dist = torch.abs((2 * tap + 1) * out - center2)
+        w = torch.clamp(1.0 - dist.float() / span, min=0.0) * (tap < n_in).float()
+        part = torch.index_select(x, -1, torch.minimum(tap, n_in - 1)) * w
+        acc = part if acc is None else acc + part
+        total = w if total is None else total + w
+    return acc / total
+
+
+def antialiased_resize(
+    image: torch.Tensor, p: int, q: int, n_taps: int
+) -> torch.Tensor:
+    """Resize ``(..., H, W)`` images by a scale, antialiased, as the checkpoint path.
+
+    Matches ``torchvision.transforms.functional.resize`` / ``F.interpolate(...,
+    mode="bilinear", align_corners=False, antialias=True)`` to ``(int(H * scale),
+    int(W * scale))`` up to float rounding. Height and width are read from the
+    input's shape when the graph runs (traced graphs keep them dynamic), and the
+    output size is ``(H * p) // q``, ``(W * p) // q`` (at least 1).
+
+    Args:
+        image: ``(..., H, W)`` float images.
+        p: Numerator of :func:`resized_size_rule` of the scale.
+        q: Its denominator.
+        n_taps: :func:`resize_taps` of ``p``, ``q``.
+
+    Returns:
+        The resized images.
+    """
+    out_hw = torch.clamp(
+        torch._shape_as_tensor(image)[-2:].to(image.device) * p // q, min=1
+    )
+    image = _antialiased_resize_last_axis(image, out_hw[1], n_taps)
+    image = _antialiased_resize_last_axis(image.transpose(-1, -2), out_hw[0], n_taps)
+    return image.transpose(-1, -2)
+
 
 class BaseExportWrapper(nn.Module):
     """Base class for ONNX-exportable wrappers."""

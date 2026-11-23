@@ -140,6 +140,7 @@ nav:
       - Resume & Fine-Tune: guides/resume-finetune.md
       - Init from Another Model: guides/init-from.md
       - Distillation: guides/distillation.md
+      - Coordinate Losses (experimental): guides/coordinate-losses.md
       - Supervised ID: guides/supervised-id.md
       - Tiling (High-Res): guides/tiling.md
       - DETR Box Detector: guides/bbox-detr.md

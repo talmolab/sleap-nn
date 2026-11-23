@@ -5,10 +5,15 @@ from __future__ import annotations
 from typing import Dict
 
 import torch
+from loguru import logger
 from torch import nn
-from torch.nn import functional as F
 
-from sleap_nn.export.wrappers.base import BaseExportWrapper
+from sleap_nn.export.wrappers.base import (
+    BaseExportWrapper,
+    antialiased_resize,
+    resize_taps,
+    resized_size_rule,
+)
 
 
 class SingleInstanceONNXWrapper(BaseExportWrapper):
@@ -45,6 +50,16 @@ class SingleInstanceONNXWrapper(BaseExportWrapper):
         self.output_stride = output_stride
         self.input_scale = input_scale
         self.peak_threshold = peak_threshold
+        if input_scale != 1.0:
+            p, q, exact = resized_size_rule(input_scale)
+            self._resize_rule = (p, q, resize_taps(p, q))
+            if not exact:
+                logger.warning(
+                    f"input_scale {input_scale}: no fraction reproduces Python's "
+                    f"int(size * {input_scale}) for every size; the exported graph "
+                    f"sizes the resized frame as size * {p} // {q}, which can differ "
+                    "from the checkpoint path by one pixel for some frame sizes."
+                )
 
     def forward(self, image: torch.Tensor) -> Dict[str, torch.Tensor]:
         """Run single-instance inference.
@@ -61,21 +76,15 @@ class SingleInstanceONNXWrapper(BaseExportWrapper):
         # Normalize uint8 [0, 255] to float32 [0, 1]
         image = self._normalize_uint8(image)
 
-        # Apply input scaling if needed. ``antialias=True`` matches the PyTorch inference
-        # path, which resizes via ``torchvision.transforms.functional.resize``
-        # (antialiased by default). Without it a downscaling resize (input_scale < 1)
-        # produces visibly different pixels, which shifts confidence-map peaks and —
-        # once scaled back by ``output_stride / input_scale`` — the exported keypoints.
+        # Apply input scaling if needed, antialiased like the PyTorch inference path
+        # (``torchvision.transforms.functional.resize``). Without antialiasing a
+        # downscaling resize (input_scale < 1) produces visibly different pixels,
+        # which shifts confidence-map peaks and -- once scaled back by
+        # ``output_stride / input_scale`` -- the exported keypoints. The resize is
+        # built from gathers (``antialiased_resize``), not an antialiased ``Resize``
+        # node, which TensorRT's parser rejects; height and width stay dynamic.
         if self.input_scale != 1.0:
-            height = int(image.shape[-2] * self.input_scale)
-            width = int(image.shape[-1] * self.input_scale)
-            image = F.interpolate(
-                image,
-                size=(height, width),
-                mode="bilinear",
-                align_corners=False,
-                antialias=True,
-            )
+            image = antialiased_resize(image, *self._resize_rule)
 
         # Run model to get confidence maps: (batch, n_nodes, height, width)
         confmaps = self._extract_tensor(

@@ -527,6 +527,14 @@ class LabelsProvider:
             ``instance_boxes`` aligned with ``instances``. The GT-box fallback of
             a box-scaled centered-instance model uses it to derive boxes exactly
             as its training boxes were (linked user boxes / masks, or keypoints).
+            A provider handed to a ``Predictor`` without one gets the predictor's
+            rule when the model crops GT boxes. Such a predictor also narrows the
+            provider to its selected frames that have user instances, with only
+            those instances as GT, and the provider stays narrowed after the call
+            until it is handed to a predictor whose model does not crop GT boxes;
+            predicted instances then never serve as GT boxes. A provider serves one
+            prediction at a time: using it from two predictors at once (e.g. two
+            ``predict_streaming`` generators read in turns) is not supported.
         frame_box_fn: Optional ``(LabeledFrame) -> ((K, 4) xyxy, (K,) scores)``
             giving the boxes that seed a top-down model's stage 1 on each frame;
             when set, batches carry ``frame_boxes`` / ``frame_box_scores``. See
@@ -573,6 +581,7 @@ class LabelsProvider:
     _source_positions: Optional[dict] = attrs.field(
         default=None, init=False, repr=False
     )
+    _unscoped_frames: Optional[list] = attrs.field(default=None, init=False, repr=False)
 
     def __attrs_post_init__(self) -> None:
         """Resolve the labels source and pre-filter the labeled frames."""
@@ -681,13 +690,41 @@ class LabelsProvider:
     def _frame_instances(self, lf) -> list:
         """Instances to expose as GT for a frame.
 
-        In ``only_labeled_frames`` mode (the GT-fallback paths), expose only the
-        USER instances so PredictedInstances are never treated as ground truth
-        (legacy parity, #582). All other modes expose every instance.
+        In ``only_labeled_frames`` mode (the GT-fallback paths), or once scoped by
+        :meth:`_scope_to_user_instances`, expose only the USER instances so
+        PredictedInstances are never treated as ground truth (legacy parity, #582).
+        All other modes expose every instance.
         """
-        if self.only_labeled_frames:
+        if self.only_labeled_frames or self._unscoped_frames is not None:
             return list(lf.user_instances)
         return list(lf.instances)
+
+    def _scope_to_user_instances(self, scope: bool) -> int:
+        """Keep only the selected frames that have user instances (or undo that).
+
+        A ``Predictor`` whose model crops GT boxes calls this on a provider built
+        elsewhere, so it reads the frames and instances a provider built by the
+        predictor reads (``only_labeled_frames``): the frames this provider
+        selected that have user instances, with only those instances as GT.
+        ``scope=False`` restores the frames of an earlier call, for a provider
+        reused with another predictor. A provider with ``only_labeled_frames``
+        is left as it is, and a repeat call on a scoped provider does nothing.
+
+        Returns:
+            The number of selected frames left out by this call.
+        """
+        if scope and self._unscoped_frames is not None:
+            return 0
+        if self._unscoped_frames is not None:
+            self._labeled_frames = self._unscoped_frames
+            self._unscoped_frames = None
+        if not scope or self.only_labeled_frames:
+            return 0
+        self._unscoped_frames = self._labeled_frames
+        self._labeled_frames = [
+            lf for lf in self._labeled_frames if lf.has_user_instances
+        ]
+        return len(self._unscoped_frames) - len(self._labeled_frames)
 
     def _collect_suggested_frames(self, sio) -> list:
         """Return new ``LabeledFrame``s for unlabeled suggestions.

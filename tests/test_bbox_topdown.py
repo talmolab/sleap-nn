@@ -644,6 +644,449 @@ def test_gt_box_fallback_uses_training_box_rule(
     np.testing.assert_allclose(centers, expected, atol=1e-2)
 
 
+def _labels_with_linked_user_box(path, video=None):
+    """The fixture's frame with a user box linked to one instance, off its keypoints.
+
+    With ``video``, the same instances sit on frame 0 of that video file instead of
+    the fixture's embedded frame.
+    """
+    labels = sio.load_slp(path)
+    lf = labels[0]
+    if video is not None:
+        lf = sio.LabeledFrame(
+            video=sio.Video.from_filename(str(video)),
+            frame_idx=0,
+            instances=lf.instances,
+        )
+        labels = sio.Labels(
+            labeled_frames=[lf], videos=[lf.video], skeletons=labels.skeletons
+        )
+    lf.bboxes = [
+        sio.UserBoundingBox(x1=40, y1=60, x2=200, y2=220, instance=lf.instances[0])
+    ]
+    return labels
+
+
+@pytest.mark.parametrize(
+    "source",
+    ["labels_provider", "video_selection", "list_of_providers", "multi_provider"],
+)
+def test_gt_boxes_follow_the_box_rule_for_any_frame_source(
+    trained_pair, minimal_instance, centered_instance_video, monkeypatch, source
+):
+    """boxes='gt' crops the same boxes whoever built the frame source.
+
+    A ``LabelsProvider`` built by the caller (as the command line does for its .slp
+    frame filters) or by a ``VideoSelection`` must get the model's GT-box rule, as the
+    provider the predictor builds from a ``sio.Labels`` does; without it the crops fell
+    back to tight keypoint boxes and ignored the labels' own boxes.
+    """
+    from sleap_nn.inference.predictor import Predictor
+    from sleap_nn.inference.providers import (
+        LabelsProvider,
+        MultiVideoProvider,
+        VideoSelection,
+    )
+
+    pred = Predictor.from_model_paths(
+        [trained_pair["ci_fixed"].as_posix()],
+        device="cpu",
+        peak_threshold=0.0,
+        boxes="gt",
+    )
+    stage_1 = pred.layer.centroid_layer
+    seen = []
+    stage_1_predict = stage_1.predict
+
+    def spy(image, instances=None, boxes=None, **kwargs):
+        out = stage_1_predict(image, instances=instances, boxes=boxes, **kwargs)
+        seen.append(out.pred_bboxes.reshape(-1, 4).numpy())
+        return out
+
+    monkeypatch.setattr(stage_1, "predict", spy)
+
+    def crop_boxes(src):
+        seen.clear()
+        labels = pred.predict(src, make_labels=True)
+        points = np.stack([inst.numpy() for inst in labels[0].instances])
+        return np.concatenate(seen), points
+
+    # A VideoSelection reads a video with its own file.
+    labels = _labels_with_linked_user_box(
+        minimal_instance,
+        video=centered_instance_video if source == "video_selection" else None,
+    )
+    expected_boxes, expected_points = crop_boxes(labels)
+    # The reference route: the linked user box as is, the other instance's keypoint box.
+    tight = labels[0].instances[1].to_bbox(mode="tight").xyxy
+    np.testing.assert_allclose(
+        expected_boxes, [[40, 60, 200, 220], list(tight)], atol=1e-3
+    )
+
+    def provider():
+        return LabelsProvider(labels=labels, batch_size=4, only_labeled_frames=True)
+
+    if source == "labels_provider":
+        src = provider()
+    elif source == "video_selection":
+        src = VideoSelection(labels=labels, video_index=0)
+    elif source == "list_of_providers":
+        src = [provider()]
+    else:
+        src = MultiVideoProvider(providers=[provider()], video_offsets=[0])
+    boxes, points = crop_boxes(src)
+    np.testing.assert_allclose(boxes, expected_boxes, atol=1e-3)
+    np.testing.assert_allclose(points, expected_points, atol=1e-3)
+
+    # A box rule the caller set on its own provider is kept.
+    def own_rule(lf, inst):
+        return np.array([10, 20, 110, 120], dtype=np.float32)
+
+    src = LabelsProvider(labels=labels, batch_size=4, instance_box_fn=own_rule)
+    boxes, _ = crop_boxes(src)
+    np.testing.assert_allclose(boxes, [[10, 20, 110, 120]] * 2, atol=1e-3)
+    assert src.instance_box_fn is own_rule
+
+
+@pytest.mark.parametrize("source", ["in_memory", "old_file"])
+def test_gt_box_rule_counts_occluded_keypoints_for_a_caller_built_provider(
+    trained_pair, minimal_instance, monkeypatch, source
+):
+    """A box-scaled model alone boxes occluded keypoints too, for any frame source.
+
+    The model's rule counts a keypoint that is marked not visible but has
+    coordinates (an occluded estimate); the tight box of the visible keypoints,
+    which a caller-built provider used to get, leaves it out. Labels read from an
+    SLP file older than format 3.0 cannot hold occluded estimates: where sleap-nn
+    and sleap-io can tell such labels apart, a hidden point's stored coordinates
+    are stale and do not count.
+    """
+    from sleap_nn.data import providers as data_providers
+    from sleap_nn.inference.predictor import Predictor
+    from sleap_nn.inference.providers import LabelsProvider
+
+    loaded = sio.load_slp(minimal_instance)
+    if source == "in_memory":
+        # Labels built in memory (no source file): occluded estimates are real.
+        labels = sio.Labels(
+            labeled_frames=loaded.labeled_frames,
+            videos=loaded.videos,
+            skeletons=loaded.skeletons,
+        )
+    else:
+        labels = loaded
+        if not (
+            hasattr(data_providers, "has_legacy_hidden_points")
+            and data_providers.has_legacy_hidden_points(labels)
+        ):
+            pytest.skip("this sleap-nn or sleap-io does not tell old-layout files")
+    occluded, other = labels[0].instances
+    occluded.points["visible"][1] = False
+    located = occluded.numpy(invisible_as_nan=False)
+    assert np.isnan(occluded.numpy()[1]).all() and np.isfinite(located).all()
+    counted = located if source == "in_memory" else occluded.numpy()[[0]]
+
+    pred = Predictor.from_model_paths(
+        [trained_pair["ci_bbox"].as_posix()], device="cpu", peak_threshold=0.0
+    )
+    padding = OmegaConf.load(
+        trained_pair["ci_bbox"] / "training_config.yaml"
+    ).data_config.bbox_padding
+    stage_1 = pred.layer.centroid_layer
+    seen = []
+    stage_1_predict = stage_1.predict
+
+    def spy(image, instances=None, boxes=None, **kwargs):
+        out = stage_1_predict(image, instances=instances, boxes=boxes, **kwargs)
+        seen.append(out.pred_bboxes.reshape(-1, 4).numpy())
+        return out
+
+    monkeypatch.setattr(stage_1, "predict", spy)
+    expected = [
+        [*(counted.min(axis=0) - padding), *(counted.max(axis=0) + padding)],
+        list(other.to_bbox(mode="tight", padding=padding).xyxy),
+    ]
+    for src in (
+        labels,
+        LabelsProvider(labels=labels, batch_size=4, only_labeled_frames=True),
+    ):
+        seen.clear()
+        pred.predict(src, make_labels=True)
+        np.testing.assert_allclose(np.concatenate(seen), expected, atol=1e-3)
+
+
+def test_reused_provider_gets_each_predictors_gt_box_rule(
+    trained_pair, minimal_instance
+):
+    """A provider reused with another predictor does not keep the first one's rule."""
+    from sleap_nn.inference.predictor import Predictor
+    from sleap_nn.inference.providers import LabelsProvider
+
+    labels = _labels_with_linked_user_box(minimal_instance)
+    lf = labels[0]
+    src = LabelsProvider(labels=labels, batch_size=4, only_labeled_frames=True)
+
+    def rule_boxes(model, **kwargs):
+        pred = Predictor.from_model_paths(
+            [trained_pair[model].as_posix()],
+            device="cpu",
+            peak_threshold=0.0,
+            **kwargs,
+        )
+        pred.predict(src, make_labels=True)
+        return [src.instance_box_fn(lf, inst) for inst in lf.instances]
+
+    # boxes="gt": the labels' own boxes where they have them.
+    np.testing.assert_allclose(
+        rule_boxes("ci_fixed", boxes="gt")[0], [40, 60, 200, 220], atol=1e-3
+    )
+    # A box-scaled model trained on keypoint boxes: its own rule, not the first one.
+    padding = OmegaConf.load(
+        trained_pair["ci_bbox"] / "training_config.yaml"
+    ).data_config.bbox_padding
+    expected = [
+        inst.to_bbox(mode="tight", padding=padding).xyxy for inst in lf.instances
+    ]
+    np.testing.assert_allclose(rule_boxes("ci_bbox"), expected, atol=1e-3)
+
+
+def test_predict_cli_gt_boxes_same_with_frame_filters(
+    trained_pair, minimal_instance, tmp_path
+):
+    """`sleap-nn predict --boxes gt` crops the same boxes with --only_labeled_frames."""
+    from click.testing import CliRunner
+
+    from sleap_nn.cli import cli
+
+    src = tmp_path / "linked_box.pkg.slp"
+    _labels_with_linked_user_box(minimal_instance).save(src, embed=True)
+    lf = sio.load_slp(src)[0]
+    assert lf.bboxes[0].instance is lf.instances[0]
+
+    def run(name, *extra):
+        out = tmp_path / f"{name}.slp"
+        result = CliRunner().invoke(
+            cli,
+            ["predict", "-i", str(src), "-m", trained_pair["ci_fixed"].as_posix()]
+            + ["--boxes", "gt", "--no-rescore", "--peak_threshold", "0"]
+            + ["--device", "cpu", "-o", str(out), *extra],
+        )
+        assert result.exit_code == 0, result.output
+        frame = sio.load_slp(out)[0]
+        return np.stack([inst.numpy() for inst in frame.predicted_instances])
+
+    plain = run("plain")
+    assert plain.shape[0] == 2 and np.isfinite(plain).all()
+    np.testing.assert_allclose(
+        run("filtered", "--only_labeled_frames"), plain, atol=1e-3
+    )
+
+
+def _labels_with_predictions(path, video, tmp_path):
+    """A ``.slp`` on a video: user and predicted instances, predicted-only, empty.
+
+    Frame 0 holds the fixture's two user instances (a user box linked to the first)
+    and a predicted instance; frame 1 a predicted instance only; frames 2 and 3 are
+    labeled frames without instances. Frames 1 and 2 are suggestions.
+    """
+    labels = _labels_with_linked_user_box(path, video=video)
+    lf = labels[0]
+    skeleton = labels.skeletons[0]
+    lf.instances.append(
+        sio.PredictedInstance.from_numpy(
+            lf.instances[1].numpy() + 60, skeleton=skeleton, score=1.0
+        )
+    )
+    labels.append(
+        sio.LabeledFrame(
+            video=lf.video,
+            frame_idx=1,
+            instances=[
+                sio.PredictedInstance.from_numpy(
+                    lf.instances[0].numpy(), skeleton=skeleton, score=1.0
+                )
+            ],
+        )
+    )
+    for idx in (2, 3):
+        labels.append(sio.LabeledFrame(video=lf.video, frame_idx=idx, instances=[]))
+    labels.suggestions = [
+        sio.SuggestionFrame(video=lf.video, frame_idx=idx) for idx in (1, 2)
+    ]
+    out = tmp_path / "with_predictions.slp"
+    labels.save(out)
+    return out
+
+
+def _invoke_counting_skips(args):
+    """Run the command line; return the result and its frame-skip warnings."""
+    from click.testing import CliRunner
+    from loguru import logger
+
+    from sleap_nn.cli import cli
+
+    messages = []
+    handler = logger.add(lambda m: messages.append(str(m)), level="WARNING")
+    try:
+        result = CliRunner().invoke(cli, args)
+    finally:
+        logger.remove(handler)
+    return result, [m for m in messages if "are skipped" in m]
+
+
+def _predicted_points(path):
+    """``{frame_idx: (n, nodes, 2)}`` of the predicted instances in a ``.slp``."""
+    return {
+        lf.frame_idx: np.stack([inst.numpy() for inst in lf.predicted_instances])
+        for lf in sio.load_slp(path)
+        if lf.predicted_instances
+    }
+
+
+def test_predict_cli_only_predicted_frames_gt_boxes_from_user_instances(
+    trained_pair, minimal_instance, centered_instance_video, tmp_path
+):
+    """`--boxes gt --only_predicted_frames` crops user instances only, as predict().
+
+    Predicted instances are never taken as GT boxes, and a selected frame without
+    user instances is skipped, as on the route where the predictor builds the frame
+    source from the .slp itself.
+    """
+    from click.testing import CliRunner
+
+    from sleap_nn.cli import cli
+    from sleap_nn.inference.run import predict
+
+    src = _labels_with_predictions(minimal_instance, centered_instance_video, tmp_path)
+    model = trained_pair["ci_fixed"].as_posix()
+    reference = tmp_path / "reference.slp"
+    predict(
+        str(src),
+        model_paths=[model],
+        device="cpu",
+        peak_threshold=0.0,
+        boxes="gt",
+        output_path=str(reference),
+    )
+    expected = _predicted_points(reference)
+    assert list(expected) == [0] and expected[0].shape[0] == 2
+
+    out = tmp_path / "filtered.slp"
+    result = CliRunner().invoke(
+        cli,
+        ["predict", "-i", str(src), "-m", model, "--boxes", "gt", "--no-rescore"]
+        + ["--peak_threshold", "0", "--device", "cpu", "-o", str(out)]
+        + ["--only_predicted_frames"],
+    )
+    assert result.exit_code == 0, result.output
+    got = _predicted_points(out)
+    assert got[0].shape[0] == 2 and list(got) == [0]
+    np.testing.assert_allclose(got[0], expected[0], atol=1e-3)
+
+
+def test_gt_box_scope_of_a_reused_provider(trained_pair, minimal_instance, tmp_path):
+    """The user-instance scope is undone for a predictor that does not crop GT boxes."""
+    from sleap_nn.inference.predictor import Predictor
+    from sleap_nn.inference.providers import LabelsProvider
+
+    labels = sio.load_slp(minimal_instance)
+    lf = labels[0]
+    lf.instances.append(
+        sio.PredictedInstance.from_numpy(
+            lf.instances[1].numpy() + 60, skeleton=labels.skeletons[0], score=1.0
+        )
+    )
+    labels.append(
+        sio.LabeledFrame(video=lf.video, frame_idx=lf.frame_idx + 1, instances=[])
+    )
+    src = LabelsProvider(labels=labels, batch_size=4)
+    assert src.num_frames() == 2
+
+    pred = Predictor.from_model_paths(
+        [trained_pair["ci_fixed"].as_posix()], device="cpu", boxes="gt"
+    )
+    pred._attach_gt_box_fn(src)
+    assert src.num_frames() == 1
+    assert len(src._frame_instances(lf)) == 2
+
+    pred = Predictor.from_model_paths(
+        [trained_pair["det"].as_posix(), trained_pair["ci_bbox"].as_posix()],
+        device="cpu",
+    )
+    pred._attach_gt_box_fn(src)
+    assert src.num_frames() == 2
+    assert len(src._frame_instances(lf)) == 3
+
+
+def test_stream_to_file_box_scaled_model_skips_frames_without_user_instances(
+    trained_pair, minimal_instance, centered_instance_video, tmp_path
+):
+    """A box-scaled model alone streams the frames with user instances only.
+
+    It used to stop with "requires `instances`" on a batch of frames without any
+    instance, and to crop predicted instances as GT; it now runs what the in-memory
+    route runs, and reports the skipped frames once.
+    """
+    src = _labels_with_predictions(minimal_instance, centered_instance_video, tmp_path)
+    model = trained_pair["ci_bbox"].as_posix()
+
+    def run(name, flag):
+        out = tmp_path / f"{name}.slp"
+        result, skips = _invoke_counting_skips(
+            ["predict", "-i", str(src), "-m", model, "--peak_threshold", "0"]
+            + ["--device", "cpu", "--batch_size", "1", flag, str(out)],
+        )
+        assert result.exit_code == 0, result.output
+        return _predicted_points(out), skips
+
+    expected, _ = run("in_memory", "-o")
+    assert list(expected) == [0] and expected[0].shape[0] == 2
+    got, skips = run("streamed", "--stream-to-file")
+    assert list(got) == [0]
+    np.testing.assert_allclose(got[0], expected[0], atol=1e-3)
+    assert len(skips) == 1 and "3 of 4" in skips[0]
+
+
+@pytest.mark.parametrize(
+    "route", ["boxes_gt_in_memory", "box_scaled_in_memory", "box_scaled_stream"]
+)
+@pytest.mark.parametrize(
+    "flag, n_selected",
+    [("--exclude_user_labeled", 3), ("--only_suggested_frames", 2)],
+)
+def test_gt_boxes_on_frames_without_user_instances_give_empty_output(
+    trained_pair,
+    minimal_instance,
+    centered_instance_video,
+    tmp_path,
+    route,
+    flag,
+    n_selected,
+):
+    """Filters that select no frame with user instances: an empty output, one warning.
+
+    Labelled boxes come from user instances only, so nothing runs. Before, the
+    predicted instance on such a frame was cropped (`--boxes gt`), or the run stopped
+    with "requires `instances`" (a box-scaled model alone).
+    """
+    src = _labels_with_predictions(minimal_instance, centered_instance_video, tmp_path)
+    out = tmp_path / "out.slp"
+    if route == "boxes_gt_in_memory":
+        model_args = ["-m", trained_pair["ci_fixed"].as_posix(), "--boxes", "gt"]
+        model_args += ["--no-rescore"]
+    else:
+        model_args = ["-m", trained_pair["ci_bbox"].as_posix()]
+    out_flag = "--stream-to-file" if route.endswith("stream") else "-o"
+    result, skips = _invoke_counting_skips(
+        ["predict", "-i", str(src), *model_args, "--peak_threshold", "0"]
+        + ["--device", "cpu", "--batch_size", "1", flag, out_flag, str(out)],
+    )
+    assert result.exit_code == 0, result.output
+    assert out.exists() and _predicted_points(out) == {}
+    assert len(skips) == 1
+    assert f"{n_selected} of {n_selected} selected frame(s)" in skips[0]
+
+
 def test_more_refused_combinations(
     trained_pair, minimal_instance, minimal_instance_centroid_ckpt
 ):
