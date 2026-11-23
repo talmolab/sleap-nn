@@ -1,7 +1,7 @@
 """Crops built from an earlier stage's keypoints: a part stage after top-down pose.
 
-Some body parts leave the crop a top-down pose model sees -- a mouse's tail lies
-outside the body box the detector and the body model use. A *part model* is a
+Some body parts leave the crop a top-down pose model sees -- a long tail, say,
+lies outside the body box the detector and the body model use. A *part model* is a
 second centered-instance model trained on crops around such a part (e.g. a square
 centered on the tail base). At inference its crops have to come from the body
 model's predictions, so detector, body and part run as one pipeline::
@@ -13,7 +13,7 @@ model's predictions, so detector, body and part run as one pipeline::
 A :class:`KeypointCropRule` turns each predicted instance into one square box:
 
 * center: the first located node of ``center`` (names matched exactly, or by the
-  part after the last ``/``, so ``"TTI"`` matches ``"skel-60143b/TTI"``);
+  part after the last ``/``, so ``"tail_base"`` matches ``"lab_a/tail_base"``);
 * half side: ``scale`` x the distance from the center to the mean of the
   ``reference`` nodes (all must be located), else of ``reference_fallback``,
   floored at ``min_half_side`` pixels;
@@ -22,9 +22,9 @@ A :class:`KeypointCropRule` turns each predicted instance into one square box:
   ``fallback_scale`` x half the extent's longer side; ``"skip"`` makes no box;
 * optionally (``session_floor``, off by default), a floor on the half side of
   ``session_floor`` x the median half side of the rule's boxes in the same video
-  (see :func:`session_floors`), about the same center. A short reference (a mouse
-  rearing or seen nose-on, whose ears nearly cover the tail base) otherwise makes
-  a crop too small to hold the part.
+  (see :func:`session_floors`), about the same center. A short reference (an
+  animal rearing or seen end-on, so that its reference points nearly overlap)
+  otherwise makes a crop too small to hold the part.
 
 The part model then runs on those boxes through the box-seeded top-down route
 (``boxes="given"``), and :func:`merge_part_predictions` appends its points to the
@@ -648,6 +648,8 @@ class RunningMedian:
 
 class StreamingPartStage:
     """The part stage run on each batch right after the pose stage (``part_streaming``).
+
+    Experimental: it may change or be removed without a deprecation period.
 
     :func:`run_part_stage` runs after the whole video: it reads every frame a
     second time and floors each crop at the median crop of the whole video

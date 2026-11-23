@@ -93,11 +93,15 @@ With `per_sample: true`, each sample's file is drawn at random with probability
 `weights` (normalized; equal shares when `null`) instead of fixed per-batch counts,
 so any number of files mixes at any batch size (e.g. 5 files at 8 per GPU). The
 `bbox_*` detectors use the same sampler; see the [DETR box detector
-guide](bbox-detr.md#our-human-detector-two-stages).
+guide](bbox-detr.md#example-a-person-detector-in-two-stages).
 
 For the `bbox_*` detectors with `per_sample: true`, `overlap_weight` draws frames
 where labelled animals overlap more often within their file (each file keeps its
-share):
+share).
+
+!!! warning "Experimental"
+    Overlap oversampling may change or be removed without a deprecation period, and
+    it showed no measured benefit in the developers' tests.
 
 ```yaml
 trainer_config:
@@ -131,13 +135,13 @@ has, or on `trainer_config.eval.file_nodes[<name>]` (a node list or a prefix):
 
 ```yaml
 data_config:
-  val_labels_path: [hcm/val.pkg.slp, tye/val.pkg.slp]
-  val_names: [hcm-2025, tye-valence]
+  val_labels_path: [lab_a/val.pkg.slp, lab_b/val.pkg.slp]
+  val_names: [lab-a, lab-b]
 trainer_config:
   eval:
     enabled: true
-    file_nodes:   # score hcm-2025 on two of its nodes only
-      hcm-2025: [hcm-2025/nose, hcm-2025/tail_base]
+    file_nodes:   # score lab-a on two of its nodes only
+      lab-a: [lab-a/nose, lab-a/tail_base]
   model_ckpt:
     monitor: eval/macro/oks_voc_mAP  # or val/macro/loss with mode: min
     mode: max
@@ -170,6 +174,10 @@ data_config:
 ViTPose trains on every person with at least one keypoint: `min_labeled_nodes: 1`.
 
 ### Detector-box crops
+
+!!! warning "Experimental"
+    `crop_bbox_source: detector` may change or be removed without a deprecation
+    period. In the developers' test its gain over GT-box crops was within noise.
 
 Top-down inference crops each person from a detector box, but training crops come
 from GT boxes by default, and the two differ in size, aspect and centering. To train
@@ -233,6 +241,34 @@ lies mostly (`--tile_contain`) inside a kept box. Tiles are cut horizontally onl
 `crop_bbox_jitter` perturbs each edge of the crop box independently (training only)
 to mimic detector noise without detector boxes, or on top of them.
 
+#### Heavy-tail box jitter
+
+!!! warning "Experimental"
+    The three keys below may change or be removed without a deprecation period, and
+    they showed no measured benefit in the developers' tests.
+
+Detector boxes are mostly close to the animal, with a few far off (a box over two
+animals, a box cut short). A second, wider Gaussian component lets the jitter follow
+that shape. With all three keys at their defaults the jitter is drawn exactly as with
+`crop_bbox_jitter` alone.
+
+```yaml
+data_config:
+  preprocessing:
+    crop_bbox_jitter: 0.05             # the usual per-edge std, x box width / height
+    crop_bbox_jitter_tail: 0.3         # std of the heavy-tail component (same units)
+    crop_bbox_jitter_tail_p: 0.1       # per-edge probability of drawing from it
+    crop_bbox_jitter_min_cover: 0.5    # redraw a box keeping < 50% of the original box
+```
+
+| Key | Default | Meaning |
+|---|---|---|
+| `crop_bbox_jitter_tail` | `0.0` | Standard deviation of the heavy-tail component, as a fraction of the box width (x edges) or height (y edges) |
+| `crop_bbox_jitter_tail_p` | `0.0` (off) | Per-edge probability of drawing the shift from the heavy-tail component instead of `crop_bbox_jitter`, in [0, 1] |
+| `crop_bbox_jitter_min_cover` | `0.0` (never) | With any jitter: a jittered box keeping less than this share of the original box's area is redrawn, up to 10 times; after that the edges get the `crop_bbox_jitter` component only. In [0, 1] |
+
+Training crops only; validation crops are never jittered.
+
 ## Augmentation
 
 The warp path reads the usual `augmentation_config` sections, plus keys that only it
@@ -280,6 +316,48 @@ training as absent.
 `mixup_p > 0` raises in the warp path (the stock path, which never implemented it,
 now warns instead of silently ignoring it). `crop_bbox_aspect: letterbox` is not
 implemented here; the warp path crops as `square`.
+
+### Appearance augmentations
+
+!!! warning "Experimental"
+    These keys may change or be removed in a later release without a deprecation
+    period, and they showed no measured benefit in the developers' tests.
+
+A further set of photometric ops, meant for recording setups that differ from the
+training data in camera, lighting or compression. They live in
+`augmentation_config.intensity`, are all off by default, and act on the uint8 crop
+(or, with `frame_photometric`, on whole `bbox_detr` training frames; see the
+[DETR box detector guide](bbox-detr.md#training-augmentation)). Other pipelines
+ignore them and log a warning once.
+
+| Op | Keys (defaults) | What it does |
+|---|---|---|
+| Grey | `gray_p` (`0.0`) | Replace a colour image by its luminance, copied to 3 channels |
+| Channel shuffle | `channel_shuffle_p` (`0.0`) | Random permutation of the 3 channels |
+| Channel gain | `channel_gain_p` (`0.0`), `channel_gain_max` (`0.0`) | Multiply each channel by a factor drawn from `[1 - g, 1 + g]`, `g = channel_gain_max` (a colour cast) |
+| Gamma | `gamma_p` (`0.0`), `gamma_min` / `gamma_max` (`1.0` / `1.0`) | `255 * (x / 255) ** gamma`, gamma drawn log-uniformly from `[gamma_min, gamma_max]` (dim or over-exposed video) |
+| Invert | `invert_p` (`0.0`) | `255 - x` (a light animal on a dark floor becomes a dark one on a light floor) |
+| Down-up | `downup_p` (`0.0`), `downup_min` / `downup_max` (`1.0` / `1.0`, each >= 1) | Downsample by a factor drawn from `[downup_min, downup_max]` (area), then resize back (bilinear): an animal filmed with few pixels |
+| JPEG | `jpeg_p` (`0.0`), `jpeg_quality_min` / `jpeg_quality_max` (`95` / `95`) | Re-encode as JPEG at a quality drawn from that range |
+| Whole frames | `frame_photometric` (`false`) | `bbox_detr` only: apply the warp path's photometric ops (contrast, brightness, HSV, blurs, noise and the ops above) to the whole training frame instead of the stock contrast / brightness / noise |
+
+The colour ops act on 3-channel images only. In the warp path they run after the HSV
+shift (grey, then channel shuffle, then channel gain, then gamma and inversion as one
+lookup table); down-up and JPEG run after the noise ops and before coarse dropout and
+random erase. A teacher crop (distillation) gets the same draws as the student crop.
+
+```yaml
+data_config:
+  augmentation_config:
+    intensity:
+      gray_p: 0.2
+      gamma_p: 0.3
+      gamma_min: 0.6
+      gamma_max: 1.6
+      jpeg_p: 0.3
+      jpeg_quality_min: 40
+      jpeg_quality_max: 90
+```
 
 ### Recipes
 
@@ -355,8 +433,8 @@ stage 1. `stage2` is refused for any other pipeline.
 ## Throughput
 
 Every batch has a fixed per-sample cost of one JPEG decode plus one warp (~2 ms of
-CPU). See the PR for measured loader rates; feeding a ViT-S on 4 GPUs takes
-50-70 workers in total.
+CPU). Feeding a ViT-S on 4 GPUs takes 50-70 workers in total; measure your own
+loader rate with `scripts/ddp_loader_throughput.py` (see [Measuring loader throughput](multi-gpu.md#measuring-loader-throughput)).
 
 ## Limits
 

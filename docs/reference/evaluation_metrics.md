@@ -159,3 +159,5 @@ Detectors (`bbox_centernet`, `bbox_ssd`) are evaluated with `--match_method bbox
 | `iou_thresholds` | The IoU thresholds (0.50:0.05:0.95) that `bbox_mAP` and `bbox_AR` average over |
 
 See the [Bounding-box detection guide](../guides/bbox-detection.md#evaluation) for how GT boxes are derived and how classes are matched.
+
+Opt-in cover measures (`bbox_cover_*`: share of animals covered by a box holding at least half of each, at fixed false boxes per frame) are described in [Box cover measures](../guides/evaluation.md#box-cover-measures-bbox_cover_metrics). The size-relative point error (`norm_scale`) is in [Point error relative to animal size](../guides/evaluation.md#point-error-relative-to-animal-size-norm_scale).

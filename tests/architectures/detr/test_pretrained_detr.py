@@ -4,7 +4,7 @@ Tiny random DINOv3 / DINOv2 configs are written to a temp directory and built wi
 ``weights: false``, so nothing touches the network: tap shapes and indices, prefix
 tokens dropped, drop path, the frozen post-tap blocks, RF-DETR's layer-decay depths
 and weight-decay rule on these parameter names, a CPU training step of a tiny
-``bbox_detr``, and the M3 sample config round trip.
+``bbox_detr``, and the person sample config round trip.
 """
 
 import importlib.util
@@ -319,7 +319,7 @@ def test_config_rejects_pooled_or_decoder_modes(tmp_path):
 
 
 def test_m3_sample_config_round_trip(tmp_path):
-    """The M3 stage-1 sample config survives a TrainingJobConfig round trip."""
+    """The person stage-1 sample config survives a TrainingJobConfig round trip."""
     from sleap_nn.config.training_job_config import verify_training_cfg
     from sleap_nn.config.utils import check_output_strides
 

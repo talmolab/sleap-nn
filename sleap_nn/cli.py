@@ -4855,7 +4855,7 @@ def _common_inference_options(f):
             default=None,
             help=(
                 "Like --nodes, selecting every node whose name starts with this "
-                "prefix (e.g. 'hcm-2025/' of a multi-dataset model)."
+                "prefix (e.g. 'lab_a/' of a multi-dataset model)."
             ),
         ),
         click.option(
@@ -4894,7 +4894,7 @@ def _common_inference_options(f):
                 "A part model (centered-instance crop model) run after the pose "
                 "model on square crops built from each predicted instance's "
                 "keypoints by --part_crop_rule; its points are appended to that "
-                "instance. Default: no part stage."
+                "instance. Default: no part stage. See the docs page 'Part stage'."
             ),
         ),
         click.option(
@@ -4931,6 +4931,8 @@ def _common_inference_options(f):
             is_flag=True,
             default=False,
             help=(
+                "Experimental (may change or be removed without a deprecation "
+                "period). "
                 "Run --part_model on each batch right after the pose stage (no second "
                 "read of the frames), with a running crop floor instead of the "
                 "whole-video floor. The running floor is the median over the boxes "
@@ -5505,7 +5507,7 @@ def import_rfdetr(model, output_dir, revision, overwrite):
     "--detection_chunks",
     type=str,
     default=None,
-    help="Directory of chunk_*.npz files of the human project's detector pass.",
+    help="Directory of chunk_*.npz files written by a chunked detector pass.",
 )
 @click.option(
     "--image_list",
@@ -5617,6 +5619,9 @@ def import_rfdetr(model, output_dir, revision, overwrite):
 @_detect_boxes_save_options
 def detect_boxes(**kwargs):
     """Write detector boxes into a training labels file (detector-box crops).
+
+    Experimental: this workflow may change or be removed without a deprecation
+    period.
 
     Runs a bbox_* model over every labeled frame (or reads a COCO results JSON or
     detector chunk files), matches the detections to each frame's GT people

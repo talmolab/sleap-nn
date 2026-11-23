@@ -325,13 +325,13 @@ def test_analyzer_box_stats():
 # --------------------------------------------------------------------------- #
 # Estimates and the resolution rule
 # --------------------------------------------------------------------------- #
-def test_resolution_rule_mouse_and_large_arena():
+def test_resolution_rule_small_arena_and_large_arena():
     """Small animals >= 3 tokens wide; a large arena is capped and flagged."""
     # sleap-mice_hc: 1280 x 1024 frames, padded boxes p5 99 px, median 193 px.
     res = recommend_detr_resolution(1024, 1280, 99, 193)
     assert (res.max_width, res.max_height) == (640, 512)
     assert res.small_tokens >= 3 and res.median_tokens >= 4 and not res.needs_tiling
-    # mosaic-harvard: 3934 x 3490 frames, p5 87 px: needs ~2170 px, capped at 1280.
+    # A large arena: 3934 x 3490 frames, p5 87 px: needs ~2170 px, capped at 1280.
     big = recommend_detr_resolution(3490, 3934, 87, 169)
     assert big.needs_tiling and big.max_side == 1280 and big.small_tokens < 3
     assert "capped at 1280" in big.reason
@@ -381,19 +381,19 @@ def test_detr_param_estimates():
 
 
 def test_detr_memory_estimate():
-    """Calibrated on M2 (RF-DETR-M, batch 4, 576 px: 4.7 GB measured)."""
+    """Calibrated on one measured run (RF-DETR-M, batch 4, 576 px: 4.7 GB)."""
     from sleap_nn.config_generator.analyzer import analyze_slp
 
     stats = analyze_slp(FIXTURE_SLP)
     m2 = estimate_detr_memory(stats, "rfdetr_m", 4, 576, 576, num_queries=300)
     assert m2.total_gpu_gb == pytest.approx(4.7, rel=0.1)
-    mouse = estimate_detr_memory(stats, "dinov3_s", 8, 512, 640)
+    small = estimate_detr_memory(stats, "dinov3_s", 8, 512, 640)
     vit_b = estimate_detr_memory(stats, "dinov3_b", 8, 512, 640)
-    assert mouse.total_gpu_gb < vit_b.total_gpu_gb
+    assert small.total_gpu_gb < vit_b.total_gpu_gb
     assert (
-        mouse.params_count == estimate_detr_params("dinov3_s", num_queries=100)["total"]
+        small.params_count == estimate_detr_params("dinov3_s", num_queries=100)["total"]
     )
-    assert mouse.gpu_status == "green" and "GPU Memory" in str(mouse)
+    assert small.gpu_status == "green" and "GPU Memory" in str(small)
 
 
 # --------------------------------------------------------------------------- #
@@ -507,9 +507,9 @@ def test_bbox_detr_sample_configs_verify(name):
     assert cfg.data_config.augmentation_config.geometric is None
 
 
-def test_mouse_sample_matches_the_rules():
-    """The mouse sample's documented numbers follow the generator's rules."""
-    cfg = OmegaConf.load(SAMPLE_DIR / "config_bbox_detr_dinov3_s_mouse.yaml")
+def test_two_animal_sample_matches_the_rules():
+    """The two-animal sample's documented numbers follow the generator's rules."""
+    cfg = OmegaConf.load(SAMPLE_DIR / "config_bbox_detr_dinov3_s_animals.yaml")
     pre = cfg.data_config.preprocessing
     # sleap-mice_hc: 1280 x 1024, sqrt(w * h) p5 79 px / median 173 px, + 2 x 9 px.
     res = recommend_detr_resolution(1024, 1280, 79 + 18, 173 + 18)

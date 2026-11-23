@@ -13,14 +13,13 @@ ground-truth people and writes a copy of the labels with the boxes added.
   tiles for very wide frames (:class:`TileSpec`, JRDB's 3760 x 480 panoramas);
 * a COCO detection-results JSON matched by ``image_id`` or file name
   (:func:`load_coco_detections`);
-* the raw chunk files of the human project's D-FINE pass
+* the raw chunk files of an earlier, chunked detector pass
   (``dets/<model>/<set>/chunk_*.npz`` + its image list;
   :func:`load_detection_chunks`), so existing detections can be replayed.
 
-**Matching** (:func:`match_detections`, a port of the human project's
-``detector/match.py``): per frame, Hungarian matching on IoU between the
-detections scoring at least ``score_threshold`` (0.3) and the ground-truth people,
-keeping pairs with IoU above ``min_iou`` (0.1). Ground-truth people
+**Matching** (:func:`match_detections`): per frame, Hungarian matching on IoU
+between the detections scoring at least ``score_threshold`` (0.3) and the
+ground-truth people, keeping pairs with IoU above ``min_iou`` (0.1). Ground-truth people
 (:func:`gt_people`) are every non-crowd user box of the person category (people
 without keypoints too, so their detections are not handed to a labeled
 neighbour) plus the keypoint extent of each pose instance with no linked person
@@ -202,15 +201,15 @@ def load_detection_chunks(
     image_list: Union[str, Path],
     detector: Optional[str] = None,
 ) -> FrameDetections:
-    """Detections from the human project's resumable detector pass (``detect.py``).
+    """Detections from an earlier, resumable chunked detector pass.
 
     ``chunk_dir`` holds ``chunk_*.npz`` files with flat per-detection arrays
     ``img_idx`` (index into ``image_list``), ``boxes`` (xyxy, raw-pixel
     orientation) and ``scores``, per-image ``image_idx`` / ``image_hw``, and the
     detector id ``model``. ``image_list`` is the text file of image paths the pass
     ran over (one per line); frames are matched to it by their image path. Within
-    a frame, detections keep the chunk files' order, so matching ties break as
-    they did in ``match.py``.
+    a frame, detections keep the chunk files' order, so matching ties break the
+    same way on every run.
 
     Raises:
         ValueError: If no chunk is found, the chunks do not cover every listed
@@ -582,7 +581,7 @@ def detect_with_layer(
 
 
 # ---------------------------------------------------------------------------
-# Matching (a port of the human project's detector/match.py)
+# Matching
 # ---------------------------------------------------------------------------
 
 
@@ -789,7 +788,7 @@ def match_detections(
         "category": category,
         "det_thr": score_threshold,
         "min_iou": min_iou,
-        "rule": "Hungarian on IoU per image, pairs kept if IoU > min_iou (D4)",
+        "rule": "Hungarian on IoU per image, pairs kept if IoU > min_iou",
         "gt_boxes": "linked person box, else keypoint extent; non-crowd keypoint-less "
         "person boxes are matching targets but not counted",
         "frames": len(frames),

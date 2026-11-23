@@ -256,7 +256,7 @@ def _compute_box_size_percentiles(
     """5th percentile and median of ``sqrt(width * height)`` over instance boxes.
 
     The geometric-mean side does not depend on the animal's orientation as much
-    as ``max(width, height)`` does (a mouse along a diagonal vs an axis).
+    as ``max(width, height)`` does (an elongated animal along a diagonal vs an axis).
 
     Args:
         labels: sleap_io Labels object.

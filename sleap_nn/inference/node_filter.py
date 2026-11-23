@@ -21,7 +21,7 @@ import torch
 from loguru import logger
 from torch import nn
 
-#: A node filter: a list of node names, or a string prefix (``"hcm-2025/"``).
+#: A node filter: a list of node names, or a string prefix (``"lab_a/"``).
 NodeFilter = Union[str, Sequence[str]]
 
 #: Model types whose confmap head the filter can slice, and that head's name.

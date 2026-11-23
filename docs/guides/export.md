@@ -84,10 +84,10 @@ sleap-nn export MODEL_PATH [options]
 | `--precision` | TensorRT precision (see [Precision](#tensorrt-precision)) | `fp32`, `fp16`, `tf32`, `bf16` | `fp16` |
 | `--max-instances` | Max instances per frame | `INT` | `20` |
 | `--max-batch-size` | Max batch size (TensorRT profile; larger batches run in chunks of it) | `INT` | `8` |
-| `--opt-batch-size` | TensorRT: batch the engine's kernels are tuned for (profile `opt`; for throughput, the batch you run); ignored for `--format onnx` (noted in the metadata) | `INT` | `1` |
-| `--strongly-typed` | TensorRT 10.x: build fp16 / bf16 strongly typed, with the precision in the graph, as TensorRT 11 always does (see [Precision](#tensorrt-precision)) | Flag | `false` |
+| `--opt-batch-size` | TensorRT: batch the engine's kernels are tuned for (profile `opt`; for throughput, the batch you run); ignored for `--format onnx` (noted in the metadata). Unset, the engine is tuned for batch 1 | `INT` | unset |
+| `--strongly-typed` | **Experimental.** TensorRT 10.x: build fp16 / bf16 strongly typed, with the precision in the graph, as TensorRT 11 always does (see [Precision](#tensorrt-precision)) | Flag | `false` |
 | `--force-precision` | Build fp16 / bf16 even for a family whose reduced-precision engines fail its fp32 graph (multi-class bottom-up; see [Precision](#tensorrt-precision)) | Flag | `false` |
-| `--fp32-attention-logits` / `--no-fp32-attention-logits` | With `--precision fp16`, strongly typed: keep each attention block's logits product (Q.K^T) in fp32 (see [fp16 for ViT backbones](#fp16-for-vit-backbones-fp32-attention-logits)) | Flag | on for plain-ViT backbones, off otherwise |
+| `--fp32-attention-logits` / `--no-fp32-attention-logits` | **Experimental.** With `--precision fp16`, strongly typed: keep each attention block's logits product (Q.K^T) in fp32 (see [fp16 for ViT backbones](#fp16-for-vit-backbones-fp32-attention-logits)) | Flag | on for plain-ViT backbones, off otherwise |
 | `--input-dtype` | Box detectors and `--network-only` exports: dtype of the graph's image input (`float32` receives the checkpoint path's own input; `auto` = `float32` for `bbox_detr`, `uint8` otherwise) | `auto`, `uint8`, `float32` | `auto` |
 | `--nodes` | Export only these confmap nodes (`single_instance` / `centered_instance`, alone or in a top-down bundle); repeat or comma-separate | `TEXT` | all nodes |
 | `--node-prefix` | Export only the nodes whose name starts with the prefix | `TEXT` | `None` |
@@ -110,6 +110,14 @@ workspace, `--verify/--no-verify`), see the
 | `bf16` | bf16 (fp32's range, 8 significant bits); in graphs that compute coordinates (box detectors, peaks found in the graph) every layer outside the backbone stays fp32; transposed convolutions always | TensorRT >= 10.13 and a GPU with compute capability >= 8.0 (judged on the `--device` GPU, where the engine is built) |
 
 How the reduced precisions are built depends on the TensorRT version:
+
+!!! warning "Experimental: TensorRT 11 and strongly typed engines"
+    The strongly typed path (every build on TensorRT 11, `--strongly-typed` on
+    TensorRT 10.x, and the default fp16 build of plain-ViT backbones on TensorRT 10.13
+    and later) may change in a later release without a deprecation period. The
+    test suite stubs TensorRT, so these engines are checked by hand on a GPU, on few
+    model types. Compare its engines against an `fp32` export on your own data before
+    relying on them.
 
 - **TensorRT 10.x** (default): builder flags (weak typing): TensorRT picks fp16 / bf16
   kernels where they are faster, and sleap-nn holds the fp32 layers above in fp32.
@@ -158,11 +166,17 @@ builds, and records, `fp32`). An engine runs only on the TensorRT version (and G
 model) that built it: after upgrading TensorRT, export the engines again (`sleap-nn
 export ... --format tensorrt`); `model.onnx` does not change. Reduced precision moves
 outputs: compare against an `fp32` export on your own data. Example: a DINOv3
-`bbox_detr` detector loses boxes in `fp16`; in `bf16` with fp32 outside the backbone
+`bbox_detr` detector loses boxes in plain `fp16`; in `bf16` with fp32 outside the backbone
 its box corners move by about 0.1 px (median) against `fp32`, and by about 1 px when
 the whole graph runs in bf16.
 
 #### fp16 for ViT backbones: `--fp32-attention-logits`
+
+!!! warning "Experimental"
+    The switches `--fp32-attention-logits` and `--no-fp32-attention-logits` may change
+    or be removed in a later release without a deprecation period. The default for
+    plain-ViT backbones (below) is a fix for broken fp16 engines; it was measured on
+    DINOv3 ViT-B models on one GPU only (below).
 
 Plain `fp16` engines of DINOv3 ViT-B models fail: two keypoint models kept 17-44% of
 their keypoints within 0.5 px of fp32, and a `bbox_detr` detector loses boxes, on
@@ -279,9 +293,12 @@ sleap-nn predict -i video.mp4 -o out.slp -m exports/detector -m exports/pose \
     --part_model exports/tail --part_crop_rule rule.json --runtime tensorrt
 ```
 
-Pass a `--precision` that your models keep their accuracy in (`bf16` or `fp32` for a
-DINOv3 `bbox_detr` detector: the default `fp16` can lose its boxes); `sleap-nn predict`
-runs the TensorRT engine of a directory that holds one.
+(The part stage and its crop rule are described in [Part stage](part-stage.md).)
+
+Pass a `--precision` that your models keep their accuracy in (a plain `fp16` engine
+of a DINOv3 `bbox_detr` detector can lose its boxes: keep the default fp32 attention
+logits, or use `bf16` or `fp32`); `sleap-nn predict` runs the TensorRT engine of a
+directory that holds one.
 
 A network-only graph is the network alone (preprocessed crop in, raw confidence maps
 out; a detector's graph is network-only by construction). Each export directory stands
@@ -292,16 +309,13 @@ Runtime or TensorRT, so exported and checkpoint predictions differ only by the r
 numerics (with `--input-dtype float32` the graphs receive exactly the checkpoint path's
 inputs). A directory that holds both `best.ckpt` and an export (exported into the
 checkpoint's own directory) loads the checkpoint wherever model directories go
-through the checkpoint loader, as before #857: several `--model_paths` (with or
-without `--stream-to-file`), a `--part_model` directory, and the Python API with one
-or more paths (`predict(model_paths=[d])`, `open_stream`,
-`Predictor.from_model_paths([d])`); a `--network-only` export (new in #857) follows the
-same rule. A lone `--model_paths` on the command line takes the exported route for such
-a directory, as it always has (and `--stream-to-file` with one directory refuses it).
-New, accepted where it was refused before #857: such a directory listed among several
-`--model_paths` together with `--part_model` runs its checkpoint (before #857 the
-`--part_model` check refused it; after #857 it ran a detector export and refused a fused
-export). `--runtime` picks the runtime for
+through the checkpoint loader: several `--model_paths` (with or without
+`--stream-to-file`), a `--part_model` directory, and the Python API with one or more
+paths (`predict(model_paths=[d])`, `open_stream`, `Predictor.from_model_paths([d])`);
+a `--network-only` export follows the same rule. A lone `--model_paths` on the command
+line takes the exported route for such a directory (and `--stream-to-file` with one
+directory refuses it). Such a directory listed among several `--model_paths` together
+with `--part_model` runs its checkpoint. `--runtime` picks the runtime for
 every export directory (`auto` prefers `model.trt`), on every route (several
 `--model_paths`, `--part_model`, `--stream-to-file`); the predictions' provenance
 (`exported_models`) records the runtime, and for an engine its precision, of each

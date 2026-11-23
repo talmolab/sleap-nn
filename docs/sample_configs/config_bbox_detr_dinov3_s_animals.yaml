@@ -1,17 +1,17 @@
-# bbox_detr for animals: a mouse box detector trained from a pretrained DINOv3
+# bbox_detr for animals: a box detector trained from a pretrained DINOv3
 # ViT-S/16 with a freshly initialized projector and decoder (no detection
-# checkpoint), as stage 1 of a top-down pose model. Sized for a small dataset: the
-# SLEAP paper's 2-mouse "mice HC" set (1,180 train / 147 val frames, 1280 x 1024 IR
-# grayscale, mice touching in ~40% of frames).
+# checkpoint), as stage 1 of a top-down pose model. Sized for a small dataset of two
+# animals per frame (1,180 train / 147 val frames, 1280 x 1024 IR grayscale, the
+# animals touching in ~40% of frames).
 #
-#   sleap-nn train config_bbox_detr_dinov3_s_mouse.yaml \
-#     "data_config.train_labels_path=[mice.train.pkg.slp]" \
-#     "data_config.val_labels_path=[mice.val.pkg.slp]"
+#   sleap-nn train config_bbox_detr_dinov3_s_animals.yaml \
+#     "data_config.train_labels_path=[animals.train.pkg.slp]" \
+#     "data_config.val_labels_path=[animals.val.pkg.slp]"
 #
 # Then use it as the first stage of a top-down model whose crops are these boxes
 # (crop_mode: bbox, same bbox_source / bbox_padding):
 #
-#   sleap-nn predict -i video.mp4 -m models/mouse_detr -m models/mouse_ci
+#   sleap-nn predict -i video.mp4 -m models/animal_detr -m models/animal_ci
 #
 # `sleap-nn config labels.slp --auto --pipeline topdown_bbox_detr` writes this
 # config (and the instance model) for your own data, with the input size and box
@@ -22,7 +22,7 @@ data_config:
   test_file_path: null
   # No user boxes in a pose project: derive one per instance from its visible
   # nodes (`auto` falls back to `instances`), padded on every side by bbox_padding
-  # px because keypoints sit inside the outline. 9 px is 5% of the median mouse
+  # px because keypoints sit inside the outline. 9 px is 5% of the median animal
   # size here (sqrt(w * h) = 173 px). The centered-instance model must use the
   # same two values so its crops match the detected boxes.
   bbox_source: instances
@@ -31,10 +31,10 @@ data_config:
   preprocessing:
     # DINOv3 was pretrained on RGB; gray frames are repeated to 3 channels.
     ensure_rgb: true
-    # Resolution rule: the smallest 5% of mice (padded sqrt(w * h) = 97 px) must
-    # be >= 3 ViT tokens (48 px) wide and the median mouse >= 4. That needs a
+    # Resolution rule: the smallest 5% of animals (padded sqrt(w * h) = 97 px) must
+    # be >= 3 ViT tokens (48 px) wide and the median animal >= 4. That needs a
     # scale of 0.50, so the 1280 x 1024 frames are letterboxed to 640 x 512
-    # (multiples of 32): small mice 3.0 tokens, median 6.0, 40 x 32 = 1,280 tokens
+    # (multiples of 32): small animals 3.0 tokens, median 6.0, 40 x 32 = 1,280 tokens
     # of global attention. A bigger arena or smaller animals need a larger input;
     # past ~1280 px see the guide's tiling section.
     max_height: 512
@@ -122,7 +122,7 @@ trainer_config:
   # Small data needs long training: the RF-DETR paper says more than 100 epochs.
   # 200 epochs of 148 steps is ~30K steps: ~7 GB of GPU memory and ~2 h on one
   # RTX PRO 6000 (estimated from RF-DETR-M's measured 44 images/s at a similar
-  # token count). M5 sweeps 100 / 200 / 400. An epoch is one pass over the frames
+  # token count). An epoch is one pass over the frames
   # (min_train_steps_per_epoch: 1).
   max_epochs: 200
   min_train_steps_per_epoch: 1
@@ -157,6 +157,6 @@ trainer_config:
     save_last: true
   save_ckpt: true
   ckpt_dir: models
-  run_name: mouse_detr
+  run_name: animal_detr
   visualize_preds_during_training: false
   use_wandb: false

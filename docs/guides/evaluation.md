@@ -106,6 +106,71 @@ Euclidean distance between predicted and ground truth keypoints (in pixels):
 Lower is better. Values depend on image resolution and animal size. The raw
 per-pair distances are also available under `metrics['distance_metrics']['dists']`.
 
+### Point error relative to animal size (`norm_scale`)
+
+Pixel errors depend on the image resolution and the animal's size, and the distance
+metrics above score only the points a model predicted: a model that leaves hard points
+out looks better. The size-relative error fixes both. For every labelled point of a
+matched ground-truth instance it takes the distance to the predicted point divided by
+the instance's size, and counts a point the model left unpredicted as an error of
+`norm_missing_error` sizes (default `1.0`).
+
+The size is `sqrt(width x height)` of a box:
+
+- `norm_scale: bbox`: the user bounding box linked to the ground-truth instance, else
+  the tight box of its labelled points;
+- `norm_scale: points`: the tight box of its labelled points.
+
+Any box built from points (under either setting) is padded on every side by
+`norm_pad_frac` of its longest side (default `0.0`).
+
+Instances with no box and fewer than two labelled points are skipped. It is opt-in
+and off by default, for `match_method="oks"` only (not on the `sleap-nn eval` command
+line):
+
+```python
+evaluator = Evaluator(gt, pred, norm_scale="bbox")
+metrics = evaluator.evaluate()
+nm = metrics["normalized_distance_metrics"]
+print(nm["p50"], nm["p95"], nm["miss_rate"])
+```
+
+`normalized_distance_metrics` holds `p50`, `p75`, `p90`, `p95`, `p99` over all
+labelled points, `found_p50` / `found_p95` over the predicted points only, `miss_rate`
+(the share of labelled points left unpredicted) and the counts. With
+`norm_bootstrap: N` it also gives 95% percentile-bootstrap intervals of `p50`, `p95`
+and `miss_rate`, resampling frames or videos (`norm_bootstrap_by`).
+
+In training, set the same keys under `trainer_config.eval` (see
+[EvalConfig](../configuration/trainer.md#evalconfig)): the epoch-end evaluation then
+logs `eval/<file>/norm_distance/p50`, `p95` and `miss_rate`, and the post-training
+metrics include `normalized_distance_metrics`.
+
+### Box cover measures (`bbox_cover_metrics`)
+
+For box detectors, `trainer_config.eval.bbox_cover_metrics: true` (with
+`eval.enabled`) adds measures that score whether each animal was found, apart from how
+tight its box is. A predicted box **covers** a ground-truth box when it holds at least
+half of the ground-truth box's area. Per frame, boxes are taken by descending score
+and each goes to the free ground-truth box it covers most; a box that covers none (or
+a second box on an animal already covered) is a false box. Logged under
+`eval/val/`:
+
+| Key | Meaning |
+|---|---|
+| `bbox_cover_recall_at_0.1fppf`, `_0.25fppf`, `_0.5fppf` | Share of animals covered at the lowest score threshold whose false boxes per frame stay within 0.1 / 0.25 / 0.5 |
+| `bbox_cover_AP` | 101-point interpolated AP with the cover rule in place of IoU |
+| `bbox_cover_recall`, `bbox_false_per_frame` | Covered share and false boxes per frame at score 0.1 |
+
+Unlike IoU-based recall, the cover rule does not penalise a box for being larger than
+a ground-truth box that is thin or partial (for example a box built from a few
+keypoints), and reading the curve at a fixed number of false boxes per frame does not
+depend on how the detector's scores are calibrated. In Python the same numbers come
+from `sleap_nn.evaluation.compute_bbox_cover_metrics(frames)`, where each frame is a
+dict with `gt_bboxes`, `pred_bboxes`, `pred_scores` and, optionally,
+`gt_ignore_bboxes`: ignore regions (COCO "crowd"-like) in which a prediction that
+covers the region and matches no kept box is neither a hit nor a false box.
+
 ---
 
 ## Loading Saved Metrics

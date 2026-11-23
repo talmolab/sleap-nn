@@ -15,7 +15,9 @@ Use it as:
   ([Top-down with a box detector](bbox-topdown.md)), or
 - the source of detector boxes for training crops (`sleap-nn detect-boxes`).
 
-It is detection only: no keypoint or mask heads.
+It is detection only by default (no mask head); an experimental keypoint branch
+predicts keypoints in the same pass (see
+[Boxes and keypoints in one pass](#boxes-and-keypoints-in-one-pass-experimental)).
 
 | | `bbox_centernet` / `bbox_ssd` | `bbox_detr` |
 |---|---|---|
@@ -57,15 +59,15 @@ labels:
 ```bash
 sleap-nn config labels.slp --auto --pipeline bbox_detr -o detector.yaml
 # or the pair (detector + box-scaled centered-instance model):
-sleap-nn config labels.slp --auto --pipeline topdown_bbox_detr -o mice.yaml
-#   -> mice_bbox_detr.yaml + mice_centered_instance.yaml
+sleap-nn config labels.slp --auto --pipeline topdown_bbox_detr -o animals.yaml
+#   -> animals_bbox_detr.yaml + animals_centered_instance.yaml
 sleap-nn train detector.yaml
 ```
 
 Or start from the sample config
-[`config_bbox_detr_dinov3_s_mouse.yaml`](https://github.com/talmolab/sleap-nn/blob/main/docs/sample_configs/config_bbox_detr_dinov3_s_mouse.yaml),
-which explains each value. It was written for the SLEAP paper's 2-mouse dataset
-(1,180 training frames at 1280 x 1024). The parts that matter:
+[`config_bbox_detr_dinov3_s_animals.yaml`](https://github.com/talmolab/sleap-nn/blob/main/docs/sample_configs/config_bbox_detr_dinov3_s_animals.yaml),
+which explains each value. It was written for a small dataset of two animals per
+frame (1,180 training frames at 1280 x 1024). The parts that matter:
 
 ```yaml
 data_config:
@@ -120,8 +122,8 @@ use (see [Pretrained Backbones](pretrained-backbones.md) for offline use).
 
 **Boxes.** A pose project has no boxes, so they are derived from the poses:
 the tight box of each instance's visible nodes, plus `bbox_padding` pixels on
-every side. Keypoints sit inside the animal's outline (a mouse's snout, ears and
-tail base do not reach its flanks), so a little padding makes the box cover the
+every side. Keypoints sit inside the animal's outline (the nose, ears and tail base
+of an animal seen from above do not reach its flanks), so a little padding makes the box cover the
 body. Use the same `bbox_source` and `bbox_padding` in the centered-instance
 model of a top-down pair: its crops are then the same boxes the detector learns.
 
@@ -146,9 +148,9 @@ config generator's rule (`recommend_detr_resolution`):
 
 | Dataset | Frames | Animals (p5 / median, padded) | Input | Small / median animal |
 |---|---|---|---|---|
-| SLEAP mice HC (2 mice) | 1280 x 1024 | 97 / 191 px | 640 x 512 | 3.0 / 6.0 tokens |
-| MABe 2023 (2 mice) | 720 x 480 | 79 / 104 px | 448 x 320 | 3.1 / 4.0 tokens |
-| MoSAIC (6 mice, large arena) | 3934 x 3490 | 87 / 169 px | needs 2170; capped at 1280 x 1152 | 1.8 / 3.4 tokens |
+| A small arena (2 animals) | 1280 x 1024 | 97 / 191 px | 640 x 512 | 3.0 / 6.0 tokens |
+| A home cage (2 animals) | 720 x 480 | 79 / 104 px | 448 x 320 | 3.1 / 4.0 tokens |
+| A large arena (6 animals) | 3934 x 3490 | 87 / 169 px | needs 2170; capped at 1280 x 1152 | 1.8 / 3.4 tokens |
 
 Compute cost grows with the number of tokens (global attention: with the square
 of it, though flash attention keeps memory linear), so the rule does not go
@@ -184,7 +186,8 @@ pointing at an imported RF-DETR model they fine-tune it (next section).
 
 RF-DETR's Apache-2.0 checkpoints (`nano`, `small`, `medium`, `large`) convert to
 sleap-nn model directories. The other RF-DETR sizes (the XL / 2XL and "plus"
-models) are under a different license (PML 1.0) and are not supported.
+models) are under a different license (PML 1.0) and have no short name here; a Hub id
+or directory you pass carries its own license, which sleap-nn does not check.
 
 ```bash
 sleap-nn import-rfdetr medium -o models/rfdetr-medium      # downloads Roboflow/rf-detr-medium
@@ -219,13 +222,13 @@ model_config:
     path: models/rfdetr-medium
     # Optional: seed new classes from related source classes, {target: source}.
     # node_map:
-    #   mouse: cat
+    #   animal: cat
   backbone_config:
     dinov2_windowed: {...}       # as in the imported model's training_config.yaml
   head_configs:
     bbox_detr:
       detr:
-        categories: [mouse]      # "mouse" is new: its row starts fresh
+        categories: [animal]     # "animal" is new: its row starts fresh
         dec_layers: 4
         num_queries: 300         # RF-DETR's; fewer and its query embeddings start fresh
         num_select: 300
@@ -255,12 +258,12 @@ Worked examples:
 RF-DETR's own fine-tuning advice applies: if training does not converge, halve the
 learning rate.
 
-Another `bbox_detr` model works as the source the same way, e.g. a human detector
-to start a mouse detector. Its backbone must have the same shape (same preset).
+Another `bbox_detr` model works as the source the same way, e.g. a person detector
+to start a detector for another species. Its backbone must have the same shape (same preset).
 
-### Our human detector (two stages)
+### Example: a person detector in two stages
 
-The human detector trains in two stages on DINOv3 ViT-B/16 at 704 px, letterboxed:
+The sample person-detector recipe trains in two stages on DINOv3 ViT-B/16 at 704 px, letterboxed:
 
 1. [`config_bbox_detr_dinov3_b_person.yaml`](https://github.com/talmolab/sleap-nn/blob/main/docs/sample_configs/config_bbox_detr_dinov3_b_person.yaml):
    fresh projector and 4-layer decoder on the person boxes of Objects365 +
@@ -281,9 +284,9 @@ Train the detector and a box-scaled centered-instance model (the config generato
 `topdown_bbox_detr` writes both), then pass both to `predict`:
 
 ```bash
-sleap-nn train mice_bbox_detr.yaml
-sleap-nn train mice_centered_instance.yaml
-sleap-nn predict -i video.mp4 -m models/mice_bbox_detr -m models/mice_centered_instance
+sleap-nn train animals_bbox_detr.yaml
+sleap-nn train animals_centered_instance.yaml
+sleap-nn predict -i video.mp4 -m models/animals_bbox_detr -m models/animals_centered_instance
 sleap-nn eval --ground_truth_path test.slp --predicted_path test.predictions.slp
 ```
 
@@ -295,13 +298,19 @@ caps the boxes per frame. Everything else is as in
 
 ## Detector boxes for training crops
 
+!!! warning "Experimental"
+    Training on detector-box crops (`sleap-nn detect-boxes`, then
+    `crop_bbox_source: detector`) may change or be removed without a deprecation
+    period. In the developers' test its gain over ground-truth-box crops was within
+    noise.
+
 At inference the instance model sees crops from detector boxes, which are
 slightly off from the ground-truth boxes it trained on. `sleap-nn detect-boxes`
 runs a detector over the labeled frames and stores its boxes, matched to the
 instances, so the instance model can train on detector-box crops:
 
 ```bash
-sleap-nn detect-boxes -i train.pkg.slp -m models/mice_bbox_detr --category mouse
+sleap-nn detect-boxes -i train.pkg.slp -m models/animals_bbox_detr --category animal
 # -> train.pkg.bboxdetr.slp: one PredictedBoundingBox per detection (score >= 0.3),
 #    linked to its matched instance; match statistics in <output>.json
 ```
@@ -335,7 +344,7 @@ side, resized to the input size.
 
 ## Small datasets
 
-Advice for a few hundred to a few thousand labeled frames, as in the mouse sample:
+Advice for a few hundred to a few thousand labeled frames, as in the two-animal sample:
 
 - **Train long.** The RF-DETR paper says small datasets need more than 100 epochs.
   The sample uses 200 (one epoch = one pass over the frames,
@@ -359,6 +368,97 @@ Advice for a few hundred to a few thousand labeled frames, as in the mouse sampl
 - **Start from another detector** when one exists for a similar domain
   (`init_from`, previous section). Whether a detector of another species helps
   is not settled; compare against a start from the backbone alone.
+
+## Training augmentation
+
+Besides RF-DETR's crop, flip and multi-scale (above), `augmentation_config.detr` has
+options that RF-DETR does not. All are off by default and apply to training frames
+only. They run in this order: RF-DETR's crop branch, horizontal flip, vertical flip,
+90 degree rotation, the fit to the input size, zoom-out, then copy-paste; the
+`intensity` / `geometric` sections come after (with `frame_photometric`, the
+intensity ops run first, on the whole frame).
+
+### Zoom-out
+
+Zoom-out shrinks the fitted training frame and places it at a random spot on a
+canvas of the input size, so the detector also sees animals smaller than in the
+labelled frames (a camera farther away, a larger arena). The factor is drawn
+log-uniformly from `[zoom_out_min, zoom_out_max]`; boxes shrink and move with the
+frame. In the developers' tests it was the one option in this section that improved
+detection in recording setups not seen in training.
+
+```yaml
+data_config:
+  augmentation_config:
+    detr:
+      zoom_out_p: 0.5         # share of training frames that are zoomed out
+      zoom_out_min: 0.4       # smallest factor (0.4 = 40% of the input size)
+      zoom_out_max: 1.0
+      zoom_out_canvas: frame  # zero (black) or frame (another training frame)
+```
+
+| Key | Default | Meaning |
+|---|---|---|
+| `zoom_out_p` | `0.0` (off) | Probability of zooming a training frame out |
+| `zoom_out_min` | `0.4` | Smallest factor (> 0) |
+| `zoom_out_max` | `1.0` | Largest factor (<= 1) |
+| `zoom_out_canvas` | `zero` | `zero`: a black canvas. `frame`: another training frame (a uniformly drawn file, then frame), fitted to the input size with its own boxes; its boxes at least half covered by the shrunk frame are dropped and the others clipped to the part left visible, so the surroundings are real scenes |
+
+With `zoom_out_canvas: frame` a sample can hold the boxes of two frames, so the
+largest number of boxes per sample (`max_instances`) is doubled. The CenterNet and
+SSD box heads (`bbox_centernet`, `bbox_ssd`) take the same zoom-out keys.
+
+### Vertical flip and 90 degree rotation
+
+For overhead video, where no orientation is special, `vflip_p` flips frames upside
+down and `rot90_p` turns them by 90 degrees (clockwise or counterclockwise at random).
+Both keep boxes exact, unlike the `geometric` rotation, whose turned box corners
+enlarge the boxes. With `flip_p: 0.5`, `vflip_p: 0.5` and `rot90_p: 0.5` every
+orientation and mirror image is equally likely. They are available with no measured
+gain in the developers' tests.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `vflip_p` | `0.0` (off) | Vertical flip probability |
+| `rot90_p` | `0.0` (off) | Probability of a 90 degree rotation, either direction |
+
+Boxes are clipped to the frame before it is fitted to the input size, so a box
+reaching past the frame's right or bottom edge (an animal cut by a random crop, or a
+padded keypoint box at the frame edge) is not kept over the letterbox padding.
+
+### Copy-paste
+
+!!! warning "Experimental"
+    Copy-paste may change or be removed in a later release without a deprecation
+    period, and it showed no measured benefit in the developers' tests.
+
+Copy-paste cuts animals out of other training frames and pastes them onto the fitted
+training frame: more animals, small animals and new backgrounds per sample. Each
+animal is its box region with a soft mask (the convex hull of its linked instance's
+points inside the box, dilated and feathered), scaled by a log-uniform factor,
+flipped and turned by a multiple of 90 degrees at random, and placed inside the
+frame's content (not on the letterbox padding). Boxes with no linked instance, or with
+fewer than 4 points inside, are never pasted, so this needs pose labels.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `paste_p` | `0.0` (off) | Probability of pasting into a training frame |
+| `paste_max` | `6` | Most animals pasted into one frame (a uniform draw from 1 to this) |
+| `paste_frames` | `2` | Most source frames read per paste (each a uniformly drawn training file, then frame) |
+| `paste_scale_min` | `0.3` | Smallest scale of a pasted animal, relative to its size in its own fitted frame |
+| `paste_scale_max` | `1.2` | Largest such scale |
+| `paste_overlap` | `0.3` | Largest share of a pasted box that may overlap boxes already in the frame (a pasted box never covers half of another box) |
+| `paste_dilate` | `0.08` | Mask dilation, as a share of the box's longest side |
+| `paste_feather` | `0.04` | Mask edge blur (Gaussian radius), as a share of the box's longest side |
+
+With copy-paste on, `max_instances` grows by `paste_max`.
+
+### Appearance augmentations on whole frames
+
+`augmentation_config.intensity.frame_photometric: true` (experimental) applies the
+warp data path's photometric ops, including the experimental appearance ops (grey,
+channel shuffle and gain, gamma, invert, down-up, JPEG), to whole detector training
+frames. See [Appearance augmentations](warp-data-path.md#appearance-augmentations).
 
 ## Boxes and keypoints in one pass (experimental)
 
@@ -460,10 +560,13 @@ sleap-nn export models/my_detr -o models/my_detr/exported --format both --precis
 sleap-nn predict -m models/my_detr/exported -i video.mp4 -o boxes.slp
 ```
 
-Pass `--precision bf16` (a GPU with compute capability >= 8.0) or `fp32`:
-the default `fp16` can lose boxes with a DINOv3 encoder (its activations overflow
-fp16's range), and `sleap-nn predict` prefers the TensorRT engine when the directory
-holds one. In `bf16` the layers after the backbone (proposals, decoder, box head) are
+The default `fp16` keeps each attention block's logits product in fp32 for this
+encoder (TensorRT 10.13 or later; see
+[fp16 for ViT backbones](export.md#fp16-for-vit-backbones-fp32-attention-logits)).
+A plain `fp16` engine (TensorRT below 10.13, or `--no-fp32-attention-logits`) can lose
+boxes with a DINOv3 encoder: pass `--precision bf16` (a GPU with compute capability
+>= 8.0) or `fp32` there. `sleap-nn predict` prefers the TensorRT engine when the
+directory holds one. In `bf16` the layers after the backbone (proposals, decoder, box head) are
 kept in fp32; see [TensorRT precision](export.md#tensorrt-precision).
 
 As for the other detectors ([Box detection](bbox-detection.md#export-onnx-tensorrt)),

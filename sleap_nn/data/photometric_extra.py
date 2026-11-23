@@ -1,5 +1,7 @@
-"""Appearance augmentations for unseen recording setups (E19, mouse generalist).
+"""Appearance augmentations meant for recording setups unlike the training data.
 
+Experimental: these may change or be removed in a later release without a
+deprecation period, and they showed no measured benefit in the developers' tests.
 Off by default. Configured through new keys of ``augmentation_config.intensity``
 (:class:`~sleap_nn.config.data_config.IntensityConfig`) and applied by
 :class:`~sleap_nn.data.topdown_warp.WarpAug` (pose crops) and, with
@@ -16,10 +18,10 @@ the generator it is given:
   ``g = channel_gain_max`` (colour cast: red light, tinted IR, white balance).
 * ``gamma_p``: ``255 * (x / 255) ** gamma``, ``log(gamma) ~ U(log min, log max)``
   (dim or overexposed cages).
-* ``invert_p``: ``255 - x`` (a light mouse on a dark floor looks like a dark
-  mouse on a light floor).
+* ``invert_p``: ``255 - x`` (a light animal on a dark floor looks like a dark
+  animal on a light floor).
 * ``downup_p``: downsample by ``f ~ U(downup_min, downup_max)`` (area) and resize
-  back (bilinear): a mouse filmed with few pixels, upsampled into the crop.
+  back (bilinear): an animal filmed with few pixels, upsampled into the crop.
 * ``jpeg_p``: JPEG re-encode at quality ``U[jpeg_quality_min, jpeg_quality_max]``.
 
 Order: colour (gray, shuffle, gain), tone (gamma, invert; one lookup table),
@@ -35,7 +37,7 @@ import numpy as np
 
 @dataclass
 class ExtraPhotometric:
-    """The E19 appearance ops (see the module docstring)."""
+    """The appearance ops (experimental; see the module docstring)."""
 
     gray_p: float = 0.0
     channel_shuffle_p: float = 0.0

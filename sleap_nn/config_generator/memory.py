@@ -249,7 +249,7 @@ def estimate_memory(
 #: moments and the EMA copy.
 _DETR_BYTES_PER_PARAM = 20
 #: Saved activation bytes per token per channel per ViT block (bf16 autocast),
-#: calibrated on M2's measured 4.7 GB/GPU peak: RF-DETR-M, batch 4, multi-scale up
+#: calibrated on a measured 4.7 GB/GPU peak: RF-DETR-M, batch 4, multi-scale up
 #: to 736 px.
 _VIT_ACTIVATION_BYTES = 78
 #: Decoder activation bytes per query per layer, in units of

@@ -536,6 +536,10 @@ yourself if needed.
 
 ### Frame in, pose out: `open_stream`
 
+!!! info "Beta"
+    `open_stream` and `PoseStream` are in beta: the interface may still change in a
+    minor release. The pipeline behind them is the one `predict` runs.
+
 `open_stream` builds the same pipeline as `predict` (same model arguments, filters
 and part stage) and returns a `PoseStream`: push one frame, get that frame's
 poses back. A camera loop is about ten lines:
@@ -561,7 +565,7 @@ zero rows.
 
 - **Same result as `predict`.** Pushing a video's frames one by one gives the
   points of `sleap-nn predict --batch_size 1 --part_streaming` (bit-identical
-  in the tests). Per-frame options (`peak_threshold`, `centroid_threshold`,
+  in the tests; the streaming [part stage](part-stage.md) is experimental). Per-frame options (`peak_threshold`, `centroid_threshold`,
   `max_instances`, `filter_config`, ...) mean what they mean for `predict`;
   arguments `open_stream` does not list take `predict`'s defaults.
 - **Models.** The models must end in keypoints: a single-instance or bottom-up

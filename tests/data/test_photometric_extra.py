@@ -1,4 +1,4 @@
-"""E19 appearance ops (`sleap_nn.data.photometric_extra`) and the DETR zoom-out."""
+"""Appearance ops (`sleap_nn.data.photometric_extra`) and the DETR zoom-out."""
 
 import numpy as np
 import pytest

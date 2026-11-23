@@ -7197,9 +7197,9 @@ class DetrBBoxDataset(BBoxDataset):
     def _frame_photometric(self, image: torch.Tensor) -> torch.Tensor:
         """The warp pipeline's photometric ops on a whole ``(1, C, H, W)`` uint8 frame.
 
-        ``intensity.frame_photometric``: contrast, brightness, HSV, blurs,
-        noise and :mod:`sleap_nn.data.photometric_extra`, drawn from one generator
-        per worker process.
+        ``intensity.frame_photometric`` (experimental): contrast, brightness, HSV,
+        blurs, noise and :mod:`sleap_nn.data.photometric_extra`, drawn from one
+        generator per worker process.
         """
         from sleap_nn.data.topdown_warp import WarpAug
 

@@ -1,4 +1,4 @@
-# bbox_detr M2 check: fine-tune an imported RF-DETR-M to a person-only detector on
+# bbox_detr sample: fine-tune an imported RF-DETR-M to a person-only detector on
 # COCO train2017 person boxes (people without keypoints included, crowd regions
 # dropped), validated on COCO val2017. RF-DETR's training recipe throughout.
 #
@@ -13,10 +13,11 @@
 # Cosine: set
 #   lr_scheduler.cosine_annealing_warmup: {warmup_steps: 0, eta_min: 0.0}
 data_config:
+  # Placeholder paths: point them at your own converted labels files.
   train_labels_path:
-    - /scr/talmo/code/2026-10-22-sleap-nn-human/datasets/_slp3/coco_train2017.slp
+    - data/coco_train2017.slp
   val_labels_path:
-    - /scr/talmo/code/2026-10-22-sleap-nn-human/datasets/_slp3/coco_val2017.slp
+    - data/coco_val2017.slp
   # User boxes on the frames (COCO person boxes, crowd regions excluded).
   bbox_source: bboxes
   preprocessing:
@@ -118,8 +119,8 @@ trainer_config:
   throughput_log_every_n_steps: 50
   use_wandb: true
   wandb:
-    entity: talmolab
-    project: sleap-nn-human
+    entity: null
+    project: null
     group: bbox-detr
     name: null
     viz_enabled: false

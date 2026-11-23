@@ -1,5 +1,11 @@
 # Distillation
 
+!!! warning "Experimental"
+    Distillation may change or be removed in a later release without a deprecation
+    period. Its defaults are untuned, and it showed no measured benefit in the
+    developers' tests: check a distilled student against one trained without a
+    teacher on your own data.
+
 `trainer_config.distillation` trains a model with help from another, already
 trained model, the **teacher**. It follows DWPose ([Yang et al. 2023](https://arxiv.org/abs/2307.15880)):
 

@@ -1,4 +1,4 @@
-# bbox_detr M3, arm A, stage 2: fine-tune the stage-1 person detector
+# bbox_detr, stage 2 of 2: fine-tune the stage-1 person detector
 # (config_bbox_detr_dinov3_b_person.yaml: DINOv3 ViT-B/16, fresh projector and
 # 4-layer decoder, Objects365 + Open Images person boxes) on the pose datasets'
 # domains: COCO train2017 + CrowdHuman + CrowdPose + JRDB-Pose + Human-Art,
@@ -15,14 +15,15 @@
 # gamma: 0.1}. Cosine: lr_scheduler.cosine_annealing_warmup: {warmup_steps: 0,
 # eta_min: 0.0}.
 data_config:
+  # Placeholder paths: point them at your own converted labels files.
   train_labels_path:
-    - /scr/talmo/code/2026-10-22-sleap-nn-human/datasets/_slp3/coco_train2017.slp
-    - /scr/talmo/code/2026-10-22-sleap-nn-human/datasets/_slp3/crowdhuman_train.dedup.slp
-    - /scr/talmo/code/2026-10-22-sleap-nn-human/datasets/_slp3/crowdpose_train_union.dedup.slp
-    - /scr/talmo/code/2026-10-22-sleap-nn-human/datasets/_slp3/jrdb_pose_train_union.dedup.slp
-    - /scr/talmo/code/2026-10-22-sleap-nn-human/datasets/_slp3/human_art_train_union.dedup.slp
+    - data/coco_train2017.slp
+    - data/crowdhuman_train.dedup.slp
+    - data/crowdpose_train_union.dedup.slp
+    - data/jrdb_pose_train_union.dedup.slp
+    - data/human_art_train_union.dedup.slp
   val_labels_path:
-    - /scr/talmo/code/2026-10-22-sleap-nn-human/datasets/_slp3/coco_val2017.slp
+    - data/coco_val2017.slp
   bbox_source: bboxes
   preprocessing:
     ensure_rgb: true
@@ -122,8 +123,8 @@ trainer_config:
   throughput_log_every_n_steps: 50
   use_wandb: true
   wandb:
-    entity: talmolab
-    project: sleap-nn-human
+    entity: null
+    project: null
     group: bbox-detr
     name: null
     viz_enabled: false

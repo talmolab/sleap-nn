@@ -1,4 +1,4 @@
-# bbox_detr M3, arm A, stage 1: a person detector on a pretrained DINOv3 ViT-B/16
+# bbox_detr, stage 1 of 2: a person detector on a pretrained DINOv3 ViT-B/16
 # (timm, LVD-1689M) with a freshly initialized projector and 4-layer decoder,
 # trained on the person boxes of Objects365 v2 + Open Images V7 and validated on
 # COCO val2017. RF-DETR's training recipe, letterboxed at 704 (global attention:
@@ -19,11 +19,12 @@
 # gamma: 0.1}. Cosine: lr_scheduler.cosine_annealing_warmup: {warmup_steps: 0,
 # eta_min: 0.0}.
 data_config:
+  # Placeholder paths: point them at your own converted labels files.
   train_labels_path:
-    - /scr/talmo/code/2026-10-22-sleap-nn-human/datasets/_slp3/objects365_train.dedup.slp
-    - /scr/talmo/code/2026-10-22-sleap-nn-human/datasets/_slp3/open_images_train.dedup.slp
+    - data/objects365_train.dedup.slp
+    - data/open_images_train.dedup.slp
   val_labels_path:
-    - /scr/talmo/code/2026-10-22-sleap-nn-human/datasets/_slp3/coco_val2017.slp
+    - data/coco_val2017.slp
   bbox_source: bboxes
   preprocessing:
     ensure_rgb: true
@@ -119,8 +120,8 @@ trainer_config:
   throughput_log_every_n_steps: 50
   use_wandb: true
   wandb:
-    entity: talmolab
-    project: sleap-nn-human
+    entity: null
+    project: null
     group: bbox-detr
     name: null
     viz_enabled: false
