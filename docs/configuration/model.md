@@ -478,10 +478,13 @@ model_config:
 !!! note "UNet only"
     Legacy SLEAP weights only work with UNet backbone.
 
-!!! warning "Shape mismatches are skipped"
-    A `.ckpt` tensor whose shape differs from the new model's is now skipped with
-    a warning (the target keeps its init) instead of raising. Set
-    `init_from.strict: true` to raise again.
+!!! note "Shape mismatches raise"
+    A `.ckpt` tensor whose shape differs from the new model's raises an error
+    with these two keys, and head channels are copied by position, as in
+    earlier releases. Set `init_from.remap_nodes: true` to copy head channels by
+    node name (a skeleton that grows or is reordered), `init_from.strict: false`
+    to skip tensors that do not fit with a warning (the target keeps its init),
+    or use `init_from.path`, which does both by default.
 
 ### From Another Model, Tolerating Differences
 
@@ -622,13 +625,13 @@ model_config:
 | `path` | str | `null` | Model directory (`best.ckpt`), `.ckpt` or raw state dict. `null`: load nothing (`reinit` still applies) |
 | `include` | list | `null` | Selectors of weights to load (`null` = all): `all`, `backbone`, `encoder`, `decoder`, `neck`, `head`, `embeddings`, `blocks[a:b]`, globs |
 | `exclude` | list | `null` | Selectors of weights to leave at their init |
-| `remap_nodes` | bool | `true` | Copy per-node head channels by node name |
+| `remap_nodes` | bool | `null` | Copy per-node head channels by node name. `null`: yes for `path`, no (by position) for `pretrained_head_weights` |
 | `node_map` | dict | `null` | `{target node: source node}` overrides. For `bbox_detr` the class-head rows are matched by class name the same way (the never-positive extra logit is `__extra__`; leave it unmapped so it takes the source's own); classes the source lacks start fresh |
 | `source_part_names` | list | `null` | Source node names, for checkpoints that record none |
 | `interpolate_pos_embed` | bool | `true` | Resize learned positional embeddings to the new token grid |
 | `reinit` | list | `null` | Selectors re-initialized after loading |
 | `reinit_layer_scale` | float | `1e-5` | LayerScale for re-initialized ViT blocks |
-| `strict` | bool | `false` | Raise on any shape-mismatched tensor (also for `pretrained_*_weights`) |
+| `strict` | bool | `null` | Raise on any shape-mismatched tensor. `null`: `init_from.path` skips with a warning, the `.ckpt` forms of `pretrained_*_weights` raise. `true` / `false` apply one rule to both |
 
 ### UNetConfig
 
@@ -706,7 +709,7 @@ External HuggingFace / timm backbone (`backbone_config.pretrained`). See the
 | `output_stride` | int | `2` | Finest decoder output stride (plain ViT: at most `token_stride`) |
 | `max_stride` | int | `32` | Deepest encoder stride: 32 for hierarchical backbones; for a plain ViT a multiple of `2 × token_stride` |
 | `token_stride` | int | `null` | Plain ViT: stride of the token grid (power of two ≥ 4; the input is resized to match). `null` = power of two nearest the patch size (16 for patch 14 or 16). `8` = finer grid, ~4× encoder cost |
-| `layers` | list[int] | `null` | Plain ViT: layers to tap, 1-indexed (`-1` = last). `null` = one evenly spaced tap per built pyramid level, ending at the last, for `dpt` (`[3, 6, 9, 12]` for 12 layers); the last layer for `sfp` / encoder mode (which take exactly one) |
+| `layers` | list[int] | `null` | Plain ViT: layers to tap, 1-indexed (`-1` = last). `null` = one evenly spaced tap per built pyramid level, ending at the last, for `dpt` (`[3, 6, 9, 12]` for 12 layers); the last layer for `sfp` / encoder mode (which take exactly one). `dpt` takes one tap per built level, or 4 taps (one per level of the full pyramid): when `output_stride` leaves the finer levels out, their (shallowest) taps are dropped, so `[3, 6, 9, 12]` at `output_stride: 8` and token stride 16 uses `[6, 9, 12]`. Any other count is an error that names the counts to use |
 | `vit_neck` | str | `dpt` | Plain ViT: `dpt` (one tapped layer per pyramid level) or `sfp` (ViTDet Simple Feature Pyramid from the last tap) |
 | `neck_channels` | list[int] | `null` | Plain ViT: channels of the 4 neck levels, finest first. `null` = `[h/8, h/4, h/2, h]` for hidden size `h` |
 | `gradient_checkpointing` | bool | `false` | Enable gradient checkpointing in the encoder during training (less memory, slower) |

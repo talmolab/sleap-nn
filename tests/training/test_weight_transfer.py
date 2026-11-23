@@ -154,32 +154,79 @@ def test_include_exclude(minimal_instance_centered_instance_ckpt):
     )
 
 
-def test_legacy_pretrained_head_weights_remap(
+def test_legacy_pretrained_head_weights_by_position_unless_remap(
     minimal_instance_centered_instance_ckpt,
 ):
-    """`pretrained_head_weights` no longer crashes on a grown skeleton."""
+    """`pretrained_head_weights` copies head channels as before `init_from`.
+
+    By position: a reordered skeleton of the same size loads channel for channel,
+    and a grown skeleton raises (its head tensor has another shape).
+    `init_from.remap_nodes: true` copies by node name instead.
+    """
     ckpt = minimal_instance_centered_instance_ckpt
-    cfg = _ci_config(ckpt, part_names=["B", "A", "C"])
-    cfg.model_config.pretrained_head_weights = str(Path(ckpt) / "best.ckpt")
-    cfg.model_config.pretrained_backbone_weights = str(Path(ckpt) / "best.ckpt")
-    model = LightningModel.get_lightning_model_from_config(cfg)
+    best = str(Path(ckpt) / "best.ckpt")
     src = _source_sd(ckpt)
+
+    cfg = _ci_config(ckpt, part_names=["B", "A"])
+    cfg.model_config.pretrained_head_weights = best
+    model = LightningModel.get_lightning_model_from_config(cfg)
+    assert torch.equal(model.state_dict()[HEAD_W], src[HEAD_W])
+    assert not model.transfer_reports[0].remapped
+
+    cfg = _ci_config(ckpt, part_names=["B", "A", "C"])
+    cfg.model_config.pretrained_head_weights = best
+    cfg.model_config.pretrained_backbone_weights = best
+    with pytest.raises(ValueError, match="strict=True"):
+        LightningModel.get_lightning_model_from_config(cfg)
+
+    cfg.model_config.init_from = {"remap_nodes": True}
+    model = LightningModel.get_lightning_model_from_config(cfg)
     assert torch.equal(model.state_dict()[HEAD_W][1], src[HEAD_W][0])
     assert len(model.transfer_reports) == 2
 
 
-def test_legacy_keys_warn_on_shape_mismatch_unless_strict(
+def test_init_from_path_remaps_by_name_by_default(
     minimal_instance_centered_instance_ckpt,
 ):
-    """Documented behaviour change: skip + warn, `init_from.strict` raises."""
+    """`init_from.path` copies head channels by node name when `remap_nodes` is unset."""
+    from sleap_nn.config.model_config import InitFromConfig
+
+    assert InitFromConfig().remap_nodes is None
+    ckpt = minimal_instance_centered_instance_ckpt
+    model = _build(_ci_config(ckpt, part_names=["B", "A"]), path=str(ckpt))
+    assert torch.equal(model.state_dict()[HEAD_W][0], _source_sd(ckpt)[HEAD_W][1])
+
+
+def test_legacy_keys_raise_on_shape_mismatch_unless_lenient(
+    minimal_instance_centered_instance_ckpt,
+):
+    """`pretrained_*_weights` raise on a shape mismatch, as before `init_from`.
+
+    `init_from.strict: false` skips and warns instead; `true` raises as the default.
+    """
     ckpt = minimal_instance_centered_instance_ckpt
     cfg = _ci_config(ckpt, filters=8)
     cfg.model_config.pretrained_backbone_weights = str(Path(ckpt) / "best.ckpt")
-    model = LightningModel.get_lightning_model_from_config(cfg)
-    assert model.transfer_reports[0].skipped
+    with pytest.raises(ValueError, match="strict=True"):
+        LightningModel.get_lightning_model_from_config(cfg)
     cfg.model_config.init_from = {"strict": True}
     with pytest.raises(ValueError, match="strict=True"):
         LightningModel.get_lightning_model_from_config(cfg)
+    cfg.model_config.init_from = {"strict": False}
+    model = LightningModel.get_lightning_model_from_config(cfg)
+    assert model.transfer_reports[0].skipped
+
+
+def test_init_from_path_stays_lenient_by_default(
+    minimal_instance_centered_instance_ckpt,
+):
+    """`init_from.path` skips a shape-mismatched tensor with a report by default."""
+    from sleap_nn.config.model_config import InitFromConfig
+
+    assert InitFromConfig().strict is None
+    ckpt = minimal_instance_centered_instance_ckpt
+    model = _build(_ci_config(ckpt, filters=8), path=str(ckpt))
+    assert model.transfer_reports[0].skipped
 
 
 def test_checkpoint_records_head_channels(
@@ -597,7 +644,7 @@ def test_config_schema():
     init = OmegaConf.structured(
         InitFromConfig(path="x.ckpt", node_map={"neck": "nose"}, reinit=["head"])
     )
-    assert init.node_map == {"neck": "nose"} and init.strict is False
+    assert init.node_map == {"neck": "nose"} and init.strict is None
 
 
 def test_train_with_init_from_and_freeze_schedule(
@@ -635,3 +682,33 @@ def test_train_with_init_from_and_freeze_schedule(
     saved_cfg = OmegaConf.load(run / "training_config.yaml")
     assert saved_cfg.model_config.init_from.path == str(ckpt)
     assert saved_cfg.trainer_config.freeze_schedule.unfreeze_at_step == 1
+
+
+def test_resume_keeps_the_old_keys_loading_options(
+    minimal_instance_centered_instance_ckpt,
+):
+    """A resumed run still loads `pretrained_head_weights` the way it started.
+
+    On resume `init_from.path` / `reinit` are skipped, but `remap_nodes` and
+    `strict` keep telling the old keys how to load: a grown skeleton that needed
+    `remap_nodes: true` to start must not fail to resume.
+    """
+    ckpt = minimal_instance_centered_instance_ckpt
+    best = str(Path(ckpt) / "best.ckpt")
+    cfg = _ci_config(ckpt, part_names=["B", "A", "C"])
+    cfg.model_config.pretrained_head_weights = best
+    cfg.model_config.init_from = {"remap_nodes": True, "path": best}
+    cfg.trainer_config.resume_ckpt_path = best
+    model = LightningModel.get_lightning_model_from_config(cfg)
+    assert len(model.transfer_reports) == 1  # the head; no `path` load
+    assert torch.equal(model.state_dict()[HEAD_W][1], _source_sd(ckpt)[HEAD_W][0])
+
+
+def test_strict_error_suggests_remap_nodes_for_a_head(
+    minimal_instance_centered_instance_ckpt,
+):
+    ckpt = minimal_instance_centered_instance_ckpt
+    cfg = _ci_config(ckpt, part_names=["B", "A", "C"])
+    cfg.model_config.pretrained_head_weights = str(Path(ckpt) / "best.ckpt")
+    with pytest.raises(ValueError, match="remap_nodes: true"):
+        LightningModel.get_lightning_model_from_config(cfg)

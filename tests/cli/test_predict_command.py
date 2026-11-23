@@ -1402,3 +1402,75 @@ def test_predict_default_output_matches_sleap_track(
         "labels.pkg.predictions.slp",
         "labels.pkg.slp",
     ]
+
+
+# ── `--precision` reaches every model of a top-down pair (real checkpoints) ─────
+
+
+@pytest.mark.parametrize(
+    "precision,dtype_name,n_warnings",
+    [(None, None, 0), ("bf16", "bfloat16", 1), ("fp16", "float16", 1)],
+    ids=["default", "bf16", "fp16"],
+)
+def test_predict_precision_sets_autocast_on_both_top_down_models(
+    precision,
+    dtype_name,
+    n_warnings,
+    minimal_instance,
+    minimal_instance_centroid_ckpt,
+    minimal_instance_centered_instance_ckpt,
+    tmp_path,
+    monkeypatch,
+):
+    """`--precision` sets the autocast dtype of both models; without it, neither.
+
+    On a device that is not CUDA the run is fp32 all the same, and a warning says
+    so once (not once per model).
+    """
+    import torch
+    from loguru import logger
+
+    from sleap_nn.inference.predictor import Predictor, _torch_backends
+
+    built = []
+    real_factory = Predictor.from_model_paths
+
+    def recording_factory(*args, **kwargs):
+        built.append(real_factory(*args, **kwargs))
+        return built[-1]
+
+    monkeypatch.setattr(Predictor, "from_model_paths", recording_factory)
+    out = tmp_path / "out.slp"
+    args = [
+        "predict",
+        "-i",
+        str(minimal_instance),
+        "-m",
+        str(minimal_instance_centroid_ckpt),
+        "-m",
+        str(minimal_instance_centered_instance_ckpt),
+        "-d",
+        "cpu",
+        "-o",
+        str(out),
+    ]
+    if precision is not None:
+        args += ["--precision", precision]
+    warnings_logged = []
+    sink = logger.add(warnings_logged.append, format="{message}", level="WARNING")
+    try:
+        result = CliRunner().invoke(cli, args)
+    finally:
+        logger.remove(sink)
+    assert result.exit_code == 0, result.output
+    assert out.exists()
+
+    (predictor,) = built
+    expected = getattr(torch, dtype_name) if dtype_name else None
+    backends = _torch_backends(predictor.layer)
+    assert len(backends) == 2
+    assert [b.autocast_dtype for b in backends] == [expected, expected]
+    off_cuda = [m for m in warnings_logged if "has no effect on device=cpu" in m]
+    assert len(off_cuda) == n_warnings
+    if precision is not None:
+        assert f"precision='{precision}'" in off_cuda[0]

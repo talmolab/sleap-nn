@@ -361,13 +361,19 @@ class LightningModel(L.LightningModule):
                 f"Loading backbone weights from `{self.pretrained_backbone_weights}` ..."
             )
             if self.pretrained_backbone_weights.endswith(".ckpt"):
-                # Shape-tolerant: matching tensors load, the rest are reported.
+                # Strict by default on this route, as before `init_from` existed:
+                # a tensor that does not fit raises unless `init_from.strict` is
+                # false (then matching tensors load and the rest are reported).
+                strict = self._init_from_option("strict", True)
                 self.transfer_reports.append(
                     init_from_checkpoint(
                         self,
                         self.pretrained_backbone_weights,
                         include=["backbone"],
-                        strict=self._init_from_option("strict", False),
+                        strict=strict,
+                        # Strict: a positional table of another size raises, as
+                        # before; lenient: it is resized like `init_from.path` does.
+                        interpolate_pos_embed=not strict,
                     )
                 )
 
@@ -390,14 +396,20 @@ class LightningModel(L.LightningModule):
                 f"Loading head weights from `{self.pretrained_head_weights}` ..."
             )
             if self.pretrained_head_weights.endswith(".ckpt"):
-                # Per-node channels are copied by node name (source skeleton from
-                # the checkpoint / its training_config.yaml).
+                # As before `init_from` existed: per-node channels are copied by
+                # position and a tensor that does not fit raises. With
+                # `init_from.remap_nodes: true` they are copied by node name
+                # (source skeleton from the checkpoint / its training_config.yaml),
+                # and `init_from.strict: false` skips what does not fit.
+                strict = self._init_from_option("strict", True)
                 self.transfer_reports.append(
                     init_from_checkpoint(
                         self,
                         self.pretrained_head_weights,
                         include=["head"],
-                        strict=self._init_from_option("strict", False),
+                        strict=strict,
+                        remap_nodes=self._init_from_option("remap_nodes", False),
+                        interpolate_pos_embed=not strict,
                     )
                 )
 
@@ -519,9 +531,16 @@ class LightningModel(L.LightningModule):
         if init_from is not None and OmegaConf.select(
             config, "trainer_config.resume_ckpt_path", default=None
         ):
-            # The resumed checkpoint overwrites every weight anyway.
-            logger.info("Resuming: skipping model_config.init_from.")
-            init_from = None
+            # The resumed checkpoint overwrites every weight anyway, so `path` and
+            # `reinit` are skipped. `strict` and `remap_nodes` stay: they tell the
+            # `.ckpt` forms of `pretrained_*_weights`, which still load first, how
+            # to load (a run that needed them to start would fail to resume).
+            logger.info("Resuming: skipping model_config.init_from.path / reinit.")
+            init_from = {
+                k: v
+                for k, v in OmegaConf.to_container(init_from).items()
+                if k not in ("path", "reinit")
+            }
 
         lightning_model = lightning_models[model_type](
             model_type=model_type,
@@ -572,6 +591,14 @@ class LightningModel(L.LightningModule):
             lightning_model.encoder_lr_scale,
             lightning_model.layer_decay,
         ) = resolve_encoder_lr_options(config)
+        # The input geometry a model trained at (read by box distillation to warn
+        # when a teacher trained at another one).
+        lightning_model.input_preprocessing = {
+            key: OmegaConf.select(
+                config, f"data_config.preprocessing.{key}", default=None
+            )
+            for key in ("scale", "max_height", "max_width")
+        }
         if model_type == "bbox_detr":
             from sleap_nn.data.custom_datasets import detr_multi_scale_sizes
 
@@ -1634,8 +1661,9 @@ class LightningModel(L.LightningModule):
                 warmup_start_lr=_per_group_lr(cfg.warmup_start_lr),
                 eta_min=_per_group_lr(cfg.eta_min),
                 # Stepped once per epoch: without this the default
-                # `warmup_start_lr=0` trains the whole first epoch at LR 0.
-                skip_warmup_start=True,
+                # `warmup_start_lr=0` trains the whole first epoch at LR 0. A
+                # per-step warmup starts at `warmup_start_lr` (one step there).
+                skip_warmup_start=interval == "epoch",
             )
         elif _sched("linear_warmup_linear_decay") is not None:
             cfg = _sched("linear_warmup_linear_decay")
@@ -1647,8 +1675,9 @@ class LightningModel(L.LightningModule):
                 warmup_start_lr=_per_group_lr(cfg.warmup_start_lr),
                 end_lr=_per_group_lr(cfg.end_lr),
                 # Stepped once per epoch: without this the default
-                # `warmup_start_lr=0` trains the whole first epoch at LR 0.
-                skip_warmup_start=True,
+                # `warmup_start_lr=0` trains the whole first epoch at LR 0. A
+                # per-step warmup starts at `warmup_start_lr` (one step there).
+                skip_warmup_start=interval == "epoch",
             )
         elif _sched("multi_step_lr") is not None:
             cfg = _sched("multi_step_lr")
@@ -5342,10 +5371,17 @@ class _BBoxLightningModel(LightningModel):
         return X
 
     def _step(self, batch, stage: str):
+        """``(supervised loss, raw outputs, input, backbone outputs)`` of a batch.
+
+        The backbone outputs are returned only while distilling (training).
+        """
         X = normalize_on_gpu(torch.squeeze(batch["image"], dim=1))
+        backbone_outputs = None
         if stage == "train":
             X = self._train_input(X)
-        raw = self.model(X)
+            raw, backbone_outputs = self._forward_train(X)
+        else:
+            raw = self.model(X)
         loss, terms = self._compute_losses(raw, batch)
         if stage == "train":
             self.log(
@@ -5367,7 +5403,7 @@ class _BBoxLightningModel(LightningModel):
                 sync_dist=True,
             )
         self._accumulate_terms(stage, terms)
-        return loss, raw, X
+        return loss, raw, X, backbone_outputs
 
     def _accumulate_terms(self, stage: str, terms: Dict[str, torch.Tensor]):
         """Add a step's loss terms to the stage's running sum (logged per epoch).
@@ -5412,13 +5448,44 @@ class _BBoxLightningModel(LightningModel):
         super().on_validation_epoch_end()
 
     def training_step(self, batch, batch_idx):
-        """Training step."""
-        loss, _, _ = self._step(batch, "train")
-        return loss
+        """Training step (plus the distillation terms while distilling)."""
+        loss, raw, X, backbone_outputs = self._step(batch, "train")
+        return self._with_distillation(loss, X, raw, backbone_outputs, batch)
+
+    def _with_distillation(self, loss, X, outputs, backbone_outputs, batch):
+        """The loss to optimize: ``loss`` plus the box distillation terms, if any.
+
+        Logs ``train/distill_box``, ``train/distill_feat`` (with a feature term),
+        ``train/distill_teacher_boxes`` (the teacher's boxes per image used as
+        targets) and ``train/distill_weight`` (``r(t)``) as epoch means; ``loss``
+        (the supervised loss) is what ``loss`` / ``train/loss`` log.
+        """
+        distiller = self.distiller
+        if distiller is None:
+            return loss
+        terms, n_boxes = distiller.box_loss_terms(self, X, outputs, backbone_outputs)
+        r = distiller.weight(self.global_step, distiller.total_steps(self._trainer))
+        for key, value in terms.items():
+            self.log(
+                f"train/distill_{key}",
+                value,
+                on_step=False,
+                on_epoch=True,
+                sync_dist=True,
+            )
+        self.log(
+            "train/distill_teacher_boxes",
+            n_boxes,
+            on_step=False,
+            on_epoch=True,
+            sync_dist=True,
+        )
+        self.log("train/distill_weight", r, on_step=False, on_epoch=True)
+        return distiller.combine(loss, terms, r)
 
     def validation_step(self, batch, batch_idx):
         """Validation step (loss terms + optional detection collection)."""
-        _, raw, X = self._step(batch, "val")
+        _, raw, X, _ = self._step(batch, "val")
         if not self._collect_val_predictions:
             return
         with torch.no_grad():

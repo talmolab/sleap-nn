@@ -363,7 +363,9 @@ class InferenceLayer(ABC):
             eff_scales: list = []
             for b in range(B):
                 # apply_sizematcher accepts (C, H, W); preserves device.
-                r, scale = apply_sizematcher(x[b], cfg.max_height, cfg.max_width)
+                r, scale = apply_sizematcher(
+                    x[b], cfg.max_height, cfg.max_width, warn="info"
+                )
                 resized_frames.append(r)
                 eff_scales.append(float(scale))
             x = torch.stack(resized_frames, dim=0)

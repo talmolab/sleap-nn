@@ -284,7 +284,7 @@ class TopDownEmbeddingLayer(TopDownLayer):
             return x_raw, torch.ones(B, dtype=torch.float32, device=x_raw.device)
         sized, eff = [], []
         for b in range(B):
-            r, scale = apply_sizematcher(x_raw[b], max_h, max_w)
+            r, scale = apply_sizematcher(x_raw[b], max_h, max_w, warn="info")
             sized.append(r)
             eff.append(float(scale))
         return torch.stack(sized, dim=0), torch.tensor(

@@ -1337,7 +1337,7 @@ class UnifiedVizCallback(Callback):
 
 
 class WandBGalleryCallback(Callback):
-    """W&B prediction gallery for box detectors and top-down pose models.
+    """W&B prediction gallery for box detectors, top-down and bottom-up pose models.
 
     On by default whenever W&B logging is on (``trainer_config.wandb.gallery``).
     At the end of a validation epoch (rank 0 only, no barrier) it logs:
@@ -1350,7 +1350,11 @@ class WandBGalleryCallback(Callback):
       same samples improving. Detectors: frames with native W&B boxes
       (``ground_truth`` / ``predictions`` with scores, toggled and filtered in the
       viewer). Pose: crops drawn with OpenCV on the crop's own skeleton (its file's
-      nodes and edges), with the median error in the caption.
+      nodes and edges), with the median error in the caption. Bottom-up pose
+      (``"instances"``): whole frames with the grouped predicted animals over the
+      ground truth, drawn with sleap-io's renderer (Skia), with the ground-truth and
+      predicted animal counts and the median error of greedily paired animals in
+      the caption; the "hard" samples are the frames with the most animals.
     * ``viz/gallery/train``: the first samples of the first training batch after the
       previous validation, exactly as the loader produced them (augmented), with
       their targets; ``bbox_detr`` frames are resized to that step's multi-scale size
@@ -1367,7 +1371,7 @@ class WandBGalleryCallback(Callback):
     running time would exceed ``max_fraction`` of the training time so far (runs that
     validate every few seconds). The first and the last planned validation always
     log. Panel frames are decoded, downscaled and JPEG-encoded once; each event
-    only re-encodes the boxes (detectors) or the drawn crops (pose).
+    only re-encodes the boxes (detectors) or the drawn crops / frames (pose).
 
     It never changes training: Python, NumPy, torch CPU and CUDA RNG states and every
     submodule's train/eval mode are restored after each hook, and the panel and
@@ -1376,11 +1380,13 @@ class WandBGalleryCallback(Callback):
     rest of the run; training continues.
 
     Attributes:
-        kind: ``"bbox"`` (box detectors) or ``"keypoints"`` (centered instance).
+        kind: ``"bbox"`` (box detectors), ``"keypoints"`` (centered instance) or
+            ``"instances"`` (bottom-up models: whole frames, grouped animals).
         size: Maximum validation panel size.
         max_logs: Approximate maximum number of logging events per run.
         train_size: Training samples shown per event.
-        frame_long_side: Detector frames are downscaled to this long side.
+        frame_long_side: Whole frames (detectors, bottom-up) are downscaled to this
+            long side.
         max_fraction: Time budget of the events, as a fraction of training time.
         enabled: False after an error (or when W&B is not configured).
     """
@@ -1406,7 +1412,7 @@ class WandBGalleryCallback(Callback):
         """Initialize the gallery.
 
         Args:
-            kind: ``"bbox"`` or ``"keypoints"``.
+            kind: ``"bbox"``, ``"keypoints"`` or ``"instances"``.
             val_names: Display name of every validation labels file.
             train_names: Display name of every training labels file.
             val_labs: Optional lab (or other group) per validation file, shown in
@@ -1422,13 +1428,14 @@ class WandBGalleryCallback(Callback):
             size: Maximum validation panel size.
             max_logs: Approximate maximum number of logging events per run.
             train_size: Training samples shown per event.
-            frame_long_side: Detector frames are downscaled to this long side.
+            frame_long_side: Whole frames (detectors, bottom-up) are downscaled to
+                this long side.
             max_fraction: Time budget: skip an event while the events so far plus
                 the last event's time would exceed this fraction of the elapsed
                 training time (the one-time panel load is not counted).
         """
         super().__init__()
-        if kind not in ("bbox", "keypoints"):
+        if kind not in ("bbox", "keypoints", "instances"):
             raise ValueError(f"Unknown gallery kind {kind!r}.")
         self.kind = kind
         self.val_names = list(val_names)
@@ -1590,20 +1597,25 @@ class WandBGalleryCallback(Callback):
             loaders = loaders[0]
         return getattr(loaders, "dataset", None), getattr(loaders, "batch_size", None)
 
+    @property
+    def _image_key(self) -> str:
+        """The batch key of the model input: whole frames or instance crops."""
+        return "instance_image" if self.kind == "keypoints" else "image"
+
     # ── training samples ───────────────────────────────────────────────────
     def _capture_train(self, trainer, pl_module, batch):
-        key = "image" if self.kind == "bbox" else "instance_image"
+        key = self._image_key
         if not isinstance(batch, dict) or key not in batch:
             return
         k = min(self.train_size, int(batch[key].shape[0]))
         if k <= 0:
             return
         keys = [key, "labels_idx", "video_idx", "frame_idx"]
-        keys += (
-            ["bboxes", "bbox_classes", "num_instances"]
-            if self.kind == "bbox"
-            else ["instance", "node_weights"]
-        )
+        keys += {
+            "bbox": ["bboxes", "bbox_classes", "num_instances"],
+            "keypoints": ["instance", "node_weights"],
+            "instances": ["instances", "num_instances"],
+        }[self.kind]
         out = {}
         for name in keys:
             t = batch.get(name)
@@ -1639,7 +1651,7 @@ class WandBGalleryCallback(Callback):
         if self._train["event"] is not None:
             self._train["event"].synchronize()
         t = self._train["tensors"]
-        key = "image" if self.kind == "bbox" else "instance_image"
+        key = self._image_key
         images = []
         for i in range(t[key].shape[0]):
             img = gallery.to_rgb_uint8(t[key][i])
@@ -1675,6 +1687,18 @@ class WandBGalleryCallback(Callback):
                         long_side=self.frame_long_side,
                     )
                 )
+            elif self.kind == "instances":
+                gt = self._frame_instances(t["instances"][i], t.get("num_instances"), i)
+                gt = self._only_nodes(gt, self._nodes(self.train_file_nodes, f, None))
+                edges = self.train_edges[f] if self.train_edges else []
+                drawn = gallery.draw_instances(
+                    img, edges, gt=gt, long_side=self.frame_long_side
+                )
+                h, w = img.shape[:2]
+                cap = gallery.caption(
+                    name, lab, v, fr, f"input {h}x{w}, {len(gt)} instances"
+                )
+                images.append(gallery.keypoint_wandb_image(drawn, cap))
             else:
                 kpts = t["instance"][i].reshape(-1, 2).float().numpy()
                 nodes = self._nodes(self.train_file_nodes, f, kpts.shape[0])
@@ -1694,10 +1718,33 @@ class WandBGalleryCallback(Callback):
         )
 
     @staticmethod
-    def _nodes(file_nodes, f: int, k: int) -> list:
+    def _nodes(file_nodes, f: int, k: Optional[int]) -> Optional[list]:
         if file_nodes is not None and f < len(file_nodes):
             return list(file_nodes[f])
-        return list(range(k))
+        return None if k is None else list(range(k))
+
+    @staticmethod
+    def _frame_instances(instances, num_instances=None, i: int = 0):
+        """``(n, K, 2)`` numpy instances of one sample's ``instances`` tensor."""
+        import numpy as np
+
+        arr = instances.float().cpu().numpy()
+        arr = arr.reshape(-1, arr.shape[-2], 2)
+        if num_instances is not None:
+            n = num_instances[i] if getattr(num_instances, "ndim", 0) else num_instances
+            arr = arr[: int(n)]
+        return arr[np.isfinite(arr).all(axis=-1).any(axis=-1)]
+
+    @staticmethod
+    def _only_nodes(instances, nodes: Optional[list]):
+        """``instances`` with the nodes outside ``nodes`` set to NaN (``None``: all)."""
+        import numpy as np
+
+        if nodes is None:
+            return instances
+        out = np.full_like(instances, np.nan)
+        out[:, nodes] = instances[:, nodes]
+        return out
 
     # ── validation panel ───────────────────────────────────────────────────
     def _panel_metadata(self, dataset):
@@ -1716,14 +1763,38 @@ class WandBGalleryCallback(Callback):
         if samples is None:
             n = len(dataset)
             return np.zeros(n, dtype=int), None
-        groups, boxes = [], []
+        groups, boxes, counts = [], [], []
         for i in range(len(samples)):
             s = samples[i]
             groups.append(int(s.get("labels_idx", 0)))
             boxes.append(s.get("bboxes", np.zeros((0, 4))))
+            if self.kind == "instances":
+                counts.append(self._sample_count(dataset, s))
         groups = np.asarray(groups)
-        hardness = gallery.box_hardness(boxes, groups) if self.kind == "bbox" else None
+        hardness = None
+        if self.kind == "bbox":
+            hardness = gallery.box_hardness(boxes, groups)
+        elif self.kind == "instances" and all(c is not None for c in counts):
+            hardness = gallery.instance_count_hardness(counts)
         return np.asarray(groups), hardness
+
+    @staticmethod
+    def _sample_count(dataset, sample) -> Optional[int]:
+        """Number of labeled animals in a whole-frame sample (``None``: unknown).
+
+        From the sample's cached instances, else from its labeled frame.
+        """
+        if sample.get("is_negative", False):
+            return 0
+        instances = sample.get("instances")
+        if instances is None:
+            labels_list = getattr(dataset, "labels_list", None)
+            try:
+                lf = labels_list[sample["labels_idx"]][sample["lf_idx"]]
+            except (TypeError, KeyError, IndexError):
+                return None
+            instances = lf.instances
+        return sum(1 for inst in instances if not inst.is_empty)
 
     def _build_panel(self, trainer):
         from sleap_nn.training import gallery
@@ -1735,7 +1806,7 @@ class WandBGalleryCallback(Callback):
         groups, hardness = self._panel_metadata(dataset)
         names = self.val_names or ["val"]
         picks = gallery.select_panel(groups, names, self.size, hardness)
-        key = "image" if self.kind == "bbox" else "instance_image"
+        key = self._image_key
         if self.kind == "bbox":
             import tempfile
 
@@ -1761,6 +1832,10 @@ class WandBGalleryCallback(Callback):
                     gallery.to_rgb_uint8(img), path, self.frame_long_side
                 )
                 item["cached"] = (path, scale)
+            elif self.kind == "instances":
+                item["gt"] = self._frame_instances(
+                    s["instances"], s.get("num_instances")
+                )
             else:
                 item["gt"] = s["instance"].reshape(-1, 2).float().numpy()
             panel.append(item)
@@ -1798,6 +1873,8 @@ class WandBGalleryCallback(Callback):
                 )
                 if self.kind == "bbox":
                     preds += gallery.predict_boxes(pl_module, x)
+                elif self.kind == "instances":
+                    preds += gallery.predict_instances(pl_module, x)
                 else:
                     pts, vals = gallery.predict_keypoints(pl_module, x)
                     preds += list(zip(pts, vals))
@@ -1826,6 +1903,27 @@ class WandBGalleryCallback(Callback):
                         cached=item["cached"],
                     )
                 )
+            elif self.kind == "instances":
+                img = gallery.to_rgb_uint8(img_t)
+                pts, _ = pred
+                nodes = self._nodes(self.val_file_nodes, f, None)
+                gt = self._only_nodes(item["gt"], nodes)
+                pts = self._only_nodes(pts, nodes)
+                edges = self.val_edges[f] if self.val_edges else []
+                err = gallery.instance_error(gt, pts)
+                # Count animals with a found node: class-map grouping returns one
+                # slot per class, found or not.
+                n_pred = int(np.isfinite(pts).all(-1).any(-1).sum()) if pts.size else 0
+                extra = f"GT {len(gt)}, pred {n_pred}"
+                if np.isfinite(err):
+                    extra += f", err {err:.1f}px"
+                drawn = gallery.draw_instances(
+                    img, edges, gt=gt, pred=pts, long_side=self.frame_long_side
+                )
+                cap = gallery.caption(
+                    name, lab, item["video"], item["frame"], extra, item["role"]
+                )
+                images.append(gallery.keypoint_wandb_image(drawn, cap))
             else:
                 img = gallery.to_rgb_uint8(img_t)
                 pts, vals = pred

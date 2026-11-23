@@ -1,10 +1,12 @@
 """Tests for per-node loss weights in the data pipeline."""
 
+import copy
+
 import numpy as np
 import pytest
 import sleap_io as sio
 import torch
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 
 from sleap_nn.data.augmentation import (
     apply_flip_augmentation,
@@ -12,6 +14,7 @@ from sleap_nn.data.augmentation import (
 )
 from sleap_nn.data.bboxes import instance_crop_bbox
 from sleap_nn.data.custom_datasets import (
+    get_train_val_datasets,
     BottomUpDataset,
     BottomUpMultiClassDataset,
     CenteredInstanceDataset,
@@ -566,3 +569,195 @@ def test_multiclass_track_lookup_stays_aligned(minimal_instance):
     # Only class "b" (index 1) has a class-map peak.
     peaks = sample["class_maps"].reshape(2, -1).amax(dim=-1)
     assert peaks[0] == 0 and peaks[1] > 0.9
+
+
+STALE = ["renamed/A", "renamed/B"]
+_CM = {"part_names": ["A", "B"], "sigma": 1.5, "output_stride": 2}
+_HEADS = {
+    "single_instance": {"confmaps": _CM},
+    "bottomup": {
+        "confmaps": dict(_CM, loss_weight=1.0),
+        "pafs": {
+            "edges": [["A", "B"]],
+            "sigma": 4,
+            "output_stride": 4,
+            "loss_weight": 1.0,
+        },
+    },
+    "centroid": {"confmaps": {"anchor_part": "A", "sigma": 1.5, "output_stride": 2}},
+}
+
+
+def _train_cfg(config, head=None, fw="torch_dataset", tmp_path=None):
+    """The test config with one head (``None``: its centered-instance head)."""
+    cfg = copy.deepcopy(config)
+    cfg.data_config.data_pipeline_fw = fw
+    if fw == "torch_dataset_cache_img_disk":
+        cfg.data_config.cache_img_path = str(tmp_path / "cache")
+    if head is not None:
+        for k in list(cfg.model_config.head_configs.keys()):
+            cfg.model_config.head_configs[k] = None
+        cfg.model_config.head_configs[head] = _HEADS[head]
+    return cfg
+
+
+@pytest.mark.parametrize("head", [None, "single_instance", "bottomup"])
+@pytest.mark.parametrize(
+    "fw",
+    ["torch_dataset", "torch_dataset_cache_img_memory", "torch_dataset_cache_img_disk"],
+)
+def test_stale_mask_stops_training_before_caching(
+    config, minimal_instance, head, fw, tmp_path, monkeypatch
+):
+    """Renamed nodes with stale provenance entries: an error, before any caching."""
+    from sleap_nn.data import custom_datasets as cd
+
+    filled = []
+    monkeypatch.setattr(
+        cd.BaseDataset, "_fill_cache", lambda self, *a, **k: filled.append(1)
+    )
+    cfg = _train_cfg(config, head, fw, tmp_path)
+    with pytest.raises(ValueError, match="train on nothing"):
+        get_train_val_datasets(
+            [_labels(minimal_instance, labeled_nodes=STALE)],
+            [_labels(minimal_instance)],
+            cfg,
+        )
+    assert not filled
+    # Every file empty or stale: also nothing to train.
+    with pytest.raises(ValueError, match="train on nothing"):
+        get_train_val_datasets(
+            [
+                _labels(minimal_instance, labeled_nodes=STALE),
+                _labels(minimal_instance, labeled_nodes=[]),
+            ],
+            [_labels(minimal_instance)],
+            cfg,
+        )
+
+
+@pytest.mark.parametrize(
+    "case", ["working_file", "plain_file", "mask_off", "distill_no_mask", "val_only"]
+)
+def test_mask_check_leaves_trainable_configs_alone(config, minimal_instance, case):
+    """One working file, a file without the key, the mask off, distillation that
+    ignores the mask, or a stale validation file: training builds as before."""
+    cfg = _train_cfg(config)
+    train = [_labels(minimal_instance, labeled_nodes=STALE)]
+    val = [_labels(minimal_instance)]
+    if case == "working_file":
+        train.append(_labels(minimal_instance, labeled_nodes=["A"]))
+    elif case == "plain_file":
+        train.append(_labels(minimal_instance))
+    elif case == "mask_off":
+        cfg.data_config.node_loss_mask = False
+    elif case == "distill_no_mask":
+        cfg.trainer_config.distillation = {
+            "teacher": "x",
+            "mask_unlabeled_nodes": False,
+        }
+    elif case == "val_only":
+        train, val = val, train
+    get_train_val_datasets(train, val, cfg)
+
+
+def test_mask_check_with_distillation_on_the_mask_raises(config, minimal_instance):
+    cfg = _train_cfg(config)
+    cfg.trainer_config.distillation = {"teacher": "x"}
+    with pytest.raises(ValueError, match="train on nothing"):
+        get_train_val_datasets(
+            [_labels(minimal_instance, labeled_nodes=STALE)],
+            [_labels(minimal_instance)],
+            cfg,
+        )
+
+
+def test_mask_check_skips_model_types_that_do_not_apply_the_mask(minimal_instance):
+    """Centroid, multi-class, segmentation and tiled models never applied the mask."""
+    from sleap_nn.data.custom_datasets import _check_train_node_mask
+
+    stale = [_labels(minimal_instance, labeled_nodes=STALE)]
+    kwargs = dict(
+        node_loss_mask=True, unlabeled_points="absent", supervise_occluded=True
+    )
+    cfg = OmegaConf.create({"trainer_config": {}, "data_config": {"preprocessing": {}}})
+    for model_type in (
+        "centroid",
+        "multi_class_topdown",
+        "multi_class_bottomup",
+        "centered_instance_segmentation",
+    ):
+        _check_train_node_mask(model_type, stale, cfg, kwargs)
+    tiled = OmegaConf.create(
+        {
+            "trainer_config": {},
+            "data_config": {"preprocessing": {"tiling": {"enabled": True}}},
+        }
+    )
+    _check_train_node_mask("single_instance", stale, tiled, kwargs)
+    with pytest.raises(ValueError, match="train on nothing"):
+        _check_train_node_mask("single_instance", stale, cfg, kwargs)
+
+
+@pytest.mark.skipif(
+    not hasattr(sio, "v3_defaults"),
+    reason="this sleap-io has no switch for its newer readings",
+)
+def test_labeled_flags_of_a_v3_file_reach_node_weights_under_either_reading(
+    minimal_instance, tmp_path
+):
+    """Points a format 3.0 file marks as not labeled get zero loss weight whether
+    sleap-io's newer readings are switched on or not (they are stored, not inferred)."""
+    labels = sio.load_slp(minimal_instance)
+    pts = labels[0].instances[0].points
+    pts["labeled"][1] = False
+    pts["visible"][1] = False
+    pts["xy"][1] = np.nan
+    path = tmp_path / "v3.pkg.slp"
+    sio.save_slp(labels, path, slp_version="v3", embed="user")
+
+    def weights():
+        ds = _ci_dataset(sio.load_slp(path))
+        return ds[0]["node_weights"]
+
+    assert torch.equal(weights(), torch.tensor([[1.0, 0.0]]))
+    with sio.v3_defaults():
+        assert torch.equal(weights(), torch.tensor([[1.0, 0.0]]))
+
+
+def test_warn_nodes_never_located(minimal_instance):
+    """A node labeled in every instance of a file but never located is reported,
+    unless the file's labeled_nodes or the points' flags already leave it out."""
+    from loguru import logger
+
+    from sleap_nn.data.node_weights import warn_nodes_never_located
+
+    def file(mode):
+        labels = _labels(minimal_instance)
+        for inst in labels[0].instances:
+            inst.points["xy"][1] = np.nan
+            inst.points["visible"][1] = False
+            if mode == "unlabeled" and "labeled" in inst.points.dtype.names:
+                inst.points["labeled"][1] = False
+        if mode == "masked":
+            labels.provenance["labeled_nodes"] = ["A"]
+        return labels
+
+    messages = []
+    handler = logger.add(lambda m: messages.append(str(m)), level="WARNING")
+    try:
+        found = warn_nodes_never_located(
+            [
+                file("absent"),
+                file("unlabeled"),
+                file("masked"),
+                _labels(minimal_instance),
+            ],
+            min_instances=1,
+        )
+    finally:
+        logger.remove(handler)
+    assert found == [(0, ["B"])]
+    assert any("located in none" in m and "unlabeled" in m for m in messages)
+    # Too few instances to judge: not checked.
+    assert warn_nodes_never_located([file("absent")], min_instances=10) == []

@@ -3,6 +3,8 @@
 import importlib.util
 from typing import Any, Dict, List, Optional, Tuple, Union
 
+import copy
+
 import numpy as np
 import sleap_io as sio
 from sleap_io.io.video_reading import MediaVideo
@@ -151,10 +153,72 @@ def instance_points(inst: sio.Instance, supervise_occluded: bool = True) -> np.n
     have coordinates (occluded estimates, COCO ``v=1``; sleap-io >= 0.10) keep
     them; otherwise they are NaN like any other hidden node. Unlabeled nodes and
     nodes without a location are always NaN. Files without occluded estimates
-    (every pre-SLP-3.0 file: sleap-io clears hidden points' coordinates on read)
-    give exactly ``inst.numpy()``.
+    (every pre-SLP-3.0 file once :func:`clear_legacy_hidden_points` has run, as
+    training and evaluation do) give exactly ``inst.numpy()``.
     """
     return inst.numpy(invisible_as_nan=not supervise_occluded)
+
+
+#: First SLP ``format_id`` whose files can mark a point as labeled but not visible
+#: with a real estimated location (an occluded estimate).
+_OCCLUDED_ESTIMATE_FORMAT_ID = 3.0
+
+
+def has_legacy_hidden_points(labels: Optional[sio.Labels]) -> bool:
+    """Whether ``labels`` hold an old file's points as stored (stale hidden points).
+
+    True when sleap-io reports (``Labels.source_format_id``) that the labels come
+    from an SLP file older than format 3.0. A sleap-io without that property clears
+    such points on load, so there is nothing to do and this is False.
+    """
+    source = getattr(labels, "source_format_id", None) if labels is not None else None
+    return source is not None and float(source) < _OCCLUDED_ESTIMATE_FORMAT_ID
+
+
+def without_hidden_coordinates(inst: sio.Instance) -> sio.Instance:
+    """A copy of ``inst`` whose hidden points have no coordinates (``inst`` is kept)."""
+    out = copy.deepcopy(inst)
+    hidden = ~np.asarray(out.points["visible"], dtype=bool)
+    out.points["xy"][hidden] = np.nan
+    return out
+
+
+def clear_legacy_hidden_points(labels: Optional[sio.Labels]) -> int:
+    """Read the points of labels from an old SLP file as sleap-nn 0.3 did, in place.
+
+    Files older than SLP format 3.0 cannot mark a point as an occluded estimate: a
+    hidden point's coordinates there are whatever was left behind when the node was
+    hidden (the SLEAP GUI keeps the last position), not an estimate. sleap-io 0.9
+    kept them in ``points["xy"]`` but hid them from ``Instance.numpy()`` and
+    ``is_empty``, which is all sleap-nn 0.3 read. A sleap-io that loads old files
+    with their points as stored would otherwise make training keep instances whose
+    nodes are all hidden and supervise hidden nodes at their stale positions, and
+    evaluation score ground truth there.
+
+    This calls sleap-io's ``Labels.clean_legacy_points()`` (hidden points lose their
+    coordinates, visible points without coordinates become hidden), which acts only
+    on labels from a file older than format 3.0; labels from a format 3.0 file, or
+    built in memory, are left alone. With a sleap-io that has no such method, old
+    files are already cleaned on load and this does nothing.
+
+    Args:
+        labels: Labels as loaded.
+
+    Returns:
+        The number of points changed.
+    """
+    clean = getattr(labels, "clean_legacy_points", None)
+    if clean is None or not has_legacy_hidden_points(labels):
+        return 0
+    changed = int(clean() or 0)
+    if changed:
+        logger.info(
+            f"Read {changed} point(s) of labels from an SLP file older than format "
+            f"{_OCCLUDED_ESTIMATE_FORMAT_ID:g} as sleap-io 0.9 did: hidden points "
+            "without their stored coordinates (such files cannot mark occluded "
+            "estimates)."
+        )
+    return changed
 
 
 def located_points(inst: sio.Instance) -> np.ndarray:

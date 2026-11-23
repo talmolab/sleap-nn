@@ -490,6 +490,38 @@ def _e2e_config(config, tmp_path, ckpt):
     return cfg
 
 
+def _warp_teacher_crop_config(config, tmp_path, ckpt):
+    """`_e2e_config` on the warp crop path, the teacher on its own [96, 72] crop."""
+    cfg = _e2e_config(config, tmp_path, ckpt)
+    pre = cfg.data_config.preprocessing
+    pre.crop_mode = "bbox"
+    pre.crop_pipeline = "warp"
+    pre.crop_size = [64, 48]
+    pre.gpu_confmaps = True
+    head = cfg.model_config.head_configs.centered_instance.confmaps
+    head.anchor_part = None
+    head.centroid_method = "bbox_center"
+    cfg.trainer_config.distillation = {
+        "teacher": str(ckpt),
+        "alpha": 0.5,
+        "teacher_crop_size": [96, 72],
+    }
+    return cfg
+
+
+def _spy_on_teacher_input(monkeypatch):
+    """Per distilled step: the student's input size and the teacher crops' shape."""
+    seen = []
+    teacher_input = Distiller.teacher_input
+
+    def spy(self, x, batch):
+        seen.append((tuple(x.shape[-2:]), tuple(batch[TEACHER_IMAGE_KEY].shape)))
+        return teacher_input(self, x, batch)
+
+    monkeypatch.setattr(Distiller, "teacher_input", spy)
+    return seen
+
+
 def test_model_trainer_trains_with_distillation(
     config, tmp_path, minimal_instance_centered_instance_ckpt
 ):
@@ -522,28 +554,8 @@ def test_model_trainer_warp_dual_resolution_teacher(
     from sleap_nn.training.model_trainer import ModelTrainer
 
     ckpt = minimal_instance_centered_instance_ckpt
-    cfg = _e2e_config(config, tmp_path, ckpt)
-    pre = cfg.data_config.preprocessing
-    pre.crop_mode = "bbox"
-    pre.crop_pipeline = "warp"
-    pre.crop_size = [64, 48]
-    pre.gpu_confmaps = True
-    head = cfg.model_config.head_configs.centered_instance.confmaps
-    head.anchor_part = None
-    head.centroid_method = "bbox_center"
-    cfg.trainer_config.distillation = {
-        "teacher": str(ckpt),
-        "alpha": 0.5,
-        "teacher_crop_size": [96, 72],
-    }
-    seen = []
-    teacher_input = Distiller.teacher_input
-
-    def spy(self, x, batch):
-        seen.append((tuple(x.shape[-2:]), tuple(batch[TEACHER_IMAGE_KEY].shape)))
-        return teacher_input(self, x, batch)
-
-    monkeypatch.setattr(Distiller, "teacher_input", spy)
+    cfg = _warp_teacher_crop_config(config, tmp_path, ckpt)
+    seen = _spy_on_teacher_input(monkeypatch)
     trainer = ModelTrainer.get_model_trainer_from_config(cfg)
     trainer.train()
     assert trainer.lightning_model.distiller.teacher_crop_size == (96, 72)
@@ -554,6 +566,40 @@ def test_model_trainer_warp_dual_resolution_teacher(
     assert TEACHER_IMAGE_KEY not in trainer.trainer.val_dataloaders.dataset[0]
     # The visualization datasets cut no teacher crops either.
     assert all(ds.teacher_hw is None for ds in trainer._setup_viz_datasets())
+
+
+def test_dry_run_with_distillation(
+    config, tmp_path, minimal_instance_centered_instance_ckpt
+):
+    """A dry run loads the teacher, takes one distilled training step and writes
+    nothing."""
+    from tests.utils.dry_run import dry_run
+
+    cfg = _e2e_config(config, tmp_path, minimal_instance_centered_instance_ckpt)
+    trainer = dry_run(cfg, tmp_path)
+    assert isinstance(trainer.lightning_model.distiller, Distiller)
+    metrics = trainer.trainer.callback_metrics
+    assert {"train/distill_heatmap", "train/distill_feat"} <= set(metrics)
+
+
+def test_dry_run_with_teacher_crop_size(
+    config, tmp_path, minimal_instance_centered_instance_ckpt, monkeypatch
+):
+    """With `teacher_crop_size`, the dry run's training batch carries the teacher's
+    own crop (the datasets its sample counts come from cut none)."""
+    from tests.utils.dry_run import dry_run
+
+    cfg = _warp_teacher_crop_config(
+        config, tmp_path, minimal_instance_centered_instance_ckpt
+    )
+    seen = _spy_on_teacher_input(monkeypatch)
+    trainer = dry_run(cfg, tmp_path)
+    assert trainer.lightning_model.distiller.teacher_crop_size == (96, 72)
+    ((student_hw, teacher_shape),) = seen
+    assert student_hw == (64, 48) and teacher_shape[1:] == (1, 1, 96, 72)
+    assert "train/distill_heatmap" in trainer.trainer.callback_metrics
+    assert trainer.trainer.train_dataloader.dataset.teacher_hw == (96, 72)
+    assert trainer.trainer.val_dataloaders.dataset.teacher_hw is None
 
 
 # ---------------------------------------------------------------------- DDP

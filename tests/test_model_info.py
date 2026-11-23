@@ -258,3 +258,31 @@ class TestBBoxCropInfo:
         rows = _data_rows(capsys.readouterr().out)
         assert rows["Training boxes"] == "bbox_source=auto, bbox_padding=2.0"
         assert "Crop mode" not in rows
+
+
+@pytest.mark.parametrize(
+    "schedules, shown",
+    [
+        ({"cosine_annealing_warmup": {"warmup_epochs": 1}}, "cosine_annealing_warmup"),
+        ({"multi_step_lr": {"milestones": [3]}}, "multi_step_lr"),
+        ({}, "ReduceLROnPlateau"),
+    ],
+)
+def test_lr_scheduler_row_names_the_schedule_that_runs(
+    tmp_path, capsys, schedules, shown
+):
+    """The default plateau section stays in the config; the row shows what runs."""
+    from omegaconf import OmegaConf
+
+    cfg = OmegaConf.load(MODEL_CENTERED_INSTANCE / "training_config.yaml")
+    OmegaConf.update(
+        cfg,
+        "trainer_config.lr_scheduler",
+        {"reduce_lr_on_plateau": {"factor": 0.5, "patience": 5}, **schedules},
+        force_add=True,
+    )
+    path = tmp_path / "training_config.yaml"
+    OmegaConf.save(cfg, path)
+    print_model_info(str(path))
+    row = [l for l in capsys.readouterr().out.splitlines() if "LR scheduler" in l]
+    assert row and shown in row[0]

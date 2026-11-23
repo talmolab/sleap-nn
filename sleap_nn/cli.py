@@ -1450,6 +1450,8 @@ def _run_inference_impl(**kwargs):
 
     # Tracker flags the selected tracker family would ignore, on every route.
     _check_tracker_flags(kwargs)
+    # `--precision` where no trained checkpoint would run under it, on every route.
+    _check_precision_flag(kwargs)
 
     # ── Embedding (re-ID) path: persist appearance vectors into a .slp ──
     # An `embedding` model emits appearance vectors, not poses/masks, so it does not go
@@ -1596,6 +1598,66 @@ def _run_inference_impl(**kwargs):
         )
 
     return _run_in_memory_new_flow(kwargs, paf_workers=paf_workers)
+
+
+def _check_precision_flag(kwargs: dict) -> None:
+    """Refuse ``--precision bf16/fp16`` where no trained checkpoint would run under it.
+
+    The flag runs models loaded from trained checkpoints under ``torch.autocast``.
+    The routes that load none would accept it and do nothing, so they refuse it
+    before anything loads: SAM masks (``--mask_backend``), tracking-only runs, an
+    ``embedding`` (re-ID) model (built without it), and runs whose models are all
+    exported ONNX/TensorRT directories. With checkpoints and exported directories
+    mixed, the checkpoints run under it and ``Predictor.from_model_paths`` logs
+    which models keep their exported precision.
+    """
+    precision = kwargs.get("precision") or "32"
+    if precision == "32":
+        return
+    from pathlib import Path
+
+    flag = f"--precision {precision}"
+    if kwargs.get("mask_backend"):
+        raise click.UsageError(
+            f"{flag} is not supported with --mask_backend: the SAM mask path "
+            "loads no trained checkpoint to run under it."
+        )
+    mps = list(kwargs.get("model_paths") or [])
+    if not mps:
+        raise click.UsageError(
+            f"{flag} applies to the trained checkpoints in --model_paths, and "
+            "none were given (a tracking-only run loads no model)."
+        )
+    if _has_embedding_model(mps):
+        raise click.UsageError(
+            f"{flag} is not supported with an `embedding` (re-ID) model, which "
+            "runs in fp32. Run the detection models on their own with "
+            "--precision, then embed their output .slp."
+        )
+
+    def exported(m, alone: bool = False) -> bool:
+        # Among several -m (and for --part_model) the checkpoint loader loads
+        # best.ckpt when the directory holds one. A single -m directory with
+        # best.ckpt takes the exported route, except when its export is a
+        # network-only crop model: then the checkpoint runs.
+        from sleap_nn.inference.exported_network import _holds_network_export
+
+        if not _is_export_dir(m):
+            return False
+        if not (Path(m) / "best.ckpt").exists():
+            return True
+        return alone and not (_holds_network_export(m) and not _is_box_detector_dir(m))
+
+    runs_exported = [exported(m, alone=len(mps) == 1) for m in mps]
+    if kwargs.get("part_model") is not None:
+        runs_exported.append(exported(kwargs["part_model"]))
+    if all(runs_exported):
+        raise click.UsageError(
+            f"{flag} applies to trained checkpoints only: an exported "
+            "ONNX/TensorRT model keeps the precision it was exported with. Drop "
+            "--precision, re-export at the precision you want (see `sleap-nn "
+            "export --precision`), or pass the checkpoint directory."
+        )
 
 
 def _check_part_stage_flags(kwargs: dict, stream_to_file) -> None:
@@ -3196,6 +3258,7 @@ def _run_in_memory_new_flow(
         "paf_workers": paf_workers,
         "upload_batches": bool(kwargs.get("upload_batches")),
         "memory_format": kwargs.get("memory_format") or "contiguous",
+        "precision": kwargs.get("precision") or "32",
         "peak_threshold": peak_thresh,
         "centroid_threshold": centroid_thresh,
         "keypoint_threshold": peak_thresh,
@@ -3749,6 +3812,7 @@ def _run_stream_to_file(
         "paf_workers": paf_workers,
         "upload_batches": bool(kwargs.get("upload_batches")),
         "memory_format": kwargs.get("memory_format") or "contiguous",
+        "precision": kwargs.get("precision") or "32",
         # Bottom-up PAF grouping knobs (inert for non-bottom-up models). #583.
         "max_edge_length_ratio": kwargs.get("max_edge_length_ratio", 0.25),
         "dist_penalty_weight": kwargs.get("dist_penalty_weight", 1.0),
@@ -4000,6 +4064,25 @@ def _common_inference_options(f):
             "fast convolution kernels on NVIDIA GPUs (2.2x faster for a top-down "
             "pair on an A100, fp32; no change on AMD ROCm). `predict` with trained "
             "checkpoints only.",
+        ),
+        click.option(
+            "--precision",
+            type=click.Choice(["32", "fp32", "bf16", "fp16"], case_sensitive=False),
+            default="32",
+            show_default=True,
+            callback=lambda _ctx, _param, value: (
+                "32" if str(value).lower() in ("32", "fp32") else str(value).lower()
+            ),
+            help="Precision of the models' forward pass. `32` (or `fp32`) is "
+            "strict fp32. `bf16` and `fp16` run every model under torch.autocast "
+            "on a CUDA device (weights and outputs stay fp32): faster on "
+            "tensor-core GPUs (about 1.5x for UNet models at batch size 4 on an "
+            "A100), can be slower at batch size 1, and results differ slightly "
+            "from fp32. `bf16` is fast on Ampere or newer NVIDIA GPUs (older ones "
+            "emulate it slowly). No effect on CPU / MPS (a warning says so). "
+            "The output file records it (`autocast_precision`). `predict` "
+            "with trained checkpoints only: an exported model keeps the precision "
+            "it was exported with.",
         ),
         click.option(
             "--runtime",
