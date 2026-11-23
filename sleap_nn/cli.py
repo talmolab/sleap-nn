@@ -1785,7 +1785,16 @@ def _build_filter_config(kwargs: dict) -> "object":
     min_centroid_distance = float(kwargs.get("filter_min_centroid_distance") or 0.0)
     # Off unless asked for, with or without --boxes, as in the Python ``predict``.
     rescore = bool(kwargs.get("rescore"))
-    rescore_threshold = float(kwargs.get("rescore_threshold", 0.2)) if rescore else None
+    threshold = kwargs.get("rescore_threshold")
+    if rescore:
+        rescore_threshold = 0.2 if threshold is None else float(threshold)
+    else:
+        rescore_threshold = None
+        if threshold is not None:
+            logger.warning(
+                "--rescore_threshold has no effect without --rescore (rescoring is "
+                "off by default, also with --boxes); pass --rescore to rescore."
+            )
     oks_nms = float(kwargs.get("oks_nms") or 0.0)
     oks_sigmas = parse_oks_sigmas(kwargs.get("oks_sigmas"))
     if not (
@@ -4687,7 +4696,7 @@ def _common_inference_options(f):
         click.option(
             "--rescore_threshold",
             type=float,
-            default=0.2,
+            default=None,
             help="Keypoint-score threshold for --rescore. Default: 0.2 (mmpose).",
         ),
         click.option(

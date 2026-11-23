@@ -123,7 +123,8 @@ Details:
 - The boxes are kept in the output, linked to the instance each produced.
 - With `--boxes gt`, boxes are the GT user boxes linked to each instance (else the
   instance's keypoint box) and score 1, so a rescored instance's score is its mean
-  keypoint score. Only user instances give boxes: with a frame filter such as
+  keypoint score. Without `--rescore` every such instance scores 1, so AP ranking
+  and `--oks_nms` see ties: pass `--rescore` for the papers' protocol. Only user instances give boxes: with a frame filter such as
   `--only_predicted_frames`, predicted instances are not cropped and selected frames
   without user instances are skipped.
 - Keep `--peak_threshold 0`: COCOeval counts a dropped keypoint as a miss, and the
