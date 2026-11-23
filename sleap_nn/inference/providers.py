@@ -528,7 +528,13 @@ class LabelsProvider:
             a box-scaled centered-instance model uses it to derive boxes exactly
             as its training boxes were (linked user boxes / masks, or keypoints).
             A provider handed to a ``Predictor`` without one gets the predictor's
-            rule when the model crops GT boxes.
+            rule when the model crops GT boxes. Such a predictor also narrows the
+            provider to its selected frames that have user instances, with only
+            those instances as GT, and the provider stays narrowed after the call
+            until it is handed to a predictor whose model does not crop GT boxes;
+            predicted instances then never serve as GT boxes. A provider serves one
+            prediction at a time: using it from two predictors at once (e.g. two
+            ``predict_streaming`` generators read in turns) is not supported.
         frame_box_fn: Optional ``(LabeledFrame) -> ((K, 4) xyxy, (K,) scores)``
             giving the boxes that seed a top-down model's stage 1 on each frame;
             when set, batches carry ``frame_boxes`` / ``frame_box_scores``. See
@@ -702,11 +708,13 @@ class LabelsProvider:
         selected that have user instances, with only those instances as GT.
         ``scope=False`` restores the frames of an earlier call, for a provider
         reused with another predictor. A provider with ``only_labeled_frames``
-        is left as it is.
+        is left as it is, and a repeat call on a scoped provider does nothing.
 
         Returns:
-            The number of selected frames left out.
+            The number of selected frames left out by this call.
         """
+        if scope and self._unscoped_frames is not None:
+            return 0
         if self._unscoped_frames is not None:
             self._labeled_frames = self._unscoped_frames
             self._unscoped_frames = None

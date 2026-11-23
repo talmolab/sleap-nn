@@ -887,7 +887,7 @@ def _labels_with_predictions(path, video, tmp_path):
 
     Frame 0 holds the fixture's two user instances (a user box linked to the first)
     and a predicted instance; frame 1 a predicted instance only; frames 2 and 3 are
-    labeled frames without instances.
+    labeled frames without instances. Frames 1 and 2 are suggestions.
     """
     labels = _labels_with_linked_user_box(path, video=video)
     lf = labels[0]
@@ -910,9 +910,28 @@ def _labels_with_predictions(path, video, tmp_path):
     )
     for idx in (2, 3):
         labels.append(sio.LabeledFrame(video=lf.video, frame_idx=idx, instances=[]))
+    labels.suggestions = [
+        sio.SuggestionFrame(video=lf.video, frame_idx=idx) for idx in (1, 2)
+    ]
     out = tmp_path / "with_predictions.slp"
     labels.save(out)
     return out
+
+
+def _invoke_counting_skips(args):
+    """Run the command line; return the result and its frame-skip warnings."""
+    from click.testing import CliRunner
+    from loguru import logger
+
+    from sleap_nn.cli import cli
+
+    messages = []
+    handler = logger.add(lambda m: messages.append(str(m)), level="WARNING")
+    try:
+        result = CliRunner().invoke(cli, args)
+    finally:
+        logger.remove(handler)
+    return result, [m for m in messages if "are skipped" in m]
 
 
 def _predicted_points(path):
@@ -1006,31 +1025,66 @@ def test_stream_to_file_box_scaled_model_skips_frames_without_user_instances(
 
     It used to stop with "requires `instances`" on a batch of frames without any
     instance, and to crop predicted instances as GT; it now runs what the in-memory
-    route runs.
+    route runs, and reports the skipped frames once.
     """
-    from click.testing import CliRunner
-
-    from sleap_nn.cli import cli
-
     src = _labels_with_predictions(minimal_instance, centered_instance_video, tmp_path)
     model = trained_pair["ci_bbox"].as_posix()
 
-    def run(name, *extra):
+    def run(name, flag):
         out = tmp_path / f"{name}.slp"
-        flag = "--stream-to-file" if extra else "-o"
-        result = CliRunner().invoke(
-            cli,
+        result, skips = _invoke_counting_skips(
             ["predict", "-i", str(src), "-m", model, "--peak_threshold", "0"]
             + ["--device", "cpu", "--batch_size", "1", flag, str(out)],
         )
         assert result.exit_code == 0, result.output
-        return _predicted_points(out)
+        return _predicted_points(out), skips
 
-    expected = run("in_memory")
+    expected, _ = run("in_memory", "-o")
     assert list(expected) == [0] and expected[0].shape[0] == 2
-    got = run("streamed", "stream")
+    got, skips = run("streamed", "--stream-to-file")
     assert list(got) == [0]
     np.testing.assert_allclose(got[0], expected[0], atol=1e-3)
+    assert len(skips) == 1 and "3 of 4" in skips[0]
+
+
+@pytest.mark.parametrize(
+    "route", ["boxes_gt_in_memory", "box_scaled_in_memory", "box_scaled_stream"]
+)
+@pytest.mark.parametrize(
+    "flag, n_selected",
+    [("--exclude_user_labeled", 3), ("--only_suggested_frames", 2)],
+)
+def test_gt_boxes_on_frames_without_user_instances_give_empty_output(
+    trained_pair,
+    minimal_instance,
+    centered_instance_video,
+    tmp_path,
+    route,
+    flag,
+    n_selected,
+):
+    """Filters that select no frame with user instances: an empty output, one warning.
+
+    Labelled boxes come from user instances only, so nothing runs. Before, the
+    predicted instance on such a frame was cropped (`--boxes gt`), or the run stopped
+    with "requires `instances`" (a box-scaled model alone).
+    """
+    src = _labels_with_predictions(minimal_instance, centered_instance_video, tmp_path)
+    out = tmp_path / "out.slp"
+    if route == "boxes_gt_in_memory":
+        model_args = ["-m", trained_pair["ci_fixed"].as_posix(), "--boxes", "gt"]
+        model_args += ["--no-rescore"]
+    else:
+        model_args = ["-m", trained_pair["ci_bbox"].as_posix()]
+    out_flag = "--stream-to-file" if route.endswith("stream") else "-o"
+    result, skips = _invoke_counting_skips(
+        ["predict", "-i", str(src), *model_args, "--peak_threshold", "0"]
+        + ["--device", "cpu", "--batch_size", "1", flag, out_flag, str(out)],
+    )
+    assert result.exit_code == 0, result.output
+    assert out.exists() and _predicted_points(out) == {}
+    assert len(skips) == 1
+    assert f"{n_selected} of {n_selected} selected frame(s)" in skips[0]
 
 
 def test_more_refused_combinations(

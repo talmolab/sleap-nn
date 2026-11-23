@@ -596,6 +596,22 @@ class TestPredictFrameFilterFlagsWarnForNonSlpSource:
         assert mock_predict.called
         assert "require a `.slp`" not in _norm_cli_output(result.output)
 
+    @staticmethod
+    def _run_logging_frames_warnings(args):
+        """Invoke ``args`` with ``run.predict`` mocked; the ``--frames`` warnings."""
+        from loguru import logger
+
+        messages = []
+        handler = logger.add(lambda m: messages.append(str(m)), level="WARNING")
+        try:
+            with patch("sleap_nn.inference.run.predict") as mock_predict:
+                mock_predict.return_value = MagicMock()
+                result = CliRunner().invoke(cli, args)
+        finally:
+            logger.remove(handler)
+        warned = [m for m in messages if "--frames is ignored" in m]
+        return result, mock_predict, warned
+
     @pytest.mark.parametrize("stream", [False, True])
     @pytest.mark.parametrize(
         "flag",
@@ -610,38 +626,47 @@ class TestPredictFrameFilterFlagsWarnForNonSlpSource:
         self, minimal_instance, tmp_path, flag, stream
     ):
         """--frames with a .slp filter (no --video_index) is reported as ignored."""
-        from loguru import logger
-
-        runner = CliRunner()
         args = ["predict", "-i", str(minimal_instance), "-m", "/fake/model"]
         args += ["--frames", "0", flag]
         if stream:
             args += ["--stream-to-file", str(tmp_path / "out.slp")]
-        messages = []
-        handler = logger.add(lambda m: messages.append(str(m)), level="WARNING")
-        try:
-            with patch("sleap_nn.inference.run.predict") as mock_predict:
-                mock_predict.return_value = MagicMock()
-                result = runner.invoke(cli, args)
-        finally:
-            logger.remove(handler)
-        assert any("--frames is ignored with" in m and flag in m for m in messages)
+        result, mock_predict, warned = self._run_logging_frames_warnings(args)
+        assert len(warned) == 1 and flag in warned[0]
         if not stream:
             assert result.exit_code == 0, result.output
             assert mock_predict.called
 
+    @pytest.mark.parametrize("stream", [False, True])
+    def test_frames_with_slp_filter_and_video_index_no_warning(
+        self, minimal_instance, tmp_path, stream
+    ):
+        """With --video_index, --frames and a filter combine: nothing is reported."""
+        args = ["predict", "-i", str(minimal_instance), "-m", "/fake/model"]
+        args += ["--frames", "0", "--only_labeled_frames", "--video_index", "0"]
+        if stream:
+            args += ["--stream-to-file", str(tmp_path / "out.slp")]
+        result, mock_predict, warned = self._run_logging_frames_warnings(args)
+        assert warned == []
+        if not stream:
+            assert result.exit_code == 0, result.output
+            assert mock_predict.called
+
+    def test_frames_with_stream_to_file_on_slp_warns(self, minimal_instance, tmp_path):
+        """--stream-to-file on a .slp drops --frames even without a filter: reported."""
+        args = ["predict", "-i", str(minimal_instance), "-m", "/fake/model"]
+        args += ["--frames", "0", "--stream-to-file", str(tmp_path / "out.slp")]
+        _, _, warned = self._run_logging_frames_warnings(args)
+        assert len(warned) == 1 and "--stream-to-file" in warned[0]
+
     def test_frames_without_slp_filter_still_passed(self, minimal_instance):
-        """--frames alone on a .slp still reaches predict()."""
-        runner = CliRunner()
-        with patch("sleap_nn.inference.run.predict") as mock_predict:
-            mock_predict.return_value = MagicMock()
-            result = runner.invoke(
-                cli,
-                ["predict", "-i", str(minimal_instance), "-m", "/fake/model"]
-                + ["--frames", "0"],
-            )
+        """--frames alone on a .slp still reaches predict(), with no warning."""
+        result, mock_predict, warned = self._run_logging_frames_warnings(
+            ["predict", "-i", str(minimal_instance), "-m", "/fake/model"]
+            + ["--frames", "0"]
+        )
         assert result.exit_code == 0, result.output
         assert mock_predict.call_args.kwargs["frames"] == [0]
+        assert warned == []
 
 
 class TestEvalCommand:

@@ -114,9 +114,9 @@ Each `--model_paths` entry may be a model **directory**, or a path to that model
 | `--only_predicted_frames` | Only process frames with predictions | Flag | `false` |
 
 On a `.slp` without `--video_index`, `--frames` is ignored when one of the four
-annotation filters above is given (the command says so). With `--video_index N`
-they combine: `--frames` are frame indices of video `N`, and the filters keep those
-of them that match.
+annotation filters above is given, and always with `--stream-to-file` (the command
+says so). With `--video_index N` they combine: `--frames` are frame indices of
+video `N`, and the filters keep those of them that match.
 
 ### Filtering
 
