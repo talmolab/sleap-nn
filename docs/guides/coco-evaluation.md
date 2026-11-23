@@ -95,11 +95,11 @@ a centroid model or a detector. Pass only the crop model, and a `.slp` input.
 # Detected boxes (COCO results JSON, matched to frames by image id)
 sleap-nn predict -m models/vitpose_s -i coco_val2017.slp \
     --boxes COCO_val2017_detections_AP_H_56_person.json \
-    --peak_threshold 0 --oks_nms 0.9 -o pred_det.slp
+    --peak_threshold 0 --rescore --oks_nms 0.9 -o pred_det.slp
 
 # GT boxes
 sleap-nn predict -m models/vitpose_s -i coco_val2017.slp \
-    --boxes gt --peak_threshold 0 -o pred_gt.slp
+    --boxes gt --peak_threshold 0 --rescore -o pred_gt.slp
 
 sleap-nn eval -g coco_val2017.slp -p pred_det.slp --coco
 ```
@@ -108,7 +108,7 @@ sleap-nn eval -g coco_val2017.slp -p pred_det.slp --coco
 |-----------|-------------|---------|
 | `--boxes` | `gt`, a COCO detection results `.json`, or a `.slp` whose frames carry `PredictedBoundingBox`es (a `bbox_*` detector's output, or the input itself) | off |
 | `--box_score_threshold` | Drop boxes scoring below this | `0` |
-| `--rescore` / `--no-rescore` | Instance score = box score × mean of keypoint scores above `--rescore_threshold` (mmpose) | on with `--boxes` |
+| `--rescore` / `--no-rescore` | Instance score = box score × mean of keypoint scores above `--rescore_threshold` (mmpose); pass it for the papers' protocol | off |
 | `--rescore_threshold` | Keypoint-score threshold for `--rescore` | `0.2` |
 | `--oks_nms` | OKS-NMS threshold (mmpose `oks_nms`); papers use `0.9` with detected boxes | `0` (off) |
 | `--oks_sigmas` | Sigmas for `--oks_nms` | by node name |
@@ -136,9 +136,9 @@ on COCO train2017) on COCO val2017, integral refinement, no flip-test:
 
 | Boxes | Settings | AP | AP50 | AP75 | AR |
 |-------|----------|----|------|------|----|
-| GT | `--boxes gt --peak_threshold 0` | 74.6 | 93.4 | 82.4 | 77.7 |
-| GT | `--boxes gt --peak_threshold 0.2 --no-rescore` (the pre-COCO defaults) | 65.0 | 88.4 | 72.7 | 77.3 |
-| SimpleBaseline (56 AP) | `--boxes dets.json --peak_threshold 0 --oks_nms 0.9` | 71.9 | 89.3 | 80.3 | 78.1 |
+| GT | `--boxes gt --peak_threshold 0 --rescore` | 74.6 | 93.4 | 82.4 | 77.7 |
+| GT | `--boxes gt --peak_threshold 0.2` (no rescoring; the pre-COCO defaults) | 65.0 | 88.4 | 72.7 | 77.3 |
+| SimpleBaseline (56 AP) | `--boxes dets.json --peak_threshold 0 --rescore --oks_nms 0.9` | 71.9 | 89.3 | 80.3 | 78.1 |
 
 The native `coco.*` and `backend="pycocotools"` agree to every digit on these
 predictions.

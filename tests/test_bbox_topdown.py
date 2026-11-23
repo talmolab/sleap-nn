@@ -1280,7 +1280,7 @@ def test_box_seeding_refusals(trained_pair, minimal_instance):
 
 
 def test_predict_cli_with_boxes_slp(trained_pair, minimal_instance, tmp_path):
-    """sleap-nn predict --boxes boxes.slp copies the boxes, rescores, and evals."""
+    """sleap-nn predict --boxes boxes.slp --rescore copies the boxes, rescores, evals."""
     from click.testing import CliRunner
 
     from sleap_nn.cli import cli
@@ -1300,6 +1300,7 @@ def test_predict_cli_with_boxes_slp(trained_pair, minimal_instance, tmp_path):
         "0",
         "--oks_nms",
         "0.9",
+        "--rescore",
         "--device",
         "cpu",
         "-o",
@@ -1309,7 +1310,7 @@ def test_predict_cli_with_boxes_slp(trained_pair, minimal_instance, tmp_path):
     assert result.exit_code == 0, result.output
     lf = sio.load_slp(out)[0]
     assert len(lf.instances) == 2
-    # Rescoring is on by default with --boxes: box score x mean keypoint score.
+    # With --rescore: box score x mean keypoint score.
     for inst in lf.instances:
         box = next(b for b in lf.bboxes if b.instance is inst)
         vals = inst.numpy(scores=True)[:, 2]
@@ -1329,6 +1330,71 @@ def test_predict_cli_with_boxes_slp(trained_pair, minimal_instance, tmp_path):
     video_args[2] = "video.mp4"
     result = CliRunner().invoke(cli, video_args)
     assert result.exit_code != 0 and "needs a .slp input" in result.output
+
+
+def _instance_scores_and_points(path):
+    """Each predicted instance's score and points, in file order."""
+    lf = sio.load_slp(str(path))[0]
+    insts = [i for i in lf.instances if isinstance(i, sio.PredictedInstance)]
+    return (
+        np.array([i.score for i in insts]),
+        np.stack([i.numpy(scores=True) for i in insts]),
+    )
+
+
+@pytest.mark.parametrize("rescore", [False, True])
+def test_predict_cli_boxes_rescore_matches_python(
+    trained_pair, minimal_instance, tmp_path, rescore
+):
+    """`predict --boxes gt` rescores only with --rescore, as Python's predict.
+
+    Without the flag the command line gives the instance scores of
+    ``predict(..., boxes="gt")``; with it, those of the same call with
+    ``FilterConfig(rescore_keypoint_threshold=0.2)``.
+    """
+    from click.testing import CliRunner
+
+    from sleap_nn.cli import cli
+    from sleap_nn.inference.filters import FilterConfig
+    from sleap_nn.inference.run import predict
+
+    model = trained_pair["ci_bbox"].as_posix()
+    plain_ref = tmp_path / "plain_ref.slp"
+    predict(
+        str(minimal_instance),
+        model_paths=[model],
+        device="cpu",
+        peak_threshold=0.0,
+        boxes="gt",
+        output_path=str(plain_ref),
+    )
+    rescored_ref = tmp_path / "rescored_ref.slp"
+    predict(
+        str(minimal_instance),
+        model_paths=[model],
+        device="cpu",
+        peak_threshold=0.0,
+        boxes="gt",
+        filter_config=FilterConfig(rescore_keypoint_threshold=0.2),
+        output_path=str(rescored_ref),
+    )
+    plain_scores, plain_points = _instance_scores_and_points(plain_ref)
+    rescored_scores, _ = _instance_scores_and_points(rescored_ref)
+    assert len(plain_scores) == 2
+    # The two references differ, so the comparison below tells them apart.
+    assert not np.allclose(plain_scores, rescored_scores, atol=1e-4)
+
+    out = tmp_path / "cli.slp"
+    args = ["predict", "-i", str(minimal_instance), "-m", model, "--boxes", "gt"]
+    args += ["--peak_threshold", "0", "--device", "cpu", "-o", str(out)]
+    if rescore:
+        args.append("--rescore")
+    result = CliRunner().invoke(cli, args)
+    assert result.exit_code == 0, result.output
+    scores, points = _instance_scores_and_points(out)
+    expected = rescored_scores if rescore else plain_scores
+    np.testing.assert_allclose(scores, expected, rtol=1e-5, atol=1e-6)
+    np.testing.assert_allclose(points, plain_points, rtol=1e-5, atol=1e-4)
 
 
 def _export(src, dst, *args):
