@@ -1448,6 +1448,9 @@ def test_cosine_with_warmup_steps_is_stepped_per_iteration(monkeypatch):
     assert sched["interval"] == "step"
     assert sched["scheduler"].warmup_epochs == 20
     assert sched["scheduler"].max_epochs == 10 * 50  # max_epochs x steps/epoch
+    # Per step, the ramp starts at warmup_start_lr (one step there), unlike a
+    # per-epoch warmup, which skips the start so epoch 0 does not train at LR 0.
+    assert sched["scheduler"].skip_warmup_start is False
 
 
 def test_cosine_without_warmup_steps_stays_per_epoch():
@@ -1465,6 +1468,7 @@ def test_cosine_without_warmup_steps_stays_per_epoch():
     out = _recipe_module(sched_cfg).configure_optimizers()
     assert out["lr_scheduler"]["interval"] == "epoch"
     assert out["lr_scheduler"]["scheduler"].max_epochs == 10
+    assert out["lr_scheduler"]["scheduler"].skip_warmup_start is True
 
 
 @pytest.mark.parametrize(

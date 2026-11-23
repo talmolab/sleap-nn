@@ -1648,8 +1648,9 @@ class LightningModel(L.LightningModule):
                 warmup_start_lr=_per_group_lr(cfg.warmup_start_lr),
                 eta_min=_per_group_lr(cfg.eta_min),
                 # Stepped once per epoch: without this the default
-                # `warmup_start_lr=0` trains the whole first epoch at LR 0.
-                skip_warmup_start=True,
+                # `warmup_start_lr=0` trains the whole first epoch at LR 0. A
+                # per-step warmup starts at `warmup_start_lr` (one step there).
+                skip_warmup_start=interval == "epoch",
             )
         elif _sched("linear_warmup_linear_decay") is not None:
             cfg = _sched("linear_warmup_linear_decay")
@@ -1661,8 +1662,9 @@ class LightningModel(L.LightningModule):
                 warmup_start_lr=_per_group_lr(cfg.warmup_start_lr),
                 end_lr=_per_group_lr(cfg.end_lr),
                 # Stepped once per epoch: without this the default
-                # `warmup_start_lr=0` trains the whole first epoch at LR 0.
-                skip_warmup_start=True,
+                # `warmup_start_lr=0` trains the whole first epoch at LR 0. A
+                # per-step warmup starts at `warmup_start_lr` (one step there).
+                skip_warmup_start=interval == "epoch",
             )
         elif _sched("multi_step_lr") is not None:
             cfg = _sched("multi_step_lr")
