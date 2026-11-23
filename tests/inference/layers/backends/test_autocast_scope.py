@@ -408,3 +408,117 @@ def test_exported_backends_keep_the_whole_forward_scope(tiny_detr, caplog):
     finally:
         logger.remove(handle)
     assert any("exported" in m for m in messages)
+
+
+def _unet():
+    from sleap_nn.architectures.unet import UNet
+
+    cfg = OmegaConf.create(
+        dict(
+            in_channels=1,
+            kernel_size=3,
+            filters=8,
+            filters_rate=2,
+            max_stride=16,
+            convs_per_block=2,
+            stacks=1,
+            stem_stride=None,
+            middle_block=True,
+            up_interpolate=True,
+            block_contraction=False,
+            output_stride=2,
+        )
+    )
+    return UNet.from_config(cfg).eval()
+
+
+def _encoder_dtype(net, x):
+    seen = []
+    h = _first_layer(net.encoders[0]).register_forward_hook(
+        lambda m, a, o: seen.append(o.dtype) and None
+    )
+    try:
+        with torch.inference_mode():
+            net(x)
+    finally:
+        h.remove()
+    return seen[0]
+
+
+def test_requests_belong_to_their_thread():
+    """A enters, B tries to enter (refused while A holds a request) and runs its
+    own forward in fp32, A exits, B enters and exits: nothing is left set, and a
+    later plain forward stays fp32."""
+    import threading
+
+    from sleap_nn.architectures import common
+
+    net, x = _unet(), torch.rand(1, 1, 32, 32)
+    a_in, b_done, a_out = threading.Event(), threading.Event(), threading.Event()
+    result = {}
+
+    def thread_a():
+        with encoder_autocast("cpu", torch.bfloat16) as st:
+            result["a_dtype"] = _encoder_dtype(net, x)
+            a_in.set()
+            b_done.wait(30)
+        result["a_calls"] = st["calls"]
+        a_out.set()
+
+    def thread_b():
+        a_in.wait(30)
+        try:
+            with encoder_autocast("cpu", torch.bfloat16):
+                pass
+        except RuntimeError as e:
+            result["b_refused"] = "another thread" in str(e)
+        result["b_dtype_during_a"] = _encoder_dtype(net, x)  # A's request: not B's
+        b_done.set()
+        a_out.wait(30)
+        with encoder_autocast("cpu", torch.bfloat16) as st:
+            result["b_dtype"] = _encoder_dtype(net, x)
+        result["b_calls"] = st["calls"]
+
+    ta, tb = threading.Thread(target=thread_a), threading.Thread(target=thread_b)
+    ta.start()
+    tb.start()
+    ta.join(60)
+    tb.join(60)
+    assert result["a_dtype"] == torch.bfloat16 and result["a_calls"] == 1
+    assert result["b_refused"] is True
+    assert result["b_dtype_during_a"] == torch.float32
+    assert result["b_dtype"] == torch.bfloat16 and result["b_calls"] == 1
+    assert common._ENCODER_AUTOCAST is None
+    assert _encoder_dtype(net, x) == torch.float32
+
+
+def test_nested_requests_in_one_thread_restore():
+    from sleap_nn.architectures import common
+
+    with encoder_autocast("cpu", torch.bfloat16) as outer:
+        with encoder_autocast("cpu", torch.float16) as inner:
+            assert common._ENCODER_AUTOCAST is inner
+        assert common._ENCODER_AUTOCAST is outer
+    assert common._ENCODER_AUTOCAST is None
+
+
+def test_support_is_opt_in():
+    from sleap_nn.architectures.common import FreezableEncoderMixin
+    from sleap_nn.architectures.convnext import ConvNextWrapper
+    from sleap_nn.architectures.pretrained import PretrainedBackbone
+    from sleap_nn.architectures.swint import SwinTWrapper
+    from sleap_nn.architectures.unet import UNet
+
+    assert FreezableEncoderMixin.supports_encoder_autocast is False
+    for cls in (UNet, ConvNextWrapper, SwinTWrapper, PretrainedBackbone):
+        assert cls.supports_encoder_autocast is True
+
+
+def test_scope_error_leaves_the_backend_unchanged(tiny_detr):
+    from sleap_nn.inference.predictor import _set_autocast_precision
+
+    backend = TorchBackend(model=tiny_detr, device="cpu", use_compile=False)
+    backend.use_compile = True  # as if compiled: the encoder scope is refused
+    with pytest.raises(ValueError, match="use_compile"):
+        _set_autocast_precision(backend, "bf16-encoder")
+    assert backend.autocast_dtype is None and backend.autocast_scope == "all"

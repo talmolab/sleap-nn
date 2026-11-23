@@ -692,3 +692,58 @@ def test_frame_weights_multiply_with_overlap_weight(tmp_path):
     idx = np.concatenate(list(train.batch_sampler))
     # 4 x 1 against 1 x 2: the overlapping frame is drawn 2/3 of the time.
     assert abs(np.mean(idx == 0) - 2 / 3) < 0.05
+
+
+def _pose_frames(tmp_path, name, n=3):
+    """Pose-labelled frames (one animal) with one ignore box each, no user boxes."""
+    skel = sio.Skeleton(["a", "b", "c"])
+    lfs, videos = [], []
+    for i in range(n):
+        img = np.zeros((128, 128, 3), np.uint8)
+        img[10:50, 10:40] = RED
+        img[70:120, 70:120] = BLUE
+        path = tmp_path / f"{name}{i}.png"
+        Image.fromarray(img).save(path)
+        video = sio.Video.from_filename([str(path)])
+        videos.append(video)
+        lf = sio.LabeledFrame(video=video, frame_idx=0)
+        pts = np.array([[12, 12], [38, 30], [25, 48]], float)
+        lf.instances.append(sio.Instance.from_numpy(pts, skeleton=skel))
+        lf.bboxes = [_box(70, 70, 120, 120, "ignore")]
+        lfs.append(lf)
+    return sio.Labels(videos=videos, labeled_frames=lfs, skeletons=[skel])
+
+
+def test_train_pose_labels_with_ignore_boxes(config, tmp_path):
+    """Through the trainer: `bbox_source: auto` derives the animal boxes from the
+    poses and keeps the ignore boxes, and the box-metric callback scores with the
+    loss's rule (`ignore_cover_of="detection"`)."""
+    from unittest.mock import patch
+
+    from sleap_nn.evaluation import compute_bbox_metrics as real
+
+    seen = []
+
+    def spy(frames, *a, **kw):
+        n = sum(len(f.get("gt_ignore_bboxes", ())) for f in frames)
+        seen.append((kw, n))
+        return real(frames, *a, **kw)
+
+    train, val = _pose_frames(tmp_path, "t"), _pose_frames(tmp_path, "v", 2)
+    with patch("sleap_nn.evaluation.compute_bbox_metrics", spy):
+        trainer, _ = _train(
+            config,
+            tmp_path,
+            "pose",
+            train,
+            val,
+            ignore_box_category="ignore",
+            bbox_source="auto",
+        )
+    train_ds, _ = _datasets(trainer)
+    s = train_ds[0]
+    assert int(s["num_ignore"]) == 1 and int(s["num_instances"]) == 1
+    assert list(trainer.lightning_model.categories) == ["object"]
+    assert seen and all(kw.get("ignore_cover_of") == "detection" for kw, _ in seen)
+    assert all(kw.get("ignore_cover") == 0.5 for kw, _ in seen)
+    assert all(n >= 1 for _, n in seen)

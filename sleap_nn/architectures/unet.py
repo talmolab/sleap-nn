@@ -10,7 +10,11 @@ from omegaconf import OmegaConf
 import torch
 from torch import nn
 
-from sleap_nn.architectures.common import FreezableEncoderMixin, run_encoder
+from sleap_nn.architectures.common import (
+    FreezableEncoderMixin,
+    encoder_autocast_requested,
+    run_encoder,
+)
 from sleap_nn.architectures.encoder_decoder import Decoder, Encoder, StemBlock
 
 
@@ -46,6 +50,9 @@ class UNet(FreezableEncoderMixin, nn.Module):
     Attributes:
         Inherits all attributes from torch.nn.Module.
     """
+
+    #: Runs its encoder through `run_encoder` (`encoder_autocast` applies).
+    supports_encoder_autocast = True
 
     def __init__(
         self,
@@ -280,7 +287,13 @@ class UNet(FreezableEncoderMixin, nn.Module):
         # Process through stem block if it exists
         stem_output = x
         if self.stem is not None:
-            stem_output = run_encoder(self.stem, x)
+            # Called directly without a request, not through `run_encoder`: the
+            # stem's and blocks' max-pool padding breaks `torch.compile` graphs,
+            # and a break inside `run_encoder` would resume in its frame.
+            if encoder_autocast_requested():
+                stem_output = run_encoder(self.stem, x)
+            else:
+                stem_output = self.stem(x)
 
         # Process through all stacks
         outputs = []
@@ -291,7 +304,10 @@ class UNet(FreezableEncoderMixin, nn.Module):
             decoder = self.decoders[i]
 
             # Forward pass through encoder
-            encoded, features = run_encoder(encoder, output)
+            if encoder_autocast_requested():
+                encoded, features = run_encoder(encoder, output)
+            else:
+                encoded, features = encoder(output)
 
             # Process through middle block if it exists
             middle_output = encoded

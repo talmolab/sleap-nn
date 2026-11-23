@@ -2761,11 +2761,11 @@ def _covers_ignore_region(
     region's area. ``"detection"``: at least ``cover`` of the prediction's own area
     (COCO's crowd rule; the ``bbox_detr`` ignore-box loss rule).
     """
+    if cover_of not in ("ignore", "detection"):
+        raise ValueError(f"cover_of must be 'ignore' or 'detection', got {cover_of!r}.")
     ign = np.asarray(ignore, dtype=np.float64).reshape(-1, 4)
     if pred.shape[0] == 0 or ign.shape[0] == 0:
         return np.zeros(pred.shape[0], dtype=bool)
-    if cover_of not in ("ignore", "detection"):
-        raise ValueError(f"cover_of must be 'ignore' or 'detection', got {cover_of!r}.")
     area = _box_area(ign)[None] if cover_of == "ignore" else _box_area(pred)[:, None]
     covers = (_box_intersection(pred, ign) / np.maximum(area, 1e-12)).max(
         axis=1

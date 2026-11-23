@@ -81,7 +81,8 @@ def autocast_forward(
             (:func:`~sleap_nn.architectures.common.encoder_autocast`); their
             outputs are cast to fp32, and every layer after them (decoder, heads,
             a DETR detector's projector, transformer decoder and box head) runs in
-            fp32. The request is process-wide while the call runs (see
+            fp32. The request belongs to the calling thread; another thread
+            running an encoder-only call at the same time raises (see
             ``encoder_autocast``).
         device_type: Autocast device type (``TorchBackend`` passes ``"cuda"``;
             tests use ``"cpu"``, where bf16 autocast also works).

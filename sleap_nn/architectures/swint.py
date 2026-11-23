@@ -202,6 +202,9 @@ class SwinTWrapper(FreezableEncoderMixin, nn.Module):
         Inherits all attributes from torch.nn.Module.
     """
 
+    #: Runs its encoder through `run_encoder` (`encoder_autocast` applies).
+    supports_encoder_autocast = True
+
     def __init__(
         self,
         model_type: str,

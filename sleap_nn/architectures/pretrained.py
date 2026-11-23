@@ -569,6 +569,9 @@ class PretrainedBackbone(FreezableEncoderMixin, nn.Module):
             `Model`, not by the config.
     """
 
+    #: Runs its encoder through `run_encoder` (`encoder_autocast` applies).
+    supports_encoder_autocast = True
+
     # Declared for type checkers; set via register_buffer in __init__.
     image_mean: torch.Tensor
     image_std: torch.Tensor

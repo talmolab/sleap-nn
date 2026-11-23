@@ -1310,8 +1310,10 @@ def _set_autocast_precision(layer: Any, precision: str) -> List[TorchBackend]:
                 "backbone that supports it. Use "
                 f"precision={name!r} (the whole forward) instead."
             )
-        backend.autocast_dtype = dtype
+        # The scope first: its check (`use_compile`) must fail before the dtype
+        # is set, so a caught error leaves the backend as it was.
         backend.autocast_scope = "encoder" if encoder_scope else "all"
+        backend.autocast_dtype = dtype
         found.append(backend)
     return found
 
