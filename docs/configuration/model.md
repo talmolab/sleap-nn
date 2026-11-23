@@ -1096,3 +1096,17 @@ RF-DETR's; the [guide](../guides/bbox-detr.md) gives animal defaults.
 | `focal_alpha` | float | `0.25` | Alpha of the matcher's focal cost and of the IA-BCE soft target |
 | `focal_gamma` | float | `2.0` | Gamma of the matcher's focal cost and of the IA-BCE negative weight |
 | `lr_component_decay` | float | `0.7` | The decoder trains at `lr * lr_component_decay`, the backbone at `lr * encoder_lr_scale * lr_component_decay^2` (times its layer decay), everything else at `lr` |
+| `keypoints` | dict | `null` | Experimental: also predict keypoints per query, boxes and poses in one pass (see below). `null`: a box detector only; left out of the saved config while unset |
+
+### bbox_detr.detr.keypoints (experimental)
+
+Keypoints per query of a `bbox_detr` model (`head_configs.bbox_detr.detr.keypoints`;
+`keypoints: {}` turns them on with these defaults). See the
+[guide](../guides/bbox-detr.md#boxes-and-keypoints-in-one-pass-experimental).
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `part_names` | list | `null` | Nodes to predict, matched by name in every training file. `null` = the nodes of the first training file's skeleton (written into the saved config) |
+| `loss_weight` | float | `5.0` | Weight of the keypoint L1 loss (per point, divided by the target box size; a weighted mean over the batch's located points) |
+| `visibility_loss_weight` | float | `1.0` | Weight of the keypoint visibility loss (binary cross-entropy; a weighted mean over the batch's points) |
+| `visibility_threshold` | float | `0.5` | At prediction, points whose visibility probability is below this are written as missing (set it in the model's `training_config.yaml`) |

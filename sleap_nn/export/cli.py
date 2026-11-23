@@ -332,6 +332,14 @@ def export(
             "crops), or run the pair from its checkpoints with `sleap-nn predict "
             "--model_paths <bbox_dir> --model_paths <centered_instance_dir>`."
         )
+    for cfg, model_type in zip(cfgs, model_types):
+        if model_type == "bbox_detr" and _has_detr_keypoints(cfg):
+            raise click.ClickException(
+                "This bbox_detr model predicts keypoints (the experimental "
+                "head_configs.bbox_detr.detr.keypoints branch), which export to "
+                "ONNX/TensorRT does not support yet. Run it from its checkpoint "
+                "with `sleap-nn predict -m <model_dir>`."
+            )
 
     from sleap_nn.data.instance_cropping import BBoxCropSpec
 
@@ -1465,6 +1473,16 @@ def _warn_fp16_vit_pose(cfg, model_type, backbone_type, fmt, precision) -> None:
         "with compute capability >= 8.0) or fp32, unless plain fp16 is checked on your "
         "data."
     )
+
+
+def _has_detr_keypoints(cfg) -> bool:
+    """Whether a ``bbox_detr`` config uses the experimental keypoint branch."""
+    from omegaconf import OmegaConf
+
+    from sleap_nn.architectures.detr.model import detr_keypoints_config
+
+    detr = OmegaConf.select(cfg, "model_config.head_configs.bbox_detr.detr")
+    return detr_keypoints_config(detr) is not None
 
 
 def _copy_training_config(

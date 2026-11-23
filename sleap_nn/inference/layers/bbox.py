@@ -5,7 +5,10 @@ returns the decoder-ready head dict) and decodes its outputs with the model's
 :class:`~sleap_nn.inference.bbox.BBoxDecoder` into ``Outputs.pred_bboxes`` /
 ``pred_bbox_scores`` / ``pred_bbox_classes`` in original-image pixels, which
 ``Outputs.to_labels`` packages as ``sio.PredictedBoundingBox`` on
-``LabeledFrame.bboxes``.
+``LabeledFrame.bboxes``. A ``bbox_detr`` with the experimental keypoint branch also
+fills ``pred_keypoints`` / ``pred_peak_values`` / ``instance_scores``, one instance
+per box slot, which ``to_labels`` packages as predicted instances linked to their
+boxes.
 """
 
 from __future__ import annotations
@@ -113,30 +116,75 @@ class BBoxLayer(InferenceLayer):
         Returns:
             ``Outputs`` with ``pred_bboxes (B, K, 4)`` xyxy, ``pred_bbox_scores
             (B, K)`` and ``pred_bbox_classes (B, K)`` (NaN / ``-1`` padded, sorted
-            by descending score).
+            by descending score). With keypoints (experimental ``bbox_detr``
+            branch), also ``pred_keypoints (B, K, N, 2)``, ``pred_peak_values
+            (B, K, N)`` (visibility probabilities) and ``instance_scores (B, K)``
+            (the box scores), slot for slot with the boxes.
         """
-        boxes, scores, classes = self.decoder(
-            raw_out,
-            img_hw=tuple(info.processed_size),
-            score_threshold=self.postprocess_config.peak_threshold,
-            max_detections=self.postprocess_config.max_instances,
-        )
+        points = point_scores = None
+        if getattr(self.decoder, "num_keypoints", 0) and "pred_keypoints" in raw_out:
+            boxes, scores, classes, points, point_scores = (
+                self.decoder.decode_keypoints(
+                    raw_out,
+                    img_hw=tuple(info.processed_size),
+                    score_threshold=self.postprocess_config.peak_threshold,
+                    max_detections=self.postprocess_config.max_instances,
+                )
+            )
+        else:
+            boxes, scores, classes = self.decoder(
+                raw_out,
+                img_hw=tuple(info.processed_size),
+                score_threshold=self.postprocess_config.peak_threshold,
+                max_detections=self.postprocess_config.max_instances,
+            )
         # Coord ladder on the two corners: model input -> original image.
         corners = boxes.reshape(boxes.shape[0], -1, 2)
         corners = undo_input_scale(corners, info.input_scale)
         corners = undo_eff_scale(corners, info.eff_scale)
         boxes = corners.reshape(boxes.shape)
-        boxes, scores, classes = clip_boxes_to_frame(
-            boxes,
-            scores,
-            classes,
-            (
-                info.original_size
-                if info.original_sizes is None
-                else info.original_sizes
-            ),
+        frame_hw = (
+            info.original_size if info.original_sizes is None else info.original_sizes
+        )
+        boxes, scores, classes = clip_boxes_to_frame(boxes, scores, classes, frame_hw)
+        if points is not None:
+            return self._with_keypoints(
+                boxes, scores, classes, points, point_scores, info, frame_hw
+            )
+        return Outputs(
+            pred_bboxes=boxes.detach(),
+            pred_bbox_scores=scores.detach(),
+            pred_bbox_classes=classes.detach(),
+            preprocess_info=info,
+        )
+
+    def _with_keypoints(
+        self, boxes, scores, classes, points, point_scores, info, frame_hw
+    ) -> Outputs:
+        """``Outputs`` of a keypoint ``bbox_detr``: points mapped to the frame.
+
+        Points take the boxes' coordinate ladder back to the original frame; points
+        off the frame, and every point of a slot whose box was dropped, are NaN.
+        """
+        b, k, n = points.shape[:3]
+        points = undo_input_scale(points.reshape(b, k * n, 2), info.input_scale)
+        points = undo_eff_scale(points, info.eff_scale).reshape(b, k, n, 2)
+        if isinstance(frame_hw, torch.Tensor):
+            hw = frame_hw.to(device=points.device, dtype=points.dtype)
+            h, w = hw[:, 0, None, None], hw[:, 1, None, None]
+        else:
+            h, w = float(frame_hw[0]), float(frame_hw[1])
+        x, y = points[..., 0], points[..., 1]
+        on = (x >= -0.5) & (x <= w - 0.5) & (y >= -0.5) & (y <= h - 0.5)
+        on = on & torch.isfinite(scores)[..., None]
+        points = points.masked_fill(~on[..., None], float("nan"))
+        point_scores = point_scores.masked_fill(
+            ~torch.isfinite(scores)[..., None], float("nan")
         )
         return Outputs(
+            pred_keypoints=points.detach(),
+            pred_peak_values=point_scores.detach(),
+            instance_scores=scores.detach(),
             pred_bboxes=boxes.detach(),
             pred_bbox_scores=scores.detach(),
             pred_bbox_classes=classes.detach(),

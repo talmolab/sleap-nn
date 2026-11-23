@@ -207,6 +207,67 @@ def loss_boxes(
     }
 
 
+#: Smallest target box width/height (normalized) the keypoint L1 is divided by, so a
+#: sliver of a box left by a crop does not blow the loss up.
+KEYPOINT_MIN_BOX_SIZE = 0.01
+
+
+@register_loss_term("keypoints")
+def loss_keypoints(
+    criterion: "SetCriterion",
+    outputs: Dict,
+    targets: List[Dict[str, torch.Tensor]],
+    indices: MatchIndices,
+    num_boxes: torch.Tensor,
+) -> Dict[str, torch.Tensor]:
+    """Keypoint L1 (``loss_keypoints``) and visibility BCE (``loss_keypoint_vis``).
+
+    Experimental keypoint branch. For every matched query and node ``k`` with
+    weight ``w`` (the target's ``keypoint_weights``: 0 for nodes its file or
+    instance leaves unlabeled, and for boxes without a pose) and visibility ``v``
+    (the point has a location in the model input):
+
+    * L1: ``w * v * (|dx| / box_w + |dy| / box_h)``, the error of the normalized
+      point divided by the target box's normalized size (at least
+      :data:`KEYPOINT_MIN_BOX_SIZE`);
+    * visibility: ``w * BCE(logit, v)``.
+
+    Each is a weighted mean: the L1 sum divided by the summed ``w * v``, the
+    visibility sum by the summed ``w`` (each at least 1, so a batch with few
+    labelled points is not blown up). The weights are those of this process's
+    batch (not averaged over ranks), so the loss weight does not depend on how
+    many boxes have no pose or how many nodes a file labels. Layers without
+    keypoint outputs (the encoder proposals) get no keypoint terms.
+    """
+    if "pred_keypoints" not in outputs:
+        return {}
+    idx = _matched_query_index(indices)
+    points = outputs["pred_keypoints"][idx]  # (M, K, 2)
+    logits = outputs["pred_keypoint_logits"][idx]  # (M, K)
+    if targets and "keypoints" in targets[0]:
+        # Missing points carry no location; any finite stand-in keeps the
+        # masked-out entries' gradients at 0.
+        tgt = torch.nan_to_num(_matched_targets(targets, indices, "keypoints"))
+        tgt = tgt.to(points)
+        weights = _matched_targets(targets, indices, "keypoint_weights").to(points)
+        visible = _matched_targets(targets, indices, "keypoint_visible").to(points)
+    else:  # Box-only targets: nothing to supervise.
+        tgt = torch.zeros_like(points)
+        weights = visible = torch.zeros_like(logits)
+    size = _matched_targets(targets, indices, "boxes").to(points)[:, 2:]
+    size = size.clamp(min=KEYPOINT_MIN_BOX_SIZE)[:, None, :]
+    on = (weights * visible) > 0
+    error = ((points - tgt).abs() / size).sum(-1)
+    error = torch.where(on, error, torch.zeros_like(error))
+    bce = F.binary_cross_entropy_with_logits(logits, visible, reduction="none")
+    on_weight = (weights * visible).sum().detach().clamp(min=1.0)
+    weight = weights.sum().detach().clamp(min=1.0)
+    return {
+        "loss_keypoints": (weights * error).sum() / on_weight,
+        "loss_keypoint_vis": (weights * bce).sum() / weight,
+    }
+
+
 @register_loss_term("cardinality")
 @torch.no_grad()
 def loss_cardinality(
@@ -422,10 +483,25 @@ def build_set_criterion(detr_config, num_classes: Optional[int] = None) -> SetCr
 
     Returns:
         A :class:`SetCriterion` with the config's matcher costs, loss weights, focal
-        parameters and ``group_detr``.
+        parameters and ``group_detr``; with the experimental ``keypoints`` section
+        set, also the ``keypoints`` loss term (``loss_keypoints`` weighted by its
+        ``loss_weight``, ``loss_keypoint_vis`` by its ``visibility_loss_weight``).
     """
+    from sleap_nn.architectures.detr.model import detr_keypoints_config
+
     if num_classes is None:
         num_classes = len(detr_config.categories or [None])
+    weight_dict = {
+        "loss_ce": detr_config.cls_loss_coef,
+        "loss_bbox": detr_config.bbox_loss_coef,
+        "loss_giou": detr_config.giou_loss_coef,
+    }
+    losses = ("labels", "boxes", "cardinality")
+    keypoints = detr_keypoints_config(detr_config)
+    if keypoints is not None:
+        losses = losses + ("keypoints",)
+        weight_dict["loss_keypoints"] = float(keypoints.loss_weight)
+        weight_dict["loss_keypoint_vis"] = float(keypoints.visibility_loss_weight)
     matcher = HungarianMatcher(
         cost_class=detr_config.set_cost_class,
         cost_bbox=detr_config.set_cost_bbox,
@@ -436,11 +512,8 @@ def build_set_criterion(detr_config, num_classes: Optional[int] = None) -> SetCr
     return SetCriterion(
         num_classes,
         matcher=matcher,
-        weight_dict={
-            "loss_ce": detr_config.cls_loss_coef,
-            "loss_bbox": detr_config.bbox_loss_coef,
-            "loss_giou": detr_config.giou_loss_coef,
-        },
+        weight_dict=weight_dict,
+        losses=losses,
         focal_alpha=detr_config.focal_alpha,
         focal_gamma=detr_config.focal_gamma,
         group_detr=detr_config.group_detr,

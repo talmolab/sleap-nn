@@ -70,11 +70,16 @@ from sleap_nn.data.bboxes import (
     add_bboxes_to_labels,
     auto_anchor_sizes,
     bbox_head_leaf,
+    bbox_model_skeletons,
     bbox_size_stats,
     frame_user_bboxes,
     labels_bbox_categories,
 )
-from sleap_nn.config.model_config import BBOX_MODEL_TYPES, ssd_level_strides
+from sleap_nn.config.model_config import (
+    BBOX_MODEL_TYPES,
+    config_to_save,
+    ssd_level_strides,
+)
 from sleap_nn.evaluation import BBOX_EVAL_LOG_KEYS
 from loguru import logger
 from sleap_nn.config.utils import (
@@ -638,9 +643,10 @@ class ModelTrainer:
         total_val_lfs = 0
         # Bounding-box detectors train on boxes only and never read keypoints, so
         # their files may carry any skeletons (COCO-17, a union skeleton, none):
-        # the model has no skeleton, whatever order the files are listed in.
+        # the model has no skeleton, whatever order the files are listed in (a
+        # `bbox_detr` with keypoints: the skeleton of its `part_names`).
         if self.model_type in BBOX_MODEL_TYPES:
-            self.skeletons = []
+            self.skeletons = bbox_model_skeletons(self.config, self.model_type, labels)
         else:
             self.skeletons = labels[0].skeletons
 
@@ -681,8 +687,9 @@ class ModelTrainer:
                 )
         # check if all `.slp` file shave same skeleton structure (if multiple slp file paths are provided)
         # Mask-only labels (e.g. instance segmentation) may carry no skeleton, and
-        # bounding-box models have none (see above), so neither is checked.
-        elif self.skeletons:
+        # bounding-box models match keypoint nodes by name (see above), so neither
+        # is checked.
+        elif self.skeletons and self.model_type not in BBOX_MODEL_TYPES:
             skeleton = self.skeletons[0]
             for split, label_list in (("training", labels), ("validation", val_labels)):
                 for index, label in enumerate(label_list or []):
@@ -4115,14 +4122,18 @@ class ModelTrainer:
         if dry_run:
             # The run's two config files, written where the real run writes them.
             OmegaConf.save(
-                skeleton_pool.config_for_saving(
-                    config_without_unused_keys(self._initial_config)
+                config_to_save(
+                    skeleton_pool.config_for_saving(
+                        config_without_unused_keys(self._initial_config)
+                    )
                 ),
                 (dry_run_dir / "initial_config.yaml").as_posix(),
             )
             OmegaConf.save(
-                skeleton_pool.config_for_saving(
-                    config_without_unused_keys(self.config)
+                config_to_save(
+                    skeleton_pool.config_for_saving(
+                        config_without_unused_keys(self.config)
+                    )
                 ),
                 (dry_run_dir / "training_config.yaml").as_posix(),
             )
@@ -4139,8 +4150,10 @@ class ModelTrainer:
             self.config.sleap_nn_version = sleap_nn.__version__
 
             OmegaConf.save(
-                skeleton_pool.config_for_saving(
-                    config_without_unused_keys(self._initial_config)
+                config_to_save(
+                    skeleton_pool.config_for_saving(
+                        config_without_unused_keys(self._initial_config)
+                    )
                 ),
                 (Path(ckpt_path) / "initial_config.yaml").as_posix(),
             )
@@ -4185,8 +4198,10 @@ class ModelTrainer:
                 )
 
             OmegaConf.save(
-                skeleton_pool.config_for_saving(
-                    config_without_unused_keys(self.config)
+                config_to_save(
+                    skeleton_pool.config_for_saving(
+                        config_without_unused_keys(self.config)
+                    )
                 ),
                 (
                     Path(self.config.trainer_config.ckpt_dir)
