@@ -494,6 +494,8 @@ def _build_predictor(
     part_strip_prefix,
     part_peak_threshold,
     part_prefix,
+    upload_batches=False,
+    memory_format="contiguous",
 ):
     """Build the predictor (and the streaming part stage) the way :func:`predict` does.
 
@@ -603,6 +605,8 @@ def _build_predictor(
         if node_filter is not None:
             build_kwargs["node_filter"] = node_filter
             build_kwargs["strip_prefix"] = strip_prefix
+        build_kwargs["upload_batches"] = upload_batches
+        build_kwargs["memory_format"] = memory_format
         predictor = Predictor.from_model_paths(model_paths, **build_kwargs)
     else:
         if node_filter is not None:
@@ -634,6 +638,16 @@ def _build_predictor(
         build_kwargs["emit_centroid"] = emit_centroid
         if max_instances is not None:
             build_kwargs["max_instances"] = max_instances
+        if upload_batches:
+            logger.warning(
+                "upload_batches is ignored for an exported model directory; "
+                "it applies to trained checkpoints only."
+            )
+        if memory_format != "contiguous":
+            logger.warning(
+                f"memory_format={memory_format!r} is ignored for an exported "
+                "model directory; it applies to trained checkpoints only."
+            )
         if _is_box_detector_export(export_dir):
             # A lone exported box detector decodes on the host, like the same
             # export next to a pose model: the score and NMS thresholds apply.
@@ -706,6 +720,10 @@ def predict(
     polygon_epsilon: float = 0.01,
     # Bounding-box detector knob (construction-time; bbox_* models only)
     bbox_nms_iou: Optional[float] = None,
+    # Copy each uint8 batch to the GPU before preprocessing (CUDA, checkpoints only)
+    upload_batches: bool = False,
+    # Weight layout of every model ("channels_last": faster convs on NVIDIA GPUs)
+    memory_format: str = "contiguous",
     # Flip-test (construction-time; centered_instance top-down models only)
     flip_test: bool = False,
     frames_on_gpu: bool = False,
@@ -840,6 +858,15 @@ def predict(
             (``None``: the style default, 0.45 for SSD / off for CenterNet; ``1.0``
             disables it). ``peak_threshold`` is their score threshold and
             ``max_instances`` their per-frame detection cap.
+        upload_batches: Copy each ``uint8`` batch to the GPU before
+            preprocessing when ``device`` is CUDA, so resizing and cropping run
+            there (faster; results differ slightly from the default ``False``).
+            Trained checkpoints only; ignored, with a warning, for an exported
+            model directory.
+        memory_format: Weight layout of every model: ``"contiguous"`` (default)
+            or ``"channels_last"`` (faster cuDNN convolutions on NVIDIA GPUs;
+            no change on AMD ROCm). Trained checkpoints only; ignored, with a
+            warning, for an exported model directory.
         flip_test: Top-down ``centered_instance`` models only: also run the
             centered-instance model on the mirrored crops and average the
             confmaps (symmetric nodes swapped) before peak finding. Not
@@ -1095,6 +1122,8 @@ def predict(
         part_strip_prefix=part_strip_prefix,
         part_peak_threshold=part_peak_threshold,
         part_prefix=part_prefix,
+        upload_batches=upload_batches,
+        memory_format=memory_format,
     )
 
     # Run inference with prediction-time overrides

@@ -2,7 +2,7 @@
 #
 # This is NOT a top-down stage-1 centroid model. A top-down centroid (see
 # config_centroid_unet.yaml) is paired with a centered-instance model and is
-# trained on downscaled, cropped data. THIS config trains a centroid head on
+# trained on downscaled whole frames (scale 0.5). THIS config trains a centroid head on
 # its own, at full resolution, to localize one point per animal — useful for
 # multi-instance "animals-as-points" detection, tracking, or counting where
 # per-keypoint pose is not needed.

@@ -29,7 +29,7 @@ Run predictions on videos and label files.
     sleap-nn predict -i video.mp4 -m models/centroid/ -m models/centered_instance/
     ```
 
-    **Output:** `video.mp4.predictions.slp`
+    **Output:** `video.predictions.slp` (next to the input; set `-o` to choose the name)
 
     **If results aren't great**, try these common fixes:
 
@@ -47,7 +47,7 @@ Run predictions on videos and label files.
 sleap-nn predict --data_path video.mp4 --model_paths models/my_model/
 ```
 
-Output: `video.mp4.predictions.slp`
+Output: `video.predictions.slp`, written next to the input (the input's extension replaced by `.predictions.slp`, as SLEAP 1.4's `sleap-track` and legacy `sleap-nn track` name it). Use `-o` to choose another path.
 
 See the [CLI Reference](../reference/cli.md) for all available parameters.
 
@@ -73,8 +73,28 @@ sleap-nn predict -i video.mp4 -m exports/my_model/ --runtime tensorrt
 | `onnx` | Force the ONNX runtime |
 | `tensorrt` | Force the TensorRT runtime |
 
-`--runtime` is ignored for trained checkpoints. Most other options (device,
-batch size, filters, tracking) apply to exported models too. For exporting
+`--runtime` is ignored for trained checkpoints. With an exported model these
+options still apply: input/frame selection, output options, `--device`,
+`--batch_size`, `--max_instances`, `--min_instance_peaks`, `--min_line_scores`,
+`--centroid_output`, `--paf-workers`, the filters and tracking.
+
+The other model options have no effect on an exported model. They are ignored
+without a warning, because the value was baked in at export time or the exported
+runtime has no such option:
+
+- `--peak_threshold` / `--centroid_peak_threshold`, `--integral_refinement`,
+  `--integral_patch_size`
+- the preprocessing overrides (`--input_scale`, `--max_height` / `--max_width`,
+  `--crop_size`, `--ensure_rgb` / `--ensure_grayscale`), `--anchor_part`,
+  `--backbone_ckpt_path` / `--head_ckpt_path`, `--centroid_only`
+- the bottom-up PAF options `--max_edge_length_ratio`, `--dist_penalty_weight`,
+  `--n_points`
+- the segmentation and box options (`--fg_threshold`, `--min_mask_area`,
+  `--center_nms_kernel`, `--mask_cleanup*`, `--distance_gate_alpha`, `--merge_*`,
+  `--full_res_masks`, `--mask_output`, `--polygon_epsilon`, `--bbox_nms_iou`)
+
+`--upload_batches` and `--memory_format` are ignored with a warning. To change a
+baked-in value, re-export (see `sleap-nn export --peak-threshold`). For exporting
 models and runtime details, see the [Export guide](export.md).
 
 ### Viewing Results
@@ -84,7 +104,7 @@ After inference, you'll have a `.slp` file containing predictions. To view them:
 **Option 1: Open in SLEAP GUI**
 
 ```bash
-sleap predictions.slp
+sleap-label predictions.slp
 ```
 
 This opens the predictions in the SLEAP labeling interface where you can visualize skeletons overlaid on video frames.
@@ -94,7 +114,7 @@ This opens the predictions in the SLEAP labeling interface where you can visuali
 ```python
 import sleap_io as sio
 
-labels = sio.load_slp("video.mp4.predictions.slp")
+labels = sio.load_slp("video.predictions.slp")
 print(f"Frames with predictions: {len(labels)}")
 print(f"Total instances: {sum(len(lf.instances) for lf in labels)}")
 
@@ -105,15 +125,26 @@ for inst in lf.instances:
     print(f"  Score: {inst.score:.3f}, Points: {inst.numpy().shape}")
 ```
 
-**Option 3: Export to analysis formats**
+**Option 3: Write analysis formats**
+
+Ask `predict` for a SLEAP Analysis HDF5 file (one `.analysis.h5` per video)
+next to, or instead of, the `.slp`:
+
+```bash
+sleap-nn predict -i video.mp4 -m models/my_model/ \
+    --output_format slp --output_format analysis_h5
+```
+
+To convert a `.slp` you already have:
 
 ```python
-# Export to Analysis HDF5 for downstream analysis
-labels.export("predictions.analysis.h5")
+import sleap_io as sio
 
-# Or convert to CSV/DataFrames
-# See sleap-io documentation for more export options
+labels = sio.load_slp("video.predictions.slp")
+sio.save_analysis_h5(labels, "predictions.analysis.h5")
 ```
+
+For other formats, see the [sleap-io documentation](https://io.sleap.ai/).
 
 ---
 
@@ -144,7 +175,7 @@ Each `--model_paths` entry may be a model **directory**, or a path to that model
     - `mps` - Use Apple Metal (macOS)
 
 !!! note "Max instances"
-    The `--max_instances` / `-n` parameter is only applied during the model forward pass. When running in **track-only mode** (without model inference), this parameter has no effect since no peak detection is performed.
+    The `--max_instances` / `-n` parameter caps instances during the model forward pass. In **track-only mode** (without model inference) nothing is capped. The classic tracker still reads it, in both modes: without `--tracking_target_instance_count`, `--use_kalman`, `--tracking_pre_cull_to_target` and `--post_connect_single_breaks` take their target instance count from `-n`, and `--post_connect_single_breaks` without `--max_tracks` also uses it as `max_tracks`.
 
 For all parameters including image pre-processing and data selection options, see the [CLI Reference](../reference/cli.md).
 
@@ -453,7 +484,7 @@ After filtering, tracking assigns consistent identities across frames. See [Trac
 !!! note "Why filtering happens before tracking"
     Filtering is applied **before** tracking to prevent spurious track creation. If low-quality instances were tracked first and then filtered out, their track IDs would be lost, causing track switches in subsequent frames.
 
-In **track-only mode** (no model paths), filtering is still applied before tracking on existing predictions.
+In **track-only mode** (no model paths), the `--filter_*` options are **not** applied: they are accepted but ignored, and the existing predictions are tracked as they are.
 
 ---
 
@@ -481,8 +512,8 @@ tracking from Python, see the [Inference API guide](inference-api.md).
 
 !!! note "Legacy `run_inference`"
     `from sleap_nn.legacy_predict import run_inference` is the older legacy-pipeline
-    entry point (it backs `sleap-nn track`). Prefer `sleap_nn.inference.predict`
-    for new code.
+    entry point (it backs `sleap-nn track`). Calling it from Python is deprecated
+    and will be removed in a future release; use `sleap_nn.inference.predict`.
 
 ---
 
@@ -498,19 +529,30 @@ provenance = labels.provenance
 
 print(f"sleap-nn version: {provenance.get('sleap_nn_version')}")
 print(f"Model type: {provenance.get('model_type')}")
-print(f"Runtime: {provenance.get('runtime_sec')}s")
+print(f"Runtime: {provenance.get('inference_runtime_seconds')}s")
+print(f"Settings: {provenance.get('inference_config')}")
 ```
 
 ### Recorded Information
 
-| Category | Fields |
-|----------|--------|
-| **Timestamps** | `timestamp_start`, `timestamp_end`, `runtime_sec` |
-| **Versions** | `sleap_nn_version`, `sleap_io_version`, `torch_version` |
-| **Model** | `model_paths`, `model_type`, `head_type` |
-| **Input** | `source_path`, `source_video_paths` |
-| **Config** | `peak_threshold`, `batch_size`, `max_instances` |
-| **System** | `device`, `python_version`, `cuda_version`, `gpu_names` |
+| Category | Keys |
+|----------|------|
+| **Timestamps** | `inference_start_timestamp`, `inference_end_timestamp` (ISO 8601), `inference_runtime_seconds` |
+| **Versions** | `sleap_nn_version`, `sleap_io_version` (PyTorch version is under `system_info`) |
+| **Model** | `model_paths`, `model_type` (the inference layer that ran, e.g. `"TopDownLayer"`, `"BottomUpLayer"`) |
+| **Input** | `source_file`, when the input was given as a path (not for a `sio.Labels` / `sio.Video` passed from Python, or a `--video_index` run) |
+| **Frames** | `frame_selection` (`frames_processed`: the number of frames in the output) |
+| **Config** | `inference_config` — a dict of the settings that were set, e.g. `batch_size`, `peak_threshold`, `centroid_threshold` / `keypoint_threshold`, `integral_refinement`, `max_instances`, input scale, and top-down `centroid_scale` / `instance_scale` / `crop_size`. Which keys appear depends on the model type and on whether you ran the CLI or the Python `predict()` |
+| **Tracking** | `tracking_config` when tracking ran; `tracking` (resolved parameters per video) for the [modern MOT trackers](tracking.md#modern-mot-trackers) |
+| **System** | `device`, and `system_info` (`python_version`, `platform`, `pytorch_version`, `cuda_version`, `accelerator`, `gpu_count`, `gpus`) |
+
+Keys whose value is unknown are left out, so read optional ones with `.get()`.
+
+A track-only run (`sleap-nn predict -i labels.slp -t`, no model) writes a
+different set: `pipeline_type` (`"tracking_only"`), `tracking_start_timestamp` /
+`tracking_end_timestamp` / `tracking_runtime_seconds`, the versions,
+`source_file`, `input_provenance` (the input's own provenance) and
+`source_labels`, `frames_processed`, `tracking_config` and `system_info`.
 
 ---
 
@@ -637,7 +679,7 @@ The directory should contain:
 
     2. **Crop size mismatch** (top-down only)
        ```bash
-       # Check training config for crop_hw value
+       # Check data_config.preprocessing.crop_size in the training config
        sleap-nn predict -i video.mp4 -m models/ --crop_size 256
        ```
 
@@ -686,7 +728,7 @@ The directory should contain:
 
 ??? question "Progress bar not moving / seems stuck"
     - Large videos take time to process - check GPU utilization with `nvidia-smi`
-    - First batch may be slow due to model compilation
+    - The first batch is slower while the model loads and warms up
     - Try a smaller test: `--frames 0-100`
 
 ---

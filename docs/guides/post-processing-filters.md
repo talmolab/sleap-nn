@@ -68,6 +68,21 @@ sleap-nn predict -i video.mp4 -m models/ \
 | 0.5 | Moderate |
 | 0.8 | Permissive (default) |
 
+## Centroid Distance Filter
+
+For centroid-only output (a lone centroid model), the overlap filter is skipped
+because bounding-box IoU and OKS are degenerate for single points. Remove duplicate
+centroids by distance instead:
+
+```bash
+# Drop any centroid within 10 px of a higher-scoring centroid
+sleap-nn predict -i video.mp4 -m models/centroid/ --filter_min_centroid_distance 10
+```
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `--filter_min_centroid_distance` | Greedy NMS radius in pixels between predicted centroids (Python: `FilterConfig(min_centroid_distance=...)`) | `0.0` (disabled) |
+
 ## COCO Rescoring and OKS-NMS
 
 Top-down human pose papers (mmpose / ViTPose protocol) rescore each instance and
@@ -92,7 +107,7 @@ See [COCO-Style Evaluation](coco-evaluation.md).
 ## Combining Filters
 
 All filters can be combined. They are applied in order: rescoring → node count →
-confidence → OKS-NMS → overlap.
+confidence → OKS-NMS → overlap → centroid distance.
 
 **Example: Strict filtering for clean output**
 
@@ -153,4 +168,4 @@ sleap-nn predict -i video.mp4 \
 ```
 
 !!! note "Inference only"
-    Filters are only applied during inference. When running in **track-only mode** (without model paths), these parameters have no effect.
+    Filters are only applied during inference. In **track-only mode** (`-i labels.slp -t`, without model paths) the `--filter_*` options are accepted but ignored: the existing predictions are tracked as they are.

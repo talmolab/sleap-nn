@@ -157,6 +157,22 @@ config = (
 | `.detr(preset, num_queries, init_from, max_side)` | `bbox_detr` backbone / decoder preset (`dinov3_s`, `dinov3_b`, `rfdetr_n\|s\|m\|l`), queries, a checkpoint to start from, and a fixed input side |
 | `.detr_resolution()` | The `bbox_detr` input size the token-width rule picks for the data |
 
+!!! warning "Python pipeline names differ from `--pipeline`"
+    `.pipeline()` accepts `single_instance`, `centroid`, `centroid_only`,
+    `centered_instance`, `bottomup`, `multi_class_bottomup`,
+    `multi_class_topdown`, `bbox_centernet`, `bbox_ssd`,
+    `topdown_bbox_centernet` and `topdown_bbox_ssd`. There is no `"topdown"`:
+
+    - `.pipeline("centroid")` **is** the top-down pipeline (the CLI's
+      `--pipeline topdown` maps to it). `.save("cfg.yaml")` writes both
+      `cfg_centroid.yaml` and `cfg_centered_instance.yaml`; `.build()` returns
+      only the centroid stage, and `.build_centered_instance()` the second stage.
+      `multi_class_topdown` also saves a pair (`cfg_centroid.yaml` +
+      `cfg_centered_instance.yaml` with the multi-class head), but its
+      `.build()` returns the multi-class stage.
+    - `.pipeline("centroid_only")` is a standalone centroid model, one config
+      (the CLI's `--pipeline centroid`).
+
 ### Get Recommendations
 
 ```python
@@ -184,13 +200,15 @@ print(gen.auto().summary())
 
 ## Pipeline Selection
 
-The config generator analyzes your data to recommend a pipeline:
+The config generator analyzes your data to recommend a pipeline (these are
+the `sleap-nn config --pipeline` names):
 
 | Pipeline | Use Case |
 |----------|----------|
 | `single_instance` | One animal per frame |
 | `bottomup` | Multiple animals, same skeleton |
 | `topdown` | Multiple animals, need centroids + instances |
+| `centroid` | Standalone centroid model: one point per animal (e.g. single-node skeletons) |
 | `multi_class_bottomup` | Multiple animals with identity classes |
 | `multi_class_topdown` | Multiple animals with classes, top-down approach |
 | `bbox_centernet` / `bbox_ssd` / `bbox_detr` | A bounding-box detector (boxes derived from the poses) |
@@ -207,11 +225,15 @@ ViT-S, 100 queries, the input size that keeps small animals 3 tokens wide, 200
 epochs) and the presets' parameter / memory estimates are in the
 [DETR box detector guide](bbox-detr.md).
 
-The recommendation is based on:
+The recommendation is based on, in order:
 
-- Number of instances per frame
-- Skeleton complexity
-- Image size and resolution
+- One instance per frame → `single_instance`
+- A single-node skeleton → standalone `centroid`
+- Animals covering less than ~20% of the frame → `topdown`
+- Larger animals → `bottomup`, or `topdown` if the skeleton has no edges
+
+The multi-class and box-detector pipelines are never recommended automatically;
+pick them with `--pipeline`.
 
 ---
 

@@ -59,57 +59,61 @@ train(
 
 ## Inference
 
-!!! tip "New inference API"
-    The examples below use the legacy `run_inference` entry point. The current
-    public inference surface is `from sleap_nn.inference import Predictor, predict`
-    — see the [Inference API guide](../guides/inference-api.md) for the
-    `Predictor` / `Outputs` / `FilterConfig` / `TrackerConfig` workflow. In
-    particular, the raw outputs returned by the new pipeline are
-    [`Outputs`](../guides/inference-api.md#the-outputs-dataclass) objects, not
-    the per-frame dicts shown under "Get Raw Outputs" below.
+`sleap_nn.predict`, `sleap_nn.Predictor` and `sleap_nn.load_models` are the
+top-level entry points. `predict` and `Predictor` are also importable from
+`sleap_nn.inference`; `load_models` is top-level only. See the
+[Inference API guide](../guides/inference-api.md) for streaming, raw
+`Outputs`, filtering and tracking.
 
 ### Basic Inference
 
 ```python
-from sleap_nn.legacy_predict import run_inference
+import sleap_nn
 
-labels = run_inference(
-    data_path="video.mp4",
+labels = sleap_nn.predict(
+    "video.mp4",
     model_paths=["models/bottomup/"],
-    output_path="predictions.slp",
-    make_labels=True,
+    output_path="predictions.slp",  # optional: also save to disk
 )
 ```
+
+### Reusable Predictor
+
+```python
+import sleap_nn
+
+# Top-down: centroid + centered-instance models
+predictor = sleap_nn.load_models(
+    ["models/centroid/", "models/centered_instance/"],
+    device="cuda:0",
+    batch_size=8,
+)
+labels = predictor.predict("video.mp4", peak_threshold=0.3)
+```
+
+`load_models` is shorthand for `Predictor.from_model_paths` and takes the same
+keyword arguments.
 
 ### Get Raw Outputs
 
 ```python
-results = run_inference(
-    data_path="video.mp4",
-    model_paths=["models/bottomup/"],
-    make_labels=False,
-    return_confmaps=True,
-)
+predictor = sleap_nn.load_models(["models/bottomup/"])
+outputs_list = predictor.predict("video.mp4", make_labels=False, return_confmaps=True)
 
-# results is a list of dicts with predictions per frame
-for frame_result in results:
-    peaks = frame_result["peaks"]
-    confmaps = frame_result["confmaps"]
+for outputs in outputs_list:  # one Outputs per batch
+    arrays = outputs.numpy()
+    keypoints = arrays["pred_keypoints"]  # (batch, instances, nodes, 2)
+    confmaps = arrays["pred_confmaps"]    # (batch, nodes, height, width)
 ```
 
-### With Options
+Confidence maps are kept for single-instance and bottom-up models; top-down
+predictors do not return them.
 
-```python
-labels = run_inference(
-    data_path="video.mp4",
-    model_paths=["models/centroid/", "models/instance/"],
-    output_path="predictions.slp",
-    batch_size=8,
-    device="cuda:0",
-    peak_threshold=0.3,
-    make_labels=True,
-)
-```
+### Legacy `run_inference`
+
+`sleap_nn.legacy_predict.run_inference` is the older pipeline behind
+`sleap-nn track`. Calling it from Python is deprecated (it warns, and will be
+removed in a future release); use `sleap_nn.predict`.
 
 ---
 

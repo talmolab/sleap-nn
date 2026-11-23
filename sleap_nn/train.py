@@ -7,6 +7,7 @@ from time import time
 from omegaconf import DictConfig, OmegaConf
 from typing import Any, Dict, Optional, List, Tuple, Union
 import sleap_io as sio
+import sleap_nn
 from sleap_nn.config.training_job_config import TrainingJobConfig
 from sleap_nn.training.model_trainer import ModelTrainer
 from sleap_nn.evaluation import run_evaluation
@@ -704,6 +705,7 @@ def run_training(
     config: DictConfig,
     train_labels: Optional[List[sio.Labels]] = None,
     val_labels: Optional[List[sio.Labels]] = None,
+    dry_run: bool = False,
 ):
     """Create ModelTrainer instance and start training.
 
@@ -712,7 +714,22 @@ def run_training(
         train_labels: List of Labels objects for training.
         val_labels: List of Labels objects for validation.
             If not provided, the labels will be loaded from paths in the config.
+        dry_run: If True, run all setup plus one training and one validation
+            batch on one batch of frames, check the run can write where it will
+            (leaving nothing behind), and skip post-training evaluation. See
+            `ModelTrainer.train`.
     """
+    sleap_nn._use_training_rank(
+        OmegaConf.select(config, "trainer_config.trainer_devices", default=None)
+    )
+    if dry_run:
+        logger.info(get_startup_info_string())
+        trainer = ModelTrainer.get_model_trainer_from_config(
+            config, train_labels=train_labels, val_labels=val_labels
+        )
+        trainer.train(dry_run=True)
+        return
+
     start_train_time = time()
     start_timestamp = str(datetime.now())
     logger.info(f"Started training at: {start_timestamp}")

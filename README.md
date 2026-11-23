@@ -10,7 +10,7 @@ Neural network backend for training and inference for animal pose estimation.
 
 This is the deep learning engine that powers [SLEAP](https://sleap.ai) (Social LEAP Estimates Animal Poses), providing neural network architectures for multi-instance animal pose estimation and tracking. Built on PyTorch, SLEAP-NN offers an end-to-end training workflow, supporting multiple model types (Single Instance, Top-Down, Bottom-Up, Multi-Class), and seamless integration with SLEAP's GUI and command-line tools.
 
-Need a quick start? Refer to our [Quick Start guide](https://nn.sleap.ai/latest/#quick-start) in the docs.
+Need a quick start? Refer to our [Quick Start guide](https://nn.sleap.ai/latest/getting-started/quickstart/) in the docs.
 
 ## Documentation
 

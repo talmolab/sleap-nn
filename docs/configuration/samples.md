@@ -32,7 +32,7 @@ Two-stage: centroid detection + pose estimation.
 First-class single-stage "animals-as-points" model: one centroid per animal, no
 per-keypoint pose. This is a **standalone** centroid model — distinct from the
 top-down stage-1 centroid configs above, which are paired with a
-centered-instance model and trained on downscaled crops. Trains at full
+centered-instance model and trained on downscaled whole frames. Trains at full
 resolution; inference collapses to a single-node `'centroid'` skeleton. See the
 [Centroid-Only Inference guide](../guides/centroid-only-inference.md).
 
@@ -61,14 +61,24 @@ With supervised identity tracking.
 
 ### Segmentation (masks)
 
-Single-stage bottom-up instance **segmentation** (per-instance masks instead of
-keypoints). `fg_threshold` / `min_mask_area` are inference-time args; train at
-`scale: 1.0`.
+Masks instead of keypoints. `fg_threshold` / `min_mask_area` are inference-time
+args; train at `scale: 1.0`.
 
 | Config | Backbone | Notes |
 |--------|----------|-------|
 | [bottomup_segmentation_unet](https://github.com/talmolab/sleap-nn/blob/main/docs/sample_configs/config_bottomup_segmentation_unet.yaml) | UNet | Foreground + center + offsets heads |
 | [bottomup_segmentation_pretrained](https://github.com/talmolab/sleap-nn/blob/main/docs/sample_configs/config_bottomup_segmentation_pretrained.yaml) | Pretrained (HuggingFace ConvNeXtV2) | Reuse an external pretrained encoder; see the [Pretrained Backbones guide](../guides/pretrained-backbones.md) |
+| [centered_instance_segmentation_unet](https://github.com/talmolab/sleap-nn/blob/main/docs/sample_configs/config_topdown_centered_instance_segmentation_unet.yaml) | UNet | Top-down stage 2: the centered instance's mask on a centroid crop; pair with a `centroid` model. See the [Top-down segmentation guide](../guides/topdown-segmentation.md) |
+| [semantic_segmentation_unet](https://github.com/talmolab/sleap-nn/blob/main/docs/sample_configs/config_semantic_segmentation_unet.yaml) | UNet | Whole-frame foreground/background map, no instances. See the [Semantic segmentation guide](../guides/semantic-segmentation.md) |
+
+### Embedding (appearance / re-ID)
+
+Maps each instance crop to an appearance vector for embedding-based tracking. See
+the [Embedding tracking guide](../guides/embedding-tracking.md).
+
+| Config | Backbone | Notes |
+|--------|----------|-------|
+| [embedding_convnext](https://github.com/talmolab/sleap-nn/blob/main/docs/sample_configs/config_embedding_convnext.yaml) | ConvNeXt-Tiny (ImageNet weights) | SupCon over global identities (`positives.scope: global_id`), P x K sampler; deliberately gentle augmentation |
 
 ### Bounding boxes
 
@@ -224,7 +234,7 @@ sleap-nn train --config my_config.yaml
     Medium RF configs are a good balance of speed and accuracy.
 
 !!! tip "Use augmentation"
-    All sample configs have augmentation enabled. Disable with `use_augmentations_train: false` for debugging.
+    All sample configs set `use_augmentations_train: true`; disable it with `use_augmentations_train: false` for debugging. One exception in practice: `config_bottomup_segmentation_pretrained.yaml` leaves `geometric: null` and every intensity probability at `0.0`, so no transform runs until you add a geometric block or raise a `*_p`.
 
 !!! tip "Check your data first"
     Open your `.slp` file in SLEAP to verify labels before training.
