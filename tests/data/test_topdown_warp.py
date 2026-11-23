@@ -63,6 +63,21 @@ def _head(nodes=NODES):
     )
 
 
+def test_warp_mask_naming_no_node_raises(tmp_path):
+    """Stale labeled_nodes entries stop the warp path with the cause, not later."""
+    labels, _ = _labels(tmp_path, labeled=["renamed/" + n for n in NODES])
+    with pytest.raises(ValueError, match="train on nothing"):
+        WarpCenteredInstanceDataset([labels], (64, 48), _head())
+    labels_ok, _ = _labels(tmp_path, name="b", labeled=["head"])
+    ds = WarpCenteredInstanceDataset([labels, labels_ok], (64, 48), _head())
+    assert len(ds) > 0
+    # A file without the key trains every node it has: the pool is fine.
+    plain, _ = _labels(tmp_path, name="c")
+    for other in (labels, _labels(tmp_path, name="d", labeled=[])[0]):
+        ds = WarpCenteredInstanceDataset([plain, other], (64, 48), _head())
+        assert len(ds) > 0
+
+
 def test_bbox_crop_windows_square_tuple_unchanged():
     boxes = torch.tensor([[10.0, 20.0, 50.0, 100.0], [0.0, 0.0, 3.0, 2.0]])
     for aspect in ("square", "stretch", "letterbox"):

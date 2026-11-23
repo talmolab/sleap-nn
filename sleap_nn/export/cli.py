@@ -82,12 +82,13 @@ CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"]}
     type=click.Choice(["fp32", "fp16", "tf32", "bf16"], case_sensitive=False),
     default="fp16",
     show_default=True,
-    help="TensorRT precision mode. 'bf16' needs a GPU with compute capability >= 8.0 "
-    "and keeps fp32's range where fp16 overflows (a DINOv3 bbox_detr detector loses "
-    "boxes in fp16); in graphs that compute coordinates (box detectors, peaks found in "
-    "the graph) every layer outside the backbone is kept in fp32. TensorRT 11 builds "
-    "fp16 / bf16 strongly typed (Cast nodes in the graph; see --strongly-typed). "
-    "Reduced precision still moves outputs: check accuracy on your data against fp32.",
+    help="TensorRT precision mode. 'fp16' keeps a plain-ViT backbone's attention "
+    "logits in fp32 by default (see --fp32-attention-logits). 'bf16' needs a GPU with "
+    "compute capability >= 8.0 and keeps fp32's range where fp16 overflows; in graphs "
+    "that compute coordinates (box detectors, peaks found in the graph) every layer "
+    "outside the backbone is kept in fp32. TensorRT 11 builds fp16 / bf16 strongly "
+    "typed (Cast nodes in the graph; see --strongly-typed). Reduced precision still "
+    "moves outputs: check accuracy on your data against fp32.",
 )
 @click.option(
     "--strongly-typed",
@@ -104,26 +105,28 @@ CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"]}
     default=False,
     help="Build fp16 / bf16 even for a model family whose reduced-precision engines do "
     "not reproduce its fp32 graph (multi-class bottom-up). Without it such a family is "
-    "built fp32 with a warning on the strongly typed path (TensorRT 11, "
-    "--strongly-typed), and built as asked with a warning on TensorRT 10.",
+    "built fp32 with a warning (TensorRT 10 and 11).",
 )
 @click.option(
-    "--fp32-attention-logits",
-    is_flag=True,
-    default=False,
-    help="With --precision fp16 on the strongly typed path (TensorRT 11, or "
-    "--strongly-typed on 10): keep each attention block's logits product (Q.K^T, found "
-    "by structure) in fp32, so TensorRT accumulates it in fp32; everything else is the "
-    "usual fp16 rewrite (in graphs with coordinates, fp16 only inside the backbone). "
-    "Measured on DINOv3 ViT-B detector / pose / tail models, whose plain fp16 engines "
-    "fail. Default off.",
+    "--fp32-attention-logits/--no-fp32-attention-logits",
+    default=None,
+    help="With --precision fp16: keep each attention block's logits product (Q.K^T, "
+    "found by structure) in fp32, so TensorRT accumulates it in fp32; everything else "
+    "is the usual fp16 rewrite (in graphs with coordinates, fp16 only inside the "
+    "backbone). The build is strongly typed (on TensorRT 10 as with --strongly-typed). "
+    "Default: on for models with a plain-ViT backbone (whose plain fp16 engines are "
+    "wrong), except below TensorRT 10.13 or on a GPU without fast fp16; off otherwise. "
+    "--no-fp32-attention-logits builds plain fp16.",
 )
 @click.option(
     "--peak-threshold",
     type=float,
     default=0.2,
     show_default=True,
-    help="Minimum confidence threshold for peak detection (baked into ONNX graph).",
+    help="Minimum confidence for a peak. Pose and centroid models: baked into the "
+    "exported graph (--network-only graphs find no peaks: the host's peak finding "
+    "uses its own threshold). Box detectors (bbox_*): the score threshold, stored in "
+    "export_metadata.json and applied on the host when the export is run.",
 )
 @click.option(
     "--workspace-size-gb",
@@ -181,7 +184,7 @@ def export(
     precision: str,
     strongly_typed: bool,
     force_precision: bool,
-    fp32_attention_logits: bool,
+    fp32_attention_logits: Optional[bool],
     peak_threshold: float,
     workspace_size_gb: Optional[float],
     verify: bool,
@@ -271,16 +274,18 @@ def export(
                 f"--fp32-attention-logits builds TensorRT engines: TensorRT is not "
                 f"installed ({e})."
             )
-        from sleap_nn.export.exporters.tensorrt_exporter import _uses_strong_typing
-
-        if not strongly_typed and not _uses_strong_typing(_trt):
-            raise click.ClickException(
-                "--fp32-attention-logits needs the strongly typed build: add "
-                "--strongly-typed on TensorRT 10 (TensorRT 11 builds that way always)."
-            )
-    fp32_islands = "attention_logits" if fp32_attention_logits else None
-    # With the switch, the fp16 warnings below wait for the build: they are dropped
-    # only if the rewrite kept logits products and left no softmax unmatched.
+        del _trt  # TensorRT 10 builds the recipe strongly typed (see the exporter)
+    # None (not given): the exporter applies the recipe to plain-ViT backbones.
+    fp32_islands = {True: "attention_logits", False: None, None: "auto"}[
+        fp32_attention_logits
+    ]
+    # Unless plain fp16 is asked for, the fp16 warnings below wait for the build: they
+    # are dropped only if the rewrite kept logits products and left no softmax
+    # unmatched.
+    defer_fp16_warnings = fp32_attention_logits is not False and fmt in (
+        "tensorrt",
+        "both",
+    )
     deferred: list = []
 
     trt_workspace_kwargs = (
@@ -354,7 +359,7 @@ def export(
         )
 
     for c, mt, bt in zip(cfgs, model_types, backbone_types):  # bundles too
-        if fp32_attention_logits:
+        if defer_fp16_warnings:
             deferred.append(
                 lambda c=c, mt=mt, bt=bt: _warn_fp16_vit_pose(c, mt, bt, fmt, precision)
             )
@@ -671,7 +676,7 @@ def export(
                 "can overflow fp16's range); export with --precision bf16 or fp32 "
                 "unless fp16 is checked on your data."
             )
-            if fp32_attention_logits:
+            if defer_fp16_warnings:
                 deferred.append(_detr_note)
             else:
                 _detr_note()
@@ -1366,13 +1371,17 @@ def export(
 
 
 def _emit_deferred_warnings(deferred: list, build_info: dict) -> None:
-    """Print the fp16 warnings held back by ``--fp32-attention-logits``.
+    """Print the fp16 warnings held back while fp32 attention logits may apply.
 
     They are dropped only when the rewrite kept logits products in fp32, left no
     softmax without one and found none inside control-flow bodies (``fp32_islands``
     in the build info); otherwise (a failed build included) they are printed as they
-    would be without the option.
+    would be without the option. They are dropped too when the engine was not built
+    in fp16 (a family built fp32, or no fast fp16).
     """
+    built = build_info.get("precision_built")
+    if built is not None and built != "fp16":
+        return
     rec = build_info.get("fp32_islands") or {}
     if (
         rec.get("applied")
@@ -1430,10 +1439,11 @@ def _network_only_hw(crop_hw, scale: float, stride: int) -> tuple:
 def _warn_fp16_vit_pose(cfg, model_type, backbone_type, fmt, precision) -> None:
     """Warn on an fp16 TensorRT export of a keypoint model with a ViT backbone.
 
-    Measured on DINOv3 ViT-B pose (21 points) and tail (4 points) models only:
-    17-44% of their keypoints within 0.5 px of fp32 in fp16 engines on TensorRT 10
-    and 11; bf16 kept ~96% / ~89% and fp32 100%. Other ViTs (DINOv2 ...) are not
-    tested. The export default precision is unchanged.
+    Measured on two DINOv3 ViT-B keypoint models (21 and 4 points) only: 17-44% of their
+    keypoints within 0.5 px of fp32 in plain fp16 engines on TensorRT 10 and 11; bf16
+    kept ~96% / ~89% and fp32 100%. Other ViTs (DINOv2 ...) are not
+    tested. By default the fp16 build keeps the attention logits in fp32, and the
+    warning is held back and dropped when that worked (``_emit_deferred_warnings``).
     """
     if fmt not in ("tensorrt", "both") or str(precision).lower() != "fp16":
         return
@@ -1447,12 +1457,13 @@ def _warn_fp16_vit_pose(cfg, model_type, backbone_type, fmt, precision) -> None:
     if "vit" not in name.lower():
         return
     click.echo(
-        f"Warning: {model_type} model with a ViT backbone ({name}): fp16 TensorRT "
-        "engines of DINOv3 ViT-B pose / tail models kept only 17-44% of keypoints "
-        "within 0.5 px of fp32 (TensorRT 10 and 11; other ViTs not tested). Export "
-        "with --precision bf16 (a GPU with compute capability >= 8.0) or fp32, or fp16 "
-        "with --fp32-attention-logits (strongly typed; tested on DINOv3 only), unless "
-        "plain fp16 is checked on your data."
+        f"Warning: {model_type} model with a ViT backbone ({name}), built in fp16 "
+        "without fp32 attention logits: plain fp16 TensorRT engines of two DINOv3 "
+        "ViT-B keypoint models kept only 17-44% of keypoints within 0.5 px of fp32 "
+        "(TensorRT 10 and 11; other ViTs not tested). Export with fp32 attention logits (the fp16 "
+        "default for plain-ViT backbones on TensorRT >= 10.13), --precision bf16 (a GPU "
+        "with compute capability >= 8.0) or fp32, unless plain fp16 is checked on your "
+        "data."
     )
 
 

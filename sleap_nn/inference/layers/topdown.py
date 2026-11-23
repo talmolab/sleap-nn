@@ -287,7 +287,7 @@ class TopDownLayer:
         sized_list: list = []
         eff_list: list = []
         for b in range(B):
-            r, scale = apply_sizematcher(x_raw[b], max_height, max_width)
+            r, scale = apply_sizematcher(x_raw[b], max_height, max_width, warn="info")
             sized_list.append(r)
             eff_list.append(float(scale))
         x_sized = torch.stack(sized_list, dim=0)

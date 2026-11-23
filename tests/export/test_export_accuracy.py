@@ -729,3 +729,41 @@ class TestBottomUpTensorRTAccuracy:
             f"Median TRT vs ONNX distance {np.median(all_dists):.2f} px "
             f"exceeds threshold {threshold:.1f} px"
         )
+
+
+@requires_tensorrt
+@requires_gpu
+class TestSingleInstanceTensorRTAccuracy:
+    """A single-instance model with an input scale builds a TensorRT engine.
+
+    The test checkpoint runs at ``input_scale=0.5``; its antialiased resize used to be
+    an antialiased ``Resize`` node, which TensorRT's parser rejects. An fp32 engine
+    must reproduce the ONNX Runtime keypoints.
+    """
+
+    @pytest.fixture(scope="class")
+    def exported_dir(self, tmp_path_factory):
+        from sleap_nn.export.cli import export
+
+        d = tmp_path_factory.mktemp("export_si_trt")
+        result = CliRunner().invoke(
+            export,
+            [str(_SINGLE_INSTANCE_CKPT), "-o", str(d), "--format", "both"]
+            + ["--device", "cuda", "--precision", "fp32", "--max-batch-size", "4"],
+        )
+        assert result.exit_code == 0, f"{result.output}\n{result.exception}"
+        assert (d / "model.trt").exists()
+        return d
+
+    def test_tensorrt_matches_onnx(self, exported_dir):
+        from sleap_nn.inference.predictor import Predictor
+
+        video = sio.load_video(str(_VIDEO_3CH))
+        frames = list(range(_N_FRAMES))
+        trt_labels = Predictor.from_export_dir(
+            export_dir=exported_dir, runtime="tensorrt", device="cuda"
+        ).predict(video, frames=frames)
+        onnx_labels = _onnx_labels(exported_dir, _VIDEO_3CH)
+        dists = _collect_distances(onnx_labels, trt_labels)
+        assert len(dists) > 0
+        assert np.max(dists) <= 0.5, f"max TensorRT vs ONNX distance {np.max(dists)}"

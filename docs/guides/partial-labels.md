@@ -33,15 +33,24 @@ node). Mark the nodes a file does not annotate as **unlabeled**, then train as u
 ```python
 import sleap_io as sio
 
-labels = sio.load_coco("person_keypoints_train2017.json")  # COCO v=0 -> unlabeled
+# COCO v=0 -> unlabeled (sleap-io's default reading keeps 0.9's: v=0 -> hidden).
+labels = sio.load_coco(
+    "person_keypoints_train2017.json", visibility_encoding="ternary"
+)
 
-# Or, for your own converter: map onto the union skeleton (new and unmapped
-# nodes become unlabeled), or unlabel nodes per instance.
+# Or, for your own converter: map onto the union skeleton with the new and
+# unmapped nodes unlabeled, or unlabel nodes per instance.
 labels = sio.load_slp("aic_subset.slp")
-labels.replace_skeleton(union_skeleton, node_map=node_map)
+labels.replace_skeleton(union_skeleton, node_map=node_map, unmapped="unlabeled")
 labels[0].instances[0].set_unlabeled(["left_ear", "right_ear"])
-labels.save("aic_subset.slp")
+labels.save("aic_subset.slp")  # unlabeled points are saved in SLP format 3.0
 ```
+
+sleap-io's defaults keep its 0.9 readings: without `visibility_encoding="ternary"` or
+`unmapped="unlabeled"` (or `with sio.v3_defaults():` around the import or merge),
+added and unannotated nodes become hidden points that count as *labeled*, and are
+trained as absent everywhere. Training warns when a node is labeled in every instance
+of a file but located in none, which is what that mistake looks like.
 
 Hidden points without coordinates stay *labeled* (trained as absent), which is how
 every older `.slp` file reads, so existing projects train exactly as before.

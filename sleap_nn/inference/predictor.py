@@ -2080,10 +2080,68 @@ class Predictor:
             source = resolve_bbox_source(labels, "auto")
             padding = stage_1.gt_bbox_padding
 
+        from sleap_nn.data.providers import (
+            has_legacy_hidden_points,
+            without_hidden_coordinates,
+        )
+
+        # Old-layout files: hidden points' stored coordinates are stale, so boxes
+        # taken from keypoints ignore them, as in training (the labels stay
+        # unchanged). A box or mask linked to the instance is used as it is.
+        stale = has_legacy_hidden_points(labels)
+
         def box_fn(lf, inst):
+            if stale and (
+                source == "instances" or not _has_linked_box(lf, inst, source)
+            ):
+                return instance_crop_bbox(
+                    lf, without_hidden_coordinates(inst), "instances", padding
+                )
             return instance_crop_bbox(lf, inst, source, padding)
 
         return box_fn
+
+    def _attach_gt_box_fn(self, provider: Any, labels: Any = None) -> None:
+        """Give a labels provider built elsewhere this model's GT-box rule.
+
+        A ``LabelsProvider`` built here gets ``instance_box_fn`` at construction. One
+        built by the caller (the command line builds its own for the ``.slp`` frame
+        filters, e.g. ``--only_labeled_frames``) or by a ``VideoSelection`` has none,
+        and the GT-box stage would then fall back to tight keypoint boxes, ignoring
+        the labels' own boxes and the model's box settings. A rule the caller set is
+        kept; one set here is replaced when the provider is reused with another
+        predictor. A layer that does not crop GT boxes sets none.
+
+        Such a provider is also scoped as one built here is: GT boxes come from user
+        instances only, so of the frames it selected only those with user instances
+        run (a predicted instance is never taken as a GT box, and a frame without
+        user instances is skipped instead of stopping the run).
+
+        Args:
+            provider: The provider about to be iterated (or its sub-providers).
+            labels: The labels the box source is resolved on (default: the
+                provider's own).
+        """
+        from sleap_nn.inference.providers import LabelsProvider
+
+        stage_1 = getattr(self.layer, "centroid_layer", None)
+        crops_gt_boxes = bool(getattr(stage_1, "use_gt_boxes", False))
+        for sub in getattr(provider, "providers", None) or [provider]:
+            if not isinstance(sub, LabelsProvider):
+                continue
+            skipped = sub._scope_to_user_instances(crops_gt_boxes)
+            if skipped:
+                logger.warning(
+                    "This model crops ground-truth boxes, which come from user "
+                    f"instances only: {skipped} of {skipped + sub.num_frames()} "
+                    "selected frame(s) have no user instances and are skipped."
+                )
+            current = sub.instance_box_fn
+            if current is None or getattr(current, "_set_by_predictor", False):
+                box_fn = self._gt_box_fn(sub._sio_labels if labels is None else labels)
+                if box_fn is not None:
+                    box_fn._set_by_predictor = True
+                sub.instance_box_fn = box_fn
 
     def _uses_given_boxes(self) -> bool:
         """Whether stage 1 reads each frame's given boxes (``boxes="given"``)."""
@@ -2329,6 +2387,7 @@ class Predictor:
                 batch_size=self.batch_size,
                 needs_gt_instances=self._needs_gt_instances(),
             )
+            self._attach_gt_box_fn(provider, source.labels)
             return provider, source.videos
 
         if isinstance(source, (np.ndarray, torch.Tensor)):
@@ -2445,6 +2504,7 @@ class Predictor:
             # crashes walking video.backend — hit whenever the CLI wraps the
             # input in a LabelsProvider for --only_suggested_frames /
             # --exclude_user_labeled / --video_index etc. (#699).
+            self._attach_gt_box_fn(source)
             provider_videos = getattr(source, "videos", None)
             return source, (list(provider_videos) if provider_videos else None)
 
@@ -3602,3 +3662,20 @@ class Predictor:
             new_layer.inner = new_target
             return new_layer
         return new_target
+
+
+def _has_linked_box(lf: Any, inst: Any, source: str) -> bool:
+    """Whether ``instance_crop_bbox`` takes ``inst``'s box from a linked box or mask."""
+    from sleap_nn.data.bboxes import frame_user_bboxes
+
+    if source == "bboxes":
+        return any(
+            getattr(b, "instance", None) is inst and not b.is_empty
+            for b in frame_user_bboxes(lf)
+        )
+    if source == "masks":
+        return any(
+            not m.is_predicted and getattr(m, "instance", None) is inst
+            for m in getattr(lf, "masks", None) or []
+        )
+    return False

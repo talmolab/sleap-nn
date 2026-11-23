@@ -1956,7 +1956,11 @@ class PretrainedConfig:
         layers: (List[int]) Plain-ViT layers to tap for the feature-pyramid neck,
             1-indexed (negative counts from the last). ``None`` taps 4 evenly
             spaced layers ending at the last (``vit_neck: dpt``) or the last layer
-            (``sfp``). *Default*: ``None``.
+            (``sfp``). ``dpt`` takes one tap per pyramid level the model builds
+            (levels finer than ``output_stride`` are left out), or 4 taps, one per
+            level of the full pyramid, of which the shallowest (those of the levels
+            left out) are then dropped: ``[3, 6, 9, 12]`` at ``output_stride: 8``
+            and token stride 16 uses ``[6, 9, 12]``. *Default*: ``None``.
         vit_neck: (str) How a plain ViT's single-stride token maps become the
             stride ``s/4..2s`` pyramid the decoder needs: ``"dpt"`` (one tapped
             layer per level) or ``"sfp"`` (ViTDet Simple Feature Pyramid from the

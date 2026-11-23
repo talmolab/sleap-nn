@@ -42,7 +42,7 @@ The losses that consume the weights live in :mod:`sleap_nn.training.losses`
 :func:`~sleap_nn.training.losses.compute_weighted_ohkm_loss`).
 """
 
-from typing import Optional, Sequence, Tuple, Union
+from typing import List, Optional, Sequence, Tuple, Union
 
 import numpy as np
 import sleap_io as sio
@@ -96,9 +96,125 @@ def get_labeled_nodes_weights(
     if weights.sum() == 0:
         logger.warning(
             f"provenance['{LABELED_NODES_KEY}'] matches no skeleton node; every node "
-            "of this file gets zero loss weight."
+            "of this file gets zero loss weight. If the nodes were renamed, rename "
+            f"the entries of provenance['{LABELED_NODES_KEY}'] the same way."
         )
     return weights
+
+
+def warn_nodes_never_located(
+    labels_list: Sequence[Optional[sio.Labels]], min_instances: int = 5
+) -> List[Tuple[int, List[str]]]:
+    """Warn about nodes that every instance of a file marks labeled but none locates.
+
+    Such a node is trained as absent (an all-zero confidence map) in every sample of
+    that file. That is right for a node the source annotated and never saw, but it is
+    also what a node the source never annotated looks like when it was added without
+    being marked unlabeled: sleap-io's default readings (``replace_skeleton`` and
+    merges with ``unmapped="absent"``, COCO's legacy visibility reading) add nodes as
+    hidden points that count as labeled. Files whose ``labeled_nodes`` leave the node
+    out are not reported (it gets no loss there).
+
+    Args:
+        labels_list: The training labels files.
+        min_instances: Files with fewer user instances are not checked.
+
+    Returns:
+        ``(file index, node names)`` of every file with such nodes (also logged).
+    """
+    found = []
+    for i, labels in enumerate(labels_list):
+        if labels is None or not labels.skeletons:
+            continue
+        insts = [
+            inst
+            for lf in labels.labeled_frames
+            for inst in lf.instances
+            if not getattr(inst, "is_predicted", False)
+        ]
+        if len(insts) < min_instances:
+            continue
+        names = labels.skeletons[0].node_names
+        try:
+            pts = [inst.points for inst in insts if len(inst.points) == len(names)]
+            located = np.stack(
+                [np.isfinite(np.asarray(p["xy"])).all(axis=-1) for p in pts]
+            ).any(axis=0)
+            labeled = np.stack(
+                [
+                    (
+                        np.asarray(p["labeled"]) | np.asarray(p["visible"])
+                        if "labeled" in (p.dtype.names or ())
+                        else np.ones(len(names), dtype=bool)
+                    )
+                    for p in pts
+                ]
+            ).all(axis=0)
+        except (ValueError, KeyError, TypeError):
+            continue
+        mask = get_labeled_nodes_weights(labels, names) > 0
+        never = [
+            n
+            for n, lab, loc, m in zip(names, labeled, located, mask)
+            if lab and not loc and m
+        ]
+        if never:
+            found.append((i, never))
+            logger.warning(
+                f"Training file {i}: node(s) {never[:5]}{' ...' if len(never) > 5 else ''} "
+                f"are labeled in all {len(pts)} instances but located in none, so they "
+                "are trained as absent everywhere in this file. If the file does not "
+                'annotate them, mark them unlabeled (sleap-io: `unmapped="unlabeled"` '
+                'when changing skeletons or merging, `visibility_encoding="ternary"` '
+                "for COCO, `Instance.set_unlabeled`, or `sio.v3_defaults()`), or list "
+                'the file\'s nodes in `provenance["labeled_nodes"]`.'
+            )
+    return found
+
+
+def check_some_node_weighted(
+    file_weights: Sequence[Optional[np.ndarray]],
+    labels_list: Sequence[Optional[sio.Labels]],
+) -> None:
+    """Raise when the per-file node masks leave every node of every file unweighted.
+
+    With ``provenance["labeled_nodes"]`` naming no node of the skeleton in any file
+    (typically after the skeleton's nodes were renamed and the provenance entries
+    were not), every node of every sample gets zero loss weight and the model
+    would train on nothing.
+
+    Args:
+        file_weights: The ``(n_nodes,)`` mask of each file from
+            :func:`get_labeled_nodes_weights`, ``None`` for files without one.
+        labels_list: The labels files, in the same order (used for the message).
+
+    Raises:
+        ValueError: If at least one file has a mask and every mask is all zeros.
+    """
+    masks = [np.asarray(w) for w in file_weights if w is not None]
+    if not masks or any(m.size and m.sum() > 0 for m in masks):
+        return
+    examples = []
+    for w, labels in zip(file_weights, labels_list):
+        if w is None or labels is None:
+            continue
+        listed = list((labels.provenance or {}).get(LABELED_NODES_KEY, []) or [])
+        names = labels.skeletons[0].node_names if labels.skeletons else []
+        examples.append(
+            f"provenance['{LABELED_NODES_KEY}'] = {listed[:3]}"
+            f"{' ...' if len(listed) > 3 else ''} vs skeleton nodes {names[:3]}"
+            f"{' ...' if len(names) > 3 else ''}"
+        )
+        if len(examples) == 2:
+            break
+    raise ValueError(
+        f"provenance['{LABELED_NODES_KEY}'] leaves every node without loss in every "
+        "labels file, so the model would train on nothing ("
+        + "; ".join(examples)
+        + "). The entries must name nodes of the skeleton: if the nodes were "
+        f"renamed, rename provenance['{LABELED_NODES_KEY}'] the same way, or remove "
+        "the key to train every node."
+    )
 
 
 def point_weights(instance: sio.Instance) -> np.ndarray:

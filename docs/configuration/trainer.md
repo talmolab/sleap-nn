@@ -449,17 +449,21 @@ trainer_config:
     gallery: true             # Prediction gallery (default on with use_wandb)
 ```
 
-With `use_wandb: true`, box detectors (`bbox_*`) and centered-instance models log a
-**prediction gallery** at the end of every validation epoch, independent of
+With `use_wandb: true`, box detectors (`bbox_*`), centered-instance models and bottom-up
+models (`bottomup`, `multi_class_bottomup`) log a **prediction gallery** at the end of every validation epoch, independent of
 `visualize_preds_during_training`:
 
 - `viz/gallery/val`: a fixed panel of up to `gallery_size` validation samples, chosen once
   per run and stratified by validation file (a seeded "typical" draw plus each file's
-  hardest samples: most animals / smallest box for detectors, smallest animal for pose).
+  hardest samples: most animals / smallest box for detectors, smallest animal for
+  top-down pose, most animals for bottom-up pose).
   The same samples are logged every time, so the W&B step slider shows them improving.
   Detectors use native W&B boxes (toggle ground truth / predictions, filter by score);
   pose crops are drawn with each file's own nodes and skeleton edges, with the median
-  error in the caption.
+  error in the caption. Bottom-up models show whole frames (downscaled to 640 px on the
+  long side): each predicted animal in its own color over the ground truth (thin green
+  skeleton, hollow green circles), drawn with sleap-io's renderer, with the ground-truth
+  and predicted animal counts and the median error of the paired animals in the caption.
 - `viz/gallery/train`: the first samples of the first training batch after each
   validation, as the model received them (augmented), with their targets.
 - `viz/gallery/seconds`, `viz/gallery/bytes`: time of the event, JPEG bytes so far.
@@ -527,7 +531,27 @@ trainer_config:
 ```
 
 The teacher stays frozen and outside the checkpoint; the distillation terms fade
-out linearly over the run. See [Distillation](../guides/distillation.md).
+out linearly over the run. Box detectors (`bbox_*`, experimental, stage 1) learn
+from a box-detector teacher's detections instead of heatmaps
+(`teacher_score_threshold`, default `0.5`). See
+[Distillation](../guides/distillation.md).
+
+### Coordinate Losses (experimental)
+
+Centered-instance models only. Soft-argmax coordinates of the predicted maps go
+through a frozen linear keypoint autoencoder. Off by default; set exactly one
+weight:
+
+```yaml
+trainer_config:
+  coordinate_losses:
+    autoencoder: /models/keypoint_ae.npz  # W_enc (L x J), W_dec (J x L), names
+    consistency: 0.0001   # add |P - W_dec W_enc P|_1 to the confmap loss
+    # decoded: 0.01       # or: predict the L latent points, loss |W_dec Q - Y|_1
+    soft_argmax_beta: 20.0
+```
+
+See [Coordinate Losses](../guides/coordinate-losses.md).
 
 ---
 
@@ -654,7 +678,8 @@ trainer_config:
 | `resume_ckpt_path` | str | `null` | Path to checkpoint to resume from |
 | `reseed_on_resume` | bool | `false` | On resume, seed with `seed + epoch` so the resumed epochs do not repeat the first epochs' order and augmentation draws ([Resume & Fine-Tune](../guides/resume-finetune.md)) |
 | `freeze_schedule` | FreezeScheduleConfig | `null` | Freeze `targets` (selectors, default `[encoder]`) until `unfreeze_at_step` (`null` = whole run) |
-| `distillation` | DistillationConfig | `null` | Teacher → student (`stage: 1`) or head self-distillation (`stage: 2`); see [Distillation](../guides/distillation.md) |
+| `distillation` | DistillationConfig | `null` | Teacher → student (`stage: 1`) or head self-distillation (`stage: 2`); box detectors: stage 1 from a box-detector teacher (experimental); see [Distillation](../guides/distillation.md) |
+| `coordinate_losses` | CoordinateLossesConfig | `null` | Experimental: coordinate losses through a frozen linear keypoint autoencoder (`centered_instance` only); see [CoordinateLossesConfig](#coordinatelossesconfig). Left out of the saved `training_config.yaml` when unset |
 | `optimizer_name` | str | `Adam` | Optimizer: `Adam` or `AdamW` |
 | `precision` | str | `"32"` | Lightning precision: `"32"`, `"bf16-mixed"`, `"16-mixed"` |
 | `float32_matmul_precision` | str | `null` | `torch.set_float32_matmul_precision` during training on CUDA, restored afterwards (`high` = TF32; `highest` = strict fp32; `null` = leave unchanged) |
@@ -808,6 +833,21 @@ five `null`) = constant learning rate.
 | `max_hard_keypoints` | int | `null` | Maximum hard keypoints |
 | `loss_scale` | float | `5.0` | Scale factor for hard keypoint losses |
 | `per_sample` | bool | `true` | Rank hard keypoints within each sample over nodes with nonzero loss weight; `false` restores batch-level ranking |
+
+### CoordinateLossesConfig
+
+Experimental. See [Coordinate Losses](../guides/coordinate-losses.md).
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `autoencoder` | str | required | `.npz` with `W_enc` (L x J), `W_dec` (J x L), `names` (J channel names) and optionally `latent_partner` (each latent point's left/right partner). Rows of both matrices must sum to 1 |
+| `consistency` | float | `0.0` | Weight of the L1 distance between `P` and `W_dec W_enc P`, for the soft-argmax coordinates of the head's channels (which must be the autoencoder's channels, any order); added to the confidence-map loss |
+| `decoded` | float | `0.0` | Weight of the L1 distance between `W_dec Q` and the labels `Y`: the head predicts the L latent points (`latent_00`, ...), compared after decoding with the channels each sample labels; the whole loss. Predict such a model with a very low `peak_threshold` (the latent maps' height is not fixed) |
+| `soft_argmax_beta` | float | `20.0` | Inverse temperature of the soft-argmax (`softmax(beta * map)`) |
+| `soft_argmax_window` | int | `null` | Soft-argmax over the grid cells within this many cells of each map's maximum (`null`: whole map); about `3 * sigma` (the head's `sigma` is in grid cells) |
+| `data_head` | dict | `null` | Set by training for `decoded`: the labelled channels' head settings the data loader uses. Leave unset |
+
+Exactly one of `consistency` and `decoded` must be above 0.
 
 ### EvalConfig
 

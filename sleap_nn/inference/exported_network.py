@@ -131,6 +131,9 @@ class ExportedNetwork(nn.Module):
         # run in chunks; ONNX graphs take any batch.
         self.max_batch = int(meta.get("max_batch_size") or 1)
         self.runtime, path = _resolve_export_runtime(self.export_dir, runtime, device)
+        if self.runtime == "tensorrt" and str(device) == "auto":
+            # "auto" picks CUDA when there is one; else the same error as for "cpu".
+            device = "cuda" if torch.cuda.is_available() else "cpu"
         if self.runtime == "tensorrt" and not str(device).startswith("cuda"):
             fix = (
                 "use the ONNX runtime (--runtime onnx)."
@@ -142,15 +145,16 @@ class ExportedNetwork(nn.Module):
                 f"{self.export_dir}: a TensorRT engine runs on CUDA only (device "
                 f"{device!r}); {fix}"
             )
-        if self.runtime == "tensorrt" and str(device) not in ("cuda", "auto"):
-            raise ValueError(
-                f"{self.export_dir}: a TensorRT engine runs on the current CUDA "
-                f"device only (device {device!r}). Pick the card with "
-                "CUDA_VISIBLE_DEVICES and pass --device cuda, or use the ONNX runtime."
-            )
         _check_config_hash(self.export_dir, meta)
         self.backend = _build_export_backend(self.runtime, path, device)
-        self.out_device = torch.device("cuda" if str(device) == "cuda" else str(device))
+        if self.runtime == "tensorrt":
+            # The engine's own device ("cuda" / "auto": the current one).
+            self.out_device = self.backend._cuda_device
+        else:
+            # ONNX Runtime outputs come back on the CPU; "auto" keeps them there.
+            self.out_device = torch.device(
+                "cpu" if str(device) == "auto" else str(device)
+            )
 
     def forward(
         self, img: torch.Tensor

@@ -1990,6 +1990,36 @@ BBOX_STAGE_2_MODEL_TYPES = (
 )
 
 
+def _padding_difference_detail(det_cfg, crop_cfg, det_val, crop_val) -> str:
+    """Describe how a ``bbox_padding`` difference changes the crop model's boxes.
+
+    ``bbox_padding`` is added on every side of boxes derived from keypoints or
+    masks, never to user-drawn boxes, so a size is stated only when both models
+    derive their boxes (``bbox_source`` of ``instances`` or ``masks``).
+    """
+    sources = {
+        OmegaConf.select(c, "data_config.bbox_source", default="auto") or "auto"
+        for c in (det_cfg, crop_cfg)
+    }
+    if not sources <= {"instances", "masks"}:
+        return (
+            "where boxes are derived from keypoints or masks (padding is not added "
+            "to user-drawn boxes), the detector's boxes and the boxes the crop "
+            "model was trained on differ in size, so crops are scaled differently "
+            "from training"
+        )
+    try:
+        grow = 2 * (float(det_val or 0.0) - float(crop_val or 0.0))
+    except (TypeError, ValueError):
+        return "the boxes differ in size, so crops are scaled differently from training"
+    return (
+        f"each side of the detector's boxes is about {abs(grow):g} px "
+        f"{'longer' if grow > 0 else 'shorter'} than in the boxes the crop model was "
+        "trained on, so each animal fills its crop "
+        f"{'less' if grow > 0 else 'more'} than in training"
+    )
+
+
 def _check_crop_stage(assets: LoadedAssets, model_types: List[str]) -> None:
     """Check that stage 1 can cut the crops the stage-2 model was trained on.
 
@@ -2025,17 +2055,43 @@ def _check_crop_stage(assets: LoadedAssets, model_types: List[str]) -> None:
     det_cfg = detector.bottomup_config
     if det_cfg is None:
         return
+    # A crop model trained on a detector's own boxes (warp path) shares its boxes.
+    trained_on_detector = (
+        OmegaConf.select(crop_cfg, "data_config.preprocessing.crop_pipeline") == "warp"
+        and OmegaConf.select(crop_cfg, "data_config.preprocessing.crop_bbox_source")
+        == "detector"
+    )
+    sources = [
+        OmegaConf.select(c, "data_config.bbox_source", default="auto") or "auto"
+        for c in (det_cfg, crop_cfg)
+    ]
     for key, default in (("bbox_source", "auto"), ("bbox_padding", 0.0)):
+        if trained_on_detector:
+            break
         det_val = OmegaConf.select(det_cfg, f"data_config.{key}", default=default)
         crop_val = OmegaConf.select(crop_cfg, f"data_config.{key}", default=default)
         if key == "bbox_source" and "auto" in (det_val, crop_val):
             continue  # resolved per labels file; only explicit values compare
+        if key == "bbox_padding":
+            if sources == ["bboxes", "bboxes"]:
+                continue  # padding is never added to user-drawn boxes
+            det_val, crop_val = (float(v or 0.0) for v in (det_val, crop_val))
         if spec is not None and det_val != crop_val:
+            if key == "bbox_padding":
+                detail = _padding_difference_detail(
+                    det_cfg, crop_cfg, det_val, crop_val
+                )
+            else:
+                detail = (
+                    "the two models define boxes differently, so crops are scaled "
+                    "differently from training"
+                )
             logger.warning(
                 f"The detector was trained with data_config.{key}={det_val!r} but "
                 f"the box-scaled centered-instance model with {key}={crop_val!r}: "
-                "their boxes differ, so crops will be scaled differently from "
-                "training."
+                f"{detail}. This is expected only if the two models were trained "
+                f"with different {key} on purpose (see the box-scaled top-down "
+                "guide)."
             )
     if spec is None:
         from sleap_nn.data.instance_centroids import centroid_method_from_config

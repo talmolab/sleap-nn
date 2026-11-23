@@ -403,6 +403,9 @@ def import_rfdetr(
         raise ValueError(f"RF-DETR weights do not fit the bbox_detr model: {e}") from e
 
     output_dir.mkdir(parents=True, exist_ok=True)
+    from sleap_nn.training.coordinate_losses import drop_unset_coordinate_losses
+
+    drop_unset_coordinate_losses(config)  # no unset opt-in key in the saved config
     OmegaConf.save(config, (output_dir / "training_config.yaml").as_posix())
     torch.save(
         {
