@@ -441,11 +441,17 @@ def _flat(result) -> str:
     return " ".join(text.split())
 
 
-def _exported_dir(tmp_path, name: str, with_ckpt: bool = False) -> str:
-    """A directory that looks like an exported model (``model.onnx`` inside)."""
+def _exported_dir(
+    tmp_path, name: str, with_ckpt: bool = False, network_only: bool = False
+) -> str:
+    """A directory that looks like an exported model (graph and metadata inside)."""
+    import json
+
     d = tmp_path / name
     d.mkdir()
     (d / "model.onnx").write_bytes(b"")
+    meta = {"model_type": "centered_instance", "network_only": network_only}
+    (d / "export_metadata.json").write_text(json.dumps(meta))
     if with_ckpt:
         (d / "best.ckpt").write_bytes(b"")
     return str(d)
@@ -606,7 +612,11 @@ def test_precision_accepted_when_a_checkpoint_runs_under_it(tmp_path):
     one = _exported_dir(tmp_path, "one")
     ckpt_a = _exported_dir(tmp_path, "ckpt_a", with_ckpt=True)
     ckpt_b = _exported_dir(tmp_path, "ckpt_b", with_ckpt=True)
+    # A single -m directory with best.ckpt and a network-only crop export runs
+    # its checkpoint (only a fused or box-detector export takes the exported route).
+    net_ckpt = _exported_dir(tmp_path, "net_ckpt", with_ckpt=True, network_only=True)
     for args, expected in (
+        (["-m", net_ckpt, "--precision", "bf16"], "bf16"),
         (["-m", one, "-m", "/fake/checkpoint", "--precision", "bf16"], "bf16"),
         (["-m", ckpt_a, "-m", ckpt_b, "--precision", "fp16"], "fp16"),
         (["-m", one, "--precision", "32"], "32"),
