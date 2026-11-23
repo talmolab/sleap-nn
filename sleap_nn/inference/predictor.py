@@ -1083,16 +1083,38 @@ def _skeleton_from_export(export_dir: Path, metadata: "ExportMetadata") -> Any:
     return None
 
 
-def _resolve_export_runtime(export_dir: Path, runtime: str) -> tuple[str, Path]:
-    """Pick the runtime + model file for an export directory."""
+def _runs_on_cuda(device: Any) -> bool:
+    """Whether ``device`` resolves to CUDA (``"auto"``: when CUDA is available)."""
+    if device is None or str(device) == "auto":
+        return torch.cuda.is_available()
+    return _is_cuda(device)
+
+
+def _resolve_export_runtime(
+    export_dir: Path, runtime: str, device: Any = None
+) -> tuple[str, Path]:
+    """Pick the runtime + model file for an export directory.
+
+    ``"auto"`` prefers ``model.trt``, except off CUDA (``device`` given and not a
+    CUDA device), where a TensorRT engine cannot run: there it takes
+    ``model.onnx``, and a directory with only an engine is refused.
+    """
     onnx_path = export_dir / "model.onnx"
     trt_path = export_dir / "model.trt"
 
     if runtime == "auto":
-        if trt_path.exists():
+        on_cuda = device is None or _runs_on_cuda(device)
+        if trt_path.exists() and on_cuda:
             return "tensorrt", trt_path
         if onnx_path.exists():
             return "onnx", onnx_path
+        if trt_path.exists():
+            raise ValueError(
+                f"{export_dir} holds only a TensorRT engine (model.trt), which runs "
+                f"on CUDA only, and the device is {str(device)!r}. Run on a CUDA "
+                "device, or export the ONNX graph too (`sleap-nn export --format "
+                "both`)."
+            )
         raise FileNotFoundError(
             f"No model file found in {export_dir}. "
             f"Expected model.onnx or model.trt."
@@ -1663,8 +1685,9 @@ class Predictor:
             export_runtime: Runtime for any entry that is a network-only export
                 directory (``sleap-nn export --network-only``, or any box
                 detector export), which then stands in for that checkpoint:
-                ``"auto"`` (``model.trt`` if present, else ``model.onnx``),
-                ``"onnx"`` or ``"tensorrt"``. Checkpoint entries ignore it.
+                ``"auto"`` (``model.trt`` if present and ``device`` is CUDA,
+                else ``model.onnx``), ``"onnx"`` or ``"tensorrt"``. Checkpoint
+                entries ignore it.
             upload_batches: Copy each ``uint8`` batch of frames to the GPU
                 before preprocessing when ``device`` is CUDA, so the resize /
                 letterbox, the crops' frame-size match and the cropping run
@@ -1848,7 +1871,8 @@ class Predictor:
                 ``model.onnx`` or ``model.trt``. A ``--network-only`` crop-model
                 export is refused: it stands in for its checkpoint, so pass it
                 to :meth:`from_model_paths` instead.
-            runtime: ``"auto"`` (prefer TRT), ``"onnx"``, or ``"tensorrt"``.
+            runtime: ``"auto"`` (prefer TRT on CUDA, else ONNX), ``"onnx"``, or
+                ``"tensorrt"``.
             device: Device string.
             batch_size: Default batch size.
             return_confmaps: Return confidence maps on Outputs.
@@ -1884,7 +1908,7 @@ class Predictor:
         _refuse_network_only_export_dir(export_dir, metadata_path)
         metadata = ExportMetadata.load(metadata_path)
 
-        runtime, model_path = _resolve_export_runtime(export_dir, runtime)
+        runtime, model_path = _resolve_export_runtime(export_dir, runtime, device)
         backend = _build_export_backend(runtime, model_path, device)
 
         # Default the runtime peak-confidence threshold to the value baked at
