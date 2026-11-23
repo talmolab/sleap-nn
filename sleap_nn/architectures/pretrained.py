@@ -71,7 +71,7 @@ from loguru import logger
 from omegaconf import DictConfig, OmegaConf
 from torch import nn
 
-from sleap_nn.architectures.common import FreezableEncoderMixin
+from sleap_nn.architectures.common import FreezableEncoderMixin, run_encoder
 from sleap_nn.architectures.encoder_decoder import Decoder
 from sleap_nn.architectures.vit_neck import (
     PYRAMID_SCALES,
@@ -1722,7 +1722,7 @@ class PretrainedBackbone(FreezableEncoderMixin, nn.Module):
             One ``(B, hidden_size, H / token_stride, W / token_stride)`` map per
             tapped layer, prefix tokens dropped, after its tap norm.
         """
-        return self._tap_tokens(self._normalize(x))
+        return run_encoder(self._tap_tokens, self._normalize(x))
 
     def forward(self, x: torch.Tensor) -> Dict[str, Any]:
         """Forward pass emitting the sleap-nn backbone dict contract.
@@ -1746,9 +1746,9 @@ class PretrainedBackbone(FreezableEncoderMixin, nn.Module):
             return self.token_maps(x)
         x = self._normalize(x)
         if self.token_path:
-            feats = self._tap_tokens(x)
+            feats = run_encoder(self._tap_tokens, x)
         else:
-            feats = self._stage_maps(x)
+            feats = run_encoder(self._stage_maps, x)
 
         if self.mode == "encoder":
             bottleneck = feats[-1]

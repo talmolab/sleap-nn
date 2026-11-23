@@ -16,6 +16,7 @@ from omegaconf import OmegaConf
 from sleap_nn.architectures.common import (
     FreezableEncoderMixin,
     MaxPool2dWithSamePadding,
+    run_encoder,
 )
 
 
@@ -347,7 +348,7 @@ class ConvNextWrapper(FreezableEncoderMixin, nn.Module):
             x: Outputs a dictionary with `outputs` and `strides` containing the output
             at different strides.
         """
-        enc_output = self.enc(x)
+        enc_output = run_encoder(self.enc, x)
         x, features = enc_output[-1], enc_output[::2]
         features = features[::-1]
 

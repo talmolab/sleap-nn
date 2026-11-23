@@ -43,50 +43,24 @@ import torch.nn as nn
 AUTOCAST_SCOPES = ("all", "encoder")
 
 
-def encoder_modules(model: nn.Module) -> List[nn.Module]:
-    """The encoder modules of the sleap-nn models inside ``model``.
+def supports_encoder_autocast(model: nn.Module) -> bool:
+    """Whether ``model`` holds sleap-nn models whose encoders take encoder autocast.
 
-    For each :class:`~sleap_nn.architectures.model.Model` in ``model`` (a
-    Lightning module holds one as ``.model``): a ``bbox_detr`` detector's whole
-    backbone (everything after it, projector, decoder and heads, belongs to the
-    DETR head); otherwise the backbone's encoder, ``backbone.enc`` (ConvNeXt,
-    Swin, pretrained backbones) or the UNet's per-stack ``backbone.encoders``.
-    The decoder, middle blocks and heads are not encoder modules.
-
-    Returns:
-        The modules, empty when ``model`` holds no sleap-nn model or a backbone
-        with no recognisable encoder.
+    True when ``model`` holds at least one
+    :class:`~sleap_nn.architectures.model.Model` and each is a ``bbox_detr``
+    detector (its whole backbone is the encoder) or has a backbone that runs its
+    encoder through :func:`~sleap_nn.architectures.common.run_encoder`
+    (``supports_encoder_autocast``: UNet, including its stem; ConvNeXt; Swin;
+    ``pretrained`` timm and HuggingFace backbones).
     """
     from sleap_nn.architectures.model import Model
 
-    found: List[nn.Module] = []
-    for net in model.modules():
-        if not isinstance(net, Model):
-            continue
-        backbone = net.backbone
-        if net.model_type == "bbox_detr":
-            found.append(backbone)
-        elif isinstance(getattr(backbone, "enc", None), nn.Module):
-            found.append(backbone.enc)
-        elif isinstance(getattr(backbone, "encoders", None), nn.ModuleList):
-            found.extend(backbone.encoders)
-    return found
-
-
-def _to_float32(out: Any) -> Any:
-    """``out`` (a tensor or nested list / tuple / dict of them) with half floats as fp32."""
-    if isinstance(out, torch.Tensor):
-        return out.float() if out.dtype in (torch.float16, torch.bfloat16) else out
-    if isinstance(out, dict):  # also a `transformers` ModelOutput: set in place
-        for key in list(out.keys()):
-            out[key] = _to_float32(out[key])
-        return out
-    if isinstance(out, list):
-        return [_to_float32(v) for v in out]
-    if isinstance(out, tuple):
-        items = [_to_float32(v) for v in out]
-        return type(out)(*items) if hasattr(out, "_fields") else type(out)(items)
-    return out
+    nets = [m for m in model.modules() if isinstance(m, Model)]
+    return bool(nets) and all(
+        net.model_type == "bbox_detr"
+        or bool(getattr(net.backbone, "supports_encoder_autocast", False))
+        for net in nets
+    )
 
 
 def autocast_forward(
@@ -103,10 +77,12 @@ def autocast_forward(
         x: Its input.
         dtype: The autocast dtype (``torch.bfloat16`` or ``torch.float16``).
         scope: ``"all"``: the whole forward runs under autocast. ``"encoder"``
-            (experimental): only the modules of :func:`encoder_modules` do; their
+            (experimental): only the backbones' encoders do
+            (:func:`~sleap_nn.architectures.common.encoder_autocast`); their
             outputs are cast to fp32, and every layer after them (decoder, heads,
-            a DETR detector's projector, transformer decoder and box head) runs
-            in fp32.
+            a DETR detector's projector, transformer decoder and box head) runs in
+            fp32. The request is process-wide while the call runs (see
+            ``encoder_autocast``).
         device_type: Autocast device type (``TorchBackend`` passes ``"cuda"``;
             tests use ``"cpu"``, where bf16 autocast also works).
 
@@ -115,44 +91,42 @@ def autocast_forward(
         floats back to fp32).
 
     Raises:
-        ValueError: If ``scope`` is ``"encoder"`` and ``model`` has no encoder.
+        ValueError: If ``scope`` is ``"encoder"`` and ``model`` does not support it.
+        RuntimeError: If no encoder ran under the encoder scope.
     """
+    from sleap_nn.architectures.common import encoder_autocast
+
     if scope == "all":
         with torch.autocast(device_type=device_type, dtype=dtype):
             return model(x)
     if scope != "encoder":
         raise ValueError(f"scope must be one of {AUTOCAST_SCOPES}; got {scope!r}.")
-    encoders = encoder_modules(model)
-    if not encoders:
+    if not supports_encoder_autocast(model):
         raise ValueError(
-            "Encoder-only autocast needs a sleap-nn model with an encoder; found "
-            f"none in {type(model).__name__}."
+            "Encoder-only autocast needs sleap-nn models whose backbone supports it; "
+            f"{type(model).__name__} does not."
         )
-    contexts: List[Any] = []
-
-    def enter(module, args):
-        ctx = torch.autocast(device_type=device_type, dtype=dtype)
-        ctx.__enter__()
-        contexts.append(ctx)
-
-    def leave(module, args, output):
-        contexts.pop().__exit__(None, None, None)
-        return _to_float32(output)
-
-    handles = []
-    try:
-        for module in encoders:
-            handles.append(module.register_forward_pre_hook(enter))
-            handles.append(module.register_forward_hook(leave, always_call=True))
-        return model(x)
-    finally:
-        for handle in handles:
-            handle.remove()
+    with encoder_autocast(device_type, dtype) as state:
+        out = model(x)
+    if not state["calls"]:
+        raise RuntimeError(
+            "Encoder-only autocast was asked for but no encoder ran under it."
+        )
+    return out
 
 
 # ──────────────────────────────────────────────────────────────────────────
 # TorchBackend
 # ──────────────────────────────────────────────────────────────────────────
+
+
+def _check_scope_compile(backend: "TorchBackend", attribute: Any, value: str) -> None:
+    """``autocast_scope="encoder"`` is not supported with ``use_compile``."""
+    if value != "all" and backend.use_compile:
+        raise ValueError(
+            "autocast_scope='encoder' (precision '*-encoder') is not supported with "
+            "use_compile=True."
+        )
 
 
 def _on_set_memory_format(backend: "TorchBackend", attribute: Any, value: str) -> str:
@@ -188,9 +162,10 @@ class TorchBackend:
             emits no warning.
         autocast_scope: Experimental. What ``autocast_dtype`` covers:
             ``"all"`` (default, the whole forward) or ``"encoder"`` (only the
-            model's encoder, see :func:`encoder_modules`; every layer after it
-            runs in fp32 on fp32 inputs). Set by
-            ``Predictor.from_model_paths(precision="bf16-encoder")``.
+            backbones' encoders, see :func:`autocast_forward`; every layer after
+            them runs in fp32 on fp32 inputs). Set by
+            ``Predictor.from_model_paths(precision="bf16-encoder")``. Not with
+            ``use_compile``.
         memory_format: ``"contiguous"`` (default, channels-first) or
             ``"channels_last"``: the memory layout of the model's weights.
             cuDNN's fast convolution kernels on NVIDIA GPUs want the
@@ -216,7 +191,8 @@ class TorchBackend:
     fuse_layers: bool = False
     autocast_dtype: Optional[torch.dtype] = None
     autocast_scope: str = attrs.field(
-        default="all", validator=attrs.validators.in_(AUTOCAST_SCOPES)
+        default="all",
+        validator=[attrs.validators.in_(AUTOCAST_SCOPES), _check_scope_compile],
     )
     warmup_iterations: int = 1
     memory_format: str = attrs.field(

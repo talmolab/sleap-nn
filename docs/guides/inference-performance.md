@@ -141,12 +141,15 @@ prefer `bf16` there.
 (`precision="bf16-encoder"` from Python) runs only each model's encoder under
 autocast; its outputs are cast to fp32 and every layer after it runs in fp32: the
 decoder and heads, and for a `bbox_detr` detector the whole DETR head (projector,
-transformer decoder, box and score heads). The encoder is the backbone of a
-`bbox_detr` detector, `backbone.enc` of ConvNeXt, Swin and pretrained backbones,
-and the down-sampling blocks of a UNet. Use it when the backbone dominates the
-cost and the heads are sensitive to reduced precision. The same rules as above
-apply (CUDA only, trained checkpoints only); the output file records it as
-`autocast_precision: bf16-encoder`.
+transformer decoder, box and score heads). The encoder is the whole backbone of a
+`bbox_detr` detector; the stem and down-sampling blocks of a UNet; the ConvNeXt
+or Swin encoder; and the pretrained encoder (timm or HuggingFace, CNN or ViT,
+with its tap norms) of a `pretrained` backbone. Use it when the backbone dominates
+the cost and the heads are sensitive to reduced precision. The same rules as above
+apply (CUDA only, trained checkpoints only; exported models in a mixed run keep
+their own precision, with a warning); the output file records it as
+`autocast_precision: bf16-encoder`. It runs one model at a time per process: do
+not run models at another precision in other threads during the call.
 
 | Reason to enable | Reason to skip |
 |---|---|

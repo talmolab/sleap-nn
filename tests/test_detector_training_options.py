@@ -490,3 +490,205 @@ def test_train_with_ignore_boxes_val_negatives_and_frame_weights(config, tmp_pat
     metrics = trainer.trainer.callback_metrics
     assert torch.isfinite(metrics["train/loss"]) and torch.isfinite(metrics["val/loss"])
     assert "eval/val/bbox_mAP" in metrics
+
+
+# --------------------------------------------------------------------------- #
+# Review follow-ups
+# --------------------------------------------------------------------------- #
+def _pose_labels_with_ignore(with_masks=False):
+    """Two animals labelled with poses (and masks), one region boxed as ignore."""
+    skel = sio.Skeleton(["a", "b", "c"])
+    video = sio.Video(filename="x.mp4")
+    lf = sio.LabeledFrame(video=video, frame_idx=0)
+    for x0 in (10, 60):
+        pts = np.array([[x0, 10], [x0 + 20, 20], [x0 + 10, 40]], float)
+        lf.instances.append(sio.Instance.from_numpy(pts, skeleton=skel))
+    if with_masks:
+        masks = []
+        for x0 in (10, 60):
+            m = np.zeros((64, 128), bool)
+            m[10:41, x0 : x0 + 21] = True
+            masks.append(sio.UserSegmentationMask.from_numpy(m))
+        lf.masks = masks
+    lf.bboxes = [_box(100, 40, 120, 60, "ignore")]
+    return sio.Labels(videos=[video], labeled_frames=[lf], skeletons=[skel])
+
+
+@pytest.mark.parametrize("source", ["auto", "instances", "masks"])
+def test_ignore_boxes_with_pose_or_mask_labels(source):
+    from sleap_nn.data.bboxes import add_bboxes_to_labels, resolve_bbox_source
+
+    labels = _pose_labels_with_ignore(with_masks=source == "masks")
+    # The ignore box alone does not make `auto` read the file's user boxes.
+    assert resolve_bbox_source(labels, "auto", ignore_category="ignore") == "instances"
+    assert resolve_bbox_source(labels, "auto") == "bboxes"  # off: as before
+    resolved = add_bboxes_to_labels(labels, source=source, ignore_category="ignore")
+    assert resolved == ("instances" if source == "auto" else source)
+    xyxy, cls = frame_bbox_arrays(labels[0], ["object"], ignore_category="ignore")
+    assert cls.tolist() == [0, 0, IGNORE_BOX_CLASS]
+    np.testing.assert_allclose(xyxy[2], [100, 40, 120, 60])
+    assert labels_bbox_categories([labels], "ignore") == ["object"]
+    # Off: deriving drops the user boxes, as before.
+    labels = _pose_labels_with_ignore(with_masks=source == "masks")
+    add_bboxes_to_labels(labels, source="instances" if source == "auto" else source)
+    assert frame_bbox_arrays(labels[0], ["object"])[1].tolist() == [0, 0]
+
+
+def test_post_training_evaluation_keeps_ignore_boxes_of_pose_labels():
+    from sleap_nn.evaluation import _run_bbox_evaluation
+
+    gt = _pose_labels_with_ignore()
+    pr_lf = sio.LabeledFrame(video=gt.videos[0], frame_idx=0)
+    pr_lf.bboxes = [
+        sio.PredictedBoundingBox.from_xyxy(10, 10, 30, 40, score=0.9),
+        sio.PredictedBoundingBox.from_xyxy(60, 10, 80, 40, score=0.9),
+        sio.PredictedBoundingBox.from_xyxy(102, 42, 110, 50, score=0.8),
+    ]
+    pr = sio.Labels(videos=gt.videos, labeled_frames=[pr_lf])
+    m = _run_bbox_evaluation(gt, pr, ignore_box_category="ignore")
+    assert (m["bbox_n_tp"], m["bbox_n_fp"], m["bbox_n_fn"]) == (2, 0, 0)
+
+
+def test_metrics_ignore_rule_matches_the_loss():
+    """A 20x20 detection inside a 100x100 ignore box: ignored by the loss's rule
+    (share of the detection), counted as a false positive by the default rule
+    (share of the ignore box)."""
+    from sleap_nn.evaluation import compute_bbox_metrics
+
+    frame = {
+        "gt_bboxes": np.zeros((0, 4)),
+        "gt_classes": np.zeros(0, np.int64),
+        "gt_ignore_bboxes": np.array([[0, 0, 100, 100]], float),
+        "pred_bboxes": np.array([[40, 40, 60, 60]], float),
+        "pred_scores": np.array([0.9]),
+        "pred_classes": np.array([0]),
+    }
+    default = compute_bbox_metrics([frame], num_classes=1)
+    assert default["bbox_n_fp"] == 1
+    rule = compute_bbox_metrics(
+        [frame], num_classes=1, ignore_cover=0.5, ignore_cover_of="detection"
+    )
+    assert rule["n_pred"] == 0
+
+
+def test_ignore_box_config_checks(config):
+    from sleap_nn.data.custom_datasets import _check_ignore_box_config
+
+    cfg = config.copy()
+    cfg.data_config.ignore_box_category = "ignore"
+    with pytest.raises(ValueError, match="bbox_detr models only"):
+        _check_ignore_box_config(cfg)  # a single-instance pose config
+    from sleap_nn.config.get_config import get_head_configs
+
+    heads = OmegaConf.structured(get_head_configs("bbox_detr"))
+    cfg.model_config.head_configs = heads
+    _check_ignore_box_config(cfg)
+    cfg.data_config.ignore_box_category = "object"
+    with pytest.raises(ValueError, match="without a category"):
+        _check_ignore_box_config(cfg)
+
+
+def test_ignore_rule_on_every_matched_layer_and_group():
+    from sleap_nn.training.detr.criterion import SetCriterion
+
+    torch.manual_seed(0)
+    crit = SetCriterion(num_classes=1, losses=("labels",), group_detr=2).train()
+    boxes = torch.tensor(
+        [[[0.2, 0.2, 0.2, 0.2], [0.75, 0.75, 0.1, 0.1], [0.5, 0.2, 0.1, 0.1]] * 2]
+    )
+
+    def layer():
+        return {
+            "pred_logits": torch.randn(1, 6, 2, requires_grad=True),
+            "pred_boxes": boxes,
+        }
+
+    out = layer()
+    out["aux_outputs"] = [layer()]
+    out["enc_outputs"] = layer()
+    t = {"labels": torch.tensor([0]), "boxes": torch.tensor([[0.2, 0.2, 0.2, 0.2]])}
+    ti = {**t, "ignore_boxes": torch.tensor([[0.75, 0.75, 0.3, 0.3]])}
+    losses = crit(out, [ti], num_boxes=torch.tensor(1.0))
+    plain = crit(out, [t], num_boxes=torch.tensor(1.0))
+    for key, lay in (
+        ("loss_ce", out),
+        ("loss_ce_0", out["aux_outputs"][0]),
+        ("loss_ce_enc", out["enc_outputs"]),
+    ):
+        (g,) = torch.autograd.grad(losses[key], lay["pred_logits"], retain_graph=True)
+        (gp,) = torch.autograd.grad(plain[key], lay["pred_logits"], retain_graph=True)
+        assert torch.all(g[0, [1, 4]] == 0), key  # both groups' covered queries
+        assert torch.any(gp[0, [1, 4]] != 0), key
+        torch.testing.assert_close(g[0, [2, 5]], gp[0, [2, 5]])
+
+
+def test_default_path_unchanged_with_the_code_on_but_unused(tmp_path):
+    """Seeded draws through every augmentation: with the ignore option on but no
+    ignore box in the labels, every sample tensor equals the option-off one (the
+    new code consumes no random draw), and the loss is identical."""
+    frames = [
+        ([(8, 8, 48, 40), (70, 70, 120, 120)], [], {}),
+        ([(80, 10, 120, 50)], [], {}),
+    ]
+    labels = _frame_labels(tmp_path, "d", frames, negatives=1)
+    aug = {
+        "crop_p": 0.5,
+        "shortest_sides": [128],
+        "crop_range": [96, 128],
+        "flip_p": 0.5,
+        "vflip_p": 0.5,
+        "rot90_p": 0.5,
+        "zoom_out_p": 0.5,
+        "zoom_out_canvas": "frame",
+    }
+
+    def draws(**kw):
+        ds = _dataset(
+            labels,
+            apply_aug=True,
+            detr_aug=aug,
+            use_negative_frames=True,
+            geometric_aug={"rotation_p": 0.5, "rotation_min": -8, "rotation_max": 8},
+            intensity_aug={"contrast_p": 0.5},
+            **kw,
+        )
+        torch.manual_seed(0)
+        np.random.seed(0)
+        return [ds[k % len(ds)] for k in range(12)]
+
+    off, on = draws(ignore_box_category=None), draws(ignore_box_category="ignore")
+    for a, b in zip(off, on):
+        assert int(b["num_ignore"]) == 0
+        for key, value in a.items():
+            if isinstance(value, torch.Tensor):
+                torch.testing.assert_close(
+                    value, b[key], rtol=0, atol=0, equal_nan=True
+                )
+            else:
+                assert value == b[key]
+
+    crit, logits, boxes, target = _criterion_case()
+    outputs = {"pred_logits": logits, "pred_boxes": boxes}
+    empty = {**target, "ignore_boxes": torch.zeros(0, 4)}
+    torch.testing.assert_close(
+        crit(outputs, [target])["loss_ce"], crit(outputs, [empty])["loss_ce"]
+    )
+
+
+def test_frame_weights_multiply_with_overlap_weight(tmp_path):
+    f0 = _frame_labels(
+        tmp_path,
+        "o",
+        [
+            ([(10, 10, 60, 90), (35, 10, 85, 90)], [], {"w": 1.0}),  # overlapping
+            ([(10, 10, 40, 40)], [], {"w": 2.0}),
+        ],
+    )
+    ds = _dataset([f0], ignore_box_category=None)
+    ds.frame_weights = ds.frame_metadata_weights([f0], "w")
+    train = _loader(
+        ds, per_sample=True, weights=[1], overlap_weight=4.0, frame_weight_key="w"
+    )
+    idx = np.concatenate(list(train.batch_sampler))
+    # 4 x 1 against 1 x 2: the overlapping frame is drawn 2/3 of the time.
+    assert abs(np.mean(idx == 0) - 2 / 3) < 0.05

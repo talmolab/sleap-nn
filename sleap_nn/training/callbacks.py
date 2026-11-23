@@ -3495,13 +3495,16 @@ class BBoxEvaluationCallback(Callback):
             else:
                 try:
                     frames = [{**gt, **pred} for gt, pred in zip(gts, preds)]
+                    # Ignore boxes (experimental): the loss's ignore rule.
+                    rule = getattr(pl_module, "ignore_metric_rule", None) or {}
                     metrics = compute_bbox_metrics(
                         frames,
                         num_classes=len(pl_module.categories),
                         max_detections=pl_module.decoder.max_detections,
+                        **rule,
                     )
                     if self.cover_metrics:
-                        metrics.update(compute_bbox_cover_metrics(frames))
+                        metrics.update(compute_bbox_cover_metrics(frames, **rule))
                     logger.info(
                         f"Epoch {trainer.current_epoch} bbox evaluation: "
                         f"mAP={metrics['bbox_mAP']:.4f}, "

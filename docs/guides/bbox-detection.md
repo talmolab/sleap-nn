@@ -179,11 +179,20 @@ ground truth. In the score loss (RF-DETR's IoU-aware BCE), a query that matches 
 object and whose predicted box lies inside one ignore box by at least
 `ignore_box_min_cover` of its own area gets no background term, so it is neither
 pushed towards background nor towards an object. Matched queries are unaffected.
-In the box metrics (during training and after it), a detection covering at least
-half of an ignore box is neither a hit nor a false positive. A frame whose only
-boxes are ignore boxes is a training frame (everything outside them is
-background). The category must not be one of the detector's `categories`; with
-`categories` unset it is left out of the categories read from the labels.
+The box metrics (during training and after it) use the same rule: a detection
+that lies inside an ignore box by at least `ignore_box_min_cover` of its own area
+(COCO's crowd rule), and matches no labelled box, is neither a hit nor a false
+positive. A frame whose only boxes are ignore boxes is a training frame (everything
+outside them is background).
+
+The animals can be labelled with poses or masks: with `bbox_source: instances` or
+`masks` (or `auto` on a file whose only user boxes are ignore boxes), the object
+boxes are derived from them and the ignore boxes are kept. The category must not
+be one of the detector's `categories`, nor `object` (the name boxes without a
+category get); with `categories` unset it is left out of the categories read from
+the labels. With zoom-out onto another training frame, an ignore box of the canvas
+frame that the shrunk frame covers by less than half is kept whole, so it can
+reach over the shrunk frame (object boxes of the canvas behave the same way).
 
 **Negative frames in validation** (`bbox_*`). Validation normally leaves out
 negative frames, so the box metrics during training say nothing about false boxes
@@ -192,8 +201,15 @@ labels' user-confirmed negative frames (see [Negative frames](negative-frames.md
 Detections on them count as false positives in `eval/val/bbox_*`, and their
 background terms enter `val/loss`. A `bbox_detr` set loss divides by the number of
 labelled boxes in the batch, clamped at 1, so a validation batch of only negative
-frames has a much larger loss than a batch with boxes: prefer the box metrics over
-`val/loss` for checkpoint selection with this option on.
+frames has a much larger loss than a batch with boxes. By default the best
+checkpoint (`trainer_config.model_ckpt.monitor`), early stopping
+(`trainer_config.early_stopping`) and `trainer_config.lr_scheduler.reduce_lr_on_plateau`
+follow `val/loss`; with this option on, turn on `trainer_config.eval.enabled` so
+checkpoints and early stopping follow a box metric (`eval.select_metric`, e.g.
+`bbox_mAP`), and consider a fixed LR schedule. Training logs a warning when the
+checkpoint monitor is still `val/loss`. The post-training metrics
+(`metrics.val.*`) skip frames with no labelled box, so they do not count false
+boxes on the negative frames.
 
 **Per-frame sampling weights** (`bbox_*`, with
 `trainer_config.balanced_sampler.per_sample: true`). Give frames a relative weight
@@ -214,7 +230,8 @@ its share of the samples; the weights multiply with `overlap_weight`.
 **Encoder-only reduced precision at prediction.** `sleap-nn predict --precision
 bf16-encoder` (or `fp16-encoder`) runs only the backbone under autocast. A
 `bbox_detr` detector's projector, transformer decoder and box and score heads run
-in fp32 on fp32 features. See
+in fp32 on fp32 features. It applies to every `bbox_detr` backbone (DINOv2,
+DINOv3 and other HF or timm ViTs). See
 [Reduced precision](inference-performance.md#reduced-precision-precision).
 
 ## Inference

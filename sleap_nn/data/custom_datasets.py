@@ -5723,7 +5723,8 @@ class BBoxDataset(BaseDataset):
     that is still at least :meth:`min_decode_scale` of the frame; the boxes are
     scaled to match.
 
-    With ``ignore_box_category`` (experimental, ``bbox_detr`` only), the frame's
+    With ``ignore_box_category`` (experimental; a keyword argument of
+    :class:`DetrBBoxDataset`), the frame's
     boxes of that category ride the same chain with class id ``IGNORE_BOX_CLASS``
     and come out as ``ignore_bboxes`` (NaN-padded xyxy) / ``num_ignore``, apart
     from the targets and ``bboxes``. A frame whose only boxes are ignore boxes is a
@@ -5741,6 +5742,8 @@ class BBoxDataset(BaseDataset):
     """
 
     _flip_needs_symmetries = False
+    #: Category of the ignore boxes (experimental; ``DetrBBoxDataset`` sets it).
+    ignore_box_category: Optional[str] = None
     # Box clipping after augmentation (see `clip_bboxes`).
     _min_box_size = 2.0
     _edge_coords = False
@@ -5753,7 +5756,6 @@ class BBoxDataset(BaseDataset):
         categories: List[str],
         max_stride: int,
         user_instances_only: bool = True,
-        ignore_box_category: Optional[str] = None,
         ensure_rgb: bool = False,
         ensure_grayscale: bool = False,
         intensity_aug: Optional[Union[str, List[str], Dict[str, Any]]] = None,
@@ -5775,7 +5777,7 @@ class BBoxDataset(BaseDataset):
         self.target_encoder = target_encoder
         self.categories = list(categories)
         self.ignore_box_category = _check_ignore_box_category(
-            ignore_box_category, target_encoder, self.categories
+            self.ignore_box_category, target_encoder, self.categories
         )
         self.min_visible_fraction = min_visible_fraction
         super().__init__(
@@ -6118,9 +6120,16 @@ class DetrBBoxDataset(BBoxDataset):
         resize_mode: str = "letterbox",
         train_hw: Optional[Tuple[int, int]] = None,
         detr_aug: Optional[Any] = None,
+        ignore_box_category: Optional[str] = None,
         **kwargs,
     ) -> None:
-        """Initialize class attributes (see :class:`BBoxDataset`)."""
+        """Initialize class attributes (see :class:`BBoxDataset`).
+
+        ``ignore_box_category`` (experimental): the category of the ignore boxes
+        (``data_config.ignore_box_category``).
+        """
+        # Read by `_get_lf_idx_list`, which runs inside `BaseDataset.__init__`.
+        self.ignore_box_category = ignore_box_category
         kwargs.setdefault("min_visible_fraction", 0.0)
         paste_p = (
             float(detr_aug.get("paste_p", 0.0) or 0.0) if detr_aug is not None else 0.0
@@ -7599,6 +7608,24 @@ def _val_negative_frames(config: DictConfig) -> bool:
     return on
 
 
+def _check_ignore_box_config(config: DictConfig) -> None:
+    """``data_config.ignore_box_category`` (experimental): ``bbox_detr`` only."""
+    from sleap_nn.config.model_config import DEFAULT_BBOX_CATEGORY
+
+    name = OmegaConf.select(config, "data_config.ignore_box_category", default=None)
+    if name is None:
+        return
+    if get_model_type_from_cfg(config=config) != "bbox_detr":
+        raise ValueError(
+            "data_config.ignore_box_category is supported for bbox_detr models only."
+        )
+    if name == DEFAULT_BBOX_CATEGORY:
+        raise ValueError(
+            f"data_config.ignore_box_category cannot be {DEFAULT_BBOX_CATEGORY!r}, "
+            "the name boxes without a category get."
+        )
+
+
 def _check_ignore_box_category(
     name: Optional[str], target_encoder: Any, categories: List[str]
 ) -> Optional[str]:
@@ -7640,12 +7667,14 @@ def detr_dataset_kwargs(config: DictConfig) -> Tuple[Dict, Dict]:
     detr_aug = OmegaConf.select(
         config, "data_config.augmentation_config.detr", default=None
     )
+    ignore = OmegaConf.select(config, "data_config.ignore_box_category", default=None)
     train = dict(
         resize_mode=resize_mode,
         train_hw=sizes[-1] if sizes else base_hw,
         detr_aug=detr_aug,
+        ignore_box_category=ignore,
     )
-    val = dict(resize_mode=resize_mode, train_hw=base_hw)
+    val = dict(resize_mode=resize_mode, train_hw=base_hw, ignore_box_category=ignore)
     return train, val
 
 
@@ -7691,6 +7720,7 @@ def get_train_val_datasets(
 
     use_negative_frames = getattr(config.data_config, "use_negative_frames", False)
     val_negative_frames = _val_negative_frames(config)
+    _check_ignore_box_config(config)
     # Per-node loss weights (`sleap_nn.data.node_weights`), used by the
     # single-instance, centered-instance and bottom-up confmap datasets.
     node_weight_kwargs = dict(
@@ -8425,9 +8455,6 @@ def get_train_val_datasets(
         categories = bbox_head_categories(model_type, head_configs)
         common = dict(
             categories=categories,
-            ignore_box_category=OmegaConf.select(
-                config, "data_config.ignore_box_category", default=None
-            ),
             max_stride=config.model_config.backbone_config[f"{backbone_type}"][
                 "max_stride"
             ],
@@ -9165,12 +9192,15 @@ def _train_worker_init_fn(config: DictConfig, rank: Optional[int], devices: int)
     return functools.partial(rank_worker_init_fn, rank=rank if rank is not None else 0)
 
 
-def _overlap_sample_weights(bs, train_dataset, weights, rank) -> Optional[np.ndarray]:
+def _overlap_sample_weights(
+    bs, train_dataset, weights, rank, frame_weights=None
+) -> Optional[np.ndarray]:
     """Per-sample weights for ``balanced_sampler.overlap_weight`` (``None`` if off).
 
     Frames whose labelled boxes overlap by at least ``overlap_min`` of the smaller
     box get weight ``overlap_weight``, the rest ``1``; the sampler draws within
-    each file in proportion, so files keep their shares.
+    each file in proportion, so files keep their shares. ``frame_weights``
+    (``frame_weight_key``) only enter the logged shares; the caller multiplies.
     """
     k = float(bs.get("overlap_weight", 1.0) or 1.0)
     if k == 1.0:
@@ -9188,12 +9218,13 @@ def _overlap_sample_weights(bs, train_dataset, weights, rank) -> Optional[np.nda
         gid = train_dataset.labels_idx
         w = np.asarray(weights, np.float64)
         w = w / w.sum()
+        fw = np.ones_like(sw) if frame_weights is None else frame_weights
         before = after = 0.0
         for g in range(len(w)):
             m = gid == g
-            if m.any():
-                before += w[g] * hit[m].mean()
-                after += w[g] * sw[m][hit[m]].sum() / sw[m].sum()
+            if m.any() and fw[m].sum() > 0:
+                before += w[g] * fw[m][hit[m]].sum() / fw[m].sum()
+                after += w[g] * (sw * fw)[m][hit[m]].sum() / (sw * fw)[m].sum()
         logger.info(
             f"Overlap oversampling: {int(hit.sum())} of {len(hit)} training frames "
             f"have two labelled boxes sharing >= {t:g} of the smaller box; drawn "
@@ -9261,8 +9292,10 @@ def _get_balanced_dataloaders(
                     f"Mixed batches: each sample from training file g with "
                     f"probability {list(weights)} (normalized)."
                 )
-            sample_weights = _overlap_sample_weights(bs, train_dataset, weights, rank)
             frame_weights = getattr(train_dataset, "frame_weights", None)
+            sample_weights = _overlap_sample_weights(
+                bs, train_dataset, weights, rank, frame_weights
+            )
             if bs.get("frame_weight_key") is not None and frame_weights is None:
                 raise ValueError(
                     "balanced_sampler.frame_weight_key is for the bbox_* models."

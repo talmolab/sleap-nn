@@ -872,7 +872,14 @@ class ModelTrainer:
         padding = OmegaConf.select(self.config, "data_config.bbox_padding", default=0.0)
         for label_list in label_lists:
             for labels in label_list or []:
-                add_bboxes_to_labels(labels, source=source, padding=padding)
+                add_bboxes_to_labels(
+                    labels,
+                    source=source,
+                    padding=padding,
+                    ignore_category=OmegaConf.select(
+                        self.config, "data_config.ignore_box_category"
+                    ),
+                )
 
     # Metric-name segments a val file's display name may not take: they would
     # collide with the pooled (`eval/val/*`) and macro (`*/macro/*`) keys.
@@ -2925,6 +2932,15 @@ class ModelTrainer:
             ckpt_monitor = self.config.trainer_config.model_ckpt.monitor
             ckpt_mode = self.config.trainer_config.model_ckpt.mode
             self._check_per_file_monitor(ckpt_monitor)
+        if ckpt_monitor == "val/loss" and OmegaConf.select(
+            self.config, "data_config.val_negative_frames", default=False
+        ):
+            logger.warning(
+                "data_config.val_negative_frames is on and checkpoints and early "
+                "stopping follow val/loss, which batches of negative frames inflate "
+                "(as does reduce_lr_on_plateau). Prefer trainer_config.eval.enabled "
+                "with a box metric (eval/val/bbox_*)."
+            )
 
         if self.config.trainer_config.save_ckpt:
             ckpt_dirpath = (

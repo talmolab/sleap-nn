@@ -1275,7 +1275,9 @@ def _set_autocast_precision(layer: Any, precision: str) -> List[TorchBackend]:
 
     ``"bf16-encoder"`` / ``"fp16-encoder"`` (experimental) also set
     ``autocast_scope="encoder"``: only each model's encoder runs under autocast
-    (:func:`~sleap_nn.inference.layers.backends.torch_backend.encoder_modules`).
+    (:func:`~sleap_nn.inference.layers.backends.torch_backend.autocast_forward`).
+    An exported (ONNX/TensorRT) backend keeps scope ``"all"``: autocast does not
+    reach inside it, and ``_warn_precision_scope`` says so, as for ``bf16``.
 
     Returns:
         The backends it set (none for ``precision="32"``).
@@ -1286,7 +1288,7 @@ def _set_autocast_precision(layer: Any, precision: str) -> List[TorchBackend]:
     """
     from sleap_nn.inference.layers.backends.torch_backend import (
         TorchBackend,
-        encoder_modules,
+        supports_encoder_autocast,
     )
 
     found: List[TorchBackend] = []
@@ -1300,19 +1302,16 @@ def _set_autocast_precision(layer: Any, precision: str) -> List[TorchBackend]:
         )
     dtype = _AUTOCAST_DTYPES[name]
     for backend in _reachable_torch_backends(layer):
-        if (
-            scope
-            and not _is_exported_backend(backend)
-            and not encoder_modules(backend.model)
-        ):
+        encoder_scope = bool(scope) and not _is_exported_backend(backend)
+        if encoder_scope and not supports_encoder_autocast(backend.model):
             raise ValueError(
                 f"precision={precision!r} runs only each model's encoder under "
                 f"autocast, and this {type(backend.model).__name__} has no "
-                "encoder sleap-nn recognises. Use "
+                "backbone that supports it. Use "
                 f"precision={name!r} (the whole forward) instead."
             )
         backend.autocast_dtype = dtype
-        backend.autocast_scope = scope or "all"
+        backend.autocast_scope = "encoder" if encoder_scope else "all"
         found.append(backend)
     return found
 

@@ -10,7 +10,7 @@ from omegaconf import OmegaConf
 import torch
 from torch import nn
 
-from sleap_nn.architectures.common import FreezableEncoderMixin
+from sleap_nn.architectures.common import FreezableEncoderMixin, run_encoder
 from sleap_nn.architectures.encoder_decoder import Decoder, Encoder, StemBlock
 
 
@@ -280,7 +280,7 @@ class UNet(FreezableEncoderMixin, nn.Module):
         # Process through stem block if it exists
         stem_output = x
         if self.stem is not None:
-            stem_output = self.stem(x)
+            stem_output = run_encoder(self.stem, x)
 
         # Process through all stacks
         outputs = []
@@ -291,7 +291,7 @@ class UNet(FreezableEncoderMixin, nn.Module):
             decoder = self.decoders[i]
 
             # Forward pass through encoder
-            encoded, features = encoder(output)
+            encoded, features = run_encoder(encoder, output)
 
             # Process through middle block if it exists
             middle_output = encoded

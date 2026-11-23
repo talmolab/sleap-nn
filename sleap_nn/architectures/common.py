@@ -1,10 +1,71 @@
 """Common utilities for architecture and model building."""
 
-from typing import List
+import contextlib
+from typing import Any, Callable, Dict, Iterator, List, Optional
 
 import torch
 from torch import nn
 from torch.nn import functional as F
+
+#: The active encoder-autocast request (see :func:`encoder_autocast`), or ``None``.
+_ENCODER_AUTOCAST: Optional[Dict[str, Any]] = None
+
+
+@contextlib.contextmanager
+def encoder_autocast(device_type: str, dtype: torch.dtype) -> Iterator[Dict[str, Any]]:
+    """Ask the backbones run in this block to run their encoders under autocast.
+
+    Experimental (``sleap-nn predict --precision bf16-encoder``). Backbones that
+    support it (``supports_encoder_autocast = True``) run their encoder through
+    :func:`run_encoder`, which enters ``torch.autocast(device_type, dtype)`` for
+    the encoder only and casts its outputs back to fp32, so every layer after it
+    runs in fp32. Outside this block :func:`run_encoder` is a plain call.
+
+    The request is process-wide, not per thread: do not run models of another
+    precision in other threads while it is active.
+
+    Yields:
+        A dict whose ``"calls"`` counts the encoder calls that ran under it.
+    """
+    global _ENCODER_AUTOCAST
+    previous = _ENCODER_AUTOCAST
+    state = {"device_type": device_type, "dtype": dtype, "calls": 0}
+    _ENCODER_AUTOCAST = state
+    try:
+        yield state
+    finally:
+        _ENCODER_AUTOCAST = previous
+
+
+def outputs_to_float32(out: Any) -> Any:
+    """``out`` (a tensor or nested list / tuple / dict of them) with half floats as fp32."""
+    if isinstance(out, torch.Tensor):
+        return out.float() if out.dtype in (torch.float16, torch.bfloat16) else out
+    if isinstance(out, dict):  # also a `transformers` ModelOutput: set in place
+        for key in list(out.keys()):
+            out[key] = outputs_to_float32(out[key])
+        return out
+    if isinstance(out, list):
+        return [outputs_to_float32(v) for v in out]
+    if isinstance(out, tuple):
+        items = [outputs_to_float32(v) for v in out]
+        return type(out)(*items) if hasattr(out, "_fields") else type(out)(items)
+    return out
+
+
+def run_encoder(fn: Callable, *args, **kwargs) -> Any:
+    """``fn(*args, **kwargs)``: a backbone's encoder computation.
+
+    A plain call, except inside :func:`encoder_autocast`, where it runs under
+    that autocast and returns its outputs cast to fp32.
+    """
+    state = _ENCODER_AUTOCAST
+    if state is None:
+        return fn(*args, **kwargs)
+    state["calls"] += 1
+    with torch.autocast(device_type=state["device_type"], dtype=state["dtype"]):
+        out = fn(*args, **kwargs)
+    return outputs_to_float32(out)
 
 
 class FreezableEncoderMixin:
@@ -29,6 +90,10 @@ class FreezableEncoderMixin:
 
     #: Set by ``freeze_encoder``; read by ``train``.
     freeze: bool = False
+
+    #: The backbone runs its encoder through :func:`run_encoder`, so
+    #: :func:`encoder_autocast` (experimental) applies to it.
+    supports_encoder_autocast: bool = True
 
     def encoder_modules(self) -> List[nn.Module]:
         """Return the modules that make up the encoder (default: ``[self.enc]``)."""

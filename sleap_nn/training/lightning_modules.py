@@ -571,11 +571,18 @@ class LightningModel(L.LightningModule):
             from sleap_nn.data.custom_datasets import detr_multi_scale_sizes
 
             lightning_model.multi_scale_sizes = detr_multi_scale_sizes(config)
-            lightning_model.criterion.ignore_min_cover = float(
+            cover = float(
                 OmegaConf.select(
                     config, "data_config.ignore_box_min_cover", default=0.5
                 )
             )
+            lightning_model.criterion.ignore_min_cover = cover
+            if OmegaConf.select(config, "data_config.ignore_box_category") is not None:
+                # The box metrics ignore detections by the loss's rule.
+                lightning_model.ignore_metric_rule = {
+                    "ignore_cover": cover,
+                    "ignore_cover_of": "detection",
+                }
 
         return lightning_model
 

@@ -109,17 +109,24 @@ def labels_bbox_categories(
     return names or [DEFAULT_BBOX_CATEGORY]
 
 
-def resolve_bbox_source(labels: sio.Labels, source: str = "auto") -> str:
+def resolve_bbox_source(
+    labels: sio.Labels, source: str = "auto", ignore_category: Optional[str] = None
+) -> str:
     """Resolve ``data_config.bbox_source`` for one labels file.
 
     ``auto`` picks ``bboxes`` when the file carries any user box, else ``instances``
-    when it carries any user pose instance, else ``masks``.
+    when it carries any user pose instance, else ``masks``. Boxes of
+    ``ignore_category`` (``data_config.ignore_box_category``) do not count.
     """
     if source not in BBOX_SOURCES:
         raise ValueError(f"bbox_source must be one of {BBOX_SOURCES}, got {source!r}.")
     if source != "auto":
         return source
-    if any(frame_user_bboxes(lf) for lf in labels):
+    if any(
+        bbox_category_name(b) != ignore_category
+        for lf in labels
+        for b in frame_user_bboxes(lf)
+    ):
         return "bboxes"
     if any(lf.has_user_instances for lf in labels):
         return "instances"
@@ -169,7 +176,10 @@ def _derived_frame_bboxes(
 
 
 def add_bboxes_to_labels(
-    labels: sio.Labels, source: str = "auto", padding: float = 0.0
+    labels: sio.Labels,
+    source: str = "auto",
+    padding: float = 0.0,
+    ignore_category: Optional[str] = None,
 ) -> str:
     """Give every frame of ``labels`` its ground-truth boxes for ``source``, in place.
 
@@ -183,17 +193,27 @@ def add_bboxes_to_labels(
         source: One of ``auto``, ``bboxes``, ``instances``, ``masks`` (see
             :func:`resolve_bbox_source`).
         padding: Pixels added on every side of derived boxes.
+        ignore_category: Experimental. User boxes of this category
+            (``data_config.ignore_box_category``) are kept next to the derived
+            boxes and do not make ``auto`` resolve to ``bboxes``.
 
     Returns:
         The resolved source.
     """
-    resolved = resolve_bbox_source(labels, source)
+    resolved = resolve_bbox_source(labels, source, ignore_category)
     if resolved == "bboxes":
         return resolved
     n_boxes = 0
     for lf in labels:
         derived = _derived_frame_bboxes(lf, resolved, padding)
-        lf.bboxes = [b for b in lf.bboxes if b.is_predicted] + derived
+        ignore = [
+            b
+            for b in lf.bboxes
+            if ignore_category is not None
+            and not b.is_predicted
+            and bbox_category_name(b) == ignore_category
+        ]
+        lf.bboxes = [b for b in lf.bboxes if b.is_predicted] + derived + ignore
         n_boxes += len(derived)
     logger.info(
         f"Derived {n_boxes} ground-truth boxes from {resolved} "

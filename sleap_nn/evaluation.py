@@ -2749,15 +2749,27 @@ def _box_intersection(a: np.ndarray, b: np.ndarray) -> np.ndarray:
 
 
 def _covers_ignore_region(
-    pred: np.ndarray, gt: np.ndarray, ignore: Any, cover: float = 0.5
+    pred: np.ndarray,
+    gt: np.ndarray,
+    ignore: Any,
+    cover: float = 0.5,
+    cover_of: str = "ignore",
 ) -> np.ndarray:
-    """Predictions to drop: covering an ignore region and matching no kept GT (IoU 0.5)."""
+    """Predictions to drop: covering an ignore region and matching no kept GT (IoU 0.5).
+
+    ``cover_of="ignore"``: the intersection is at least ``cover`` of the ignore
+    region's area. ``"detection"``: at least ``cover`` of the prediction's own area
+    (COCO's crowd rule; the ``bbox_detr`` ignore-box loss rule).
+    """
     ign = np.asarray(ignore, dtype=np.float64).reshape(-1, 4)
     if pred.shape[0] == 0 or ign.shape[0] == 0:
         return np.zeros(pred.shape[0], dtype=bool)
-    covers = (
-        _box_intersection(pred, ign) / np.maximum(_box_area(ign), 1e-12)[None]
-    ).max(axis=1) >= cover
+    if cover_of not in ("ignore", "detection"):
+        raise ValueError(f"cover_of must be 'ignore' or 'detection', got {cover_of!r}.")
+    area = _box_area(ign)[None] if cover_of == "ignore" else _box_area(pred)[:, None]
+    covers = (_box_intersection(pred, ign) / np.maximum(area, 1e-12)).max(
+        axis=1
+    ) >= cover
     matches = (
         bbox_iou_matrix(pred, gt).max(axis=1) >= 0.5
         if gt.shape[0]
@@ -2775,6 +2787,7 @@ def compute_bbox_cover_metrics(
     false_per_frame: Tuple[float, ...] = BBOX_COVER_FPPF,
     score_threshold: Optional[float] = 0.1,
     ignore_cover: float = 0.5,
+    ignore_cover_of: str = "ignore",
 ) -> Dict[str, Any]:
     """Share of objects covered by a box at fixed false boxes per frame (class-agnostic).
 
@@ -2798,6 +2811,7 @@ def compute_bbox_cover_metrics(
         score_threshold: Also report the covered share and false boxes per frame at
             this score threshold (``None`` to skip).
         ignore_cover: As in :func:`compute_bbox_metrics`.
+        ignore_cover_of: As in :func:`compute_bbox_metrics`.
 
     Returns:
         ``bbox_cover_recall_at_{t}fppf`` per budget (the covered share at the lowest
@@ -2814,7 +2828,9 @@ def compute_bbox_cover_metrics(
         keep = np.isfinite(ps) & np.isfinite(pb).all(axis=1)
         pb, ps = pb[keep], ps[keep]
         if f.get("gt_ignore_bboxes") is not None:
-            keep = ~_covers_ignore_region(pb, gt, f["gt_ignore_bboxes"], ignore_cover)
+            keep = ~_covers_ignore_region(
+                pb, gt, f["gt_ignore_bboxes"], ignore_cover, ignore_cover_of
+            )
             pb, ps = pb[keep], ps[keep]
         n_gt += len(gt)
         hit = np.zeros(len(pb), dtype=bool)
@@ -2875,6 +2891,7 @@ def compute_bbox_metrics(
     iou_thresholds: np.ndarray = BBOX_IOU_THRESHOLDS,
     max_detections: int = 100,
     ignore_cover: float = 0.5,
+    ignore_cover_of: str = "ignore",
 ) -> Dict[str, Any]:
     """COCO-style detection metrics over a set of frames.
 
@@ -2893,6 +2910,10 @@ def compute_bbox_metrics(
         iou_thresholds: IoU thresholds averaged by mAP / AR.
         max_detections: Highest-scoring detections kept per frame (COCO's 100).
         ignore_cover: Share of an ignore region a prediction must cover to be dropped.
+        ignore_cover_of: What ``ignore_cover`` is a share of: ``"ignore"`` (default,
+            the ignore region's area) or ``"detection"`` (the prediction's own area:
+            COCO's crowd rule, and the rule of the experimental ``bbox_detr``
+            ignore-box loss, ``data_config.ignore_box_min_cover``).
 
     Returns:
         A dict with ``bbox_mAP`` (AP@[.5:.95]), ``bbox_AP50``, ``bbox_AP75``,
@@ -2928,7 +2949,7 @@ def compute_bbox_metrics(
         pr_b, pr_s, pr_c = pr_b[keep], pr_s[keep], pr_c[keep]
         if f.get("gt_ignore_bboxes") is not None:
             keep = ~_covers_ignore_region(
-                pr_b, gt_b, f["gt_ignore_bboxes"], ignore_cover
+                pr_b, gt_b, f["gt_ignore_bboxes"], ignore_cover, ignore_cover_of
             )
             pr_b, pr_s, pr_c = pr_b[keep], pr_s[keep], pr_c[keep]
         order = np.argsort(-pr_s, kind="mergesort")[:max_detections]
@@ -3138,8 +3159,13 @@ def _run_bbox_evaluation(
     bbox_padding: float = 0.0,
     class_agnostic: Optional[bool] = None,
     ignore_box_category: Optional[str] = None,
+    ignore_box_min_cover: float = 0.5,
 ) -> Optional[Dict[str, Any]]:
-    """``run_evaluation(match_method="bbox")``: COCO box metrics of two label sets."""
+    """``run_evaluation(match_method="bbox")``: COCO box metrics of two label sets.
+
+    With ``ignore_box_category``, a detection is ignored when an ignore box holds
+    at least ``ignore_box_min_cover`` of its own area (the loss's rule).
+    """
     from sleap_nn.data.bboxes import add_bboxes_to_labels
 
     if not any(b.is_predicted for lf in labels_pr for b in lf.bboxes):
@@ -3150,7 +3176,12 @@ def _run_bbox_evaluation(
         return None
     # GT without boxes (e.g. the pose labels a detector was trained from with
     # `bbox_source: instances`) gets them derived exactly as training did.
-    resolved = add_bboxes_to_labels(labels_gt, source=bbox_source, padding=bbox_padding)
+    resolved = add_bboxes_to_labels(
+        labels_gt,
+        source=bbox_source,
+        padding=bbox_padding,
+        ignore_category=ignore_box_category,
+    )
     logger.info(f"  Ground-truth boxes from: {resolved}")
     frames, categories = bbox_frame_pairs(
         labels_gt, labels_pr, class_agnostic, ignore_box_category
@@ -3160,7 +3191,12 @@ def _run_bbox_evaluation(
             "Empty Frame Pairs: no ground-truth frame with boxes matched the "
             "predictions' videos."
         )
-    metrics = compute_bbox_metrics(frames, num_classes=len(categories))
+    ignore_rule = (
+        {"ignore_cover": ignore_box_min_cover, "ignore_cover_of": "detection"}
+        if ignore_box_category is not None
+        else {}
+    )
+    metrics = compute_bbox_metrics(frames, num_classes=len(categories), **ignore_rule)
     metrics["categories"] = categories
     logger.info("Evaluation Results (bbox mode):")
     logger.info(f"  Frames: {metrics['n_frames']}, GT boxes: {metrics['n_gt']}")
@@ -3206,6 +3242,7 @@ def run_evaluation(
     norm_bootstrap: int = 0,
     norm_bootstrap_by: str = "frame",
     ignore_box_category: Optional[str] = None,
+    ignore_box_min_cover: float = 0.5,
 ):
     """Evaluate SLEAP-NN model predictions against ground truth labels.
 
@@ -3256,7 +3293,11 @@ def run_evaluation(
             from poses/masks (pass the model's ``data_config.bbox_padding``).
         ignore_box_category: ``"bbox"`` mode only, experimental: GT boxes of this
             category are ignore regions, not objects (pass the model's
-            ``data_config.ignore_box_category``; see :func:`bbox_frame_pairs`).
+            ``data_config.ignore_box_category``; see :func:`bbox_frame_pairs`). A
+            detection is ignored when one of them holds at least
+            ``ignore_box_min_cover`` of the detection's own area.
+        ignore_box_min_cover: ``"bbox"`` mode with ``ignore_box_category`` only
+            (pass the model's ``data_config.ignore_box_min_cover``).
         oks_sigmas: Per-node OKS sigmas (OKS mode): a preset name (``"coco"``,
             ``"crowdpose"``, ``"ochuman"``), ``"provenance"`` (the GT file's
             ``provenance["node_sigmas"]``), ``"auto"`` (provenance, then COCO names,
@@ -3326,6 +3367,7 @@ def run_evaluation(
             bbox_source=bbox_source,
             bbox_padding=bbox_padding,
             ignore_box_category=ignore_box_category,
+            ignore_box_min_cover=ignore_box_min_cover,
         )
 
     # Detect a fully collapsed prediction set up front and skip the metric

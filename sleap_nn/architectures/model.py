@@ -34,6 +34,7 @@ from sleap_nn.architectures.heads import (
     default_embedding_pool,
     embedding_encoder_is_frozen,
 )
+from sleap_nn.architectures.common import run_encoder
 from sleap_nn.architectures.unet import UNet
 from sleap_nn.architectures.convnext import ConvNextWrapper
 from sleap_nn.architectures.swint import SwinTWrapper
@@ -396,7 +397,11 @@ class Model(nn.Module):
                 # convert rgb to grayscale
                 x = F.rgb_to_grayscale(x, num_output_channels=1)
 
-        backbone_outputs = self.backbone(x)
+        if self.model_type == "bbox_detr":
+            # The whole DETR backbone is the encoder (`encoder_autocast`).
+            backbone_outputs = run_encoder(self.backbone, x)
+        else:
+            backbone_outputs = self.backbone(x)
         if self.model_type == "bbox_detr":
             outputs = self.detr(backbone_outputs)
         else:
