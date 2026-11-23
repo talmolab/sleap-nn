@@ -1070,7 +1070,7 @@ def test_caseC_sfp_neck_builds_every_level_from_one_tap():
 @pytest.mark.parametrize(
     "kw, match",
     [
-        ({"layers": [6, 12]}, "needs 4 layers"),
+        ({"layers": [6, 12]}, r"give 4 taps \(e.g. \[3, 6, 9, 12\]\)"),
         ({"vit_neck": "sfp", "layers": [6, 12]}, "exactly one tapped layer"),
         ({"vit_neck": "fpn"}, "Unknown ViT neck mode"),
     ],
@@ -1079,6 +1079,45 @@ def test_caseC_sfp_neck_builds_every_level_from_one_tap():
 def test_caseC_neck_misconfiguration_raises(kw, match):
     with pytest.raises(ValueError, match=match):
         _vit_backbone(**kw)
+
+
+@pytest.mark.parametrize(
+    "model_name",
+    [VIT, pytest.param(TIMM_VIT, marks=requires_timm)],
+    ids=["dinov2", "timm-dinov3"],
+)
+def test_caseC_dpt_four_taps_on_fewer_levels(model_name):
+    """Four taps (one per full-pyramid level) feed a 3-level pyramid.
+
+    At output_stride 8 a stride-16 token grid builds 3 levels (strides 8, 16, 32):
+    each keeps the tap it has in the 4-level pyramid, the finest level's is dropped.
+    """
+    from sleap_nn.config.get_config import get_head_configs
+
+    bb = _vit_backbone(model_name, output_stride=8, layers=[3, 6, 9, 12])
+    assert bb.layers == [6, 9, 12] and len(bb.tap_norms) == 3
+    assert (
+        bb.layers
+        == _vit_backbone(model_name, output_stride=8, layers=[6, 9, 12]).layers
+    )
+    # The SSD box head on that pyramid (three levels, strides 8 to 32) trains.
+    hc = OmegaConf.structured(get_head_configs("bbox_ssd"))
+    leaf = hc.bbox_ssd.ssd
+    leaf.output_stride, leaf.num_levels, leaf.anchor_sizes = 8, 3, [16.0, 32.0, 64.0]
+    model = Model(
+        backbone_type="pretrained",
+        backbone_config=_caseA_cfg(model_name, output_stride=8, layers=[3, 6, 9, 12]),
+        head_configs=hc.bbox_ssd,
+        model_type="bbox_ssd",
+    )
+    out = model(torch.rand(2, 3, 64, 96))["SSDHead"]
+    out.float().mean().backward()
+    assert out.shape[0] == 2
+    # Any other count names the counts to use.
+    with pytest.raises(ValueError, match=r"give 3 taps \(e.g. \[4, 8, 12\]\)"):
+        _vit_backbone(model_name, output_stride=8, layers=[6, 12])
+    with pytest.raises(ValueError, match="4 taps"):
+        _vit_backbone(model_name, output_stride=8, layers=[2, 4, 6, 8, 12])
 
 
 # ------------------------------------------------------------------- MAE

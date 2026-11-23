@@ -522,6 +522,7 @@ class Predictor(ABC):
                 frame["image"],
                 self.preprocess_config["max_height"],
                 self.preprocess_config["max_width"],
+                warn="info",
             )
             if self.instances_key:
                 frame["instances"] = frame["instances"] * eff_scale

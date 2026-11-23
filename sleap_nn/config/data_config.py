@@ -450,7 +450,7 @@ class IntensityConfig:
     gaussian_blur_p: float = field(default=0.0, validator=validate_proportion)
     gaussian_blur_sigma_min: float = field(default=0.1, validator=validators.gt(0))
     gaussian_blur_sigma_max: float = field(default=2.0, validator=validators.gt(0))
-    # E19 appearance ops (sleap_nn.data.photometric_extra); crop_pipeline="warp" and,
+    # Appearance ops (sleap_nn.data.photometric_extra); crop_pipeline="warp" and,
     # with frame_photometric, bbox_detr frames. All off by default.
     gray_p: float = field(default=0.0, validator=validate_proportion)
     channel_shuffle_p: float = field(default=0.0, validator=validate_proportion)
@@ -617,7 +617,9 @@ class DetrAugmentationConfig:
 
     Applied to training frames (with `use_augmentations_train`) before the
     `intensity` / `geometric` sections, which still apply on top
-    (`sleap_nn.data.detr_augmentation`). Defaults are RF-DETR's.
+    (`sleap_nn.data.detr_augmentation`). Defaults are RF-DETR's. `bbox_centernet`
+    and `bbox_ssd` models apply the `zoom_out_*` keys too (after the size matcher,
+    `scale` and stride padding; same meaning) and ignore the rest.
 
     Attributes:
         crop_p: (float) Probability of the resize + crop branch: the shortest side
@@ -641,7 +643,7 @@ class DetrAugmentationConfig:
             *Default*: `0.0`.
         zoom_out_p: (float) Probability of shrinking the fitted training frame by
             ``f ~ U(zoom_out_min, zoom_out_max)`` onto a zero canvas at a random
-            offset (mice smaller than in the source; not in RF-DETR). *Default*:
+            offset (animals smaller than in the source; not in RF-DETR). *Default*:
             `0.0`.
         zoom_out_min: (float) Smallest zoom-out factor. *Default*: `0.4`.
         zoom_out_max: (float) Largest zoom-out factor. *Default*: `1.0`.
@@ -713,7 +715,8 @@ class AugmentationConfig:
         stage2: (AugmentationStage2Config) Optional second augmentation stage
             (`crop_pipeline="warp"` only). *Default*: `None`.
         detr: (DetrAugmentationConfig) RF-DETR's resize/crop/flip and per-batch
-            multi-scale (`bbox_detr` only). *Default*: `None`.
+            multi-scale (`bbox_detr` only; its `zoom_out_*` keys also apply to
+            `bbox_centernet` and `bbox_ssd`). *Default*: `None`.
     """
 
     intensity: Optional[IntensityConfig] = None

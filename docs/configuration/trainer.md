@@ -242,7 +242,8 @@ Choose **one** scheduler:
 
 **Per-step schedules.** `cosine_annealing_warmup` and `linear_warmup_linear_decay`
 update the learning rate once per epoch by default, and the warmup counts whole
-epochs: with the default `warmup_start_lr: 0.0`, the first epoch trains at LR 0.
+epochs: warmup epoch `e` trains at `(e + 1) / (warmup_epochs + 1)` of the way from
+`warmup_start_lr` to the base LR, so epoch 0 is not at `warmup_start_lr`.
 Setting `warmup_steps` (any int, `0` included) switches either schedule to
 per-iteration updates: the warmup lasts `warmup_steps` optimizer steps and the
 decay runs to `max_steps`. When `max_steps` is unset it is the schedule's own
@@ -267,11 +268,12 @@ ratios hold for the whole run.
 
 **Fixed-length schedules and early stopping.** `cosine_annealing_warmup`,
 `linear_warmup_linear_decay` and `multi_step_lr` are planned around the run
-length. Choosing one turns early stopping off unless
-`early_stopping.stop_training_on_plateau` is set explicitly, and the saved config
-shows `reduce_lr_on_plateau: null` (it never ran alongside another schedule). An
-explicit `stop_training_on_plateau: true` is kept, with a warning that it can cut
-the decay short.
+length. The default `reduce_lr_on_plateau` section stays in the saved config, as in
+v0.3.5, but does not run: only one schedule runs, chosen in priority order (see
+[LRSchedulerConfig](#lrschedulerconfig)). Early stopping stays on, as under every
+schedule, and training warns that it can end the run before the schedule has
+finished: set `early_stopping.stop_training_on_plateau: false` to run the whole
+schedule.
 
 ---
 
@@ -280,7 +282,7 @@ the decay short.
 ```yaml
 trainer_config:
   early_stopping:
-    stop_training_on_plateau: null  # null = on, off with a fixed-length LR schedule
+    stop_training_on_plateau: true  # On under every LR schedule; false turns it off
     patience: 10        # Epochs without improvement (eval/* metrics: evaluations)
     min_delta: 1e-8     # Minimum improvement
 ```
@@ -447,17 +449,21 @@ trainer_config:
     gallery: true             # Prediction gallery (default on with use_wandb)
 ```
 
-With `use_wandb: true`, box detectors (`bbox_*`) and centered-instance models log a
-**prediction gallery** at the end of every validation epoch, independent of
+With `use_wandb: true`, box detectors (`bbox_*`), centered-instance models and bottom-up
+models (`bottomup`, `multi_class_bottomup`) log a **prediction gallery** at the end of every validation epoch, independent of
 `visualize_preds_during_training`:
 
 - `viz/gallery/val`: a fixed panel of up to `gallery_size` validation samples, chosen once
   per run and stratified by validation file (a seeded "typical" draw plus each file's
-  hardest samples: most animals / smallest box for detectors, smallest animal for pose).
+  hardest samples: most animals / smallest box for detectors, smallest animal for
+  top-down pose, most animals for bottom-up pose).
   The same samples are logged every time, so the W&B step slider shows them improving.
   Detectors use native W&B boxes (toggle ground truth / predictions, filter by score);
   pose crops are drawn with each file's own nodes and skeleton edges, with the median
-  error in the caption.
+  error in the caption. Bottom-up models show whole frames (downscaled to 640 px on the
+  long side): each predicted animal in its own color over the ground truth (thin green
+  skeleton, hollow green circles), drawn with sleap-io's renderer, with the ground-truth
+  and predicted animal counts and the median error of the paired animals in the caption.
 - `viz/gallery/train`: the first samples of the first training batch after each
   validation, as the model received them (augmented), with their targets.
 - `viz/gallery/seconds`, `viz/gallery/bytes`: time of the event, JPEG bytes so far.
@@ -525,7 +531,10 @@ trainer_config:
 ```
 
 The teacher stays frozen and outside the checkpoint; the distillation terms fade
-out linearly over the run. See [Distillation](../guides/distillation.md).
+out linearly over the run. Box detectors (`bbox_*`, experimental, stage 1) learn
+from a box-detector teacher's detections instead of heatmaps
+(`teacher_score_threshold`, default `0.5`). See
+[Distillation](../guides/distillation.md).
 
 ---
 
@@ -651,7 +660,7 @@ trainer_config:
 | `use_wandb` | bool | `false` | Enable WandB logging |
 | `resume_ckpt_path` | str | `null` | Path to checkpoint to resume from |
 | `freeze_schedule` | FreezeScheduleConfig | `null` | Freeze `targets` (selectors, default `[encoder]`) until `unfreeze_at_step` (`null` = whole run) |
-| `distillation` | DistillationConfig | `null` | Teacher → student (`stage: 1`) or head self-distillation (`stage: 2`); see [Distillation](../guides/distillation.md) |
+| `distillation` | DistillationConfig | `null` | Teacher → student (`stage: 1`) or head self-distillation (`stage: 2`); box detectors: stage 1 from a box-detector teacher (experimental); see [Distillation](../guides/distillation.md) |
 | `optimizer_name` | str | `Adam` | Optimizer: `Adam` or `AdamW` |
 | `precision` | str | `"32"` | Lightning precision: `"32"`, `"bf16-mixed"`, `"16-mixed"` |
 | `float32_matmul_precision` | str | `null` | `torch.set_float32_matmul_precision` during training on CUDA, restored afterwards (`high` = TF32; `highest` = strict fp32; `null` = leave unchanged) |
@@ -729,7 +738,7 @@ five `null`) = constant learning rate.
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `warmup_epochs` | int | `5` | Linear warmup epochs |
-| `warmup_start_lr` | float | `0.0` | LR the warmup ramps up from; warmup epoch `e` trains at `(e + 1) / (warmup_epochs + 1)` of the way to the base LR, so epoch 0 is never at this value |
+| `warmup_start_lr` | float | `0.0` | LR the warmup ramps up from; warmup epoch `e` trains at `(e + 1) / (warmup_epochs + 1)` of the way to the base LR, so epoch 0 is never at this value; a per-step warmup (`warmup_steps`) starts at it (step `s` at `s / warmup_steps`) |
 | `eta_min` | float | `0.0` | Minimum LR at end of cosine decay |
 | `max_epochs` | int | `null` | Total epochs (auto from trainer) |
 | `warmup_steps` | int | `null` | Warmup in optimizer steps; any int switches to per-step updates (`warmup_epochs` ignored) |
@@ -740,7 +749,7 @@ five `null`) = constant learning rate.
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `warmup_epochs` | int | `5` | Linear warmup epochs |
-| `warmup_start_lr` | float | `0.0` | LR the warmup ramps up from; warmup epoch `e` trains at `(e + 1) / (warmup_epochs + 1)` of the way to the base LR, so epoch 0 is never at this value |
+| `warmup_start_lr` | float | `0.0` | LR the warmup ramps up from; warmup epoch `e` trains at `(e + 1) / (warmup_epochs + 1)` of the way to the base LR, so epoch 0 is never at this value; a per-step warmup (`warmup_steps`) starts at it (step `s` at `s / warmup_steps`) |
 | `end_lr` | float | `0.0` | Final LR at end of training |
 | `max_epochs` | int | `null` | Total epochs (auto from trainer) |
 | `warmup_steps` | int | `null` | Warmup in optimizer steps; any int switches to per-step updates (`warmup_epochs` ignored) |
@@ -760,7 +769,7 @@ five `null`) = constant learning rate.
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `stop_training_on_plateau` | bool | `null` | Enable early stopping (`null` = on, except with a fixed-length LR schedule: `cosine_annealing_warmup`, `linear_warmup_linear_decay`, `multi_step_lr`) |
+| `stop_training_on_plateau` | bool | `true` | Enable early stopping, under every LR schedule (`null` is read as `true`). With a fixed-length LR schedule (`cosine_annealing_warmup`, `linear_warmup_linear_decay`, `multi_step_lr`) it can end the run before the schedule has finished; set `false` to run the whole schedule |
 | `patience` | int | `10` | Epochs without improvement. For `embedding`, and for `bbox_*` models with `eval.enabled` (which select on `eval/val/bbox_mAP`), evaluations without improvement (one check every `eval.frequency` epochs) |
 | `min_delta` | float | `1e-8` | Minimum improvement |
 

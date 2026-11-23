@@ -952,9 +952,8 @@ def get_trainer_config(
                                 (params in `sleap_nn.config.trainer_config.StepLRConfig`)
                             }
                     }
-        early_stopping: True if early stopping should be enabled. `None` = on, except
-            with a fixed-length schedule (cosine_annealing_warmup,
-            linear_warmup_linear_decay, multi_step_lr). Default: False.
+        early_stopping: True if early stopping should be enabled. `None` is read as
+            on. Default: False.
         early_stopping_min_delta: Minimum change in the monitored quantity to qualify as
             an improvement, i.e. an absolute change of less than or equal to min_delta,
             will count as no improvement. Default: 0.0.

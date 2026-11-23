@@ -3222,9 +3222,13 @@ def test_training_recipe_knobs_end_to_end(config, tmp_path, caplog):
 
     The checkpoint's `state_dict` holds the EMA weights (what inference loads) and
     the online weights ride under `"ema"`; the LR schedule is stepped per
-    iteration; early stopping left on next to a fixed schedule warns.
+    iteration. A config that leaves `stop_training_on_plateau` out keeps early
+    stopping on next to the fixed schedule, as in v0.3.5, and warns.
     """
+    from lightning.pytorch.callbacks import EarlyStopping
+
     cfg = config.copy()
+    del cfg.trainer_config.early_stopping["stop_training_on_plateau"]
     OmegaConf.update(cfg, "trainer_config.trainer_accelerator", "cpu")
     OmegaConf.update(cfg, "trainer_config.save_ckpt", True)
     OmegaConf.update(cfg, "trainer_config.ckpt_dir", f"{tmp_path}")
@@ -3277,11 +3281,20 @@ def test_training_recipe_knobs_end_to_end(config, tmp_path, caplog):
         for k in online
         if best["state_dict"][k].is_floating_point()
     )
-    # The fixture sets `stop_training_on_plateau: true` explicitly: kept, warned.
+    # The key was left out: early stopping is on (the v0.3.5 default), warned.
     assert trainer.config.trainer_config.early_stopping.stop_training_on_plateau
     assert "early_stopping.stop_training_on_plateau is true" in caplog.text
+    assert any(isinstance(cb, EarlyStopping) for cb in trainer.trainer.callbacks)
+    for name in ("initial_config.yaml", "training_config.yaml"):
+        written = OmegaConf.load(tmp_path / "recipe" / name)
+        assert written.trainer_config.early_stopping.stop_training_on_plateau is True
+    # As in v0.3.5 the default plateau section stays in the saved config; the
+    # scheduler that ran is the fixed one (priority order).
     saved = OmegaConf.load(tmp_path / "recipe" / "training_config.yaml")
-    assert saved.trainer_config.lr_scheduler.reduce_lr_on_plateau is None
+    assert saved.trainer_config.lr_scheduler.reduce_lr_on_plateau is not None
+    assert not isinstance(
+        sched_cfg.scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau
+    )
     assert saved.trainer_config.lr_scheduler.multi_step_lr.milestones == [1]
 
 
@@ -3313,15 +3326,39 @@ _PLATEAU = {"reduce_lr_on_plateau": {"patience": 5}}
         {"multi_step_lr": {"milestones": [3]}},
     ],
 )
-def test_fixed_schedule_turns_off_unset_early_stopping_and_plateau(fixed):
+def test_fixed_schedule_keeps_unset_early_stopping_on_and_the_plateau_section(
+    fixed, caplog
+):
+    """Early stopping left unset is on under a fixed-length schedule too, warned."""
     from types import SimpleNamespace
 
     holder = SimpleNamespace(config=_schedule_cfg({**_PLATEAU, **fixed}))
     ModelTrainer._setup_schedule_defaults(holder)
     tc = holder.config.trainer_config
-    assert tc.early_stopping.stop_training_on_plateau is False
-    assert tc.lr_scheduler.reduce_lr_on_plateau is None
+    assert tc.early_stopping.stop_training_on_plateau is True
+    assert "may stop before the schedule ends" in caplog.text
+    # The config is not rewritten (v0.3.5 kept the section; priority picks).
+    assert tc.lr_scheduler.reduce_lr_on_plateau == _PLATEAU["reduce_lr_on_plateau"]
     assert tc.lr_scheduler[next(iter(fixed))] is not None
+
+
+def test_early_stopping_default_is_on_under_every_schedule():
+    """The config default is on; a fixed-length schedule does not turn it off."""
+    from types import SimpleNamespace
+
+    from sleap_nn.config.trainer_config import EarlyStoppingConfig, TrainerConfig
+
+    assert EarlyStoppingConfig().stop_training_on_plateau is True
+    cfg = OmegaConf.create(
+        {
+            "trainer_config": OmegaConf.to_container(
+                OmegaConf.structured(TrainerConfig())
+            )
+        }
+    )
+    cfg.trainer_config.lr_scheduler = {"cosine_annealing_warmup": {"warmup_epochs": 1}}
+    ModelTrainer._setup_schedule_defaults(SimpleNamespace(config=cfg))
+    assert cfg.trainer_config.early_stopping.stop_training_on_plateau is True
 
 
 @pytest.mark.parametrize(

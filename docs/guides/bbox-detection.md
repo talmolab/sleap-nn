@@ -115,6 +115,17 @@ Notes:
   Prefer **little or no rotation**: the axis-aligned box of rotated corners is larger
   than the rotated animal, so rotation inflates the targets. Scale, translation and
   `flip_p` are exact.
+- **Zoom-out:** the `zoom_out_*` keys of `augmentation_config.detr` work here as for
+  `bbox_detr`: with probability `zoom_out_p` a training frame is shrunk onto a black
+  canvas, or onto another training frame (`zoom_out_canvas: frame`), so the detector
+  sees animals smaller than the labels show. Off by default; the section's other
+  keys are `bbox_detr` only.
+
+  ```yaml
+  data_config:
+    augmentation_config:
+      detr: {zoom_out_p: 0.4, zoom_out_min: 0.3, zoom_out_max: 1.0, zoom_out_canvas: frame}
+  ```
 - **Tiling** is not supported for detectors in `sleap-nn predict` yet (a clear error
   is raised). `sleap-nn detect-boxes --tile_width` has a full-height tiled mode for
   wide panoramas (see [detector-box crops](warp-data-path.md#detector-box-crops)).

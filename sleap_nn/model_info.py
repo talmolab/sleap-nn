@@ -410,7 +410,15 @@ def print_model_info(path: str) -> None:
     reduce_lr = OmegaConf.select(
         cfg, "trainer_config.lr_scheduler.reduce_lr_on_plateau", default=None
     )
-    if step_lr is not None:
+    from sleap_nn.config.trainer_config import fixed_length_lr_schedule
+
+    fixed = fixed_length_lr_schedule(
+        OmegaConf.select(cfg, "trainer_config.lr_scheduler", default=None)
+    )
+    if fixed is not None:
+        # Chosen before step_lr / reduce_lr_on_plateau (the trainer's priority).
+        train_table.add_row("LR scheduler", fixed)
+    elif step_lr is not None:
         step_size = OmegaConf.select(step_lr, "step_size", default="?")
         gamma = OmegaConf.select(step_lr, "gamma", default="?")
         train_table.add_row("LR scheduler", f"StepLR (step={step_size}, gamma={gamma})")

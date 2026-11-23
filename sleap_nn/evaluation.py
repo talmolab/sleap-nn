@@ -12,6 +12,7 @@ import click
 from pathlib import Path
 
 from sleap_nn.data.instance_centroids import generate_centroids
+from sleap_nn.data.providers import clear_legacy_hidden_points
 
 
 def compute_gt_centroids(
@@ -3340,6 +3341,7 @@ def run_evaluation(
         if isinstance(ground_truth_path, sio.Labels)
         else sio.load_slp(ground_truth_path)
     )
+    clear_legacy_hidden_points(ground_truth_instances)
     logger.info(
         f"  Ground truth: {len(ground_truth_instances.videos)} videos, "
         f"{len(ground_truth_instances.labeled_frames)} frames"
@@ -5714,6 +5716,7 @@ def run_identity_evaluation(
 
     logger.info("Loading ground truth labels...")
     gt_labels = sio.load_slp(ground_truth_path)
+    clear_legacy_hidden_points(gt_labels)
     logger.info(
         f"  Ground truth: {len(gt_labels.videos)} videos, "
         f"{len(gt_labels.labeled_frames)} frames"
