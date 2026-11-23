@@ -336,10 +336,15 @@ _DIAG_ARMED = [False]
 )
 def test_stage_switch_reaches_persistent_workers(tmp_path, context, request):
     # DIAGNOSTIC, NOT FOR MERGE: print where the forked workers are if they stall.
-    # In each child forked during this test, faulthandler dumps every 30 s to the
-    # job log (pytest's saved copy of the real stderr, inherited by the fork).
+    # Each child forked during the [fork] case installs a SIGUSR1 handler that
+    # dumps its Python stacks to the job log (pytest's saved copy of the real
+    # stderr, inherited by the fork); 45 s after the loader starts, a timer thread
+    # in the parent sends SIGUSR1 to the workers that are still alive. (Arming
+    # faulthandler's timer in the child is not safe: the parent's per-test
+    # faulthandler watchdog is copied mid-wait and cancelling it there hangs.)
     import faulthandler
     import os
+    import signal
     import threading
 
     from _pytest.faulthandler import fault_handler_stderr_fd_key
@@ -349,7 +354,7 @@ def test_stage_switch_reaches_persistent_workers(tmp_path, context, request):
     def _arm():
         if _DIAG_ARMED[0]:
             os.write(fd, f"[diag] forked child {os.getpid()} armed\n".encode())
-            faulthandler.dump_traceback_later(30, repeat=True, file=fd)
+            faulthandler.register(signal.SIGUSR1, file=fd, all_threads=True)
 
     if context == "fork":
         os.register_at_fork(after_in_child=_arm)
@@ -382,6 +387,19 @@ def test_stage_switch_reaches_persistent_workers(tmp_path, context, request):
         collate_fn=_first,
         multiprocessing_context=context,
     )
+
+    def _poke():
+        it = loader._iterator
+        for w in getattr(it, "_workers", []) if it is not None else []:
+            if w.is_alive():
+                os.write(fd, f"[diag] SIGUSR1 to worker {w.pid}\n".encode())
+                os.kill(w.pid, signal.SIGUSR1)
+
+    timer = threading.Timer(45, _poke)
+    timer.daemon = True
+    if context == "fork":
+        timer.start()
+        request.addfinalizer(timer.cancel)
     first = [s["aug_stage"] for s in loader]
     assert first == [0] * 4
     ds.set_aug_stage(1)
