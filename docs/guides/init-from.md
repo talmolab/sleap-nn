@@ -15,8 +15,9 @@ Use it to:
 
 For continuing an interrupted run (same model, optimizer state included), use
 `trainer_config.resume_ckpt_path` instead; see
-[Resuming & Fine-Tuning](resume-finetune.md). `init_from` is ignored when
-`resume_ckpt_path` is set.
+[Resuming & Fine-Tuning](resume-finetune.md). `init_from.path` and
+`init_from.reinit` are ignored when `resume_ckpt_path` is set; `strict` and
+`remap_nodes` still tell the `.ckpt` forms of `pretrained_*_weights` how to load.
 
 ---
 
@@ -68,13 +69,13 @@ model_config:
     path: /runs/coco17_vit_s
     include: null                 # selectors to load (null = everything)
     exclude: null                 # selectors to leave at their init
-    remap_nodes: true             # copy head channels by node name
+    remap_nodes: null             # null: by node name here (true)
     node_map: null                # {target node: source node} overrides
     source_part_names: null       # source node names, if the checkpoint has none
     interpolate_pos_embed: true   # resize learned position embeddings
     reinit: null                  # selectors to re-initialize AFTER loading
     reinit_layer_scale: 1.0e-5    # LayerScale for re-initialized ViT blocks
-    strict: false                 # raise if any tensor had to be skipped
+    strict: null                  # true: raise if any tensor had to be skipped
 ```
 
 | Option | Default | Description |
@@ -82,13 +83,13 @@ model_config:
 | `path` | `null` | Model directory (its `best.ckpt`), a Lightning `.ckpt`, or a raw `state_dict` file. `null` loads nothing, but `reinit` still applies. |
 | `include` | `null` | [Selectors](#selectors) of the weights to load. `null` means everything. |
 | `exclude` | `null` | Selectors of weights to leave at their init. |
-| `remap_nodes` | `true` | Copy per-node head channels by node name. With `false`, they are copied by position when the shapes match. |
+| `remap_nodes` | `null` | Copy per-node head channels by node name. With `false`, they are copied by position when the shapes match. `null`: by name for `path`, by position for the `.ckpt` form of `pretrained_head_weights`. |
 | `node_map` | `null` | `{target node: source node}`. Seeds a new node from a related source node, or bridges a renamed node. |
 | `source_part_names` | `null` | Source node names, for checkpoints that record none (see [Where node names come from](#where-node-names-come-from)). |
 | `interpolate_pos_embed` | `true` | Bicubically resize learned positional embeddings on a different square grid, keeping CLS/register tokens. |
 | `reinit` | `null` | Selectors re-initialized after loading, e.g. `["head"]` or `["blocks[-2:]", "head"]`. |
 | `reinit_layer_scale` | `1e-5` | LayerScale value for re-initialized ViT blocks, so they start close to identity on the residual stream. |
-| `strict` | `false` | Raise instead of warning when a tensor is skipped for a shape mismatch. |
+| `strict` | `null` | Raise instead of warning when a tensor is skipped for a shape mismatch. `null`: warn for `path`, raise for the `.ckpt` forms of `pretrained_backbone_weights` / `pretrained_head_weights`. |
 
 `init_from` runs after every other weight source: `init_weights`, the backbone's
 own pretrained weights, and `pretrained_backbone_weights` /
@@ -230,11 +231,16 @@ trainer_config:
 ## Changes to `pretrained_backbone_weights` / `pretrained_head_weights`
 
 The `.ckpt` forms of these keys now go through the same loader (`include:
-[backbone]` and `include: [head]`), so they log the same report and match head
-channels by node name. `pretrained_head_weights` no longer fails when the skeleton
-grows, and no longer copies a reordered skeleton's channels blindly.
+[backbone]` and `include: [head]`), so they log the same report. They load what
+they loaded before: head channels are copied by position, and a tensor whose shape
+differs (for example a head with more or fewer nodes) raises an error.
 
-**Behaviour change:** a tensor whose shape differs used to raise an error. It is now
-skipped with a WARNING, and the target keeps its init. Set
-`model_config.init_from.strict: true` (no `path` needed) to fail on any mismatch
-again. Legacy SLEAP `.h5` weights load as before.
+Two `init_from` options change that without a `path`:
+
+- `model_config.init_from.remap_nodes: true` copies `pretrained_head_weights`'
+  head channels by node name, so the skeleton can grow, shrink or be reordered
+  (shared nodes are copied, new nodes keep their init, and the report says so).
+- `model_config.init_from.strict: false` skips a tensor that does not fit with a
+  WARNING instead, leaving the target at its init.
+
+Legacy SLEAP `.h5` weights load as before.
