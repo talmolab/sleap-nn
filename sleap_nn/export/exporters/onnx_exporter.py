@@ -216,12 +216,12 @@ def export_to_onnx(
             # the [1, 3, 1, 1] mean/std broadcast, the batch) to the dummy input.
             _export_torchscript(_ANTIALIAS_OPSET)
         except torch.onnx.errors.UnsupportedOperatorError:
-            # A few ops have no symbolic in the legacy exporter — notably the
-            # antialiased resize (``aten::_upsample_bilinear2d_aa``) that
-            # single-instance / other downscaling wrappers use to match the PyTorch
-            # inference resize. The torch.export-based exporter supports them, so
-            # fall back to it for those models (it needs opset >= 18 for the
-            # antialias Resize attribute).
+            # A few ops have no symbolic in the legacy exporter -- notably the
+            # antialiased bilinear resize (``aten::_upsample_bilinear2d_aa``; the
+            # single-instance wrapper builds its own from gathers instead, since
+            # TensorRT parses no antialiased Resize). The torch.export-based
+            # exporter supports them, so fall back to it for those models (it needs
+            # opset >= 18 for the antialias Resize attribute).
             torch.onnx.export(
                 model,
                 dummy_input,

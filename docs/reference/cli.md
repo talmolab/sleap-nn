@@ -506,10 +506,10 @@ sleap-nn export MODEL_PATH [MODEL_PATH_2] [-o OUTPUT_DIR] [OPTIONS]
 | `--opt-batch-size` | | TensorRT: batch the engine's kernels are tuned for (profile `opt`; for throughput, the batch you run); ignored for `--format onnx` (noted in the metadata) | `INT` | `1` |
 | `--strongly-typed` | | TensorRT 10.x: build fp16 / bf16 strongly typed, with the precision in the graph, as TensorRT 11 always does (see [Precision](../guides/export.md#tensorrt-precision)) | Flag | `false` |
 | `--force-precision` | | Build fp16 / bf16 even for a family whose reduced-precision engines fail its fp32 graph (multi-class bottom-up; see [Precision](../guides/export.md#tensorrt-precision)) | Flag | `false` |
-| `--fp32-attention-logits` | | With `--precision fp16`, strongly typed: keep each attention block's logits product (Q.K^T) in fp32 (see [fp16 for ViT backbones](../guides/export.md#fp16-for-vit-backbones-fp32-attention-logits)) | Flag | `false` |
+| `--fp32-attention-logits` / `--no-fp32-attention-logits` | | With `--precision fp16`, strongly typed: keep each attention block's logits product (Q.K^T) in fp32 (see [fp16 for ViT backbones](../guides/export.md#fp16-for-vit-backbones-fp32-attention-logits)) | Flag | on for plain-ViT backbones, off otherwise |
 | `--input-dtype` | | Box detectors and `--network-only` exports: dtype of the graph's image input (`float32` receives the checkpoint path's own input; `auto` = `float32` for `bbox_detr`, `uint8` otherwise) | `auto`, `uint8`, `float32` | `auto` |
 | `--network-only` | | `centered_instance` only: export the network alone (crop in, raw confidence maps out; no peak finding baked in), for `sleap-nn predict` to load in place of the checkpoint (see [network-only exports](../guides/export.md#detector-box-scaled-top-down-part-stage-network-only-exports)) | Flag | `false` |
-| `--peak-threshold` | | Peak threshold baked into the ONNX graph | `FLOAT` | `0.2` |
+| `--peak-threshold` | | Peak threshold: baked into the graph for pose and centroid models; for box detectors the score threshold, stored in `export_metadata.json` and applied on the host | `FLOAT` | `0.2` |
 | `--device` | | Device used for export | `STR` | `cpu` |
 | `--verify` / `--no-verify` | | Validate the exported ONNX graph (`onnx.checker`) | Flag | `--verify` |
 | `--opset-version` | | ONNX opset | `INT` | `17` |

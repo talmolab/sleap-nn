@@ -87,12 +87,12 @@ sleap-nn export MODEL_PATH [options]
 | `--opt-batch-size` | TensorRT: batch the engine's kernels are tuned for (profile `opt`; for throughput, the batch you run); ignored for `--format onnx` (noted in the metadata) | `INT` | `1` |
 | `--strongly-typed` | TensorRT 10.x: build fp16 / bf16 strongly typed, with the precision in the graph, as TensorRT 11 always does (see [Precision](#tensorrt-precision)) | Flag | `false` |
 | `--force-precision` | Build fp16 / bf16 even for a family whose reduced-precision engines fail its fp32 graph (multi-class bottom-up; see [Precision](#tensorrt-precision)) | Flag | `false` |
-| `--fp32-attention-logits` | With `--precision fp16`, strongly typed: keep each attention block's logits product (Q.K^T) in fp32 (see [fp16 for ViT backbones](#fp16-for-vit-backbones-fp32-attention-logits)) | Flag | `false` |
+| `--fp32-attention-logits` / `--no-fp32-attention-logits` | With `--precision fp16`, strongly typed: keep each attention block's logits product (Q.K^T) in fp32 (see [fp16 for ViT backbones](#fp16-for-vit-backbones-fp32-attention-logits)) | Flag | on for plain-ViT backbones, off otherwise |
 | `--input-dtype` | Box detectors and `--network-only` exports: dtype of the graph's image input (`float32` receives the checkpoint path's own input; `auto` = `float32` for `bbox_detr`, `uint8` otherwise) | `auto`, `uint8`, `float32` | `auto` |
 | `--nodes` | Export only these confmap nodes (`single_instance` / `centered_instance`, alone or in a top-down bundle); repeat or comma-separate | `TEXT` | all nodes |
 | `--node-prefix` | Export only the nodes whose name starts with the prefix | `TEXT` | `None` |
 | `--strip-prefix` | Name the `--node-prefix` nodes without the prefix in the exported metadata and `training_config` | Flag | `false` |
-| `--peak-threshold` | Peak confidence threshold baked into the graph | `FLOAT` | `0.2` |
+| `--peak-threshold` | Peak confidence threshold: baked into the graph for pose and centroid models; for box detectors the score threshold, stored in `export_metadata.json` and applied on the host | `FLOAT` | `0.2` |
 | `--crop-size` | Crop size for crop-input models (required for `embedding` when the config has none) | `INT` | from config |
 | `--device` | Device used for export | `TEXT` | `cpu` |
 
@@ -106,13 +106,18 @@ workspace, `--verify/--no-verify`), see the
 |---------------|-----------|-------|
 | `fp32` | strict IEEE fp32 (TF32 off) | TensorRT >= 10.13 (older 10.x: a warning, built with its builder flags as before) |
 | `tf32` | fp32 with TensorRT's TF32 kernels (10-bit mantissa in matrix products) | TensorRT >= 10.13 |
-| `fp16` | fp16 (fp16's range: large activations can overflow) | TensorRT >= 10.13 |
+| `fp16` | fp16 (fp16's range: large activations can overflow); plain-ViT backbones keep their attention logits in fp32 by default ([below](#fp16-for-vit-backbones-fp32-attention-logits)) | TensorRT >= 10.13 |
 | `bf16` | bf16 (fp32's range, 8 significant bits); in graphs that compute coordinates (box detectors, peaks found in the graph) every layer outside the backbone stays fp32; transposed convolutions always | TensorRT >= 10.13 and a GPU with compute capability >= 8.0 (judged on the `--device` GPU, where the engine is built) |
 
 How the reduced precisions are built depends on the TensorRT version:
 
 - **TensorRT 10.x** (default): builder flags (weak typing): TensorRT picks fp16 / bf16
   kernels where they are faster, and sleap-nn holds the fp32 layers above in fp32.
+  Under fp16 it also holds in fp32 the few layers that read or compute a value beyond
+  fp16's range (the -1e9 sentinels for absent peaks: the same rule as the strongly
+  typed path below), so value outputs such as `centroid_vals` / `peak_vals` keep -1e9
+  where no peak was found instead of -65504 or -inf (`fp16_fp32_layers` in the
+  metadata).
 - **TensorRT 11** removed those flags: every network is strongly typed, and each
   tensor runs in the type the graph gives it. sleap-nn then writes the precision into
   the graph it hands TensorRT ("strong typing"): it converts the chosen nodes'
@@ -135,10 +140,11 @@ passes ONNX's full check (types included); the **bf16 graph is for TensorRT only
 as the metadata (`graph_validity`) says.
 
 Multi-class bottom-up models do not reproduce their fp32 graph in fp16 or bf16 (on a
-test model, 40-77% of peaks within 0.5 px, on TensorRT 10 and 11): on the strongly
-typed path they are built in fp32 with a warning (`precision_requested` /
-`precision_fallback` in the metadata); `--force-precision` builds what was asked. On
-TensorRT 10's builder flags they are built as asked, with a warning.
+test model, 40-77% of peaks within 0.5 px, on TensorRT 10 and 11): they are built in
+fp32 with one warning (`precision_requested` / `precision_fallback` in the metadata),
+on TensorRT 11, with `--strongly-typed` and on TensorRT 10's builder flags alike;
+`--force-precision` builds what was asked. (Before this, TensorRT 10's builder flags
+built them as asked, with a warning.)
 
 The same `--precision` therefore gives slightly different numbers on TensorRT 10 and
 11 (TensorRT 10 also picks fp32 for some layers on its own). Engines, and results from
@@ -158,14 +164,35 @@ the whole graph runs in bf16.
 
 #### fp16 for ViT backbones: `--fp32-attention-logits`
 
-Plain `fp16` engines of DINOv3 ViT-B models fail: pose / tail models kept 17-44% of
+Plain `fp16` engines of DINOv3 ViT-B models fail: two keypoint models kept 17-44% of
 their keypoints within 0.5 px of fp32, and a `bbox_detr` detector loses boxes, on
 TensorRT 10 and 11. The cause is the attention logits product (Q.K^T): TensorRT's fp16
-kernels accumulate it in fp16. `--fp32-attention-logits` (with `--precision fp16`, on
-the strongly typed path: TensorRT 11, or `--strongly-typed` on 10.x) keeps that one
-product per attention block in fp32; everything else is the usual fp16 rewrite above,
-and in graphs that compute coordinates fp16 runs only inside the backbone (as `bf16`
-does). The products are found by structure, not by name: every `MatMul` / `Einsum`
+kernels accumulate it in fp16. `--fp32-attention-logits` (with `--precision fp16`)
+keeps that one product per attention block in fp32; everything else is the usual fp16
+rewrite above, and in graphs that compute coordinates fp16 runs only inside the
+backbone (as `bf16` does). The build is strongly typed: on TensorRT 10 the option turns
+`--strongly-typed` on (the builder flags cannot keep one product in fp32).
+
+**This is the default for plain-ViT backbones** (a `pretrained` backbone whose encoder
+is a plain, single-stride ViT -- DINOv2 / v3, CLIP, SigLIP, MAE ... -- and the
+windowed DINOv2 backbone of `bbox_detr`; an encoder counts when it is single-stride
+and has attention modules): an fp16 export of such a model keeps its attention logits
+in fp32 without the flag. A bundle (a top-down pair) gets the setting as a whole when
+any of its models has such a backbone. On TensorRT 10 the build is then strongly typed,
+so the export folder also holds the graph TensorRT parsed
+(`tensorrt_graph/model.fp16.onnx`, plus `model.fp16.onnx.data` above 1.8 GB) and the
+metadata gains its keys (`typing: strong`, `tensorrt_graph`, `graph_casts`, a
+`precision_by_scope` per scope). The export prints a note, and the metadata records
+`fp32_islands` and `fp32_islands_mode` (`auto (plain-ViT backbone)`, or `requested`
+with the flag). Two exceptions keep the old build: below TensorRT 10.13 (builder
+flags, plain fp16, with a warning that the engine may be inaccurate: pass
+`--precision bf16` or `fp32`, or use TensorRT >= 10.13), and a GPU without fast fp16
+(the builder-flag build is fp32 there). `--no-fp32-attention-logits` builds plain fp16
+as before. Other backbones (UNet, ConvNeXt, Swin ...), other precisions and the JIT
+method are unchanged. Before this default, `--precision fp16` (the export default)
+built plain fp16 engines for ViT backbones too.
+
+The products are found by structure, not by name: every `MatMul` / `Einsum`
 with two computed inputs (not weights) that reaches a `Softmax` through scale, mask,
 bias, soft-capping and layout ops. When a softmax has more than one such candidate
 (relative-position terms, scores carried over from an earlier block), all of them stay
@@ -178,12 +205,12 @@ backbone is known to do this. The counts are written to the metadata
 with no products (UNets, CenterNet / SSD heads) gets a warning and the engine it would
 get without products: plain fp16 for crop (`--network-only`) graphs, and fp16 inside the
 backbone with fp32 elsewhere for graphs that compute coordinates. The `bbox_detr` and
-ViT fp16 warnings are held back with the option and printed after the build unless it
-kept products and left no softmax unmatched. On an RTX PRO 6000 Blackwell with TensorRT
-10.16, DINOv3 ViT-B detector, pose and tail engines built so kept TensorRT's fused
+ViT fp16 warnings are held back (unless `--no-fp32-attention-logits` is given) and
+printed after the build unless it kept products and left no softmax unmatched. On an RTX PRO 6000 Blackwell with TensorRT
+10.16, DINOv3 ViT-B detector and two keypoint-model engines built so kept TensorRT's fused
 attention kernel, ran at plain fp16 speed (detector 3.1 ms per 576 x 768 frame) and
 matched fp32 (same boxes on 200 frames, corners within 0.13 px at p99; 99.6% / 98.6%
-of pose / tail keypoints within 0.5 px, against 96% / 89% for bf16).
+of their keypoints within 0.5 px, against 96% / 89% for bf16).
 
 Caveats: TensorRT chooses kernels per GPU by speed, so the same export built on another
 card (a GeForce card in particular) may accumulate other fp16 products differently and
@@ -194,8 +221,7 @@ one crop took 0.66 ms for one crop and 1.33 ms for three; tuned for three, 0.91 
 1.08 ms.
 
 The multi-class bottom-up fallback above is unchanged by the option (such a family is
-still built in fp32 on the strongly typed path); `--force-precision` is still the only
-override there.
+still built in fp32); `--force-precision` is still the only override there.
 
 `--nodes` / `--node-prefix` slice the confmap head to the kept channels before
 tracing, so the exported graph computes only those confidence maps (see
@@ -211,6 +237,13 @@ The export's metadata and copied `training_config.yaml` describe the kept nodes.
 ```bash
 sleap-nn export models/bottomup -o exports/bottomup --format both
 ```
+
+A single-instance model with an input scale resizes each frame inside the graph,
+antialiased like checkpoint inference. The resize is built from gathers and sums
+(TensorRT's parser takes no antialiased `Resize`), and its output size follows the
+frame's size, as `int(size * input_scale)` does on the checkpoint path. For the few
+scales whose double rounding no fraction reproduces (0.7, 0.35, ...) the export warns
+that the resized size can differ by one pixel for some frame sizes.
 
 ### Top-Down
 
@@ -270,8 +303,8 @@ exported graph that ran (a part model's tagged `stage: part`). A `--network-only
 runs exactly as its checkpoint would there. Node filters are baked in at export (`--nodes` /
 `--node-prefix` / `--strip-prefix`); `--node_prefix` at prediction time is refused for
 an exported network. `--max-batch-size` is a TensorRT engine's batch limit: larger
-crop batches run in chunks of it. A TensorRT engine runs on the current CUDA device:
-pick the card with `CUDA_VISIBLE_DEVICES` and pass `--device cuda`. A box detector
+crop batches run in chunks of it. A TensorRT engine runs on the CUDA device `--device`
+names (`cuda`: the current one; `cuda:N`: card N). A box detector
 exported at another size (`--input-height` / `--input-width`, default the training
 size) has that size written to the export's metadata and copied training config; a
 `bbox_detr` graph is exported at that fixed height and width (CenterNet and SSD graphs

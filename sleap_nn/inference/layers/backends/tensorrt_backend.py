@@ -20,6 +20,25 @@ import attrs
 import torch
 
 
+def _cuda_index(device: str) -> Optional[int]:
+    """The CUDA device index named by ``device``.
+
+    ``"cuda"`` and ``"auto"`` give ``None`` (the current CUDA device); ``"cuda:N"``
+    gives ``N``.
+
+    Raises:
+        ValueError: Any other device (TensorRT engines run on CUDA only).
+    """
+    d = str(device).strip().lower()
+    if d in ("cuda", "auto"):
+        return None
+    if d.startswith("cuda:") and d[5:].isdigit():
+        return int(d[5:])
+    raise ValueError(
+        f"TensorRTBackend only supports CUDA ('cuda' or 'cuda:N'); got device={device!r}"
+    )
+
+
 def run_in_batch_chunks(
     run: Callable[[torch.Tensor], Dict[str, torch.Tensor]],
     x: torch.Tensor,
@@ -54,7 +73,8 @@ class TensorRTBackend:
 
     Args:
         engine_path: Path to a serialized TRT engine file (``.trt``).
-        device: Must be ``"cuda"`` or ``"auto"``. Other values raise.
+        device: ``"cuda"`` or ``"auto"`` (the current CUDA device), or ``"cuda:N"``.
+            The engine is loaded and run on that device; other values raise.
 
     Notes:
         Constructing this backend imports ``tensorrt`` lazily. On a host
@@ -72,13 +92,14 @@ class TensorRTBackend:
     _trt: object = attrs.field(default=None, init=False, repr=False)
     # Largest batch the engine's optimization profile admits (``None``: unknown).
     _max_batch: Optional[int] = attrs.field(default=None, init=False, repr=False)
+    # The CUDA device the engine was loaded on (and runs on).
+    _cuda_device: Optional[torch.device] = attrs.field(
+        default=None, init=False, repr=False
+    )
 
     def __attrs_post_init__(self) -> None:
         """Load the TRT engine + create an execution context."""
-        if self.device not in ("cuda", "auto"):
-            raise ValueError(
-                f"TensorRTBackend only supports CUDA; got device={self.device!r}"
-            )
+        index = _cuda_index(self.device)
         try:
             import tensorrt as trt
         except ImportError as exc:
@@ -90,7 +111,19 @@ class TensorRTBackend:
             raise RuntimeError(
                 "TensorRTBackend requires a CUDA device; none is available."
             )
+        if index is None:
+            index = torch.cuda.current_device()
+        elif index >= torch.cuda.device_count():
+            raise ValueError(
+                f"TensorRTBackend: device={self.device!r}, but only "
+                f"{torch.cuda.device_count()} CUDA device(s) are visible."
+            )
+        self._cuda_device = torch.device("cuda", index)
+        with torch.cuda.device(self._cuda_device):
+            self._load_engine(trt)
 
+    def _load_engine(self, trt) -> None:
+        """Deserialize the engine and create its context on the current device."""
         self._trt = trt
         engine_path = Path(self.engine_path)
         if not engine_path.exists():
@@ -154,11 +187,16 @@ class TensorRTBackend:
 
     def _run(self, x: torch.Tensor) -> Dict[str, torch.Tensor]:
         """One engine execution on a batch the profile admits."""
+        with torch.cuda.device(self._cuda_device):
+            return self._run_on_device(x)
+
+    def _run_on_device(self, x: torch.Tensor) -> Dict[str, torch.Tensor]:
+        """:meth:`_run` with the engine's device current."""
         trt = self._trt
         input_name = self._input_names[0]
         expected = self._engine.get_tensor_dtype(input_name)
 
-        x = x.to("cuda", non_blocking=True)
+        x = x.to(self._cuda_device, non_blocking=True)
         if expected == trt.DataType.UINT8:
             if x.dtype != torch.uint8:
                 x = x.to(torch.uint8)
@@ -184,7 +222,7 @@ class TensorRTBackend:
         for name in self._output_names:
             shape = tuple(self._context.get_tensor_shape(name))
             dtype = self._trt_dtype_to_torch(self._engine.get_tensor_dtype(name))
-            outputs[name] = torch.empty(shape, dtype=dtype, device="cuda")
+            outputs[name] = torch.empty(shape, dtype=dtype, device=self._cuda_device)
             bindings[name] = outputs[name].data_ptr()
         for name, ptr in bindings.items():
             self._context.set_tensor_address(name, ptr)
@@ -201,7 +239,7 @@ class TensorRTBackend:
         input_name = self._input_names[0]
         expected = self._engine.get_tensor_dtype(input_name)
         dtype = torch.uint8 if expected == trt.DataType.UINT8 else torch.float32
-        dummy = torch.zeros(input_shape, dtype=dtype, device="cuda")
+        dummy = torch.zeros(input_shape, dtype=dtype, device=self._cuda_device)
         self(dummy)
 
     # ──────────────────────────────────────────────────────────────────
