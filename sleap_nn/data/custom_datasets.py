@@ -36,6 +36,7 @@ from torch.utils.data import Dataset, DataLoader, DistributedSampler
 import sleap_io as sio
 from sleap_nn.config.utils import get_backbone_type_from_cfg, get_model_type_from_cfg
 from sleap_nn.config.model_config import (
+    BBOX_MODEL_TYPES,
     EMBEDDING_SAMPLER_KINDS,
     resolve_embedding_objective,
 )
@@ -87,6 +88,7 @@ from sleap_nn.data.node_weights import (
 )
 from sleap_nn.data.bboxes import (
     HULL_VERTICES,
+    IGNORE_BOX_CLASS,
     bboxes_to_corners,
     clip_bboxes,
     corners_to_bboxes,
@@ -5721,10 +5723,17 @@ class BBoxDataset(BaseDataset):
     that is still at least :meth:`min_decode_scale` of the frame; the boxes are
     scaled to match.
 
+    With ``ignore_box_category`` (experimental, ``bbox_detr`` only), the frame's
+    boxes of that category ride the same chain with class id ``IGNORE_BOX_CLASS``
+    and come out as ``ignore_bboxes`` (NaN-padded xyxy) / ``num_ignore``, apart
+    from the targets and ``bboxes``. A frame whose only boxes are ignore boxes is a
+    sample.
+
     Attributes:
         target_encoder: Callable ``(boxes (n, 4), classes (n,), img_hw) -> dict`` of
             target tensors (``CenterNetTargetEncoder`` / ``SSDTargetEncoder``).
         categories: Ordered class names; box class ids index into it.
+        ignore_box_category: Category of the ignore boxes, or ``None``.
         min_visible_fraction: A box keeping less of its area than this inside the
             frame after augmentation is dropped from the targets.
         reduced_decode: Read large frames at reduced size (see above). Off here;
@@ -5744,6 +5753,7 @@ class BBoxDataset(BaseDataset):
         categories: List[str],
         max_stride: int,
         user_instances_only: bool = True,
+        ignore_box_category: Optional[str] = None,
         ensure_rgb: bool = False,
         ensure_grayscale: bool = False,
         intensity_aug: Optional[Union[str, List[str], Dict[str, Any]]] = None,
@@ -5764,6 +5774,9 @@ class BBoxDataset(BaseDataset):
         # Read by `_get_lf_idx_list`, which runs inside `BaseDataset.__init__`.
         self.target_encoder = target_encoder
         self.categories = list(categories)
+        self.ignore_box_category = _check_ignore_box_category(
+            ignore_box_category, target_encoder, self.categories
+        )
         self.min_visible_fraction = min_visible_fraction
         super().__init__(
             labels=labels,
@@ -5807,7 +5820,9 @@ class BBoxDataset(BaseDataset):
         skipped = Counter()
         for labels_idx, label in enumerate(labels):
             for lf_idx, lf in enumerate(label):
-                xyxy, classes = frame_bbox_arrays(lf, self.categories, skipped)
+                xyxy, classes = frame_bbox_arrays(
+                    lf, self.categories, skipped, self.ignore_box_category
+                )
                 if xyxy.shape[0] == 0:
                     continue
                 max_boxes = max(max_boxes, xyxy.shape[0])
@@ -5822,7 +5837,9 @@ class BBoxDataset(BaseDataset):
                     "bbox_classes": classes,
                 }
                 if getattr(self, "_capture_hulls", False):
-                    entry["paste_hulls"] = frame_bbox_hulls(lf, self.categories)
+                    entry["paste_hulls"] = frame_bbox_hulls(
+                        lf, self.categories, ignore_category=self.ignore_box_category
+                    )
                 lf_idx_list.append(entry)
         if skipped:
             logger.info(
@@ -5891,6 +5908,10 @@ class BBoxDataset(BaseDataset):
             if len(b) < 2:
                 continue
             b = np.asarray(b, np.float64).reshape(-1, 4)
+            if self.ignore_box_category is not None:
+                b = b[np.asarray(self.lf_idx_list[i]["bbox_classes"]) >= 0]
+                if len(b) < 2:
+                    continue
             ix = np.clip(
                 np.minimum(b[:, None, 2], b[None, :, 2])
                 - np.maximum(b[:, None, 0], b[None, :, 0]),
@@ -5907,6 +5928,47 @@ class BBoxDataset(BaseDataset):
             share = ix * iy / np.minimum(area[:, None], area[None, :])
             np.fill_diagonal(share, 0)
             out[i] = share.max()
+        return out
+
+    def frame_metadata_weights(self, labels: List[sio.Labels], key: str) -> np.ndarray:
+        """Per sample, the number its labelled frame's metadata holds under ``key``.
+
+        Used by ``trainer_config.balanced_sampler.frame_weight_key``
+        (experimental). A frame without the key weighs ``1``.
+
+        Args:
+            labels: The labels the dataset was built from (same order).
+            key: The ``LabeledFrame.metadata`` key.
+
+        Returns:
+            ``(n_samples,)`` float64 weights, each >= 0.
+
+        Raises:
+            ValueError: If a value is not a finite number >= 0.
+        """
+        out = np.ones(len(self.lf_idx_list), np.float64)
+        for i in range(len(out)):
+            sample = self.lf_idx_list[i]
+            label = labels[int(sample["labels_idx"])]
+            if sample["is_negative"]:
+                # `_collect_negative_frames` ids: "neg_<labels_idx>_<position>".
+                lf = label.negative_frames[int(str(sample["lf_idx"]).rsplit("_", 1)[1])]
+            else:
+                lf = label[int(sample["lf_idx"])]
+            value = (getattr(lf, "metadata", None) or {}).get(key)
+            if value is None:
+                continue
+            try:
+                weight = float(value)
+            except (TypeError, ValueError):
+                weight = float("nan")
+            if not np.isfinite(weight) or weight < 0:
+                raise ValueError(
+                    f"balanced_sampler.frame_weight_key: frame {lf.frame_idx} of "
+                    f"training file {int(sample['labels_idx'])} has {key}={value!r}; "
+                    "expected a number >= 0."
+                )
+            out[i] = weight
         return out
 
     def min_decode_scale(self, height: int, width: int) -> float:
@@ -5997,6 +6059,15 @@ class BBoxDataset(BaseDataset):
             edge_coords=self._edge_coords,
         )
         boxes, classes = boxes[keep], classes[keep]
+        if self.ignore_box_category is not None:
+            # Ignore boxes leave here: never targets, `bboxes` or metric GT.
+            is_ignore = classes == IGNORE_BOX_CLASS
+            ignore = boxes[is_ignore]
+            boxes, classes = boxes[~is_ignore], classes[~is_ignore]
+            padded_ignore = torch.full((self.max_instances, 4), float("nan"))
+            padded_ignore[: ignore.shape[0]] = ignore
+            sample_dict["ignore_bboxes"] = padded_ignore
+            sample_dict["num_ignore"] = int(ignore.shape[0])
         sample_dict.update(self.target_encoder(boxes, classes, img_hw))
 
         n_kept = boxes.shape[0]
@@ -7516,6 +7587,38 @@ def detr_multi_scale_sizes(config: DictConfig) -> Optional[List[Tuple[int, int]]
     return kept or sizes
 
 
+def _val_negative_frames(config: DictConfig) -> bool:
+    """``data_config.val_negative_frames`` (experimental; ``bbox_*`` models only)."""
+    on = bool(
+        OmegaConf.select(config, "data_config.val_negative_frames", default=False)
+    )
+    if on and get_model_type_from_cfg(config=config) not in BBOX_MODEL_TYPES:
+        raise ValueError(
+            "data_config.val_negative_frames is supported for the bbox_* models only."
+        )
+    return on
+
+
+def _check_ignore_box_category(
+    name: Optional[str], target_encoder: Any, categories: List[str]
+) -> Optional[str]:
+    """``data_config.ignore_box_category`` (experimental), checked; ``None`` if off."""
+    if name is None:
+        return None
+    from sleap_nn.data.bboxes import SetTargetEncoder
+
+    if not isinstance(target_encoder, SetTargetEncoder):
+        raise ValueError(
+            "data_config.ignore_box_category is supported for bbox_detr models only."
+        )
+    if name in categories:
+        raise ValueError(
+            f"data_config.ignore_box_category {name!r} is one of the detector's "
+            f"categories {categories}; ignore boxes cannot also be objects."
+        )
+    return str(name)
+
+
 def detr_dataset_kwargs(config: DictConfig) -> Tuple[Dict, Dict]:
     """``(train, val)`` extra kwargs of :class:`DetrBBoxDataset` from a config.
 
@@ -7587,6 +7690,7 @@ def get_train_val_datasets(
     cache_workers = getattr(config.data_config, "cache_workers", 0)
 
     use_negative_frames = getattr(config.data_config, "use_negative_frames", False)
+    val_negative_frames = _val_negative_frames(config)
     # Per-node loss weights (`sleap_nn.data.node_weights`), used by the
     # single-instance, centered-instance and bottom-up confmap datasets.
     node_weight_kwargs = dict(
@@ -8321,6 +8425,9 @@ def get_train_val_datasets(
         categories = bbox_head_categories(model_type, head_configs)
         common = dict(
             categories=categories,
+            ignore_box_category=OmegaConf.select(
+                config, "data_config.ignore_box_category", default=None
+            ),
             max_stride=config.model_config.backbone_config[f"{backbone_type}"][
                 "max_stride"
             ],
@@ -8368,10 +8475,17 @@ def get_train_val_datasets(
             geometric_aug=None,
             apply_aug=False,
             cache_img_path=val_cache_img_path,
-            use_negative_frames=False,
+            use_negative_frames=val_negative_frames,
             **common,
             **val_extra,
         )
+        key = OmegaConf.select(
+            config, "trainer_config.balanced_sampler.frame_weight_key", default=None
+        )
+        if key is not None:
+            train_dataset.frame_weights = train_dataset.frame_metadata_weights(
+                train_labels, str(key)
+            )
 
     elif model_type == "centered_instance_segmentation":
         seg_cfg = config.model_config.head_configs.centered_instance_segmentation
@@ -9148,6 +9262,25 @@ def _get_balanced_dataloaders(
                     f"probability {list(weights)} (normalized)."
                 )
             sample_weights = _overlap_sample_weights(bs, train_dataset, weights, rank)
+            frame_weights = getattr(train_dataset, "frame_weights", None)
+            if bs.get("frame_weight_key") is not None and frame_weights is None:
+                raise ValueError(
+                    "balanced_sampler.frame_weight_key is for the bbox_* models."
+                )
+            if frame_weights is not None:
+                # `balanced_sampler.frame_weight_key` (experimental).
+                if rank == 0:
+                    logger.info(
+                        "Per-frame sampling weights from frame metadata "
+                        f"'{bs.get('frame_weight_key')}': "
+                        f"{int((frame_weights != 1).sum())} of {len(frame_weights)} "
+                        "training frames weigh other than 1."
+                    )
+                sample_weights = (
+                    frame_weights
+                    if sample_weights is None
+                    else sample_weights * frame_weights
+                )
             sampler = BalancedBatchSampler(
                 train_dataset.labels_idx,
                 None,
@@ -9162,6 +9295,10 @@ def _get_balanced_dataloaders(
             if float(bs.get("overlap_weight", 1.0) or 1.0) != 1.0:
                 raise ValueError(
                     "balanced_sampler.overlap_weight needs per_sample: true."
+                )
+            if bs.get("frame_weight_key") is not None:
+                raise ValueError(
+                    "balanced_sampler.frame_weight_key needs per_sample: true."
                 )
             counts = resolve_batch_counts(
                 bs.get("counts"), bs.get("weights"), tl.batch_size, n_groups

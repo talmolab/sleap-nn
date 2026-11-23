@@ -157,6 +157,66 @@ test run first. For a large training set, skip the train split
 (`post_train_max_train_frames`); see the
 [EvalConfig reference](../configuration/trainer.md#evalconfig).
 
+## Experimental training options
+
+Four opt-in options. Each is off by default; a config that does not set it trains,
+saves and predicts as before, and its `training_config.yaml` gets no new key.
+
+**Ignore boxes** (`bbox_detr` only). In a partly labelled frame, a detector that
+finds an unlabelled animal is trained to call it background. Draw a box of a
+dedicated category around such regions and name that category:
+
+```yaml
+data_config:
+  ignore_box_category: ignore   # boxes of this category are not objects
+  ignore_box_min_cover: 0.5     # share of a query's box inside an ignore box
+```
+
+Ignore boxes go through the same augmentation as the other boxes (crop, flips,
+90 degree turns, zoom-out, rotation) and leave the data path as a separate target.
+They are never matched to a query, never counted in the loss normalizer and never
+ground truth. In the score loss (RF-DETR's IoU-aware BCE), a query that matches no
+object and whose predicted box lies inside one ignore box by at least
+`ignore_box_min_cover` of its own area gets no background term, so it is neither
+pushed towards background nor towards an object. Matched queries are unaffected.
+In the box metrics (during training and after it), a detection covering at least
+half of an ignore box is neither a hit nor a false positive. A frame whose only
+boxes are ignore boxes is a training frame (everything outside them is
+background). The category must not be one of the detector's `categories`; with
+`categories` unset it is left out of the categories read from the labels.
+
+**Negative frames in validation** (`bbox_*`). Validation normally leaves out
+negative frames, so the box metrics during training say nothing about false boxes
+on empty scenes. `data_config.val_negative_frames: true` keeps the validation
+labels' user-confirmed negative frames (see [Negative frames](negative-frames.md)).
+Detections on them count as false positives in `eval/val/bbox_*`, and their
+background terms enter `val/loss`. A `bbox_detr` set loss divides by the number of
+labelled boxes in the batch, clamped at 1, so a validation batch of only negative
+frames has a much larger loss than a batch with boxes: prefer the box metrics over
+`val/loss` for checkpoint selection with this option on.
+
+**Per-frame sampling weights** (`bbox_*`, with
+`trainer_config.balanced_sampler.per_sample: true`). Give frames a relative weight
+within their file in the frame metadata, and name the key:
+
+```python
+lf.metadata["sample_weight"] = 3.0   # drawn 3x as often as a frame of weight 1
+```
+
+```yaml
+trainer_config:
+  balanced_sampler: {per_sample: true, weights: [1, 1], frame_weight_key: sample_weight}
+```
+
+Frames without the key weigh 1, and weight 0 never draws a frame. Each file keeps
+its share of the samples; the weights multiply with `overlap_weight`.
+
+**Encoder-only reduced precision at prediction.** `sleap-nn predict --precision
+bf16-encoder` (or `fp16-encoder`) runs only the backbone under autocast. A
+`bbox_detr` detector's projector, transformer decoder and box and score heads run
+in fp32 on fp32 features. See
+[Reduced precision](inference-performance.md#reduced-precision-precision).
+
 ## Inference
 
 ```bash

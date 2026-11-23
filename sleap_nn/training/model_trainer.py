@@ -96,7 +96,10 @@ from sleap_nn.config_generator.architecture_estimates import (
     compute_suggested_tile_overlap,
 )
 from sleap_nn.training.utils import get_gpu_memory
-from sleap_nn.config.training_job_config import verify_training_cfg
+from sleap_nn.config.training_job_config import (
+    config_without_unused_keys,
+    verify_training_cfg,
+)
 from sleap_nn.config.trainer_config import fixed_length_lr_schedule
 from sleap_nn.training.optim import migrate_encoder_lr_options
 from sleap_nn.training.distillation import attach_distillation
@@ -1072,7 +1075,8 @@ class ModelTrainer:
         leaf = bbox_head_leaf(self.model_type, head_configs)
         if leaf.categories is None:
             leaf.categories = labels_bbox_categories(
-                self.train_labels + self.val_labels
+                self.train_labels + self.val_labels,
+                OmegaConf.select(self.config, "data_config.ignore_box_category"),
             )
             logger.info(f"Bounding-box categories: {list(leaf.categories)}")
         if self.model_type == "bbox_ssd" and leaf.anchor_sizes is None:
@@ -4080,10 +4084,12 @@ class ModelTrainer:
         if dry_run:
             # The run's two config files, written where the real run writes them.
             OmegaConf.save(
-                self._initial_config, (dry_run_dir / "initial_config.yaml").as_posix()
+                config_without_unused_keys(self._initial_config),
+                (dry_run_dir / "initial_config.yaml").as_posix(),
             )
             OmegaConf.save(
-                self.config, (dry_run_dir / "training_config.yaml").as_posix()
+                config_without_unused_keys(self.config),
+                (dry_run_dir / "training_config.yaml").as_posix(),
             )
 
         # save config only in rank 0 process
@@ -4098,7 +4104,7 @@ class ModelTrainer:
             self.config.sleap_nn_version = sleap_nn.__version__
 
             OmegaConf.save(
-                self._initial_config,
+                config_without_unused_keys(self._initial_config),
                 (Path(ckpt_path) / "initial_config.yaml").as_posix(),
             )
 
@@ -4142,7 +4148,7 @@ class ModelTrainer:
                 )
 
             OmegaConf.save(
-                self.config,
+                config_without_unused_keys(self.config),
                 (
                     Path(self.config.trainer_config.ckpt_dir)
                     / self.config.trainer_config.run_name

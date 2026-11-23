@@ -3043,6 +3043,7 @@ def bbox_frame_pairs(
     labels_gt: sio.Labels,
     labels_pr: sio.Labels,
     class_agnostic: Optional[bool] = None,
+    ignore_box_category: Optional[str] = None,
 ) -> Tuple[List[Dict[str, np.ndarray]], List[str]]:
     """Build :func:`compute_bbox_metrics` frames from GT and predicted labels.
 
@@ -3060,6 +3061,10 @@ def bbox_frame_pairs(
             box to its one class whatever it is called, so an uncategorized GT
             (``"object"``, e.g. boxes derived from poses) and predictions named
             after the model's one class (``"mouse"``) are the same class.
+        ignore_box_category: Experimental. GT boxes of this category are not
+            objects: each frame gets them as ``gt_ignore_bboxes`` (see
+            :func:`compute_bbox_metrics`) and they never count as GT or decide
+            ``class_agnostic``. ``None`` (default): none.
 
     Returns:
         ``(frames, categories)``.
@@ -3078,7 +3083,7 @@ def bbox_frame_pairs(
     if class_agnostic is None:
         gt_names = {
             bbox_category_name(b) for lf in labels_gt for b in frame_user_bboxes(lf)
-        }
+        } - {ignore_box_category}
         pr_names = {
             bbox_category_name(b)
             for lf in labels_pr
@@ -3091,6 +3096,11 @@ def bbox_frame_pairs(
         gt_boxes = frame_user_bboxes(lf)
         if not gt_boxes:
             continue
+        ignore_boxes = [
+            b for b in gt_boxes if bbox_category_name(b) == ignore_box_category
+        ]
+        if ignore_boxes:
+            gt_boxes = [b for b in gt_boxes if not any(b is i for i in ignore_boxes)]
         pred_boxes = []
         video_pr = gt_to_pr.get(id(lf.video))
         if video_pr is not None:
@@ -3111,6 +3121,10 @@ def bbox_frame_pairs(
                 "pred_classes": pr_c,
             }
         )
+        if ignore_boxes:
+            frames[-1]["gt_ignore_bboxes"] = np.asarray(
+                [b.bounds for b in ignore_boxes], dtype=np.float64
+            ).reshape(-1, 4)
     if class_agnostic:
         categories = ["object"]
     return frames, categories
@@ -3123,6 +3137,7 @@ def _run_bbox_evaluation(
     bbox_source: str = "auto",
     bbox_padding: float = 0.0,
     class_agnostic: Optional[bool] = None,
+    ignore_box_category: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
     """``run_evaluation(match_method="bbox")``: COCO box metrics of two label sets."""
     from sleap_nn.data.bboxes import add_bboxes_to_labels
@@ -3137,7 +3152,9 @@ def _run_bbox_evaluation(
     # `bbox_source: instances`) gets them derived exactly as training did.
     resolved = add_bboxes_to_labels(labels_gt, source=bbox_source, padding=bbox_padding)
     logger.info(f"  Ground-truth boxes from: {resolved}")
-    frames, categories = bbox_frame_pairs(labels_gt, labels_pr, class_agnostic)
+    frames, categories = bbox_frame_pairs(
+        labels_gt, labels_pr, class_agnostic, ignore_box_category
+    )
     if not frames:
         raise ValueError(
             "Empty Frame Pairs: no ground-truth frame with boxes matched the "
@@ -3188,6 +3205,7 @@ def run_evaluation(
     norm_pad_frac: float = 0.0,
     norm_bootstrap: int = 0,
     norm_bootstrap_by: str = "frame",
+    ignore_box_category: Optional[str] = None,
 ):
     """Evaluate SLEAP-NN model predictions against ground truth labels.
 
@@ -3236,6 +3254,9 @@ def run_evaluation(
             ``data_config.bbox_source``).
         bbox_padding: ``"bbox"`` mode only: pixels of padding on GT boxes derived
             from poses/masks (pass the model's ``data_config.bbox_padding``).
+        ignore_box_category: ``"bbox"`` mode only, experimental: GT boxes of this
+            category are ignore regions, not objects (pass the model's
+            ``data_config.ignore_box_category``; see :func:`bbox_frame_pairs`).
         oks_sigmas: Per-node OKS sigmas (OKS mode): a preset name (``"coco"``,
             ``"crowdpose"``, ``"ochuman"``), ``"provenance"`` (the GT file's
             ``provenance["node_sigmas"]``), ``"auto"`` (provenance, then COCO names,
@@ -3304,6 +3325,7 @@ def run_evaluation(
             save_metrics=save_metrics,
             bbox_source=bbox_source,
             bbox_padding=bbox_padding,
+            ignore_box_category=ignore_box_category,
         )
 
     # Detect a fully collapsed prediction set up front and skip the metric

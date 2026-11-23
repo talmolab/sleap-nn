@@ -374,6 +374,7 @@ def import_rfdetr(
     import lightning
 
     from sleap_nn.architectures.model import Model
+    from sleap_nn.config.training_job_config import config_without_unused_keys
 
     output_dir = Path(output_dir)
     if (output_dir / "best.ckpt").exists() and not overwrite:
@@ -403,7 +404,10 @@ def import_rfdetr(
         raise ValueError(f"RF-DETR weights do not fit the bbox_detr model: {e}") from e
 
     output_dir.mkdir(parents=True, exist_ok=True)
-    OmegaConf.save(config, (output_dir / "training_config.yaml").as_posix())
+    OmegaConf.save(
+        config_without_unused_keys(config),
+        (output_dir / "training_config.yaml").as_posix(),
+    )
     torch.save(
         {
             "state_dict": {f"model.{k}": v for k, v in net.state_dict().items()},

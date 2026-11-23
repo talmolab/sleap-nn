@@ -846,6 +846,28 @@ class DataConfig:
         negative_loss_weight: (float) Relative weight applied to the loss for negative samples. Must be > 0.
             Values < 1 down-weight negatives; values > 1 up-weight them. Only has effect when
             ``use_negative_frames`` is ``True``. *Default*: `1.0`.
+        val_negative_frames: (bool) **Experimental.** ``bbox_*`` models only: also
+            keep the user-confirmed negative frames of the validation labels in the
+            validation set (training keeps them with ``use_negative_frames``). The
+            validation loss then includes their background terms, and boxes
+            detected on them count as false positives in the box metrics. Not
+            written to ``training_config.yaml`` while ``False``. *Default*: ``False``.
+        ignore_box_category: (str) **Experimental.** ``bbox_detr`` only: user boxes
+            of this category mark regions that are not objects and not background,
+            e.g. animals left unlabelled in a partly labelled frame. They go through
+            the same augmentation as the other boxes but are never matched, never
+            counted as objects and never ground truth in the box metrics (a detection
+            covering one is neither a hit nor a false positive). In the score loss,
+            a query that matches no object and whose predicted box lies mostly
+            inside an ignore box (``ignore_box_min_cover``) gets no background
+            loss. Frames whose only boxes are ignore boxes are training frames. Must
+            not be one of the detector's ``categories``. ``None`` turns it off. Not
+            written to ``training_config.yaml`` while ``None``. *Default*: ``None``.
+        ignore_box_min_cover: (float) **Experimental.** With
+            ``ignore_box_category``: the share of a query's predicted box that must
+            lie inside one ignore box (intersection over the predicted box's area)
+            for the query to get no background loss. Not written to
+            ``training_config.yaml`` while ``0.5``. *Default*: ``0.5``.
         node_loss_mask: (bool) Per-node loss weighting for partially labeled
             skeletons (single-instance, centered-instance and bottom-up confmaps).
             Unlabeled points (sleap-io >= 0.10 ``labeled=False`` and
@@ -924,6 +946,11 @@ class DataConfig:
     )
     use_negative_frames: bool = False
     negative_loss_weight: float = field(default=1.0, validator=validators.gt(0))
+    val_negative_frames: bool = False
+    ignore_box_category: Optional[str] = None
+    ignore_box_min_cover: float = field(
+        default=0.5, validator=[validators.gt(0), validators.le(1)]
+    )
     node_loss_mask: bool = True
     unlabeled_points: str = field(
         default="absent", validator=validators.in_(("absent", "ignore"))
