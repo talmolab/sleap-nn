@@ -2638,8 +2638,8 @@ class ModelTrainer:
         """The W&B prediction gallery, or ``None`` when it is off or unsupported.
 
         On when ``trainer_config.use_wandb`` and ``trainer_config.wandb.gallery``
-        (default ``True``) are both on, for box detectors (``bbox_*``) and
-        ``centered_instance`` models.
+        (default ``True``) are both on, for box detectors (``bbox_*``),
+        ``centered_instance`` and bottom-up models.
         """
         cfg = self.config.trainer_config
         if not cfg.use_wandb or not OmegaConf.select(
@@ -2652,6 +2652,8 @@ class ModelTrainer:
             kind = "bbox"
         elif self.model_type == "centered_instance":
             kind = "keypoints"
+        elif self.model_type in ("bottomup", "multi_class_bottomup"):
+            kind = "instances"
         else:
             logger.info(
                 f"W&B gallery: not available for {self.model_type!r} models; skipped."
@@ -2698,7 +2700,7 @@ class ModelTrainer:
         labs = OmegaConf.to_container(labs) if OmegaConf.is_config(labs) else labs
 
         kwargs = {}
-        if kind == "keypoints" and self.skeletons:
+        if kind in ("keypoints", "instances") and self.skeletons:
             model_nodes = list(self.skeletons[0].node_names)
             train_nodes, val_nodes, _ = self._viz_file_nodes()
             kwargs = dict(

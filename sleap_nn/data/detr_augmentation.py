@@ -92,7 +92,7 @@ def resize_frame(
     Boxes are first clipped to the frame (a box left with no area stays, with zero
     width or height, for ``BBoxDataset`` to drop). Later clipping is to the
     training size, which under ``letterbox`` includes the padding, so a box
-    reaching past the frame's right or bottom edge (a mouse outside a random
+    reaching past the frame's right or bottom edge (an animal outside a random
     crop, or a padded keypoint box at the frame edge) would otherwise be kept
     over blank padding.
 

@@ -586,6 +586,14 @@ class LightningModel(L.LightningModule):
             lightning_model.encoder_lr_scale,
             lightning_model.layer_decay,
         ) = resolve_encoder_lr_options(config)
+        # The input geometry a model trained at (read by box distillation to warn
+        # when a teacher trained at another one).
+        lightning_model.input_preprocessing = {
+            key: OmegaConf.select(
+                config, f"data_config.preprocessing.{key}", default=None
+            )
+            for key in ("scale", "max_height", "max_width")
+        }
         if model_type == "bbox_detr":
             from sleap_nn.data.custom_datasets import detr_multi_scale_sizes
 
@@ -5294,10 +5302,17 @@ class _BBoxLightningModel(LightningModel):
         return X
 
     def _step(self, batch, stage: str):
+        """``(supervised loss, raw outputs, input, backbone outputs)`` of a batch.
+
+        The backbone outputs are returned only while distilling (training).
+        """
         X = normalize_on_gpu(torch.squeeze(batch["image"], dim=1))
+        backbone_outputs = None
         if stage == "train":
             X = self._train_input(X)
-        raw = self.model(X)
+            raw, backbone_outputs = self._forward_train(X)
+        else:
+            raw = self.model(X)
         loss, terms = self._compute_losses(raw, batch)
         if stage == "train":
             self.log(
@@ -5319,7 +5334,7 @@ class _BBoxLightningModel(LightningModel):
                 sync_dist=True,
             )
         self._accumulate_terms(stage, terms)
-        return loss, raw, X
+        return loss, raw, X, backbone_outputs
 
     def _accumulate_terms(self, stage: str, terms: Dict[str, torch.Tensor]):
         """Add a step's loss terms to the stage's running sum (logged per epoch).
@@ -5364,13 +5379,44 @@ class _BBoxLightningModel(LightningModel):
         super().on_validation_epoch_end()
 
     def training_step(self, batch, batch_idx):
-        """Training step."""
-        loss, _, _ = self._step(batch, "train")
-        return loss
+        """Training step (plus the distillation terms while distilling)."""
+        loss, raw, X, backbone_outputs = self._step(batch, "train")
+        return self._with_distillation(loss, X, raw, backbone_outputs, batch)
+
+    def _with_distillation(self, loss, X, outputs, backbone_outputs, batch):
+        """The loss to optimize: ``loss`` plus the box distillation terms, if any.
+
+        Logs ``train/distill_box``, ``train/distill_feat`` (with a feature term),
+        ``train/distill_teacher_boxes`` (the teacher's boxes per image used as
+        targets) and ``train/distill_weight`` (``r(t)``) as epoch means; ``loss``
+        (the supervised loss) is what ``loss`` / ``train/loss`` log.
+        """
+        distiller = self.distiller
+        if distiller is None:
+            return loss
+        terms, n_boxes = distiller.box_loss_terms(self, X, outputs, backbone_outputs)
+        r = distiller.weight(self.global_step, distiller.total_steps(self._trainer))
+        for key, value in terms.items():
+            self.log(
+                f"train/distill_{key}",
+                value,
+                on_step=False,
+                on_epoch=True,
+                sync_dist=True,
+            )
+        self.log(
+            "train/distill_teacher_boxes",
+            n_boxes,
+            on_step=False,
+            on_epoch=True,
+            sync_dist=True,
+        )
+        self.log("train/distill_weight", r, on_step=False, on_epoch=True)
+        return distiller.combine(loss, terms, r)
 
     def validation_step(self, batch, batch_idx):
         """Validation step (loss terms + optional detection collection)."""
-        _, raw, X = self._step(batch, "val")
+        _, raw, X, _ = self._step(batch, "val")
         if not self._collect_val_predictions:
             return
         with torch.no_grad():
