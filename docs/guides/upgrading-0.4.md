@@ -81,6 +81,9 @@ otherwise.
   or with `--stream-to-file`, is ignored; `sleap-nn predict` now says so and points
   to `--video_index N`, where both combine. The frames that run are
   unchanged.
+- **`--frames_on_gpu` is a deprecated alias of `--upload_batches`**, which moves each
+  batch of frames to the GPU for every pipeline. Who: users of development builds of
+  0.4 that had `--frames_on_gpu`. Use `--upload_batches` instead.
 - **Rescoring is off unless asked for, also with `--boxes`.** `sleap-nn predict
   --boxes ...` keeps each instance's box score (1 with `--boxes gt`), as Python's
   `predict(..., boxes=...)` does; `--rescore` gives the COCO/mmpose instance scores
@@ -126,6 +129,11 @@ otherwise.
   epoch's order differs and a run does not reproduce 0.3.5 bit for bit. It is
   statistically the same. (The training data loader now starts its iterator on first
   use, so resumed runs and epoch-aware samplers start at the right epoch.) No switch.
+- **Seeding a resumed run.** By default a resumed run is seeded with `seed` again, as
+  in earlier releases, so on one device without `balanced_sampler` its first resumed
+  epoch repeats the order of the original first epoch. The new
+  `trainer_config.reseed_on_resume: true` (default `false`) seeds `random`, numpy and
+  torch with `seed + epoch` instead.
 - **Data loading.** `prefetch_factor` defaults to `2` (0.3.5 used the batch size,
   which could exhaust host or shared memory with large batches), and
   `num_workers: auto` may pick up to 16 workers (was 4); its memory bound now also
@@ -204,6 +212,11 @@ otherwise.
   `zoom_out_canvas: frame` each training sample holds up to twice as many boxes. Who:
   configs written for development builds of 0.4, which ignored these keys for those
   models. Off by default (`zoom_out_p: 0`).
+- **Balanced batches for frame models (experimental).**
+  `trainer_config.balanced_sampler` (new in 0.4) now also drives `bottomup`,
+  `centroid` and `single_instance` training (tiled single-instance ignores it, with a
+  warning). Who: configs written for development builds of 0.4 that set it for these
+  models, where it was ignored.
 - **`geometric.mixup_p > 0` warns** that mixup is not implemented (0.3.5 ignored it
   silently); `crop_pipeline: warp` raises on it.
 
