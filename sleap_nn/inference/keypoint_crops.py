@@ -23,8 +23,8 @@ A :class:`KeypointCropRule` turns each predicted instance into one square box:
 * optionally (``session_floor``, off by default), a floor on the half side of
   ``session_floor`` x the median half side of the rule's boxes in the same video
   (see :func:`session_floors`), about the same center. A short reference (an
-  animal rearing or seen end-on, so that its reference points nearly overlap) otherwise makes
-  a crop too small to hold the part.
+  animal rearing or seen end-on, so that its reference points nearly overlap)
+  otherwise makes a crop too small to hold the part.
 
 The part model then runs on those boxes through the box-seeded top-down route
 (``boxes="given"``), and :func:`merge_part_predictions` appends its points to the
