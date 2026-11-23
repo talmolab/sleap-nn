@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Iterable, List, Tuple
+from typing import Iterable, List, Optional, Tuple
 
 import torch
+from loguru import logger
 from torch import nn
 from torch.nn import functional as F
 
@@ -148,6 +149,67 @@ def antialiased_resize(
     )
     image = _antialiased_resize_last_axis(image, out_hw[1], n_taps)
     image = _antialiased_resize_last_axis(image.transpose(-1, -2), out_hw[0], n_taps)
+    return image.transpose(-1, -2)
+
+
+def input_scale_resize_rule(input_scale: float) -> Optional[Tuple[int, int, int]]:
+    """The resize rule ``(p, q, n_taps)`` of an input scale, or ``None`` for 1.0.
+
+    Precomputed once per wrapper (:func:`resized_size_rule` and
+    :func:`resize_taps`), for :func:`antialiased_resize`. A scale whose size rule is
+    not exact gets a warning: the graph's resized size can then be one pixel off
+    the checkpoint path's for some frame sizes.
+
+    Args:
+        input_scale: The model's input scale.
+
+    Returns:
+        ``(p, q, n_taps)``, or ``None`` when ``input_scale`` is 1.0 (no resize).
+    """
+    if input_scale == 1.0:
+        return None
+    p, q, exact = resized_size_rule(input_scale)
+    if not exact:
+        logger.warning(
+            f"input_scale {input_scale}: no fraction reproduces Python's "
+            f"int(size * {input_scale}) for every size; the exported graph "
+            f"sizes the resized frame as size * {p} // {q}, which can differ "
+            "from the checkpoint path by one pixel for some frame sizes."
+        )
+    return p, q, resize_taps(p, q)
+
+
+def antialiased_resize_to(
+    image: torch.Tensor, in_hw: Tuple[int, int], out_hw: Tuple[int, int]
+) -> torch.Tensor:
+    """Antialiased resize of ``(..., H, W)`` images of a fixed size to a fixed size.
+
+    For inputs whose size is fixed by the graph (top-down crops of ``crop_size``):
+    the output size is the checkpoint path's own ``(int(H * scale), int(W * scale))``,
+    passed in, so no size rule is involved. Same weights as
+    :func:`antialiased_resize`.
+
+    Args:
+        image: ``(..., H, W)`` float images with ``(H, W) == in_hw``.
+        in_hw: The input's height and width.
+        out_hw: The output's height and width (each >= 1).
+
+    Returns:
+        The resized images.
+    """
+
+    def taps(n: int, o: int) -> int:
+        return -(-2 * max(n, o) // o) + 1
+
+    # Sizes and tap counts are Python ints (no tensor-to-int in the trace).
+    out_h, out_w = (max(int(v), 1) for v in out_hw)
+    taps_h, taps_w = taps(int(in_hw[0]), out_h), taps(int(in_hw[1]), out_w)
+    image = _antialiased_resize_last_axis(
+        image, torch.full((), out_w, dtype=torch.int64), taps_w
+    )
+    image = _antialiased_resize_last_axis(
+        image.transpose(-1, -2), torch.full((), out_h, dtype=torch.int64), taps_h
+    )
     return image.transpose(-1, -2)
 
 

@@ -5,14 +5,12 @@ from __future__ import annotations
 from typing import Dict
 
 import torch
-from loguru import logger
 from torch import nn
 
 from sleap_nn.export.wrappers.base import (
     BaseExportWrapper,
     antialiased_resize,
-    resize_taps,
-    resized_size_rule,
+    input_scale_resize_rule,
 )
 
 
@@ -50,16 +48,7 @@ class SingleInstanceONNXWrapper(BaseExportWrapper):
         self.output_stride = output_stride
         self.input_scale = input_scale
         self.peak_threshold = peak_threshold
-        if input_scale != 1.0:
-            p, q, exact = resized_size_rule(input_scale)
-            self._resize_rule = (p, q, resize_taps(p, q))
-            if not exact:
-                logger.warning(
-                    f"input_scale {input_scale}: no fraction reproduces Python's "
-                    f"int(size * {input_scale}) for every size; the exported graph "
-                    f"sizes the resized frame as size * {p} // {q}, which can differ "
-                    "from the checkpoint path by one pixel for some frame sizes."
-                )
+        self._resize_rule = input_scale_resize_rule(input_scale)
 
     def forward(self, image: torch.Tensor) -> Dict[str, torch.Tensor]:
         """Run single-instance inference.
