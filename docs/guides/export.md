@@ -165,7 +165,7 @@ builds, and records, `fp32`). An engine runs only on the TensorRT version (and G
 model) that built it: after upgrading TensorRT, export the engines again (`sleap-nn
 export ... --format tensorrt`); `model.onnx` does not change. Reduced precision moves
 outputs: compare against an `fp32` export on your own data. Example: a DINOv3
-`bbox_detr` detector loses boxes in `fp16`; in `bf16` with fp32 outside the backbone
+`bbox_detr` detector loses boxes in plain `fp16`; in `bf16` with fp32 outside the backbone
 its box corners move by about 0.1 px (median) against `fp32`, and by about 1 px when
 the whole graph runs in bf16.
 
@@ -287,9 +287,10 @@ sleap-nn predict -i video.mp4 -o out.slp -m exports/detector -m exports/pose \
 
 (The part stage and its crop rule are described in [Part stage](part-stage.md).)
 
-Pass a `--precision` that your models keep their accuracy in (`bf16` or `fp32` for a
-DINOv3 `bbox_detr` detector: the default `fp16` can lose its boxes); `sleap-nn predict`
-runs the TensorRT engine of a directory that holds one.
+Pass a `--precision` that your models keep their accuracy in (a plain `fp16` engine
+of a DINOv3 `bbox_detr` detector can lose its boxes: keep the default fp32 attention
+logits, or use `bf16` or `fp32`); `sleap-nn predict` runs the TensorRT engine of a
+directory that holds one.
 
 A network-only graph is the network alone (preprocessed crop in, raw confidence maps
 out; a detector's graph is network-only by construction). Each export directory stands

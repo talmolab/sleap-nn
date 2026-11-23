@@ -402,8 +402,8 @@ data_config:
 | `zoom_out_canvas` | `zero` | `zero`: a black canvas. `frame`: another training frame (a uniformly drawn file, then frame), fitted to the input size with its own boxes; its boxes at least half covered by the shrunk frame are dropped and the others clipped to the part left visible, so the surroundings are real scenes |
 
 With `zoom_out_canvas: frame` a sample can hold the boxes of two frames, so the
-largest number of boxes per sample (`max_instances`) is doubled. Zoom-out is
-implemented for `bbox_detr` only.
+largest number of boxes per sample (`max_instances`) is doubled. The CenterNet and
+SSD box heads (`bbox_centernet`, `bbox_ssd`) take the same zoom-out keys.
 
 ### Vertical flip and 90 degree rotation
 
@@ -476,10 +476,13 @@ sleap-nn export models/my_detr -o models/my_detr/exported --format both --precis
 sleap-nn predict -m models/my_detr/exported -i video.mp4 -o boxes.slp
 ```
 
-Pass `--precision bf16` (a GPU with compute capability >= 8.0) or `fp32`:
-the default `fp16` can lose boxes with a DINOv3 encoder (its activations overflow
-fp16's range), and `sleap-nn predict` prefers the TensorRT engine when the directory
-holds one. In `bf16` the layers after the backbone (proposals, decoder, box head) are
+The default `fp16` keeps each attention block's logits product in fp32 for this
+encoder (TensorRT 10.13 or later; see
+[fp16 for ViT backbones](export.md#fp16-for-vit-backbones-fp32-attention-logits)).
+A plain `fp16` engine (TensorRT below 10.13, or `--no-fp32-attention-logits`) can lose
+boxes with a DINOv3 encoder: pass `--precision bf16` (a GPU with compute capability
+>= 8.0) or `fp32` there. `sleap-nn predict` prefers the TensorRT engine when the
+directory holds one. In `bf16` the layers after the backbone (proposals, decoder, box head) are
 kept in fp32; see [TensorRT precision](export.md#tensorrt-precision).
 
 As for the other detectors ([Box detection](bbox-detection.md#export-onnx-tensorrt)),
