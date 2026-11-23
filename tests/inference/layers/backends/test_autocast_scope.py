@@ -348,6 +348,9 @@ def test_encoder_precision_refused_for_exported_models(tmp_path):
     d = tmp_path / "exp"
     d.mkdir()
     (d / "model.onnx").write_bytes(b"")
+    (d / "export_metadata.json").write_text(
+        '{"model_type": "centered_instance", "network_only": false}'
+    )
     with patch(
         "sleap_nn.inference.run.predict", return_value=MagicMock()
     ) as mock_predict:
