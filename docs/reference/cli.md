@@ -113,6 +113,11 @@ Each `--model_paths` entry may be a model **directory**, or a path to that model
 | `--exclude_user_labeled` | Skip user-labeled frames | Flag | `false` |
 | `--only_predicted_frames` | Only process frames with predictions | Flag | `false` |
 
+On a `.slp` without `--video_index`, `--frames` cannot be combined with the four
+annotation filters above (the command stops with an error). With `--video_index N`
+they combine: `--frames` are frame indices of video `N`, and the filters keep those
+of them that match.
+
 ### Filtering
 
 | Option | Description | Values | Default |

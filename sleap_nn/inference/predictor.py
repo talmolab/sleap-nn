@@ -1875,6 +1875,11 @@ class Predictor:
         kept; one set here is replaced when the provider is reused with another
         predictor. A layer that does not crop GT boxes sets none.
 
+        Such a provider is also scoped as one built here is: GT boxes come from user
+        instances only, so of the frames it selected only those with user instances
+        run (a predicted instance is never taken as a GT box, and a frame without
+        user instances is skipped instead of stopping the run).
+
         Args:
             provider: The provider about to be iterated (or its sub-providers).
             labels: The labels the box source is resolved on (default: the
@@ -1882,9 +1887,18 @@ class Predictor:
         """
         from sleap_nn.inference.providers import LabelsProvider
 
+        stage_1 = getattr(self.layer, "centroid_layer", None)
+        crops_gt_boxes = bool(getattr(stage_1, "use_gt_boxes", False))
         for sub in getattr(provider, "providers", None) or [provider]:
             if not isinstance(sub, LabelsProvider):
                 continue
+            skipped = sub._scope_to_user_instances(crops_gt_boxes)
+            if skipped:
+                logger.warning(
+                    "This model crops ground-truth boxes, which come from user "
+                    f"instances only: {skipped} of {skipped + sub.num_frames()} "
+                    "selected frame(s) have no user instances and are skipped."
+                )
             current = sub.instance_box_fn
             if current is None or getattr(current, "_set_by_predictor", False):
                 box_fn = self._gt_box_fn(sub._sio_labels if labels is None else labels)

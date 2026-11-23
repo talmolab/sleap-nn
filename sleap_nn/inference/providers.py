@@ -575,6 +575,7 @@ class LabelsProvider:
     _source_positions: Optional[dict] = attrs.field(
         default=None, init=False, repr=False
     )
+    _unscoped_frames: Optional[list] = attrs.field(default=None, init=False, repr=False)
 
     def __attrs_post_init__(self) -> None:
         """Resolve the labels source and pre-filter the labeled frames."""
@@ -683,13 +684,39 @@ class LabelsProvider:
     def _frame_instances(self, lf) -> list:
         """Instances to expose as GT for a frame.
 
-        In ``only_labeled_frames`` mode (the GT-fallback paths), expose only the
-        USER instances so PredictedInstances are never treated as ground truth
-        (legacy parity, #582). All other modes expose every instance.
+        In ``only_labeled_frames`` mode (the GT-fallback paths), or once scoped by
+        :meth:`_scope_to_user_instances`, expose only the USER instances so
+        PredictedInstances are never treated as ground truth (legacy parity, #582).
+        All other modes expose every instance.
         """
-        if self.only_labeled_frames:
+        if self.only_labeled_frames or self._unscoped_frames is not None:
             return list(lf.user_instances)
         return list(lf.instances)
+
+    def _scope_to_user_instances(self, scope: bool) -> int:
+        """Keep only the selected frames that have user instances (or undo that).
+
+        A ``Predictor`` whose model crops GT boxes calls this on a provider built
+        elsewhere, so it reads the frames and instances a provider built by the
+        predictor reads (``only_labeled_frames``): the frames this provider
+        selected that have user instances, with only those instances as GT.
+        ``scope=False`` restores the frames of an earlier call, for a provider
+        reused with another predictor. A provider with ``only_labeled_frames``
+        is left as it is.
+
+        Returns:
+            The number of selected frames left out.
+        """
+        if self._unscoped_frames is not None:
+            self._labeled_frames = self._unscoped_frames
+            self._unscoped_frames = None
+        if not scope or self.only_labeled_frames:
+            return 0
+        self._unscoped_frames = self._labeled_frames
+        self._labeled_frames = [
+            lf for lf in self._labeled_frames if lf.has_user_instances
+        ]
+        return len(self._unscoped_frames) - len(self._labeled_frames)
 
     def _collect_suggested_frames(self, sio) -> list:
         """Return new ``LabeledFrame``s for unlabeled suggestions.

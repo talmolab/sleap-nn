@@ -596,6 +596,50 @@ class TestPredictFrameFilterFlagsWarnForNonSlpSource:
         assert mock_predict.called
         assert "require a `.slp`" not in _norm_cli_output(result.output)
 
+    @pytest.mark.parametrize("stream", [False, True])
+    @pytest.mark.parametrize(
+        "flag",
+        [
+            "--only_labeled_frames",
+            "--only_suggested_frames",
+            "--exclude_user_labeled",
+            "--only_predicted_frames",
+        ],
+    )
+    def test_frames_with_slp_filter_refused(
+        self, minimal_instance, tmp_path, flag, stream
+    ):
+        """--frames with a .slp filter (no --video_index) is refused, not dropped."""
+        runner = CliRunner()
+        args = ["predict", "-i", str(minimal_instance), "-m", "/fake/model"]
+        args += ["--frames", "0", flag]
+        if stream:
+            args += ["--stream-to-file", str(tmp_path / "out.slp")]
+        with (
+            patch("sleap_nn.inference.run.predict") as mock_predict,
+            patch(
+                "sleap_nn.inference.predictor.Predictor.from_model_paths"
+            ) as mock_load,
+        ):
+            result = runner.invoke(cli, args)
+        assert result.exit_code != 0
+        out = _norm_cli_output(result.output)
+        assert "--frames cannot be combined with" in out and flag in out
+        assert not mock_predict.called and not mock_load.called
+
+    def test_frames_without_slp_filter_still_passed(self, minimal_instance):
+        """--frames alone on a .slp still reaches predict()."""
+        runner = CliRunner()
+        with patch("sleap_nn.inference.run.predict") as mock_predict:
+            mock_predict.return_value = MagicMock()
+            result = runner.invoke(
+                cli,
+                ["predict", "-i", str(minimal_instance), "-m", "/fake/model"]
+                + ["--frames", "0"],
+            )
+        assert result.exit_code == 0, result.output
+        assert mock_predict.call_args.kwargs["frames"] == [0]
+
 
 class TestEvalCommand:
     """Tests for eval command using CliRunner."""
