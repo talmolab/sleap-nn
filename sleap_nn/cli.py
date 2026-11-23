@@ -4034,7 +4034,8 @@ def _common_inference_options(f):
             "--model_paths (and --part_model): a single exported model, or "
             "network-only exports (`sleap-nn export --network-only`, box detector "
             "exports) standing in for checkpoints in a multi-model pipeline. 'auto' "
-            "prefers TensorRT, falls back to ONNX. Ignored for trained checkpoints.",
+            "prefers TensorRT on a CUDA device and takes ONNX otherwise (or when there is "
+            "no engine). Ignored for trained checkpoints.",
         ),
         click.option(
             "--tracking",

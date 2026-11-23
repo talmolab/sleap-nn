@@ -342,7 +342,7 @@ still apply. See [Running exported models](../guides/inference-guide.md#running-
 
 | Option | Description | Values | Default |
 |--------|-------------|--------|---------|
-| `--runtime` | Exported-model runtime; `auto` prefers TensorRT and falls back to ONNX (ignored for checkpoints) | `auto`, `onnx`, `tensorrt` | `auto` |
+| `--runtime` | Exported-model runtime; `auto` prefers TensorRT on a CUDA device and takes ONNX otherwise (ignored for checkpoints) | `auto`, `onnx`, `tensorrt` | `auto` |
 | `--upload_batches` | CUDA: copy each batch of frames to the GPU before preprocessing, so the resize / letterbox, the crops' frame-size match and the cropping run there instead of on the CPU. Every pipeline built from `--model_paths` (checkpoints and network-only export folders); with `--part_streaming` the part model cuts its crops from the same GPU copy. Results are not bit-identical to the CPU resize. Ignored, with a warning, for a single exported model directory. See [Performance](../guides/inference-performance.md#batches-on-the-gpu-upload_batches) | Flag | `false` |
 | `--memory_format` | Model weight layout of every checkpoint model, the part model included; `channels_last` is faster on NVIDIA GPUs (ignored, with a warning, for an exported model directory) | `contiguous`, `channels_last` | `contiguous` |
 | `--paf-workers` | CPU worker processes for bottom-up PAF grouping (`0` = in-process). `--cpu-workers` is a deprecated alias | `INT` | `0` |

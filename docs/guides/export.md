@@ -355,10 +355,15 @@ contract.
 ## Inference Options
 
 Exported-model inference is run through the unified `sleap-nn predict` command.
-When `-m`/`--model_paths` points at a directory containing `model.onnx` or
-`model.trt`, `predict` auto-detects it as an exported model and runs the
-exported runtime; otherwise it loads a trained checkpoint. Use `--runtime` to
-choose between ONNX and TensorRT (it is ignored for checkpoints).
+When `-m`/`--model_paths` points at an export directory (`export_metadata.json`
+with `model.onnx` or `model.trt`, as `sleap-nn export` writes it), `predict`
+auto-detects it and runs the exported runtime; otherwise it loads a trained
+checkpoint. A network-only crop export (`--network-only`) stands in for its
+checkpoint in the checkpoint pipeline, and a directory that also holds
+`best.ckpt` runs that checkpoint, except a single `-m` directory whose export has
+its post-processing in the graph or is a box detector. Use `--runtime` to choose
+between ONNX and TensorRT (it is ignored for checkpoints); `auto` prefers TensorRT
+on a CUDA device and takes ONNX on any other device.
 
 ```bash
 sleap-nn predict -m EXPORT_DIR -i VIDEO [options]
