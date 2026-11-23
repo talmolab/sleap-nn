@@ -373,6 +373,38 @@ def test_stage_switch_reaches_persistent_workers(tmp_path, context, request):
             f"python threads {[t.name for t in threading.enumerate()]}\n"
         ).encode(),
     )
+    if context == "fork":
+        import gc
+
+        for o in gc.get_objects():
+            mod = type(o).__module__
+            if isinstance(mod, str) and type(o).__name__ in (
+                "InputContainer",
+                "VideoCodecContext",
+                "CodecContext",
+            ):
+                chain = []
+                cur = o
+                for _ in range(4):
+                    refs = [
+                        r
+                        for r in gc.get_referrers(cur)
+                        if type(r).__name__ not in ("list", "frame")
+                        or type(r).__name__ == "frame"
+                    ]
+                    if not refs:
+                        break
+                    r = refs[0]
+                    desc = type(r).__name__
+                    if type(r).__name__ == "frame":
+                        desc += f"({r.f_code.co_filename}:{r.f_lineno})"
+                    elif isinstance(r, dict):
+                        desc += f"(keys {list(r)[:6]})"
+                    chain.append(desc)
+                    cur = r
+                os.write(
+                    fd, f"[diag] alive {mod}.{type(o).__name__} <- {chain}\n".encode()
+                )
     _DIAG_ARMED[0] = context == "fork"
     request.addfinalizer(lambda: _DIAG_ARMED.__setitem__(0, False))
     labels = _person_labels(tmp_path)
