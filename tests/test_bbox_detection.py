@@ -651,6 +651,74 @@ def test_bbox_train_predict_eval(
     _check_onnx_export_parity(run_dir, minimal_instance, labels, tmp_path)
 
 
+@pytest.mark.parametrize("model_type", ["bbox_centernet", "bbox_ssd"])
+def test_bbox_dry_run(config, tmp_path, model_type):
+    """A dry run of a box detector takes one training and one validation batch
+    through the configured image cache and leaves nothing behind."""
+    from sleap_nn.training.lightning_modules import (
+        BBoxCenterNetLightningModule,
+        BBoxSSDLightningModule,
+    )
+    from tests.utils.dry_run import dry_run
+
+    cfg = _bbox_train_config(config, model_type, tmp_path)
+    cfg.data_config.data_pipeline_fw = "torch_dataset_cache_img_disk"
+    cfg.data_config.cache_img_path = (tmp_path / "cache").as_posix()
+    trainer = dry_run(cfg, tmp_path)
+    expected = {
+        "bbox_centernet": BBoxCenterNetLightningModule,
+        "bbox_ssd": BBoxSSDLightningModule,
+    }[model_type]
+    assert isinstance(trainer.lightning_model, expected)
+    assert torch.isfinite(trainer.trainer.callback_metrics["train/loss"])
+
+
+def _box_only_labels(minimal_instance, boxes_on_frames):
+    """Frames with user boxes and no pose instance, one per entry of
+    ``boxes_on_frames`` (``False``: a frame without boxes)."""
+    labels = sio.load_slp(minimal_instance.as_posix())
+    lf = labels[0]
+    corners = [
+        (*np.nanmin(inst.numpy(), axis=0), *np.nanmax(inst.numpy(), axis=0))
+        for inst in lf.instances
+    ]
+    frames = [
+        sio.LabeledFrame(
+            video=lf.video,
+            frame_idx=lf.frame_idx,
+            bboxes=[sio.UserBoundingBox.from_xyxy(*c) for c in corners if has_boxes],
+        )
+        for has_boxes in boxes_on_frames
+    ]
+    return sio.Labels(videos=labels.videos, labeled_frames=frames)
+
+
+def test_bbox_dry_run_takes_its_batches_from_frames_with_boxes(
+    config, minimal_instance, tmp_path
+):
+    """Box files may hold no pose instance, and frames without boxes. A dry run
+    cuts every file to one batch of frames that have boxes. Cut to the file's
+    first frames instead, such a file has no sample left for the balanced sampler
+    (or, alone, for the dataset), although the whole file trains."""
+    from sleap_nn.data.topdown_warp import BalancedDataLoader
+    from tests.utils.dry_run import dry_run
+
+    cfg = _bbox_train_config(config, "bbox_centernet", tmp_path)
+    cfg.trainer_config.train_data_loader.batch_size = 2
+    cfg.trainer_config.balanced_sampler = {"counts": [1, 1]}
+    train = [
+        sio.load_slp(minimal_instance.as_posix()),  # boxes derived from its poses
+        _box_only_labels(minimal_instance, [False, False, True, True, True]),
+    ]
+    val = [_box_only_labels(minimal_instance, [False, True])]
+    trainer = dry_run(cfg, tmp_path, train_labels=train, val_labels=val)
+    loader = trainer.trainer.train_dataloader
+    assert isinstance(loader, BalancedDataLoader)
+    # One batch of frames per file, all with boxes: each is a sample.
+    assert np.bincount(loader.dataset.labels_idx).tolist() == [1, 2]
+    assert len(trainer.trainer.val_dataloaders.dataset) == 1
+
+
 def _check_onnx_export_parity(run_dir, slp_path, torch_labels, tmp_path):
     """ONNX export decodes (with the shared BBoxDecoder) to the PyTorch boxes."""
     pytest.importorskip("onnxruntime")
