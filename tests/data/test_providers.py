@@ -750,23 +750,29 @@ def test_clear_legacy_hidden_points_real_old_file(minimal_instance, tmp_path):
 
 
 def test_model_trainer_clears_legacy_hidden_points_before_splitting(monkeypatch):
-    """The trainer applies the clean-up to every loaded file before its split."""
+    """The trainer applies the clean-up to every loaded file before anything else.
+
+    The stand-in stops the method after the last file, so nothing that depends on
+    the model type or the config runs.
+    """
     from sleap_nn.training import model_trainer as mt
 
     seen = []
-    monkeypatch.setattr(mt, "clear_legacy_hidden_points", lambda lb: seen.append(lb))
+    files = [object(), object(), object()]
+
+    class Stop(Exception):
+        pass
+
+    def clean(labels):
+        seen.append(labels)
+        if len(seen) == len(files):
+            raise Stop
+
+    monkeypatch.setattr(mt, "clear_legacy_hidden_points", clean)
     trainer = mt.ModelTrainer.__new__(mt.ModelTrainer)
-    trainer.model_type = "bbox_detr"  # reaches the next step without a skeleton
-    sentinel = RuntimeError("stop after the clean-up")
-
-    def stop(*args, **kwargs):
-        raise sentinel
-
-    monkeypatch.setattr(mt.ModelTrainer, "_apply_centroids_from_masks", stop)
-    a, b, c = object(), object(), object()
-    with pytest.raises(RuntimeError, match="stop after the clean-up"):
-        trainer._setup_train_val_labels([a, b], [c])
-    assert seen == [a, b, c]
+    with pytest.raises(Stop):
+        trainer._setup_train_val_labels(files[:2], files[2:])
+    assert seen == files
 
 
 def test_evaluation_clears_legacy_hidden_points(
