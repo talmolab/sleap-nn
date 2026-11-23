@@ -513,3 +513,15 @@ def test_checkpoints_and_network_only_exports_are_not_refused(tmp_path):
     for d in (net, both, legacy, CENTERED_CKPT, tmp_path / "absent"):
         for n_paths in (None, 1, 2):
             _refuse_unloadable_export(str(d), n_paths=n_paths)
+
+
+def test_a_graph_file_without_metadata_or_checkpoint_says_so(tmp_path):
+    """A model.onnx alone is neither a trained model nor a sleap-nn export."""
+    if not CENTERED_CKPT.exists():
+        pytest.skip("checkpoint fixture not present")
+    d = tmp_path / "graph_only"
+    d.mkdir()
+    shutil.copy(CENTERED_CKPT / "training_config.yaml", d)
+    (d / "model.onnx").write_bytes(b"")
+    with pytest.raises(ValueError, match="no export_metadata.json and no best.ckpt"):
+        load_model_assets([str(d)], device="cpu")

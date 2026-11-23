@@ -2786,18 +2786,26 @@ def _is_box_detector_dir(path: str) -> bool:
 
 
 def _is_export_dir(path: str) -> bool:
-    """True if ``path`` is a directory holding an exported ONNX/TRT model.
+    """True if ``path`` is a directory written by ``sleap-nn export``.
 
-    A single ``--model_paths`` entry that is a directory containing
-    ``model.onnx`` or ``model.trt`` is an exported model and routes to the
-    ONNX/TensorRT runtime instead of checkpoint loading. The exporter writes
-    these artifacts to a dedicated directory (never alongside ``best.ckpt``),
-    so this never misfires on a checkpoint directory.
+    That is a directory holding ``export_metadata.json`` and ``model.onnx`` or
+    ``model.trt``. A single ``--model_paths`` entry that is one routes to the
+    ONNX/TensorRT runtime instead of checkpoint loading (unless it holds a
+    network-only crop export, see :func:`_is_crop_network_export`). An export
+    can be written next to ``best.ckpt`` (``sleap-nn export -o`` the model
+    directory): alone, such a directory still takes the exported route; among
+    several model paths the loader loads its checkpoint. A graph file without
+    the metadata is not an export written by ``sleap-nn export``: the directory
+    is left to the checkpoint loader.
     """
     from pathlib import Path
 
     p = Path(path)
-    return p.is_dir() and ((p / "model.onnx").exists() or (p / "model.trt").exists())
+    return (
+        p.is_dir()
+        and (p / "export_metadata.json").exists()
+        and ((p / "model.onnx").exists() or (p / "model.trt").exists())
+    )
 
 
 # Remote URL schemes sleap-io 0.8.0 can load directly (fsspec for ``.slp``, PyAV

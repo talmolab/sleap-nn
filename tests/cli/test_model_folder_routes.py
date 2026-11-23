@@ -93,3 +93,11 @@ def test_routes_that_already_worked_are_unchanged(tmp_path):
         kwargs = _route("-m", str(d))
         assert kwargs["export_dir"] == str(d) and kwargs["model_paths"] is None
     assert _route("-m", str(CENTERED))["model_paths"] == [str(CENTERED)]
+
+
+def test_a_graph_file_without_export_metadata_is_not_an_export(tmp_path):
+    """A checkpoint directory with a stray model.onnx loads its checkpoint."""
+    stray = _folder(tmp_path, "stray", ckpt=True)
+    kwargs = _route("-m", str(stray))
+    assert kwargs["model_paths"] == [str(stray)]
+    assert kwargs.get("export_dir") is None

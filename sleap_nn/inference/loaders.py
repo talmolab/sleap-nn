@@ -206,9 +206,17 @@ def _refuse_unloadable_export(model_dir: str, n_paths: Optional[int] = None) -> 
     d = Path(model_dir)
     if not d.is_dir() or (d / "best.ckpt").exists() or (d / "best_model.h5").exists():
         return
+    graph = next((g for g in ("model.onnx", "model.trt") if (d / g).exists()), None)
     if not (d / "export_metadata.json").exists():
+        if graph is not None:
+            raise ValueError(
+                f"{model_dir} holds {graph} but no export_metadata.json and no "
+                "best.ckpt: it is neither a trained model directory nor a "
+                "directory written by `sleap-nn export`. Re-export the model, or "
+                "pass its checkpoint directory."
+            )
         return
-    if not ((d / "model.onnx").exists() or (d / "model.trt").exists()):
+    if graph is None:
         raise ValueError(
             f"{model_dir} holds export_metadata.json but no model.onnx or model.trt "
             "(and no best.ckpt): copy the graph file back next to the metadata, "
