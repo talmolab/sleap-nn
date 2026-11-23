@@ -521,7 +521,78 @@ def test_scope_error_leaves_the_backend_unchanged(tiny_detr):
     from sleap_nn.inference.predictor import _set_autocast_precision
 
     backend = TorchBackend(model=tiny_detr, device="cpu", use_compile=False)
-    backend.use_compile = True  # as if compiled: the encoder scope is refused
+    backend.use_compile = True  # compiled: the encoder scope is refused
     with pytest.raises(ValueError, match="use_compile"):
         _set_autocast_precision(backend, "bf16-encoder")
     assert backend.autocast_dtype is None and backend.autocast_scope == "all"
+
+
+def test_encoder_scope_refused_when_compile_is_turned_on_later(tiny_detr):
+    """Turning ``use_compile`` on after construction refuses the encoder scope too.
+
+    ``autocast_scope``'s own check runs only when the scope is set; the
+    ``use_compile`` setter must refuse the same combination, and leave the
+    backend uncompiled.
+    """
+    backend = TorchBackend(
+        model=tiny_detr,
+        device="cpu",
+        autocast_dtype=torch.bfloat16,
+        autocast_scope="encoder",
+    )
+    with pytest.raises(ValueError, match="use_compile"):
+        backend.use_compile = True
+    assert backend.use_compile is False and backend._compiled is None
+
+    backend = TorchBackend(model=tiny_detr, device="cpu", autocast_scope="all")
+    backend.use_compile = True  # the whole-forward scope compiles as before
+    assert backend.use_compile is True and backend._compiled is not None
+
+
+def test_from_model_paths_refuses_encoder_precision_with_compile(
+    minimal_instance_centroid_ckpt, minimal_instance_centered_instance_ckpt
+):
+    """``precision="*-encoder"`` with ``use_compile=True`` is refused, as on a backend."""
+    from sleap_nn.inference.predictor import Predictor
+
+    paths = [minimal_instance_centroid_ckpt, minimal_instance_centered_instance_ckpt]
+    with pytest.raises(ValueError, match="use_compile"):
+        Predictor.from_model_paths(
+            paths, device="cpu", precision="bf16-encoder", use_compile=True
+        )
+
+    predictor = Predictor.from_model_paths(
+        paths, device="cpu", precision="bf16", use_compile=True
+    )
+    backends = [
+        predictor.layer.centroid_layer.backend,
+        predictor.layer.centered_instance_layer.backend,
+    ]
+    assert [(b.autocast_scope, b.use_compile) for b in backends] == [("all", True)] * 2
+
+
+def test_compile_skips_exported_backends(tiny_detr):
+    """``from_model_paths(use_compile=True)`` compiles checkpoint models only."""
+    from loguru import logger
+
+    from sleap_nn.inference.exported_network import ExportedNetwork
+    from sleap_nn.inference.predictor import _compile_checkpoint_backends
+
+    class FakeExported(ExportedNetwork):
+        def __init__(self):
+            torch.nn.Module.__init__(self)
+
+        def forward(self, x):
+            return x * 2
+
+    exported = TorchBackend(model=FakeExported(), device="cpu")
+    checkpoint = TorchBackend(model=tiny_detr, device="cpu")
+    messages = []
+    handle = logger.add(lambda m: messages.append(str(m)), level="WARNING")
+    try:
+        _compile_checkpoint_backends([exported, checkpoint])
+    finally:
+        logger.remove(handle)
+    assert exported.use_compile is False and exported._compiled is None
+    assert checkpoint.use_compile is True and checkpoint._compiled is not None
+    assert any("1 exported" in m for m in messages)

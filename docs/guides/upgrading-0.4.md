@@ -86,6 +86,16 @@ otherwise.
   one-stage models included (the GPU resize is not bit-identical to the CPU one). Who:
   users of development builds of 0.4 that had `--frames_on_gpu`. Use
   `--upload_batches` instead.
+- **`torch.compile` compiles each model once** (Python only: `TorchBackend.use_compile`).
+  While a backend is compiled, every batch is padded with zeros to the largest batch it
+  has seen and the outputs are cut back, so a smaller batch (a video's last one, or
+  fewer top-down crops) reuses the compiled model instead of compiling it again.
+  `Predictor.from_model_paths(..., use_compile=True)` compiles every checkpoint model of
+  the composition (set `max_instances` so a top-down instance model compiles once), and
+  setting `use_compile` or `compile_mode` on a built backend now compiles at once
+  (0.3.5 applied it only when the backend was built). Refused together with an
+  `*-encoder` precision. Who: Python users of `use_compile`. Compiled results still
+  differ slightly from eager ones. No switch.
 - **Rescoring is off unless asked for, also with `--boxes`.** `sleap-nn predict
   --boxes ...` keeps each instance's box score (1 with `--boxes gt`), as Python's
   `predict(..., boxes=...)` does; `--rescore` gives the COCO/mmpose instance scores

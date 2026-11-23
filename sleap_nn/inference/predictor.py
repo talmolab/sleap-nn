@@ -1374,6 +1374,31 @@ def _set_autocast_precision(layer: Any, precision: str) -> List[TorchBackend]:
     return found
 
 
+def _compile_checkpoint_backends(backends: List[TorchBackend]) -> None:
+    """Turn on ``use_compile`` for every backend that runs a trained checkpoint.
+
+    An exported (ONNX/TensorRT) graph standing in for a checkpoint is left as
+    it is, with a warning: ``torch.compile`` does not reach inside it, and
+    padding its batches to a fixed size would only add work.
+
+    Raises:
+        ValueError: For a backend with ``autocast_scope="encoder"`` (an
+            ``*-encoder`` precision), from :class:`TorchBackend`.
+    """
+    n_exported = 0
+    for backend in backends:
+        if _is_exported_backend(backend):
+            n_exported += 1
+        else:
+            backend.use_compile = True
+    if n_exported:
+        logger.warning(
+            f"use_compile=True does not apply to the {n_exported} exported "
+            "(ONNX/TensorRT) model(s): they run as exported. It compiles models "
+            "loaded from trained checkpoints."
+        )
+
+
 def _is_exported_backend(backend: TorchBackend) -> bool:
     """Whether ``backend`` runs an exported (ONNX/TensorRT) graph, not a checkpoint."""
     from sleap_nn.inference.exported_network import ExportedNetwork
@@ -1687,6 +1712,7 @@ class Predictor:
         upload_batches: bool = False,
         memory_format: str = "contiguous",
         frames_on_gpu: bool = False,
+        use_compile: bool = False,
     ) -> "Predictor":
         """Build a :class:`Predictor` from one or more checkpoint paths.
 
@@ -1824,6 +1850,13 @@ class Predictor:
             frames_on_gpu: Deprecated alias of ``upload_batches`` (``True``
                 turns it on, with a warning); will be removed in a later
                 release.
+            use_compile: ``torch.compile`` every model in the composition
+                (not on MPS). Compiling takes seconds to tens of seconds per
+                model, so it pays off on long videos only; results differ
+                slightly from eager. Set ``max_instances`` for top-down models
+                so the instance model compiles once (see :class:`TorchBackend`).
+                Exported (ONNX/TensorRT) models are not compiled (with a
+                warning). Refused with an ``*-encoder`` ``precision``.
         """
         from sleap_nn.inference.loaders import load_model_assets
         from sleap_nn.system_info import get_startup_info_string
@@ -1897,6 +1930,8 @@ class Predictor:
             _warn_precision_scope(precision, device, autocast_backends)
         for backend in _torch_backends(layer):
             backend.memory_format = memory_format
+        if use_compile:
+            _compile_checkpoint_backends(_torch_backends(layer))
 
         skeleton = loaded.skeletons[0] if loaded.skeletons else None
         kwargs: dict = {
@@ -1938,6 +1973,8 @@ class Predictor:
             spec.append("upload_batches=True")
         if memory_format != "contiguous":
             spec.append(f"memory_format={memory_format}")
+        if use_compile:
+            spec.append("use_compile=True")
         if "bottomup_segmentation" in model_types:
             spec.append(f"fg_threshold={fg_threshold}")
             spec.append(f"min_mask_area={min_mask_area}")
