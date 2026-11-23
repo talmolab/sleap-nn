@@ -1,11 +1,13 @@
 """Inference modules for BottomUp models."""
 
 from typing import Dict, List, Optional
+import numpy as np
 import torch
 import lightning as L
 from loguru import logger
 from sleap_nn.inference.peak_finding import find_local_peaks
 from sleap_nn.inference.paf_grouping import PAFScorer
+from sleap_nn.inference.ops.paf import split_peaks_by_sample
 from sleap_nn.inference.identity import classify_peaks_from_maps
 
 
@@ -111,15 +113,17 @@ class BottomUpInferenceModel(L.LightningModule):
         # Adjust for stride and scale.
         peaks = peaks * self.cms_output_stride  # (n_centroids, 2)
 
-        cms_peaks, cms_peak_vals, cms_peak_channel_inds = [], [], []
-
-        for b in range(self.batch_size):
-            cms_peaks.append(peaks[sample_inds == b])
-            cms_peak_vals.append(peak_vals[sample_inds == b].to(torch.float32))
-            cms_peak_channel_inds.append(peak_channel_inds[sample_inds == b])
-
-        # cms_peaks: [(#nodes, 2), ...]
-        return cms_peaks, cms_peak_vals, cms_peak_channel_inds
+        # One list entry per sample, from a single read of the per-node peak
+        # counts (a boolean mask per sample waits for the GPU each time).
+        # cms_peaks: [(#nodes, 2), ...]; peak_counts: (batch, n_nodes) array.
+        return split_peaks_by_sample(
+            peaks,
+            peak_vals,
+            sample_inds,
+            peak_channel_inds,
+            self.batch_size,
+            cms.shape[1],
+        )
 
     def forward_gpu(self, inputs: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         """Run the GPU portion: network forward pass + peak extraction.
@@ -149,25 +153,24 @@ class BottomUpInferenceModel(L.LightningModule):
         pafs = output["PartAffinityFieldsHead"].permute(
             0, 2, 3, 1
         )  # (batch, h, w, 2*edges)
-        cms_peaks, cms_peak_vals, cms_peak_channel_inds = self._generate_cms_peaks(cms)
+        cms_peaks, cms_peak_vals, cms_peak_channel_inds, peak_counts = (
+            self._generate_cms_peaks(cms)
+        )
 
         # Check if too many peaks per node (prevents combinatorial explosion)
         skip_paf_scoring = False
         if self.max_peaks_per_node is not None:
-            n_nodes = cms.shape[1]
-            for b in range(self.batch_size):
-                for node_idx in range(n_nodes):
-                    n_peaks = int((cms_peak_channel_inds[b] == node_idx).sum().item())
-                    if n_peaks > self.max_peaks_per_node:
-                        logger.warning(
-                            f"Skipping PAF scoring: node {node_idx} has {n_peaks} peaks "
-                            f"(max_peaks_per_node={self.max_peaks_per_node}). "
-                            f"Model may need more training."
-                        )
-                        skip_paf_scoring = True
-                        break
-                if skip_paf_scoring:
-                    break
+            over = np.argwhere(peak_counts > self.max_peaks_per_node)
+            if over.size:
+                # First over-limit (sample, node), in the order a loop finds it.
+                node_idx = int(over[0, 1])
+                n_peaks = int(peak_counts[over[0, 0], node_idx])
+                logger.warning(
+                    f"Skipping PAF scoring: node {node_idx} has {n_peaks} peaks "
+                    f"(max_peaks_per_node={self.max_peaks_per_node}). "
+                    f"Model may need more training."
+                )
+                skip_paf_scoring = True
 
         gpu_output = dict(inputs)
         gpu_output["cms"] = cms

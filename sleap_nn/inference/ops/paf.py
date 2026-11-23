@@ -410,6 +410,59 @@ def score_paf_lines(
     return penalized_line_scores
 
 
+def split_peaks_by_sample(
+    peaks: torch.Tensor,
+    peak_vals: torch.Tensor,
+    peak_sample_inds: torch.Tensor,
+    peak_channel_inds: torch.Tensor,
+    n_samples: int,
+    n_nodes: int,
+) -> Tuple[List[torch.Tensor], List[torch.Tensor], List[torch.Tensor], np.ndarray]:
+    """Split the peaks of a whole batch into one tensor per sample.
+
+    This gives the same tensors as masking with ``peak_sample_inds == b`` for
+    each sample ``b`` (each sample's peaks keep the order they had), but reads
+    from the device only once: the number of peaks of each node in each sample.
+    A loop of boolean masks makes the CPU wait for the GPU once per mask.
+
+    Args:
+        peaks: ``(n_peaks, 2)`` peak coordinates of the whole batch.
+        peak_vals: ``(n_peaks,)`` peak values. Returned as ``float32``.
+        peak_sample_inds: ``(n_peaks,)`` sample index of each peak.
+        peak_channel_inds: ``(n_peaks,)`` node (channel) index of each peak.
+        n_samples: Number of samples in the batch.
+        n_nodes: Number of nodes (confidence map channels).
+
+    Returns:
+        A tuple of ``(peaks, peak_vals, peak_channel_inds, peak_counts)``. The
+        first three are lists with one tensor per sample. ``peak_counts`` is a
+        numpy ``int64`` array of shape ``(n_samples, n_nodes)`` with the number
+        of peaks of each node in each sample. It can be passed to
+        :func:`score_paf_lines_batch` so that it doesn't read it again.
+    """
+    sample_inds = peak_sample_inds.long()
+    peak_counts = (
+        torch.bincount(
+            sample_inds * n_nodes + peak_channel_inds.long(),
+            minlength=n_samples * n_nodes,
+        )
+        .view(n_samples, n_nodes)
+        .cpu()
+        .numpy()
+        .astype(np.int64)
+    )
+    sizes = peak_counts.sum(axis=1).tolist()
+    # ``find_local_peaks`` returns the peaks ordered by sample, so this stable
+    # sort leaves them where they are. It keeps the split correct if not.
+    order = torch.argsort(sample_inds, stable=True)
+    return (
+        list(torch.split(peaks[order], sizes)),
+        list(torch.split(peak_vals[order].to(torch.float32), sizes)),
+        list(torch.split(peak_channel_inds[order], sizes)),
+        peak_counts,
+    )
+
+
 def score_paf_lines_batch(
     pafs: torch.Tensor,
     peaks: torch.Tensor,
@@ -420,12 +473,16 @@ def score_paf_lines_batch(
     max_edge_length_ratio: float,
     dist_penalty_weight: float,
     n_nodes: int,
-) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    peak_counts: Union[np.ndarray, None] = None,
+) -> Tuple[List[torch.Tensor], List[torch.Tensor], List[torch.Tensor]]:
     """Process a batch of images to score the Part Affinity Fields (PAFs) lines formed between connection candidates for each sample.
 
-    This function loops over each sample in the batch and applies the process of
-    getting connection candidates, retrieving PAF vectors for each line, and
-    computing the connectivity score for each candidate based on the PAF lines.
+    For each sample, this finds the connection candidates (every pair of a
+    source peak and a destination peak of each skeleton edge), gets the PAF
+    vectors along each candidate's line and computes its connectivity score.
+    All samples are scored together in one set of tensor operations: the only
+    values read back from the device are the number of peaks of each node in
+    each sample (and none when ``peak_counts`` is given).
 
     Args:
         pafs: A tensor of shape `(n_samples, height, width, 2 * n_edges)`
@@ -444,6 +501,10 @@ def score_paf_lines_batch(
         dist_penalty_weight: A coefficient to scale the weight of the distance
             penalty applied to the score of each line.
         n_nodes: The total number of nodes in the skeleton.
+        peak_counts: Optional numpy array of shape `(n_samples, n_nodes)` with
+            the number of peaks of each node in each sample, as returned by
+            `split_peaks_by_sample()`. Computed from `peak_channel_inds` if not
+            given.
 
     Returns:
         A tuple containing three lists for each sample in the batch:
@@ -453,48 +514,104 @@ def score_paf_lines_batch(
               of the source and destination peaks forming each connection.
             - A list of tensors (torch nested tensors) of shape `(n_samples, (n_connections,))` containing the scores
               for each connection based on the PAFs.
+
+        Within a sample, the candidates are ordered by edge, then by source
+        peak, then by destination peak; the peaks of a node are taken in the
+        order they have in `peaks`.
+
+    See also: get_connection_candidates, make_line_subs, score_paf_lines
     """
     max_edge_length = (
         max_edge_length_ratio
         * max(pafs.shape[-1], pafs.shape[-2], pafs.shape[-3])
         * pafs_stride
     )
-
     n_samples = pafs.shape[0]
-    batch_edge_inds = []
-    batch_edge_peak_inds = []
-    batch_line_scores = []
+    device = pafs.device
+    edges = np.asarray(torch.as_tensor(skeleton_edges).cpu(), dtype=np.int64)
+    edges = edges.reshape(-1, 2)
+    n_edges = edges.shape[0]
 
-    for sample in range(n_samples):
-        pafs_sample = pafs[sample]
-        peaks_sample = peaks[sample]
-        peak_channel_inds_sample = peak_channel_inds[sample]
-
-        edge_inds_sample, edge_peak_inds_sample = get_connection_candidates(
-            peak_channel_inds_sample, skeleton_edges, n_nodes
+    sizes = [int(p.shape[0]) for p in peaks]
+    if n_samples == 0:
+        return [], [], []
+    peaks_all = torch.cat([p.to(device) for p in peaks])  # (n_peaks, 2)
+    channels_all = torch.cat([c.to(device) for c in peak_channel_inds]).long()
+    sample_all = torch.cat(
+        [
+            torch.full((n,), b, dtype=torch.long, device=device)
+            for b, n in enumerate(sizes)
+        ]
+    )
+    # Peaks grouped by (sample, node), each node's peaks in their found order.
+    node_key = sample_all * n_nodes + channels_all
+    by_node = torch.argsort(node_key, stable=True)
+    if peak_counts is None:
+        peak_counts = (
+            torch.bincount(node_key, minlength=n_samples * n_nodes)
+            .view(n_samples, n_nodes)
+            .cpu()
+            .numpy()
         )
-        paf_lines_sample = get_paf_lines(
-            pafs_sample,
-            peaks_sample,
-            edge_peak_inds_sample,
-            edge_inds_sample,
-            n_line_points,
-            pafs_stride,
-        )
-        line_scores_sample = score_paf_lines(
-            paf_lines_sample,
-            peaks_sample,
-            edge_peak_inds_sample,
-            max_edge_length,
-            dist_penalty_weight=dist_penalty_weight,
-        )
+    counts = np.asarray(peak_counts, dtype=np.int64).reshape(n_samples, n_nodes)
 
-        # Appending as lists to maintain the nested structure.
-        batch_edge_inds.append(edge_inds_sample)
-        batch_edge_peak_inds.append(edge_peak_inds_sample)
-        batch_line_scores.append(line_scores_sample)
+    # Every (source peak, destination peak) pair of every edge in every sample,
+    # worked out on the CPU from the peak counts alone.
+    node_start = (np.cumsum(counts.reshape(-1)) - counts.reshape(-1)).reshape(
+        n_samples, n_nodes
+    )
+    sample_start = np.cumsum(sizes) - np.asarray(sizes, dtype=np.int64)
+    n_src = counts[:, edges[:, 0]]  # (n_samples, n_edges)
+    n_dst = counts[:, edges[:, 1]]
+    n_pairs = (n_src * n_dst).reshape(-1)  # (n_samples * n_edges,)
+    group = np.repeat(np.arange(n_samples * n_edges), n_pairs)
+    rank = np.arange(group.size) - np.repeat(np.cumsum(n_pairs) - n_pairs, n_pairs)
+    n_dst_rep = np.repeat(n_dst.reshape(-1), n_pairs)
+    cand_sample = group // max(n_edges, 1)
+    cand_edge = group % max(n_edges, 1)
+    src_pos = node_start[cand_sample, edges[cand_edge, 0]] + rank // n_dst_rep
+    dst_pos = node_start[cand_sample, edges[cand_edge, 1]] + rank % n_dst_rep
+    cand = torch.from_numpy(
+        np.stack(
+            [src_pos, dst_pos, cand_sample, cand_edge, sample_start[cand_sample]]
+        ).astype(np.int64)
+    ).to(device)
 
-    return batch_edge_inds, batch_edge_peak_inds, batch_line_scores
+    src_inds = by_node[cand[0]]  # index into peaks_all
+    dst_inds = by_node[cand[1]]
+    edge_peak_inds_all = torch.stack([src_inds, dst_inds], dim=1)  # (n_cands, 2)
+
+    line_subs = make_line_subs(
+        peaks_all,
+        edge_peak_inds_all,
+        cand[3].to(torch.int32),
+        n_line_points,
+        pafs_stride,
+        pafs.shape[1:3],
+    )  # (n_cands, n_line_points, 2, 3)
+    paf_lines = pafs[
+        cand[2].view(-1, 1, 1),
+        line_subs[..., 0],
+        line_subs[..., 1],
+        line_subs[..., 2],
+    ]
+    line_scores = score_paf_lines(
+        paf_lines,
+        peaks_all,
+        edge_peak_inds_all,
+        max_edge_length,
+        dist_penalty_weight=dist_penalty_weight,
+    )
+
+    # Back to one tensor per sample, with peak indices local to the sample.
+    n_cands = n_pairs.reshape(n_samples, n_edges).sum(axis=1).tolist()
+    edge_peak_inds_local = edge_peak_inds_all - cand[4].view(-1, 1)
+    edge_inds = torch.from_numpy(cand_edge.astype(np.int32))
+    return (
+        list(torch.split(edge_inds, n_cands)),
+        list(torch.split(edge_peak_inds_local, n_cands)),
+        list(torch.split(line_scores, n_cands)),
+    )
 
 
 def match_candidates_sample(
@@ -1285,6 +1402,7 @@ class PAFScorer:
         pafs: torch.Tensor,
         peaks: torch.Tensor,
         peak_channel_inds: torch.Tensor,
+        peak_counts: Union[np.ndarray, None] = None,
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Create and score PAF lines formed between connection candidates.
 
@@ -1295,6 +1413,9 @@ class PAFScorer:
                 (x, y) coordinates of the detected peaks for each sample.
             peak_channel_inds: A nested torch tensor of shape `(n_samples, (n_peaks))` indicating
                 the channel (node) index that each peak corresponds to.
+            peak_counts: Optional `(n_samples, n_nodes)` numpy array with the
+                number of peaks of each node in each sample, as returned by
+                `split_peaks_by_sample()`. Saves reading it from the device.
 
         Returns:
             A tuple containing three lists for each sample in the batch:
@@ -1320,6 +1441,7 @@ class PAFScorer:
             self.max_edge_length_ratio,
             self.dist_penalty_weight,
             self.n_nodes,
+            peak_counts=peak_counts,
         )
 
     def match_candidates(
