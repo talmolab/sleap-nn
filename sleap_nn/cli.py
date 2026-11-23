@@ -4060,7 +4060,10 @@ def _common_inference_options(f):
         ),
         click.option(
             "--precision",
-            type=click.Choice(["32", "fp32", "bf16", "fp16"], case_sensitive=False),
+            type=click.Choice(
+                ["32", "fp32", "bf16", "fp16", "bf16-encoder", "fp16-encoder"],
+                case_sensitive=False,
+            ),
             default="32",
             show_default=True,
             callback=lambda _ctx, _param, value: (
@@ -4075,7 +4078,9 @@ def _common_inference_options(f):
             "emulate it slowly). No effect on CPU / MPS (a warning says so). "
             "The output file records it (`autocast_precision`). `predict` "
             "with trained checkpoints only: an exported model keeps the precision "
-            "it was exported with.",
+            "it was exported with. Experimental: `bf16-encoder` / `fp16-encoder` "
+            "run only each model's encoder under autocast and every layer after it "
+            "(decoder, heads, a DETR detector's box head) in fp32.",
         ),
         click.option(
             "--runtime",

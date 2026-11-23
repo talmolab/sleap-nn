@@ -137,6 +137,17 @@ checkpoint before relying on reduced precision. A run with `bf16` or
 not been checked in fp16 (`sleap-nn export` warns about fp16 for them);
 prefer `bf16` there.
 
+**Encoder only (experimental).** `--precision bf16-encoder` or `fp16-encoder`
+(`precision="bf16-encoder"` from Python) runs only each model's encoder under
+autocast; its outputs are cast to fp32 and every layer after it runs in fp32: the
+decoder and heads, and for a `bbox_detr` detector the whole DETR head (projector,
+transformer decoder, box and score heads). The encoder is the backbone of a
+`bbox_detr` detector, `backbone.enc` of ConvNeXt, Swin and pretrained backbones,
+and the down-sampling blocks of a UNet. Use it when the backbone dominates the
+cost and the heads are sensitive to reduced precision. The same rules as above
+apply (CUDA only, trained checkpoints only); the output file records it as
+`autocast_precision: bf16-encoder`.
+
 | Reason to enable | Reason to skip |
 |---|---|
 | Long videos on CUDA at batch size 4 and up | CPU / Mac (MPS): no effect |

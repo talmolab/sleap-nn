@@ -33,11 +33,122 @@ Warnings emitted on construction (verified by tests):
 from __future__ import annotations
 
 import warnings
-from typing import Any, Dict, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import attrs
 import torch
 import torch.nn as nn
+
+#: What a backend's ``autocast_dtype`` covers (``TorchBackend.autocast_scope``).
+AUTOCAST_SCOPES = ("all", "encoder")
+
+
+def encoder_modules(model: nn.Module) -> List[nn.Module]:
+    """The encoder modules of the sleap-nn models inside ``model``.
+
+    For each :class:`~sleap_nn.architectures.model.Model` in ``model`` (a
+    Lightning module holds one as ``.model``): a ``bbox_detr`` detector's whole
+    backbone (everything after it, projector, decoder and heads, belongs to the
+    DETR head); otherwise the backbone's encoder, ``backbone.enc`` (ConvNeXt,
+    Swin, pretrained backbones) or the UNet's per-stack ``backbone.encoders``.
+    The decoder, middle blocks and heads are not encoder modules.
+
+    Returns:
+        The modules, empty when ``model`` holds no sleap-nn model or a backbone
+        with no recognisable encoder.
+    """
+    from sleap_nn.architectures.model import Model
+
+    found: List[nn.Module] = []
+    for net in model.modules():
+        if not isinstance(net, Model):
+            continue
+        backbone = net.backbone
+        if net.model_type == "bbox_detr":
+            found.append(backbone)
+        elif isinstance(getattr(backbone, "enc", None), nn.Module):
+            found.append(backbone.enc)
+        elif isinstance(getattr(backbone, "encoders", None), nn.ModuleList):
+            found.extend(backbone.encoders)
+    return found
+
+
+def _to_float32(out: Any) -> Any:
+    """``out`` (a tensor or nested list / tuple / dict of them) with half floats as fp32."""
+    if isinstance(out, torch.Tensor):
+        return out.float() if out.dtype in (torch.float16, torch.bfloat16) else out
+    if isinstance(out, dict):  # also a `transformers` ModelOutput: set in place
+        for key in list(out.keys()):
+            out[key] = _to_float32(out[key])
+        return out
+    if isinstance(out, list):
+        return [_to_float32(v) for v in out]
+    if isinstance(out, tuple):
+        items = [_to_float32(v) for v in out]
+        return type(out)(*items) if hasattr(out, "_fields") else type(out)(items)
+    return out
+
+
+def autocast_forward(
+    model: nn.Module,
+    x: torch.Tensor,
+    dtype: torch.dtype,
+    scope: str = "all",
+    device_type: str = "cuda",
+) -> Any:
+    """``model(x)`` under ``torch.autocast(device_type, dtype)``, whole or encoder only.
+
+    Args:
+        model: The module to run.
+        x: Its input.
+        dtype: The autocast dtype (``torch.bfloat16`` or ``torch.float16``).
+        scope: ``"all"``: the whole forward runs under autocast. ``"encoder"``
+            (experimental): only the modules of :func:`encoder_modules` do; their
+            outputs are cast to fp32, and every layer after them (decoder, heads,
+            a DETR detector's projector, transformer decoder and box head) runs
+            in fp32.
+        device_type: Autocast device type (``TorchBackend`` passes ``"cuda"``;
+            tests use ``"cpu"``, where bf16 autocast also works).
+
+    Returns:
+        The model's output, as autocast left it (``TorchBackend`` casts half
+        floats back to fp32).
+
+    Raises:
+        ValueError: If ``scope`` is ``"encoder"`` and ``model`` has no encoder.
+    """
+    if scope == "all":
+        with torch.autocast(device_type=device_type, dtype=dtype):
+            return model(x)
+    if scope != "encoder":
+        raise ValueError(f"scope must be one of {AUTOCAST_SCOPES}; got {scope!r}.")
+    encoders = encoder_modules(model)
+    if not encoders:
+        raise ValueError(
+            "Encoder-only autocast needs a sleap-nn model with an encoder; found "
+            f"none in {type(model).__name__}."
+        )
+    contexts: List[Any] = []
+
+    def enter(module, args):
+        ctx = torch.autocast(device_type=device_type, dtype=dtype)
+        ctx.__enter__()
+        contexts.append(ctx)
+
+    def leave(module, args, output):
+        contexts.pop().__exit__(None, None, None)
+        return _to_float32(output)
+
+    handles = []
+    try:
+        for module in encoders:
+            handles.append(module.register_forward_pre_hook(enter))
+            handles.append(module.register_forward_hook(leave, always_call=True))
+        return model(x)
+    finally:
+        for handle in handles:
+            handle.remove()
+
 
 # ──────────────────────────────────────────────────────────────────────────
 # TorchBackend
@@ -75,6 +186,11 @@ class TorchBackend:
             ``Predictor.from_model_paths(precision=...)``, which warns when it
             has no effect (off CUDA, exported models); the backend itself
             emits no warning.
+        autocast_scope: Experimental. What ``autocast_dtype`` covers:
+            ``"all"`` (default, the whole forward) or ``"encoder"`` (only the
+            model's encoder, see :func:`encoder_modules`; every layer after it
+            runs in fp32 on fp32 inputs). Set by
+            ``Predictor.from_model_paths(precision="bf16-encoder")``.
         memory_format: ``"contiguous"`` (default, channels-first) or
             ``"channels_last"``: the memory layout of the model's weights.
             cuDNN's fast convolution kernels on NVIDIA GPUs want the
@@ -99,6 +215,9 @@ class TorchBackend:
     use_fp16: bool = False
     fuse_layers: bool = False
     autocast_dtype: Optional[torch.dtype] = None
+    autocast_scope: str = attrs.field(
+        default="all", validator=attrs.validators.in_(AUTOCAST_SCOPES)
+    )
     warmup_iterations: int = 1
     memory_format: str = attrs.field(
         default="contiguous",
@@ -158,8 +277,9 @@ class TorchBackend:
         use_autocast = dtype is not None and "cuda" in self.device
         with torch.inference_mode():
             if use_autocast:
-                with torch.autocast(device_type="cuda", dtype=dtype):
-                    out = model(x)
+                out = autocast_forward(
+                    model, x, dtype, scope=self.autocast_scope, device_type="cuda"
+                )
             else:
                 out = model(x)
 
