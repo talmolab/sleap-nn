@@ -163,6 +163,63 @@ def test_predict_export_dir_ignores_memory_format_with_warning(caplog):
     assert "memory_format='channels_last' is ignored" in caplog.text
 
 
+def test_predict_export_dir_refuses_precision():
+    """An exported model keeps its exported precision: bf16 / fp16 raise, "32" runs."""
+    pred = _mock_predictor()
+    with patch(
+        "sleap_nn.inference.predictor.Predictor.from_export_dir",
+        return_value=pred,
+    ) as mock_export:
+        for precision in ("bf16", "fp16"):
+            with pytest.raises(ValueError, match="precision is not available"):
+                predict(
+                    "video.mp4", export_dir="/exp", device="cpu", precision=precision
+                )
+        assert not mock_export.called
+        predict("video.mp4", export_dir="/exp", device="cpu", precision="32")
+    assert "precision" not in mock_export.call_args.kwargs
+
+
+def test_predict_forwards_precision_to_from_model_paths():
+    """precision reaches the checkpoint build only when it is not the default."""
+    for kwargs, expected in (({}, None), ({"precision": "fp16"}, "fp16")):
+        with patch(
+            "sleap_nn.inference.predictor.Predictor.from_model_paths",
+            return_value=_mock_predictor(),
+        ) as mock_factory:
+            predict("video.mp4", model_paths=["/m"], device="cpu", **kwargs)
+        assert mock_factory.call_args.kwargs.get("precision") == expected
+
+
+def test_predict_part_model_precision_follows_the_device():
+    """The part model is built at the run's precision on CUDA; off CUDA at "32".
+
+    Off CUDA the precision does nothing and the pose predictor's build has said
+    so: building the part model with it would log the same warning again.
+    """
+    for device, expected in (("cuda", "bf16"), ("cuda:0", "bf16"), ("cpu", "32")):
+        with (
+            patch(
+                "sleap_nn.inference.predictor.Predictor.from_model_paths",
+                return_value=_mock_predictor(),
+            ) as mock_factory,
+            patch(
+                "sleap_nn.inference.keypoint_crops.run_part_stage",
+                return_value=MagicMock(name="merged"),
+            ) as mock_part,
+        ):
+            predict(
+                "video.mp4",
+                model_paths=["/pose"],
+                part_model_paths=["/part"],
+                part_crop_rule={"rule": "stub"},
+                device=device,
+                precision="bf16",
+            )
+        assert mock_factory.call_args.kwargs["precision"] == "bf16"
+        assert mock_part.call_args.kwargs["precision"] == expected
+
+
 def test_predict_export_dir_forwards_runtime_and_knobs():
     """runtime + exported-model build knobs reach from_export_dir."""
     pred = _mock_predictor()

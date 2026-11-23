@@ -79,6 +79,8 @@ from sleap_nn.data.utils import (
 )
 from sleap_nn.data.confidence_maps import generate_confmaps, generate_multiconfmaps
 from sleap_nn.data.node_weights import (
+    check_some_node_weighted,
+    warn_nodes_never_located,
     finite_point_weights,
     get_labeled_nodes_weights,
     frame_node_weights,
@@ -102,6 +104,7 @@ from sleap_nn.data.detr_augmentation import (
     detr_train_transform,
     multi_scale_sizes,
     resize_frame,
+    zoom_out,
 )
 from sleap_nn.data.edge_maps import generate_edge_weights, generate_pafs
 from sleap_nn.data.segmentation_maps import (
@@ -1438,6 +1441,7 @@ class BaseDataset(Dataset):
 
         # apply augmentation
         if self.apply_aug:
+            sample = self._before_augmentation(sample)
             if self.intensity_aug is not None:
                 sample["image"], sample["instances"] = apply_intensity_augmentation(
                     sample["image"],
@@ -1462,6 +1466,14 @@ class BaseDataset(Dataset):
                 if node_weights is not None:
                     sample["node_weights"] = out[-1]
 
+        return sample
+
+    def _before_augmentation(self, sample: Dict) -> Dict:
+        """Training-only step on the fitted, padded sample before the stock augmentation.
+
+        A no-op here; :class:`BBoxDataset` zooms out (``augmentation_config.detr``
+        ``zoom_out_*``).
+        """
         return sample
 
     def _load_negative_sample(self, sample: Dict) -> Dict:
@@ -5699,6 +5711,16 @@ class SemanticSegmentationDataset(BaseDataset):
         return sample_dict
 
 
+def _zoom_out_p(aug: Any) -> float:
+    """``zoom_out_p`` of an ``augmentation_config.detr`` section."""
+    return float(aug.get("zoom_out_p", 0.0) or 0.0)
+
+
+def _zoom_out_canvas(aug: Any) -> str:
+    """``zoom_out_canvas`` of an ``augmentation_config.detr`` section."""
+    return str(aug.get("zoom_out_canvas", "zero") or "zero")
+
+
 class BBoxDataset(BaseDataset):
     """Whole-frame dataset for the bounding-box detectors (``bbox_*`` model types).
 
@@ -5715,6 +5737,13 @@ class BBoxDataset(BaseDataset):
     the image; afterwards each box is the extent of its corners, clipped to the
     frame, and dropped when too little of it remains visible.
 
+    With ``zoom_out_aug`` (``augmentation_config.detr``, given for ``bbox_centernet``
+    and ``bbox_ssd`` training) and ``zoom_out_p > 0``, a training frame is shrunk by
+    a log-uniform factor in ``[zoom_out_min, zoom_out_max]`` onto a black canvas or
+    another training frame (``zoom_out_canvas``) after it is fitted to the model
+    input and before the stock augmentation, as ``bbox_detr`` does after its own fit
+    (:meth:`_before_augmentation`).
+
     With ``reduced_decode`` on, a frame much larger than it ends up in training is
     read at 1/2, 1/4 or 1/8 size (``sio.Video.get_frame(downscale=...)``, libjpeg
     DCT scaling for JPEG image lists; other frames come back full size) whenever
@@ -5729,6 +5758,8 @@ class BBoxDataset(BaseDataset):
             frame after augmentation is dropped from the targets.
         reduced_decode: Read large frames at reduced size (see above). Off here;
             subclasses that know how small a frame gets turn it on.
+        zoom_out_aug: The ``augmentation_config.detr`` section whose ``zoom_out_*``
+            keys this dataset applies (training only), or ``None``.
     """
 
     _flip_needs_symmetries = False
@@ -5759,6 +5790,7 @@ class BBoxDataset(BaseDataset):
         cache_workers: int = 0,
         use_negative_frames: bool = False,
         min_visible_fraction: float = 0.25,
+        zoom_out_aug: Optional[Any] = None,
     ) -> None:
         """Initialize class attributes."""
         # Read by `_get_lf_idx_list`, which runs inside `BaseDataset.__init__`.
@@ -5793,6 +5825,16 @@ class BBoxDataset(BaseDataset):
         # largest box count, known only once the frames are indexed.
         if hasattr(self.target_encoder, "max_targets"):
             self.target_encoder.max_targets = self.max_instances
+        self.zoom_out_aug = None
+        if zoom_out_aug is not None and self.apply_aug and _zoom_out_p(zoom_out_aug):
+            self.zoom_out_aug = zoom_out_aug
+            if _zoom_out_canvas(zoom_out_aug) == "frame":
+                # A frame zoomed out onto another training frame keeps the visible
+                # boxes of both, so a sample holds up to twice the largest count.
+                self._carries_classes = True
+                self.max_instances = 2 * int(self.max_instances)
+                if hasattr(self.target_encoder, "max_targets"):
+                    self.target_encoder.max_targets = self.max_instances
 
     def _get_lf_idx_list(self, labels: List[sio.Labels]) -> SampleTable:
         """Return samples for frames with user boxes (+ negative frames if enabled).
@@ -6011,6 +6053,123 @@ class BBoxDataset(BaseDataset):
         sample_dict["labels_idx"] = sample["labels_idx"]
         return sample_dict
 
+    # Zoom-out. `DetrBBoxDataset` runs `_zoom_out_on_frame` from its own path.
+    def _before_augmentation(self, sample: Dict) -> Dict:
+        """Zoom out (``zoom_out_aug``) the fitted, padded training frame.
+
+        With probability ``zoom_out_p``, the frame and its boxes are shrunk by a
+        log-uniform factor in ``[zoom_out_min, zoom_out_max]`` and placed at a
+        uniform offset, on a black canvas (``zoom_out_canvas: zero``) or on another
+        training frame fitted to the same size (``frame``; see
+        :meth:`_zoom_out_on_frame`): ``bbox_detr``'s zoom-out, here for the other
+        box detectors.
+        """
+        aug = self.zoom_out_aug
+        if aug is None:
+            return sample
+        p = _zoom_out_p(aug)
+        if not (p > 0 and float(torch.rand(())) < p):
+            return sample
+        zoom_range = (
+            float(aug.get("zoom_out_min", 0.4) or 0.4),
+            float(aug.get("zoom_out_max", 1.0) or 1.0),
+        )
+        corners = sample["instances"]  # (1, n, 4, 2)
+        boxes = corners_to_bboxes(corners[0])
+        if "_classes" in sample:
+            boxes = boxes[torch.isfinite(boxes).all(-1)]
+        if _zoom_out_canvas(aug) == "frame":
+            sample["image"], boxes, sample["_classes"] = self._zoom_out_on_frame(
+                sample["image"], boxes, sample["_classes"], zoom_range
+            )
+        else:
+            lo, hi = (math.log(v) for v in zoom_range)
+            factor = math.exp(lo + (hi - lo) * float(torch.rand(())))
+            offset = (float(torch.rand(())), float(torch.rand(())))
+            sample["image"], boxes = zoom_out(sample["image"], boxes, factor, offset)
+        if boxes.shape[0]:
+            sample["instances"] = torch.from_numpy(
+                bboxes_to_corners(boxes.numpy().astype(np.float32))
+            )[None].to(corners.dtype)
+        else:
+            sample["instances"] = torch.full((1, 1, 4, 2), float("nan"))
+        return sample
+
+    def _zoom_out_on_frame(self, image, boxes, classes, zoom_range):
+        """Shrink the fitted frame onto another random training frame.
+
+        The canvas frame is read, channel-coerced and fitted to the frame's size like
+        any frame (``bbox_detr``: its ``resize_mode``; the other box detectors:
+        letterbox; no other augmentation); its boxes covered >= 50% by the pasted
+        frame are dropped and the rest clipped to outside it (a box straddling the
+        paste keeps only its visible side when that side is a full strip of the box).
+        """
+        import math
+
+        from sleap_nn.data.detr_augmentation import resize_frame, zoom_out
+
+        # Canvas: a uniformly drawn labels file, then a uniform frame of it (a frame-uniform
+        # draw would make the largest set nearly every background).
+        if getattr(self, "_by_file", None) is None:
+            lid = np.asarray(self.labels_idx)
+            self._by_file = [np.flatnonzero(lid == u) for u in np.unique(lid)]
+        grp = self._by_file[int(torch.randint(len(self._by_file), ()))]
+        j = int(grp[int(torch.randint(len(grp), ()))])
+        s2 = self.lf_idx_list[j]
+        img2, dscale = self._read_frame(s2)
+        bg = torch.from_numpy(np.transpose(img2, (2, 0, 1))[None].copy())
+        if self.ensure_rgb:
+            bg = convert_to_rgb(bg)
+        elif self.ensure_grayscale:
+            bg = convert_to_grayscale(bg)
+        if bg.shape[-3] != image.shape[-3]:
+            bg = bg.expand(*bg.shape[:-3], image.shape[-3], *bg.shape[-2:]).clone()
+        xyxy2 = s2["bboxes"].astype(np.float32)
+        if dscale is not None:
+            sx, sy = dscale
+            xyxy2 = xyxy2 * np.asarray([sx, sy, sx, sy], dtype=np.float32)
+        b2 = torch.from_numpy(xyxy2).reshape(-1, 4)
+        bg, b2, _ = resize_frame(
+            bg,
+            b2,
+            tuple(int(v) for v in image.shape[-2:]),
+            getattr(self, "resize_mode", "letterbox"),
+        )
+        bg = bg.to(image.dtype)
+        c2 = torch.from_numpy(s2["bbox_classes"]).long()
+        lo, hi = (math.log(float(v)) for v in zoom_range)
+        f = math.exp(lo + (hi - lo) * float(torch.rand(())))
+        off = (float(torch.rand(())), float(torch.rand(())))
+        small, b1 = zoom_out(image, boxes, f, off)
+        H, W = image.shape[-2:]
+        h, w = max(1, int(round(H * f))), max(1, int(round(W * f)))
+        oy, ox = int(round(off[0] * (H - h))), int(round(off[1] * (W - w)))
+        out = bg.clone()
+        out[..., oy : oy + h, ox : ox + w] = small[..., oy : oy + h, ox : ox + w]
+        keep_b, keep_c = [], []
+        for bb, cc in zip(b2, c2):
+            x1, y1, x2, y2 = [float(v) for v in bb]
+            area = max(0.0, x2 - x1) * max(0.0, y2 - y1)
+            if area <= 0:
+                continue
+            ix = max(0.0, min(x2, ox + w) - max(x1, ox))
+            iy = max(0.0, min(y2, oy + h) - max(y1, oy))
+            if ix * iy >= 0.5 * area:
+                continue
+            if ix * iy > 0:  # clip to the visible side when it is a full strip
+                if y1 >= oy and y2 <= oy + h:
+                    x1, x2 = (x1, ox) if x1 < ox else (ox + w, x2)
+                elif x1 >= ox and x2 <= ox + w:
+                    y1, y2 = (y1, oy) if y1 < oy else (oy + h, y2)
+            keep_b.append([x1, y1, x2, y2])
+            keep_c.append(int(cc))
+        if keep_b:
+            boxes = torch.cat([b1, torch.tensor(keep_b, dtype=b1.dtype)], 0)
+            classes = torch.cat([classes, torch.tensor(keep_c, dtype=classes.dtype)], 0)
+        else:
+            boxes = b1
+        return out, boxes, classes
+
 
 class DetrBBoxDataset(BBoxDataset):
     """:class:`BBoxDataset` for ``bbox_detr``: RF-DETR's resize, crop and flip.
@@ -6079,8 +6238,8 @@ class DetrBBoxDataset(BBoxDataset):
             and float(detr_aug.get("zoom_out_p", 0.0) or 0.0) > 0
         )
         if self._carries_classes:
-            # A frame zoomed out onto another training frame keeps the visible animals of
-            # both, so a sample holds up to twice the largest per-frame box count.
+            # A frame zoomed out onto another training frame keeps the visible boxes
+            # of both, so a sample holds up to twice the largest per-frame box count.
             self.max_instances = 2 * int(self.max_instances)
             if hasattr(self.target_encoder, "max_targets"):
                 self.target_encoder.max_targets = self.max_instances
@@ -6196,75 +6355,6 @@ class DetrBBoxDataset(BBoxDataset):
                     **self.geometric_aug,
                 )[:2]
         return sample
-
-    def _zoom_out_on_frame(self, image, boxes, classes, zoom_range):
-        """Shrink the fitted frame onto another random training frame (zoom-out).
-
-        The canvas frame is read, channel-coerced and fitted to ``train_hw`` like any
-        frame (no other augmentation); its boxes covered >= 50% by the pasted frame are
-        dropped and the rest clipped to outside it (a box straddling the paste keeps
-        only its visible side when that side is a full strip of the box).
-        """
-        import math
-
-        from sleap_nn.data.detr_augmentation import resize_frame, zoom_out
-
-        # Canvas: a uniformly drawn labels file, then a uniform frame of it (a frame-uniform
-        # draw would make the largest set nearly every background).
-        if getattr(self, "_by_file", None) is None:
-            lid = np.asarray(self.labels_idx)
-            self._by_file = [np.flatnonzero(lid == u) for u in np.unique(lid)]
-        grp = self._by_file[int(torch.randint(len(self._by_file), ()))]
-        j = int(grp[int(torch.randint(len(grp), ()))])
-        s2 = self.lf_idx_list[j]
-        img2, dscale = self._read_frame(s2)
-        bg = torch.from_numpy(np.transpose(img2, (2, 0, 1))[None].copy())
-        if self.ensure_rgb:
-            bg = convert_to_rgb(bg)
-        elif self.ensure_grayscale:
-            bg = convert_to_grayscale(bg)
-        if bg.shape[-3] != image.shape[-3]:
-            bg = bg.expand(*bg.shape[:-3], image.shape[-3], *bg.shape[-2:]).clone()
-        xyxy2 = s2["bboxes"].astype(np.float32)
-        if dscale is not None:
-            sx, sy = dscale
-            xyxy2 = xyxy2 * np.asarray([sx, sy, sx, sy], dtype=np.float32)
-        b2 = torch.from_numpy(xyxy2).reshape(-1, 4)
-        bg, b2, _ = resize_frame(bg, b2, self.train_hw, self.resize_mode)
-        bg = bg.to(image.dtype)
-        c2 = torch.from_numpy(s2["bbox_classes"]).long()
-        lo, hi = (math.log(float(v)) for v in zoom_range)
-        f = math.exp(lo + (hi - lo) * float(torch.rand(())))
-        off = (float(torch.rand(())), float(torch.rand(())))
-        small, b1 = zoom_out(image, boxes, f, off)
-        H, W = image.shape[-2:]
-        h, w = max(1, int(round(H * f))), max(1, int(round(W * f)))
-        oy, ox = int(round(off[0] * (H - h))), int(round(off[1] * (W - w)))
-        out = bg.clone()
-        out[..., oy : oy + h, ox : ox + w] = small[..., oy : oy + h, ox : ox + w]
-        keep_b, keep_c = [], []
-        for bb, cc in zip(b2, c2):
-            x1, y1, x2, y2 = [float(v) for v in bb]
-            area = max(0.0, x2 - x1) * max(0.0, y2 - y1)
-            if area <= 0:
-                continue
-            ix = max(0.0, min(x2, ox + w) - max(x1, ox))
-            iy = max(0.0, min(y2, oy + h) - max(y1, oy))
-            if ix * iy >= 0.5 * area:
-                continue
-            if ix * iy > 0:  # clip to the visible side when it is a full strip
-                if y1 >= oy and y2 <= oy + h:
-                    x1, x2 = (x1, ox) if x1 < ox else (ox + w, x2)
-                elif x1 >= ox and x2 <= ox + w:
-                    y1, y2 = (y1, oy) if y1 < oy else (oy + h, y2)
-            keep_b.append([x1, y1, x2, y2])
-            keep_c.append(int(cc))
-        if keep_b:
-            boxes = torch.cat([b1, torch.tensor(keep_b, dtype=b1.dtype)], 0)
-            classes = torch.cat([classes, torch.tensor(keep_c, dtype=classes.dtype)], 0)
-        else:
-            boxes = b1
-        return out, boxes, classes
 
     def _paste_animals(self, image, boxes, classes):
         """Paste animals cut from other training frames onto the fitted frame.
@@ -7546,6 +7636,49 @@ def detr_dataset_kwargs(config: DictConfig) -> Tuple[Dict, Dict]:
     return train, val
 
 
+#: ``augmentation_config.detr`` keys that ``bbox_centernet`` / ``bbox_ssd`` apply.
+ZOOM_OUT_KEYS = ("zoom_out_p", "zoom_out_min", "zoom_out_max", "zoom_out_canvas")
+
+
+def box_zoom_out_aug(config: DictConfig) -> Optional[DictConfig]:
+    """The zoom-out settings of a ``bbox_centernet`` / ``bbox_ssd`` training config.
+
+    These detectors apply only the ``zoom_out_*`` keys of
+    ``augmentation_config.detr`` (the rest of that section is ``bbox_detr``'s own
+    training geometry); a warning lists the other keys set away from their
+    defaults. ``None`` when the section is unset or training augmentation is off.
+    """
+    aug = OmegaConf.select(config, "data_config.augmentation_config.detr", default=None)
+    if aug is None or not config.data_config.use_augmentations_train:
+        return None
+    from sleap_nn.config.data_config import DetrAugmentationConfig
+
+    def plain(cfg):
+        cfg = OmegaConf.to_container(cfg) if OmegaConf.is_config(cfg) else dict(cfg)
+        return {k: list(v) if isinstance(v, tuple) else v for k, v in cfg.items()}
+
+    given = plain(aug)
+    defaults = plain(OmegaConf.structured(DetrAugmentationConfig))
+    ignored = [
+        k
+        for k, v in given.items()
+        if k not in ZOOM_OUT_KEYS and k in defaults and v != defaults[k]
+    ]
+    if ignored:
+        logger.warning(
+            "augmentation_config.detr: bbox_centernet and bbox_ssd apply only its "
+            f"{list(ZOOM_OUT_KEYS)}; ignored: {ignored}."
+        )
+    if float(given.get("zoom_out_p", 0.0) or 0.0) > 0:
+        logger.info(
+            f"Zoom-out on for training frames: p={given.get('zoom_out_p')}, factor "
+            f"{given.get('zoom_out_min', 0.4)}..{given.get('zoom_out_max', 1.0)}, "
+            f"canvas {given.get('zoom_out_canvas', 'zero')} "
+            "(augmentation_config.detr.zoom_out_*)."
+        )
+    return aug
+
+
 def get_train_val_datasets(
     train_labels: List[sio.Labels],
     val_labels: List[sio.Labels],
@@ -7569,6 +7702,11 @@ def get_train_val_datasets(
     Returns:
         A tuple (train_dataset, val_dataset).
     """
+    # Experimental decoded coordinate loss: the data loader reads the labelled
+    # channels' head settings, not the latent-point head (no-op otherwise).
+    from sleap_nn.training.coordinate_losses import dataset_config
+
+    config = dataset_config(config)
     cache_imgs = (
         config.data_config.data_pipeline_fw.split("_")[-1]
         if "cache_img" in config.data_config.data_pipeline_fw
@@ -7620,6 +7758,13 @@ def get_train_val_datasets(
             "model with preprocessing.crop_pipeline='warp' (the crop path that cuts "
             "the teacher's crop); use teacher_input_scale otherwise."
         )
+    _check_train_node_mask(model_type, train_labels, config, node_weight_kwargs)
+    if model_type in (
+        "single_instance",
+        "centered_instance",
+        "bottomup",
+    ) and node_weight_kwargs.get("node_loss_mask", True):
+        warn_nodes_never_located(train_labels)
 
     # Gate the lossy disk cache for the embedding (appearance / re-ID) model (SPEC §5.1):
     # `torch_dataset_cache_img_disk` writes source frames as JPEG, which silently
@@ -8342,6 +8487,8 @@ def get_train_val_datasets(
         if model_type == "bbox_detr":
             dataset_cls = DetrBBoxDataset
             train_extra, val_extra = detr_dataset_kwargs(config)
+        else:
+            train_extra = {"zoom_out_aug": box_zoom_out_aug(config)}
         train_dataset = dataset_cls(
             labels=train_labels,
             target_encoder=get_bbox_target_encoder(model_type, head_configs),
@@ -8724,6 +8871,47 @@ def get_train_val_datasets(
                     video.close()
 
     return train_dataset, val_dataset
+
+
+def _check_train_node_mask(
+    model_type: str,
+    train_labels: List[sio.Labels],
+    config: DictConfig,
+    node_weight_kwargs: Dict[str, Any],
+) -> None:
+    """Stop when the files' node masks leave every node of the training set unweighted.
+
+    Runs before any dataset is built (and before image caches are filled). Only the
+    model types whose datasets apply the mask are checked: single-instance
+    (untiled), centered-instance (the warp crop path checks in its own dataset) and
+    bottom-up. Distillation with ``mask_unlabeled_nodes: false`` trains every node on
+    the teacher's maps whatever the mask says, so it is not checked either.
+    """
+    if model_type not in ("single_instance", "centered_instance", "bottomup"):
+        return
+    if (
+        OmegaConf.select(
+            config, "data_config.preprocessing.crop_pipeline", default="legacy"
+        )
+        == "warp"
+    ):
+        return
+    tiling = OmegaConf.select(config, "data_config.preprocessing.tiling", default=None)
+    if model_type == "single_instance" and tiling is not None and tiling.enabled:
+        return
+    if not node_weights_active(train_labels, **node_weight_kwargs):
+        return
+    if OmegaConf.select(
+        config, "trainer_config.distillation", default=None
+    ) is not None and not OmegaConf.select(
+        config, "trainer_config.distillation.mask_unlabeled_nodes", default=True
+    ):
+        return
+    file_weights = [
+        get_labeled_nodes_weights(x) if x is not None and x.skeletons else None
+        for x in train_labels
+    ]
+    check_some_node_weighted(file_weights, train_labels)
 
 
 def freeze_heap_worker_init_fn(worker_id: int) -> None:

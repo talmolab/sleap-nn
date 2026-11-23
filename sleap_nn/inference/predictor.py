@@ -1266,22 +1266,37 @@ def _select_export_layer(
 _AUTOCAST_DTYPES = {"bf16": torch.bfloat16, "fp16": torch.float16}
 
 
-def _set_autocast_precision(layer: Any, precision: str) -> None:
+def _set_autocast_precision(layer: Any, precision: str) -> List[TorchBackend]:
     """Set ``autocast_dtype`` on every ``TorchBackend`` reachable from ``layer``.
 
     Composed layers (top-down, box-seeded, multi-stage) hold their stage layers
     and backends as attributes, so this walks the ``sleap_nn.inference`` objects
     reachable through instance attributes (and lists / tuples / dicts of them).
+
+    Returns:
+        The backends it set (none for ``precision="32"``).
     """
     from sleap_nn.inference.layers.backends.torch_backend import TorchBackend
 
+    found: List[TorchBackend] = []
     if precision == "32":
-        return
+        return found
     if precision not in _AUTOCAST_DTYPES:
         raise ValueError(
             f"precision must be '32', 'bf16' or 'fp16'; got {precision!r}."
         )
     dtype = _AUTOCAST_DTYPES[precision]
+    for backend in _reachable_torch_backends(layer):
+        backend.autocast_dtype = dtype
+        found.append(backend)
+    return found
+
+
+def _reachable_torch_backends(layer: Any) -> List[TorchBackend]:
+    """Every ``TorchBackend`` reachable from ``layer`` (see ``_set_autocast_precision``)."""
+    from sleap_nn.inference.layers.backends.torch_backend import TorchBackend
+
+    found: List[TorchBackend] = []
     seen: set = set()
     stack = [layer]
     while stack:
@@ -1290,7 +1305,7 @@ def _set_autocast_precision(layer: Any, precision: str) -> None:
             continue
         seen.add(id(obj))
         if isinstance(obj, TorchBackend):
-            obj.autocast_dtype = dtype
+            found.append(obj)
             continue
         if isinstance(obj, (list, tuple)):
             stack.extend(obj)
@@ -1300,6 +1315,71 @@ def _set_autocast_precision(layer: Any, precision: str) -> None:
             obj, "__dict__"
         ):
             stack.extend(vars(obj).values())
+    return found
+
+
+def _autocast_precision_used(*layers: Any) -> Optional[str]:
+    """``"bf16"`` / ``"fp16"`` if a CUDA model of ``layers`` runs under autocast.
+
+    ``None`` for fp32 (the default) and off CUDA, where autocast is not applied,
+    so a default run's provenance has no such key.
+    """
+    names = {v: k for k, v in _AUTOCAST_DTYPES.items()}
+    used = set()
+    for layer in layers:
+        if layer is None:
+            continue
+        for backend in _reachable_torch_backends(layer):
+            dtype = getattr(backend, "autocast_dtype", None)
+            if dtype is not None and "cuda" in str(getattr(backend, "device", "")):
+                used.add(names.get(dtype, str(dtype)))
+    return ",".join(sorted(used)) or None
+
+
+def _warn_precision_scope(
+    precision: str, device: Any, backends: List[TorchBackend]
+) -> None:
+    """Say (once per build) where a ``precision`` other than ``"32"`` does nothing.
+
+    ``precision`` runs each model's forward under ``torch.autocast``, which
+    :class:`TorchBackend` enters on CUDA devices only, and which does not reach
+    inside an exported (ONNX/TensorRT) graph standing in for a checkpoint.
+
+    Args:
+        precision: The value asked for (``"bf16"`` or ``"fp16"`` here).
+        device: Device the models were loaded on.
+        backends: The backends :func:`_set_autocast_precision` set.
+    """
+    from sleap_nn.inference.exported_network import ExportedNetwork
+
+    if torch.device(device).type != "cuda":
+        logger.warning(
+            f"precision={precision!r} has no effect on device={device}: it runs "
+            "the models under torch.autocast, on CUDA devices only. Predicting "
+            "in fp32."
+        )
+        return
+
+    def exported(backend: TorchBackend) -> bool:
+        modules = getattr(backend.model, "modules", None)
+        return callable(modules) and any(
+            isinstance(m, ExportedNetwork) for m in modules()
+        )
+
+    n_exported = sum(exported(backend) for backend in backends)
+    if n_exported and n_exported == len(backends):
+        logger.warning(
+            f"precision={precision!r} has no effect here: every model is an "
+            "exported (ONNX/TensorRT) graph, which keeps the precision it was "
+            "exported with. It applies to models loaded from trained checkpoints."
+        )
+    elif n_exported:
+        logger.warning(
+            f"precision={precision!r} applies to the models loaded from trained "
+            f"checkpoints only: {n_exported} of the {len(backends)} models here "
+            "are exported (ONNX/TensorRT) graphs and keep the precision they were "
+            "exported with."
+        )
 
 
 def _restore_source_order(
@@ -1600,8 +1680,11 @@ class Predictor:
                 compute.
             precision: ``"32"`` (the default; strict fp32), ``"bf16"`` or
                 ``"fp16"``: run every model's forward under ``torch.autocast``
-                with that dtype (CUDA only; ignored on CPU / MPS). Outputs are
-                cast back to fp32 before postprocessing.
+                with that dtype (CUDA only; no effect on CPU / MPS, with a
+                logged warning). Outputs are cast back to fp32 before
+                postprocessing, and results differ slightly from fp32. A
+                network-only export directory among ``model_paths`` keeps the
+                precision it was exported with (also with a warning).
             boxes: Seed a top-down crop model's stage 1 from boxes instead of a
                 centroid model or detector: ``"gt"`` (the GT boxes of a ``.slp``
                 source, scored 1) or ``"given"`` (each frame's
@@ -1704,7 +1787,9 @@ class Predictor:
             layer = _seed_from_boxes(
                 layer, loaded, model_types, device, boxes, box_score_threshold
             )
-        _set_autocast_precision(layer, precision)
+        autocast_backends = _set_autocast_precision(layer, precision)
+        if precision != "32":
+            _warn_precision_scope(precision, device, autocast_backends)
         for backend in _torch_backends(layer):
             backend.memory_format = memory_format
 
@@ -1932,10 +2017,68 @@ class Predictor:
             source = resolve_bbox_source(labels, "auto")
             padding = stage_1.gt_bbox_padding
 
+        from sleap_nn.data.providers import (
+            has_legacy_hidden_points,
+            without_hidden_coordinates,
+        )
+
+        # Old-layout files: hidden points' stored coordinates are stale, so boxes
+        # taken from keypoints ignore them, as in training (the labels stay
+        # unchanged). A box or mask linked to the instance is used as it is.
+        stale = has_legacy_hidden_points(labels)
+
         def box_fn(lf, inst):
+            if stale and (
+                source == "instances" or not _has_linked_box(lf, inst, source)
+            ):
+                return instance_crop_bbox(
+                    lf, without_hidden_coordinates(inst), "instances", padding
+                )
             return instance_crop_bbox(lf, inst, source, padding)
 
         return box_fn
+
+    def _attach_gt_box_fn(self, provider: Any, labels: Any = None) -> None:
+        """Give a labels provider built elsewhere this model's GT-box rule.
+
+        A ``LabelsProvider`` built here gets ``instance_box_fn`` at construction. One
+        built by the caller (the command line builds its own for the ``.slp`` frame
+        filters, e.g. ``--only_labeled_frames``) or by a ``VideoSelection`` has none,
+        and the GT-box stage would then fall back to tight keypoint boxes, ignoring
+        the labels' own boxes and the model's box settings. A rule the caller set is
+        kept; one set here is replaced when the provider is reused with another
+        predictor. A layer that does not crop GT boxes sets none.
+
+        Such a provider is also scoped as one built here is: GT boxes come from user
+        instances only, so of the frames it selected only those with user instances
+        run (a predicted instance is never taken as a GT box, and a frame without
+        user instances is skipped instead of stopping the run).
+
+        Args:
+            provider: The provider about to be iterated (or its sub-providers).
+            labels: The labels the box source is resolved on (default: the
+                provider's own).
+        """
+        from sleap_nn.inference.providers import LabelsProvider
+
+        stage_1 = getattr(self.layer, "centroid_layer", None)
+        crops_gt_boxes = bool(getattr(stage_1, "use_gt_boxes", False))
+        for sub in getattr(provider, "providers", None) or [provider]:
+            if not isinstance(sub, LabelsProvider):
+                continue
+            skipped = sub._scope_to_user_instances(crops_gt_boxes)
+            if skipped:
+                logger.warning(
+                    "This model crops ground-truth boxes, which come from user "
+                    f"instances only: {skipped} of {skipped + sub.num_frames()} "
+                    "selected frame(s) have no user instances and are skipped."
+                )
+            current = sub.instance_box_fn
+            if current is None or getattr(current, "_set_by_predictor", False):
+                box_fn = self._gt_box_fn(sub._sio_labels if labels is None else labels)
+                if box_fn is not None:
+                    box_fn._set_by_predictor = True
+                sub.instance_box_fn = box_fn
 
     def _uses_given_boxes(self) -> bool:
         """Whether stage 1 reads each frame's given boxes (``boxes="given"``)."""
@@ -2024,6 +2167,17 @@ class Predictor:
         if exported:
             # Which runtime and precision each exported graph actually ran.
             provenance["exported_models"] = exported
+        try:
+            part = getattr(self.part_stage, "part_predictor", None)
+            autocast = _autocast_precision_used(
+                self.layer, part.layer if part is not None else None
+            )
+        except Exception:  # noqa: BLE001 -- provenance must never fail a run
+            autocast = None
+        if autocast is not None:
+            # `precision="bf16"` / `"fp16"` on CUDA: the checkpoint models ran
+            # under autocast (no key for fp32, the default).
+            provenance["autocast_precision"] = autocast
         _add_part_exports(provenance, part_exported)  # a streaming --part_model
         return provenance
 
@@ -2170,6 +2324,7 @@ class Predictor:
                 batch_size=self.batch_size,
                 needs_gt_instances=self._needs_gt_instances(),
             )
+            self._attach_gt_box_fn(provider, source.labels)
             return provider, source.videos
 
         if isinstance(source, (np.ndarray, torch.Tensor)):
@@ -2286,6 +2441,7 @@ class Predictor:
             # crashes walking video.backend — hit whenever the CLI wraps the
             # input in a LabelsProvider for --only_suggested_frames /
             # --exclude_user_labeled / --video_index etc. (#699).
+            self._attach_gt_box_fn(source)
             provider_videos = getattr(source, "videos", None)
             return source, (list(provider_videos) if provider_videos else None)
 
@@ -2679,6 +2835,11 @@ class Predictor:
         videos: Optional[List["sio.Video"]] = None,
         write_interval: int = 500,
         progress_callback: Optional[Callable[[int, int], None]] = None,
+        slp_version: Optional[str] = None,
+        image_format: Optional[str] = None,
+        image_quality: Optional[int] = None,
+        compression: Optional[str] = None,
+        unlabeled_as: Optional[str] = None,
     ) -> str:
         """Run inference and write results to a ``.slp`` file.
 
@@ -2701,10 +2862,36 @@ class Predictor:
                 a disk flush.
             progress_callback: Optional ``(processed_frames, total_frames)``
                 callback invoked after each batch.
+            slp_version: File layout of the ``.slp``: ``"v2"`` (SLP 2.x, read
+                by older sleap-io and SLEAP releases), ``"v3"`` (SLP 3.0) or
+                ``"auto"``. ``None`` (the default): sleap-io's default.
+            image_format: Format of embedded frames. This path embeds no
+                frames, so setting it only warns.
+            image_quality: Quality of re-encoded embedded frames; as
+                ``image_format``, it only warns here.
+            compression: ``"gzip"`` or ``"lzf"`` compression of the table
+                columns. ``None`` (the default): uncompressed.
+            unlabeled_as: ``"error"`` or ``"absent"``: what a ``"v2"`` save
+                does with points that are not labeled. ``None`` (the
+                default): sleap-io's default.
 
         Returns:
             The (resolved) destination path string.
+
+        Raises:
+            ValueError: If a save option is invalid or not supported by the
+                installed sleap-io (checked before inference).
         """
+        from sleap_nn.inference.save_options import slp_save_kwargs
+
+        save_options = dict(
+            slp_version=slp_version,
+            image_format=image_format,
+            image_quality=image_quality,
+            compression=compression,
+            unlabeled_as=unlabeled_as,
+        )
+        slp_save_kwargs(**save_options)  # fail before inference, not at the save
         if skeleton is not None:
             self.skeleton = skeleton
         # Same as `predict(make_labels=True)`: an embedding model has nothing to
@@ -2760,6 +2947,7 @@ class Predictor:
             mask_output=getattr(self.layer, "mask_output", "mask"),
             polygon_epsilon=getattr(self.layer, "polygon_epsilon", 0.01),
             bbox_categories=self._bbox_categories(),
+            save_options=save_options,
         )
         _prov_start = datetime.now()
         with writer:
@@ -3436,3 +3624,20 @@ class Predictor:
             new_layer.inner = new_target
             return new_layer
         return new_target
+
+
+def _has_linked_box(lf: Any, inst: Any, source: str) -> bool:
+    """Whether ``instance_crop_bbox`` takes ``inst``'s box from a linked box or mask."""
+    from sleap_nn.data.bboxes import frame_user_bboxes
+
+    if source == "bboxes":
+        return any(
+            getattr(b, "instance", None) is inst and not b.is_empty
+            for b in frame_user_bboxes(lf)
+        )
+    if source == "masks":
+        return any(
+            not m.is_predicted and getattr(m, "instance", None) is inst
+            for m in getattr(lf, "masks", None) or []
+        )
+    return False

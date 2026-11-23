@@ -5,11 +5,15 @@ pure (numpy / OpenCV / torch, no Lightning state), so it can be tested on its ow
 
 * :func:`select_panel` picks a fixed, stratified validation panel from per-sample
   metadata (no image decoding).
-* :func:`predict_boxes` / :func:`predict_keypoints` run one no-grad forward over a
-  batch of panel images with the model's own decoders.
+* :func:`predict_boxes` / :func:`predict_keypoints` / :func:`predict_instances` run
+  one no-grad forward over a batch of panel images with the model's own decoders.
 * :func:`bbox_wandb_image` builds a ``wandb.Image`` with native box overlays
   (ground truth and predictions, scores attached so the W&B viewer can filter them);
-  :func:`draw_keypoints` draws keypoints and skeleton edges with OpenCV.
+  :func:`draw_keypoints` draws keypoints and skeleton edges with OpenCV;
+  :func:`draw_instances` draws the grouped instances of a whole frame (bottom-up
+  models) with sleap-io's renderer (Skia).
+
+Only the ``*_wandb_image`` helpers need W&B; the rest runs without it.
 """
 
 from typing import Dict, List, Optional, Sequence, Tuple
@@ -26,10 +30,10 @@ except ImportError:  # pragma: no cover
 ROLES = ("typical", "hard")
 
 #: A box smaller than this fraction of its file's median box side (``sqrt`` of the
-#: area) is not eligible as a "hard" example. In the developers' top-view datasets
-#: (~250k boxes) such boxes are mostly not small animals but degenerate labels: a few
-#: points on a larger, visible animal, or point clusters on nothing; real small
-#: animals (in a wide arena, or partly hidden) start at about this size.
+#: area) is not eligible as a "hard" example. Such boxes are mostly not small animals
+#: but degenerate labels: a few points on a larger, visible animal, or point clusters
+#: on nothing; real small animals (a small animal in a wide arena, or half hidden)
+#: start at about this size.
 MIN_HARD_REL_SIDE = 0.25
 
 # Node colors (RGB), cycled by node index within a file.
@@ -201,6 +205,16 @@ def box_hardness(
     return out
 
 
+def instance_count_hardness(counts: Sequence[int]) -> np.ndarray:
+    """Whole-frame pose hardness: the frames with the most animals first.
+
+    Frames with fewer than two animals are not eligible (``-inf``): grouping
+    keypoints into animals, what a bottom-up model can get wrong, needs two.
+    """
+    counts = np.asarray(counts, dtype=np.float64).reshape(-1)
+    return np.where(counts >= 2, counts, -np.inf)
+
+
 def instance_hardness(
     boxes: np.ndarray,
     groups: Optional[np.ndarray] = None,
@@ -252,7 +266,10 @@ def predict_boxes(module, images, score_threshold: float = 0.05):
 def predict_keypoints(module, images):
     """Crop keypoints of a top-down centered-instance module, every node predicted.
 
-    Uses the module's own peak finder settings (refinement, DARK sigma, stride) with
+    A module training the experimental decoded coordinate loss
+    (``trainer_config.coordinate_losses.decoded``) returns its soft-argmax latent
+    points decoded into the labelled channels (values 1), as trained. Others use
+    the module's own peak finder settings (refinement, DARK sigma, stride) with
     threshold 0, so every node gets a location and the error is not lowered by
     abstaining on hard points.
 
@@ -266,9 +283,16 @@ def predict_keypoints(module, images):
     import torch
     from sleap_nn.inference.peak_finding import find_global_peaks
 
+    from sleap_nn.training.coordinate_losses import decoded_keypoints
+
     layer = module.instance_peaks_inf_layer
     with torch.no_grad():
         cms = module.forward(images).float()
+        decoded = decoded_keypoints(module, cms)
+        if decoded is not None:
+            # Experimental decoded coordinate loss: the head predicts latent
+            # points; draw them decoded into the labelled channels.
+            return decoded.cpu().numpy(), np.ones(decoded.shape[:2], np.float32)
         pts, vals = find_global_peaks(
             cms,
             threshold=0.0,
@@ -280,6 +304,42 @@ def predict_keypoints(module, images):
     if getattr(layer, "input_scale", 1.0) != 1.0:
         pts = pts / layer.input_scale
     return pts.cpu().numpy(), vals.float().cpu().numpy()
+
+
+def predict_instances(module, images):
+    """Grouped instances of a bottom-up module for a batch of whole frames.
+
+    Runs the module's own training-time inference layer (``bottomup_inf_layer``:
+    peak finding plus part-affinity grouping, or class-map grouping for
+    multi-class models) on model-input frames, so the instances are in
+    model-input pixels.
+
+    Args:
+        module: A bottom-up LightningModule (``bottomup`` or
+            ``multi_class_bottomup``).
+        images: ``(B, 1, C, H, W)`` uint8 frames on the module's device.
+
+    Returns:
+        Per frame ``(points (n, K, 2), values (n, K))`` numpy arrays, ``n`` the
+        number of predicted instances (NaN where a node was not found).
+    """
+    import torch
+
+    layer = module.bottomup_inf_layer
+    inputs = {
+        "image": images,
+        "eff_scale": torch.ones(images.shape[0], device=images.device),
+    }
+    with torch.no_grad():
+        out = layer(inputs)
+    out = out[0] if isinstance(out, (list, tuple)) else out
+    result = []
+    for pts, vals in zip(out["pred_instance_peaks"], out["pred_peak_values"]):
+        pts = torch.as_tensor(pts).float().cpu().numpy()
+        vals = torch.as_tensor(vals).float().cpu().numpy()
+        k = pts.shape[-2] if pts.ndim == 3 else 0
+        result.append((pts.reshape(-1, k, 2), vals.reshape(-1, k)))
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -493,6 +553,126 @@ def keypoint_error(gt: np.ndarray, pred: np.ndarray, nodes: Sequence[int]) -> fl
     d = np.linalg.norm(np.asarray(gt)[nodes] - np.asarray(pred)[nodes], axis=-1)
     d = d[np.isfinite(d)]
     return float(np.median(d)) if len(d) else float("nan")
+
+
+def draw_instances(
+    image: np.ndarray,
+    edges: Sequence[Tuple[int, int]] = (),
+    gt: Optional[np.ndarray] = None,
+    pred: Optional[np.ndarray] = None,
+    long_side: int = 640,
+) -> np.ndarray:
+    """Draw the animals of a whole frame with sleap-io's renderer (Skia).
+
+    With predictions: every predicted instance in its own color (nodes and
+    skeleton), on top of the ground truth drawn as thin green edges and hollow
+    green circles. Without predictions (training targets): the ground-truth
+    instances, each in its own color.
+
+    Args:
+        image: ``(H, W, 3)`` uint8 RGB frame (not modified).
+        edges: Skeleton edges as ``(src, dst)`` node index pairs.
+        gt: ``(n, K, 2)`` ground-truth instances in frame pixels (NaN = not
+            labeled), or ``None``.
+        pred: ``(m, K, 2)`` predicted instances, or ``None``.
+        long_side: The frame is downscaled so its long side is at most this.
+
+    Returns:
+        A new ``(h, w, 3)`` uint8 image at the display size.
+    """
+    import skia
+    from sleap_io.rendering.core import render_frame
+
+    h, w = image.shape[:2]
+    scale = min(1.0, float(long_side) / max(h, w))
+    edges = [(int(a), int(b)) for a, b in edges]
+
+    def finite(instances):
+        if instances is None:
+            return []
+        arr = np.asarray(instances, dtype=np.float64)
+        arr = arr.reshape(-1, arr.shape[-2], 2) if arr.size else arr.reshape(0, 0, 2)
+        return [p for p in arr if np.isfinite(p).all(axis=-1).any()]
+
+    gt_list, pred_list = finite(gt), finite(pred)
+    if pred is None:
+        drawn, under = gt_list, []
+    else:
+        drawn, under = pred_list, gt_list
+
+    def draw_ground_truth(ctx):
+        paint = skia.Paint(
+            Color=skia.Color(*_GT_COLOR),
+            AntiAlias=True,
+            Style=skia.Paint.kStroke_Style,
+            StrokeWidth=1.0,
+        )
+        for pts in under:
+            xy = pts * ctx.scale
+            ok = np.isfinite(xy).all(axis=-1)
+            for a, b in edges:
+                if a < len(xy) and b < len(xy) and ok[a] and ok[b]:
+                    ctx.canvas.drawLine(*map(float, xy[a]), *map(float, xy[b]), paint)
+            for (x, y), good in zip(xy, ok):
+                if good:
+                    ctx.canvas.drawCircle(float(x), float(y), 4.0, paint)
+
+    out = render_frame(
+        np.ascontiguousarray(image),
+        drawn,
+        edge_inds=edges,
+        node_names=[],
+        color_by="instance",
+        palette="distinct",
+        marker_size=2.5,
+        line_width=1.5,
+        scale=scale,
+        pre_render_callback=draw_ground_truth if under else None,
+    )
+    return np.ascontiguousarray(out)
+
+
+def instance_error(
+    gt: np.ndarray, pred: np.ndarray, nodes: Optional[Sequence[int]] = None
+) -> float:
+    """Median node error (px) after greedily pairing each ground-truth instance.
+
+    Pairs are taken in order of increasing mean node distance (over the ``nodes``
+    both have), each instance used once; unpaired instances do not count.
+
+    Args:
+        gt: ``(n, K, 2)`` ground-truth instances.
+        pred: ``(m, K, 2)`` predicted instances.
+        nodes: Node indices to compare; ``None``: all.
+
+    Returns:
+        The median distance over the nodes of all pairs, ``nan`` without a pair.
+    """
+    gt = np.asarray(gt, dtype=np.float64).reshape(-1, *np.shape(gt)[-2:])
+    pred = np.asarray(pred, dtype=np.float64)
+    if gt.shape[0] == 0 or pred.size == 0:
+        return float("nan")
+    pred = pred.reshape(-1, *pred.shape[-2:])
+    if nodes is not None:
+        nodes = np.asarray(list(nodes), dtype=int)
+        gt, pred = gt[:, nodes], pred[:, nodes]
+    d = np.linalg.norm(gt[:, None] - pred[None], axis=-1)  # (n, m, K)
+    ok = np.isfinite(d)
+    count = ok.sum(-1)
+    mean = np.where(
+        count > 0, np.where(ok, d, 0.0).sum(-1) / np.maximum(count, 1), np.inf
+    )
+    used_g, used_p, dists = set(), set(), []
+    for flat in np.argsort(mean, axis=None, kind="stable"):
+        g, p = np.unravel_index(flat, mean.shape)
+        if not np.isfinite(mean[g, p]) or g in used_g or p in used_p:
+            continue
+        used_g.add(g)
+        used_p.add(p)
+        dists.append(d[g, p][np.isfinite(d[g, p])])
+    if not dists:
+        return float("nan")
+    return float(np.median(np.concatenate(dists)))
 
 
 def keypoint_wandb_image(image: np.ndarray, caption: str):

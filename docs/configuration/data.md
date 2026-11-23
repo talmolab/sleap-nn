@@ -369,7 +369,10 @@ Used by the `embedding` model type (see the [embedding tracking guide](../guides
 
 ### DetrAugmentationConfig (augmentation_config.detr)
 
-RF-DETR's training geometry, `bbox_detr` only. Applied to training frames before
+RF-DETR's training geometry, `bbox_detr` only, except the `zoom_out_*` keys, which
+`bbox_centernet` and `bbox_ssd` apply too (with the same meaning; their other keys
+are ignored for those detectors, with a warning when set away from the defaults).
+Applied to training frames before
 `intensity` / `geometric` (set `geometric: null` explicitly for keypoint-derived
 boxes: an omitted section means the default rotation). Defaults are RF-DETR's COCO
 values; scale `shortest_sides` / `crop_range` to your input size (the config
@@ -383,9 +386,10 @@ generator uses the input's short side and 2/3 to 1x of it).
 | `flip_p` | float | `0.5` | Horizontal flip probability |
 | `vflip_p` | float | `0.0` | Vertical flip probability (not in RF-DETR) |
 | `rot90_p` | float | `0.0` | Probability of a 90 degree rotation, either direction (not in RF-DETR); boxes stay exact |
-| `zoom_out_p` | float | `0.0` | Probability of shrinking the fitted frame onto a canvas (animals look smaller). See [Zoom-out](../guides/bbox-detr.md#zoom-out) |
-| `zoom_out_min` / `zoom_out_max` | float | `0.4` / `1.0` | Range of the zoom-out factor (drawn log-uniformly) |
-| `zoom_out_canvas` | str | `zero` | `zero` (black) or `frame` (another training frame, with its boxes) |
+| `zoom_out_p` | float | `0.0` | Probability of zooming out: the training frame, once fitted to the input size, is shrunk by a factor drawn log-uniformly from `[zoom_out_min, zoom_out_max]` and placed at a random offset, so animals appear smaller than in the source. Also `bbox_centernet` / `bbox_ssd` (after the size matcher, `scale` and padding; before `intensity` / `geometric`) |
+| `zoom_out_min` | float | `0.4` | Smallest zoom-out factor |
+| `zoom_out_max` | float | `1.0` | Largest zoom-out factor |
+| `zoom_out_canvas` | str | `zero` | What the shrunk frame is placed on: `zero` (black) or `frame` (another random training frame fitted to the same size, with its boxes; those covered half or more by the shrunk frame are dropped, the rest clipped to outside it). `frame` doubles the boxes a sample can hold |
 | `paste_p` | float | `0.0` | **Experimental.** Probability of pasting animals cut from other training frames (copy-paste). See [Copy-paste](../guides/bbox-detr.md#copy-paste) |
 | `paste_max` / `paste_frames` | int | `6` / `2` | **Experimental.** Most animals pasted per frame / most source frames read per paste |
 | `paste_scale_min` / `paste_scale_max` | float | `0.3` / `1.2` | **Experimental.** Scale range of a pasted animal |

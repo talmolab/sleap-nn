@@ -51,6 +51,7 @@ from sleap_nn.data.instance_centroids import (
 )
 from sleap_nn.data.providers import get_max_height_width
 from sleap_nn.data.node_weights import carry_labeled_nodes
+from sleap_nn.data.providers import clear_legacy_hidden_points
 from sleap_nn.data.utils import embedding_detections
 from sleap_nn.data.custom_datasets import (
     EMBEDDING_MIN_MASK_AREA,
@@ -100,6 +101,11 @@ from sleap_nn.config.training_job_config import verify_training_cfg
 from sleap_nn.config.trainer_config import fixed_length_lr_schedule
 from sleap_nn.training.optim import migrate_encoder_lr_options
 from sleap_nn.training.distillation import attach_distillation
+from sleap_nn.training.coordinate_losses import (
+    check_not_saved_decoded_config,
+    label_node_names,
+    setup_coordinate_losses,
+)
 from sleap_nn.training.callbacks import (
     ProgressReporterZMQ,
     TrainingControllerZMQ,
@@ -620,6 +626,10 @@ class ModelTrainer:
     ):
         """Create train and val labels objects. (Initialize `self.train_labels` and `self.val_labels`)."""
         logger.info(f"Creating train-val split...")
+        # Old-layout files: hidden points' stored coordinates are stale, not
+        # occluded estimates; cleared before anything reads points.
+        for lb in list(labels or []) + list(val_labels or []):
+            clear_legacy_hidden_points(lb)
         total_train_lfs = 0
         total_val_lfs = 0
         # Bounding-box detectors train on boxes only and never read keypoints, so
@@ -983,7 +993,7 @@ class ModelTrainer:
         names = self._val_file_names()
         if names is None:
             return None
-        model_nodes = list(self.skeletons[0].node_names)
+        model_nodes = label_node_names(self.config, self.skeletons)
         file_nodes = OmegaConf.select(
             self.config, "trainer_config.eval.file_nodes", default=None
         )
@@ -2362,44 +2372,35 @@ class ModelTrainer:
     def _setup_schedule_defaults(self):
         """Resolve the early-stopping and plateau defaults against the LR schedule.
 
-        A fixed-length schedule (`FIXED_LENGTH_LR_SCHEDULES`) is planned around
-        the run length, so early stopping left unset (``None``) resolves to off
-        and the default ``reduce_lr_on_plateau`` (never combined with another
-        schedule) is nulled. Otherwise unset early stopping resolves to on, as
-        before. An explicit ``true`` with a fixed schedule is kept, with a warning.
-        The resolved values are written into the config, so the saved
-        ``training_config.yaml`` shows what ran.
+        Early stopping is on under every schedule unless the config turns it off
+        (``None`` is read as on). A fixed-length schedule
+        (`FIXED_LENGTH_LR_SCHEDULES`) is planned around the run length, so early
+        stopping on with one gets a warning that it can end the run first. The
+        resolved value is written into the config, so the saved
+        ``training_config.yaml`` shows what ran. The default
+        ``reduce_lr_on_plateau`` section is left in the config, as in v0.3.5: the
+        scheduler is chosen by priority (``LightningModel.configure_optimizers``),
+        so a fixed-length schedule runs and the plateau section is not used.
         """
         trainer_config = self.config.trainer_config
         fixed = fixed_length_lr_schedule(trainer_config.lr_scheduler)
         es = trainer_config.early_stopping
         if es.stop_training_on_plateau is None:
-            es.stop_training_on_plateau = fixed is None
-            if fixed is not None:
-                logger.info(
-                    f"lr_scheduler.{fixed} runs a fixed-length schedule, so early "
-                    "stopping is off (set early_stopping.stop_training_on_plateau: "
-                    "true to keep it)."
-                )
-        elif es.stop_training_on_plateau and fixed is not None:
-            # Explicit: keep it, but a plateau stop can cut the decay short.
+            es.stop_training_on_plateau = True
+        if es.stop_training_on_plateau and fixed is not None:
+            # A plateau stop can cut the decay short.
             logger.warning(
                 f"lr_scheduler.{fixed} runs a fixed-length schedule but "
                 "early_stopping.stop_training_on_plateau is true (patience="
-                f"{es.patience}); training may stop before the schedule ends."
+                f"{es.patience}); training may stop before the schedule ends. Set "
+                "early_stopping.stop_training_on_plateau: false to run the whole "
+                "schedule."
             )
-        if (
-            fixed is not None
-            and OmegaConf.select(
-                trainer_config, "lr_scheduler.reduce_lr_on_plateau", default=None
-            )
-            is not None
-        ):
-            trainer_config.lr_scheduler.reduce_lr_on_plateau = None
 
     def setup_config(self):
         """Compute config parameters."""
         logger.info("Setting up config...")
+        check_not_saved_decoded_config(self.config)
 
         # Early stopping / plateau defaults follow the LR schedule; the encoder
         # LR knobs move from the backbone config to `trainer_config.optimizer`.
@@ -2539,6 +2540,11 @@ class ModelTrainer:
         # verify input_channels in model_config based on input image and pretrained model weights
         self._verify_model_input_channels()
 
+        # Experimental `trainer_config.coordinate_losses` (drops the key when unset).
+        self.skeletons = setup_coordinate_losses(
+            self.config, self.skeletons, self._initial_config
+        )
+
     def _setup_model_ckpt_dir(self):
         """Create the model ckpt folder and save ground truth labels."""
         ckpt_path = (
@@ -2592,6 +2598,7 @@ class ModelTrainer:
                     if test_path.endswith(".slp") or test_path.endswith(".pkg.slp"):
                         try:
                             test_labels = sio.load_slp(test_path)
+                            clear_legacy_hidden_points(test_labels)
                             # Same GT boxes as training/eval derive (no-op for
                             # non-bbox models), or the bbox filter drops every
                             # frame of a pose/mask test file.
@@ -2624,7 +2631,7 @@ class ModelTrainer:
         """
         if not self.skeletons:
             return None, None, None
-        model_nodes = list(self.skeletons[0].node_names)
+        model_nodes = label_node_names(self.config, self.skeletons)
 
         def own_nodes(labels_list):
             out = []
@@ -2648,8 +2655,8 @@ class ModelTrainer:
         """The W&B prediction gallery, or ``None`` when it is off or unsupported.
 
         On when ``trainer_config.use_wandb`` and ``trainer_config.wandb.gallery``
-        (default ``True``) are both on, for box detectors (``bbox_*``) and
-        ``centered_instance`` models.
+        (default ``True``) are both on, for box detectors (``bbox_*``),
+        ``centered_instance`` and bottom-up models.
         """
         cfg = self.config.trainer_config
         if not cfg.use_wandb or not OmegaConf.select(
@@ -2662,6 +2669,8 @@ class ModelTrainer:
             kind = "bbox"
         elif self.model_type == "centered_instance":
             kind = "keypoints"
+        elif self.model_type in ("bottomup", "multi_class_bottomup"):
+            kind = "instances"
         else:
             logger.info(
                 f"W&B gallery: not available for {self.model_type!r} models; skipped."
@@ -2708,8 +2717,8 @@ class ModelTrainer:
         labs = OmegaConf.to_container(labs) if OmegaConf.is_config(labs) else labs
 
         kwargs = {}
-        if kind == "keypoints" and self.skeletons:
-            model_nodes = list(self.skeletons[0].node_names)
+        if kind in ("keypoints", "instances") and self.skeletons:
+            model_nodes = label_node_names(self.config, self.skeletons)
             train_nodes, val_nodes, _ = self._viz_file_nodes()
             kwargs = dict(
                 train_file_nodes=train_nodes,
@@ -3803,7 +3812,11 @@ class ModelTrainer:
             def first_frames(labels_list, n):
                 subsets = []
                 for labels in labels_list:
-                    inds = [i for i, lf in enumerate(labels) if lf.has_user_instances]
+                    # Frames with a training target for this model type: boxes for
+                    # the box detectors, whose files can hold no pose instance.
+                    inds = [
+                        i for i, lf in enumerate(labels) if self._is_training_frame(lf)
+                    ]
                     subsets.append(
                         labels.extract(
                             (inds or list(range(len(labels))))[:n], copy=False

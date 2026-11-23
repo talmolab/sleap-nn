@@ -802,6 +802,45 @@ def match_detections(
     }
 
 
+def _detector_save_kwargs(
+    slp_version: Optional[str] = None,
+    image_format: Optional[str] = None,
+    image_quality: Optional[int] = None,
+    compression: Optional[str] = None,
+    unlabeled_as: Optional[str] = None,
+    *,
+    embeds_frames: Optional[bool] = None,
+) -> dict:
+    """``save_slp`` keyword arguments for a detector-box file; refuses ``"v2"``.
+
+    Each written box carries its matching score (``metadata["match_iou"]``),
+    which only the SLP 3.0 layout stores; the 2.x layout would drop it.
+    """
+    from sleap_nn.inference.save_options import slp_save_kwargs, validate_save_options
+
+    opts = validate_save_options(
+        slp_version=slp_version,
+        image_format=image_format,
+        image_quality=image_quality,
+        compression=compression,
+        unlabeled_as=unlabeled_as,
+    )
+    if opts["slp_version"] == "v2":
+        raise ValueError(
+            "slp_version 'v2' is not available here: each box keeps its matching "
+            "score as box metadata, which only the SLP 3.0 layout stores. Use "
+            "'v3' or 'auto', or leave slp_version unset."
+        )
+    from sleap_nn.inference.save_options import _save_slp_parameters
+
+    if "slp_version" in _save_slp_parameters():
+        # This file is always SLP 3.0: unset or "auto" (which a sleap-io with its
+        # own layout option could resolve to the old layout, dropping the box
+        # scores) is written as "v3".
+        opts["slp_version"] = "v3"
+    return slp_save_kwargs(**opts, embeds_frames=embeds_frames)
+
+
 def _labels_name(labels_path: Union[str, Path]) -> str:
     name = Path(labels_path).name
     return name[: -len(".slp")] if name.endswith(".slp") else Path(name).stem
@@ -818,6 +857,12 @@ def write_detector_labels(
     source_path: Union[str, Path],
     output_path: Union[str, Path],
     overwrite: bool = False,
+    *,
+    slp_version: Optional[str] = None,
+    image_format: Optional[str] = None,
+    image_quality: Optional[int] = None,
+    compression: Optional[str] = None,
+    unlabeled_as: Optional[str] = None,
 ) -> Path:
     """Save labels with detector boxes, their statistics and the source's ``/human_meta``.
 
@@ -827,15 +872,45 @@ def write_detector_labels(
     (frames keep their order, so its per-frame rows still apply) and writes
     ``stats`` to ``output_path`` with a ``.json`` suffix.
 
+    The file is written in the SLP 3.0 layout, which stores each box's
+    ``metadata``; ``slp_version="v2"`` is refused.
+
+    Args:
+        labels: Labels with the detector boxes.
+        stats: Match statistics.
+        source_path: The input labels file.
+        output_path: The output ``.slp``.
+        overwrite: Replace an existing ``output_path``.
+        slp_version: ``"v3"`` or ``"auto"``; ``"v2"`` raises. ``None`` (the
+            default) passes nothing, so sleap-io's default applies.
+        image_format: Format of embedded frames; frames are not embedded here,
+            so setting it only warns.
+        image_quality: Quality of re-encoded embedded frames; as
+            ``image_format``, it only warns here.
+        compression: ``"gzip"`` or ``"lzf"`` compression of the table columns.
+            ``None`` (the default): uncompressed.
+        unlabeled_as: ``"error"`` or ``"absent"`` (only matters for a 2.x save,
+            so it has no effect here). ``None`` (the default): sleap-io's default.
+
     Returns:
         The stats JSON path.
 
     Raises:
         FileExistsError: If ``output_path`` exists and ``overwrite`` is not set.
         ValueError: If the boxes carry more distinct ``Category`` objects than the
-            labels have categories (a per-box category).
+            labels have categories (a per-box category), or a save option is
+            invalid, ``"v2"`` or not supported by the installed sleap-io.
     """
     import h5py
+
+    save_kwargs = _detector_save_kwargs(
+        slp_version=slp_version,
+        image_format=image_format,
+        image_quality=image_quality,
+        compression=compression,
+        unlabeled_as=unlabeled_as,
+        embeds_frames=False,
+    )
 
     source_path, output_path = Path(source_path), Path(output_path)
     if output_path.resolve() == source_path.resolve():
@@ -852,7 +927,7 @@ def write_detector_labels(
     labels.provenance["detector_boxes"] = stats
     labels.provenance["detector_boxes_source"] = str(source_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    sio.save_slp(labels, str(output_path), embed=False)
+    sio.save_slp(labels, str(output_path), embed=False, **save_kwargs)
     with h5py.File(source_path, "r") as fs, h5py.File(output_path, "a") as fo:
         if "human_meta" in fs and "human_meta" not in fo:
             fs.copy("human_meta", fo)
@@ -885,6 +960,11 @@ def detect_boxes(
     dry_run: bool = False,
     overwrite: bool = False,
     layer_factory: Optional[Callable] = None,
+    slp_version: Optional[str] = None,
+    image_format: Optional[str] = None,
+    image_quality: Optional[int] = None,
+    compression: Optional[str] = None,
+    unlabeled_as: Optional[str] = None,
 ) -> Tuple[dict, Optional[Path]]:
     """Detect (or load) person boxes for a labels file, match them and write the result.
 
@@ -920,10 +1000,32 @@ def detect_boxes(
         overwrite: Replace an existing output.
         layer_factory: ``(model, device, min_score, max_detections) -> BBoxLayer``
             override (tests).
+        slp_version: File layout of the output: ``"v3"`` or ``"auto"``.
+            ``"v2"`` is refused (the 2.x layout cannot store each box's matching
+            score). ``None`` (the default): sleap-io's default (SLP 3.0).
+        image_format: Format of embedded frames; the output embeds none, so
+            setting it only warns.
+        image_quality: Quality of re-encoded embedded frames; as
+            ``image_format``, it only warns here.
+        compression: ``"gzip"`` or ``"lzf"`` compression of the table columns.
+        unlabeled_as: ``"error"`` or ``"absent"``; only matters for a 2.x save.
 
     Returns:
         ``(stats, output path or None for a dry run)``.
+
+    Raises:
+        ValueError: On an invalid argument combination, or a save option that is
+            invalid, ``"v2"`` or not supported by the installed sleap-io
+            (checked before anything is loaded).
     """
+    save_options = dict(
+        slp_version=slp_version,
+        image_format=image_format,
+        image_quality=image_quality,
+        compression=compression,
+        unlabeled_as=unlabeled_as,
+    )
+    _detector_save_kwargs(**save_options)  # fail before the detector runs
     sources = [s is not None for s in (model, detections, detection_chunks)]
     if sum(sources) != 1:
         raise ValueError("Give exactly one of model, detections, detection_chunks.")
@@ -979,6 +1081,8 @@ def detect_boxes(
     stats = {"dataset": _labels_name(labels_path), **stats}
     if dry_run:
         return stats, None
-    write_detector_labels(labels, stats, labels_path, out, overwrite=overwrite)
+    write_detector_labels(
+        labels, stats, labels_path, out, overwrite=overwrite, **save_options
+    )
     logger.info(f"Wrote {out} ({time.time() - t0:.0f}s).")
     return stats, out

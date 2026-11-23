@@ -516,6 +516,36 @@ def test_topdown_predictor_cuda_matches_cpu(minimal_instance):
     np.testing.assert_allclose(cuda_kpts, cpu_kpts, atol=0.01, equal_nan=True)
 
 
+@pytest.mark.skipif(
+    not CENTROID_CKPT.exists() or not CENTERED_CKPT.exists(),
+    reason="top-down checkpoints not present",
+)
+@pytest.mark.parametrize(
+    "precision,dtype", [("bf16", torch.bfloat16), ("fp16", torch.float16)]
+)
+def test_from_model_paths_precision_on_cuda_warns_nothing(precision, dtype):
+    """On CUDA ``precision`` sets both top-down models' autocast dtype, silently."""
+    from loguru import logger
+
+    from sleap_nn.inference.predictor import Predictor, _torch_backends
+
+    messages = []
+    sink = logger.add(messages.append, format="{message}", level="INFO")
+    try:
+        predictor = Predictor.from_model_paths(
+            [str(CENTROID_CKPT), str(CENTERED_CKPT)],
+            device="cuda",
+            precision=precision,
+        )
+    finally:
+        logger.remove(sink)
+    backends = _torch_backends(predictor.layer)
+    assert [b.autocast_dtype for b in backends] == [dtype, dtype]
+    assert not any(f"precision='{precision}'" in m for m in messages)
+    loaded = [m for m in messages if "Loaded inference model" in m]
+    assert f"precision={precision}" in loaded[0]
+
+
 # ─────────────────────────────────────────────────────────────────────────
 # 7. Predictor.upload_batches: numpy batches copied to the GPU first
 # ─────────────────────────────────────────────────────────────────────────

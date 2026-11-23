@@ -624,7 +624,9 @@ class DetrAugmentationConfig:
 
     Applied to training frames (with `use_augmentations_train`) before the
     `intensity` / `geometric` sections, which still apply on top
-    (`sleap_nn.data.detr_augmentation`). Defaults are RF-DETR's.
+    (`sleap_nn.data.detr_augmentation`). Defaults are RF-DETR's. `bbox_centernet`
+    and `bbox_ssd` models apply the `zoom_out_*` keys too (after the size matcher,
+    `scale` and stride padding; same meaning) and ignore the rest.
 
     Attributes:
         crop_p: (float) Probability of the resize + crop branch: the shortest side
@@ -722,7 +724,8 @@ class AugmentationConfig:
         stage2: (AugmentationStage2Config) Optional second augmentation stage
             (`crop_pipeline="warp"` only). *Default*: `None`.
         detr: (DetrAugmentationConfig) RF-DETR's resize/crop/flip and per-batch
-            multi-scale (`bbox_detr` only). *Default*: `None`.
+            multi-scale (`bbox_detr` only; its `zoom_out_*` keys also apply to
+            `bbox_centernet` and `bbox_ssd`). *Default*: `None`.
     """
 
     intensity: Optional[IntensityConfig] = None

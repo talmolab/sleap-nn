@@ -24,6 +24,7 @@ from sleap_nn.data.custom_datasets import (
     SampleTable,
     get_train_val_dataloaders,
 )
+from sleap_nn.data.normalization import convert_to_grayscale, convert_to_rgb
 from sleap_nn.data.topdown_warp import BalancedBatchSampler, BalancedDataLoader
 
 
@@ -483,7 +484,7 @@ def test_train_pretrained_backbone_with_mixing(config, minimal_instance, tmp_pat
 # Zoom-out onto another training frame
 # --------------------------------------------------------------------------- #
 def test_zoom_out_on_frame_keeps_both_frames_boxes(tmp_path):
-    """A frame shrunk onto another frame keeps the canvas mice that stay visible, so a
+    """A frame shrunk onto another frame keeps the canvas boxes that stay visible, so a
     sample can hold more boxes than any one frame; the dataset pads for that instead of
     failing in the target encoder ("boxes exceed max_targets")."""
     corners = [
@@ -513,7 +514,7 @@ def test_zoom_out_on_frame_keeps_both_frames_boxes(tmp_path):
         s = ds[0]
         counts.append(int(s["num_instances"]))
         assert s["bboxes"].shape == (8, 4)
-    # 4 pasted mice + the canvas corner mice the small paste does not cover (>= 3).
+    # 4 pasted boxes + the canvas corner boxes the small paste does not cover (>= 3).
     assert max(counts) > 4 and min(counts) >= 7
     # Off by default: the frame limit stays the largest per-frame count.
     plain = _detr_dataset(
@@ -642,3 +643,118 @@ def test_paste_off_by_default_and_in_validation(tmp_path):
     torch.manual_seed(0)
     b = zero[0]
     assert torch.equal(a["image"], b["image"]) and torch.equal(a["bboxes"], b["bboxes"])
+
+
+# Reference: the DETR-only zoom-out onto a frame, before it was shared.
+def _reference_zoom_out_on_frame(self, image, boxes, classes, zoom_range):
+    """``DetrBBoxDataset._zoom_out_on_frame`` as it was before the box detectors
+    shared it: the canvas frame is fitted to ``self.train_hw`` / ``self.resize_mode``.
+    """
+    import math
+
+    from sleap_nn.data.detr_augmentation import resize_frame, zoom_out
+
+    # Canvas: a uniformly drawn labels file, then a uniform frame of it (a frame-uniform
+    # draw would make the largest set nearly every background).
+    if getattr(self, "_by_file", None) is None:
+        lid = np.asarray(self.labels_idx)
+        self._by_file = [np.flatnonzero(lid == u) for u in np.unique(lid)]
+    grp = self._by_file[int(torch.randint(len(self._by_file), ()))]
+    j = int(grp[int(torch.randint(len(grp), ()))])
+    s2 = self.lf_idx_list[j]
+    img2, dscale = self._read_frame(s2)
+    bg = torch.from_numpy(np.transpose(img2, (2, 0, 1))[None].copy())
+    if self.ensure_rgb:
+        bg = convert_to_rgb(bg)
+    elif self.ensure_grayscale:
+        bg = convert_to_grayscale(bg)
+    if bg.shape[-3] != image.shape[-3]:
+        bg = bg.expand(*bg.shape[:-3], image.shape[-3], *bg.shape[-2:]).clone()
+    xyxy2 = s2["bboxes"].astype(np.float32)
+    if dscale is not None:
+        sx, sy = dscale
+        xyxy2 = xyxy2 * np.asarray([sx, sy, sx, sy], dtype=np.float32)
+    b2 = torch.from_numpy(xyxy2).reshape(-1, 4)
+    bg, b2, _ = resize_frame(bg, b2, self.train_hw, self.resize_mode)
+    bg = bg.to(image.dtype)
+    c2 = torch.from_numpy(s2["bbox_classes"]).long()
+    lo, hi = (math.log(float(v)) for v in zoom_range)
+    f = math.exp(lo + (hi - lo) * float(torch.rand(())))
+    off = (float(torch.rand(())), float(torch.rand(())))
+    small, b1 = zoom_out(image, boxes, f, off)
+    H, W = image.shape[-2:]
+    h, w = max(1, int(round(H * f))), max(1, int(round(W * f)))
+    oy, ox = int(round(off[0] * (H - h))), int(round(off[1] * (W - w)))
+    out = bg.clone()
+    out[..., oy : oy + h, ox : ox + w] = small[..., oy : oy + h, ox : ox + w]
+    keep_b, keep_c = [], []
+    for bb, cc in zip(b2, c2):
+        x1, y1, x2, y2 = [float(v) for v in bb]
+        area = max(0.0, x2 - x1) * max(0.0, y2 - y1)
+        if area <= 0:
+            continue
+        ix = max(0.0, min(x2, ox + w) - max(x1, ox))
+        iy = max(0.0, min(y2, oy + h) - max(y1, oy))
+        if ix * iy >= 0.5 * area:
+            continue
+        if ix * iy > 0:  # clip to the visible side when it is a full strip
+            if y1 >= oy and y2 <= oy + h:
+                x1, x2 = (x1, ox) if x1 < ox else (ox + w, x2)
+            elif x1 >= ox and x2 <= ox + w:
+                y1, y2 = (y1, oy) if y1 < oy else (oy + h, y2)
+        keep_b.append([x1, y1, x2, y2])
+        keep_c.append(int(cc))
+    if keep_b:
+        boxes = torch.cat([b1, torch.tensor(keep_b, dtype=b1.dtype)], 0)
+        classes = torch.cat([classes, torch.tensor(keep_c, dtype=classes.dtype)], 0)
+    else:
+        boxes = b1
+    return out, boxes, classes
+
+
+def test_zoom_out_on_frame_matches_the_detr_only_version(tmp_path):
+    """bbox_detr samples (zoom-out onto another frame, with and without copy-paste,
+    letterbox and squash) are those of the earlier DETR-only zoom-out."""
+    import types
+
+    from sleap_nn.config.data_config import DetrAugmentationConfig
+
+    files = [
+        _image_labels(tmp_path, f"r{i}", hw, [(8, 8, 60, 50), (100, 90, 150, 140)], i)
+        for i, hw in enumerate([(160, 200), (200, 160)])
+    ]
+    for mode in ("letterbox", "squash"):
+        for paste in (0.0, 0.5):
+            aug = OmegaConf.structured(
+                DetrAugmentationConfig(
+                    crop_p=0.5,
+                    shortest_sides=[160],
+                    crop_range=[96, 160],
+                    zoom_out_p=0.8,
+                    zoom_out_canvas="frame",
+                    paste_p=paste,
+                )
+            )
+            kw = dict(
+                labels=files,
+                target_encoder=SetTargetEncoder(),
+                categories=["person"],
+                max_stride=32,
+                ensure_rgb=True,
+                max_hw=(128, 160),
+                apply_aug=True,
+                resize_mode=mode,
+                detr_aug=aug,
+            )
+            new, ref = DetrBBoxDataset(**kw), DetrBBoxDataset(**kw)
+            ref._zoom_out_on_frame = types.MethodType(_reference_zoom_out_on_frame, ref)
+            for seed in range(6):
+                torch.manual_seed(seed)
+                a = new[seed % 2]
+                torch.manual_seed(seed)
+                b = ref[seed % 2]
+                for key, value in a.items():
+                    if torch.is_tensor(value):
+                        assert torch.equal(value.nan_to_num(-7), b[key].nan_to_num(-7))
+                    else:
+                        assert value == b[key]

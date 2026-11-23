@@ -522,7 +522,9 @@ class PretrainedBackbone(FreezableEncoderMixin, nn.Module):
             count from the last block). ``None`` taps 4 evenly spaced layers ending
             at the last one for ``vit_neck="dpt"`` and ``mode="tokens"`` (blocks
             3, 6, 9, 12 of a 12-block ViT), and the last layer for ``"sfp"`` /
-            encoder mode.
+            encoder mode. ``"dpt"`` takes one tap per built pyramid level, or 4
+            (one per level of the full pyramid) when ``output_stride`` leaves the
+            finer levels out: their (shallowest) taps are then dropped.
         vit_neck: How a plain ViT's single-stride maps become a pyramid (Case C):
             ``"dpt"`` (one tapped layer per level, the default) or ``"sfp"``
             (ViTDet Simple Feature Pyramid from the last tapped layer).
@@ -1018,7 +1020,7 @@ class PretrainedBackbone(FreezableEncoderMixin, nn.Module):
                 logger.error(message)
                 raise ValueError(message)
             resolved.append(idx)
-        self.layers = sorted(resolved)
+        self.layers = self._dpt_level_taps(sorted(resolved), direct)
 
         if self.is_timm:
             pass  # built in __init__ (needed to tell ViTs from hierarchical models)
@@ -1168,6 +1170,50 @@ class PretrainedBackbone(FreezableEncoderMixin, nn.Module):
             if was_training:
                 self.enc.train()
         return ran == list(range(last)) and len(hidden_states) == last + 1
+
+    def _dpt_level_taps(self, layers: List[int], direct: bool) -> List[int]:
+        """The ``"dpt"`` neck's taps: one per built pyramid level, shallowest first.
+
+        The full pyramid has 4 levels (token-grid scales x4, x2, x1, x0.5, fed by
+        the taps shallowest to deepest); the levels finer than ``output_stride``
+        are not built. Given one tap per full-pyramid level (e.g. ``[3, 6, 9,
+        12]``, the taps ``mode="tokens"`` uses by default) but fewer built levels,
+        each built level keeps the tap it has in the full pyramid: the shallowest
+        taps, those of the levels left out, are dropped. Any other count that is
+        not one per built level is an error.
+
+        Args:
+            layers: The resolved, sorted 1-indexed taps.
+            direct: The ViT feeds a direct decoder (no pyramid neck).
+
+        Returns:
+            The taps to use.
+        """
+        n_levels = len(self._neck_scales)
+        dpt = self.mode == "decoder" and self.vit_neck == "dpt" and not direct
+        if not dpt or n_levels < 2 or len(layers) == n_levels:
+            return layers
+        if len(layers) == len(PYRAMID_SCALES) > n_levels:
+            kept = layers[len(layers) - n_levels :]
+            logger.info(
+                f"vit_neck='dpt': output_stride={self.output_stride} builds "
+                f"{n_levels} of the {len(PYRAMID_SCALES)} pyramid levels, so the "
+                f"taps {layers} feed them as {kept} (the taps of the finer levels "
+                "left out are dropped)."
+            )
+            return kept
+        default = _default_layers(self.num_layers, n_levels)
+        message = (
+            f"layers={layers}: vit_neck='dpt' taps one layer per pyramid level. "
+            f"At output_stride={self.output_stride}, '{self.model_name}' builds "
+            f"{n_levels} levels (strides "
+            f"{[int(self.token_stride / sc) for sc in self._neck_scales]}), so give "
+            f"{n_levels} taps (e.g. {default}), {len(PYRAMID_SCALES)} taps (one per "
+            "level of the full pyramid; the shallowest are dropped), or leave "
+            "`layers` unset."
+        )
+        logger.error(message)
+        raise ValueError(message)
 
     def _build_vit_neck(
         self, neck_channels: Optional[List[int]], max_stride: int

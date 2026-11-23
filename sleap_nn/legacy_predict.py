@@ -126,6 +126,11 @@ def run_inference(
     tracking_clean_instance_count: int = 0,
     tracking_clean_iou_threshold: float = 0,
     gui: bool = False,
+    slp_version: Optional[str] = None,
+    image_format: Optional[str] = None,
+    image_quality: Optional[int] = None,
+    compression: Optional[str] = None,
+    unlabeled_as: Optional[str] = None,
 ):
     """Entry point to run inference on trained SLEAP-NN models.
 
@@ -305,6 +310,17 @@ def run_inference(
         tracking_clean_iou_threshold: IOU to use when culling instances *after* tracking. (default: 0)
         gui: (bool) If True, outputs JSON progress lines for GUI integration instead
                 of Rich progress bars. Default: False.
+        slp_version: (str) File layout of the saved `.slp`: "v2" (SLP 2.x, read by
+                older sleap-io and SLEAP releases), "v3" (SLP 3.0) or "auto". Default:
+                None (sleap-io's default).
+        image_format: (str) Format of embedded frames. This path embeds no frames, so
+                setting it only warns. Default: None.
+        image_quality: (int) Quality of re-encoded embedded frames; as `image_format`,
+                it only warns here. Default: None.
+        compression: (str) "gzip" or "lzf" compression of the table columns.
+                Default: None (uncompressed).
+        unlabeled_as: (str) "error" or "absent": what a "v2" save does with points
+                that are not labeled. Default: None (sleap-io's default).
 
     Returns:
         Returns `sio.Labels` object if `make_labels` is True. Else this function returns
@@ -339,6 +355,17 @@ def run_inference(
         DeprecationWarning,
         stacklevel=2,
     )
+
+    from sleap_nn.inference.save_options import slp_save_kwargs
+
+    save_options = dict(
+        slp_version=slp_version,
+        image_format=image_format,
+        image_quality=image_quality,
+        compression=compression,
+        unlabeled_as=unlabeled_as,
+    )
+    slp_save_kwargs(**save_options)  # fail before inference, not at the save
 
     preprocess_config = {  # if not given, then use from training config
         "ensure_rgb": ensure_rgb,
@@ -1061,7 +1088,13 @@ def run_inference(
                 )
             else:
                 output_path = base_path.with_suffix(".predictions.slp")
-        output.save(Path(output_path).as_posix(), restore_original_videos=False)
+        from sleap_nn.inference.save_options import explain_unlabeled_points
+
+        extra = slp_save_kwargs(**save_options, embeds_frames=False)
+        with explain_unlabeled_points():
+            output.save(
+                Path(output_path).as_posix(), restore_original_videos=False, **extra
+            )
     finish_timestamp = str(datetime.now())
     logger.info(f"Predictions output path: {output_path}")
     logger.info(f"Saved file at: {finish_timestamp}")
