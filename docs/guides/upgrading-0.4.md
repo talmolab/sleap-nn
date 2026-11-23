@@ -81,6 +81,19 @@ otherwise.
   or with `--stream-to-file`, is ignored; `sleap-nn predict` now says so and points
   to `--video_index N`, where both combine. The frames that run are
   unchanged.
+- **Rescoring is off unless asked for, also with `--boxes`.** `sleap-nn predict
+  --boxes ...` keeps each instance's box score (1 with `--boxes gt`), as Python's
+  `predict(..., boxes=...)` does; `--rescore` gives the COCO/mmpose instance scores
+  (stage-1 score times the mean of keypoint scores above `--rescore_threshold`,
+  default 0.2) that development builds of 0.4 gave by default (0.3.5 had no
+  `--boxes`). A `--rescore_threshold` given without `--rescore` only logs a warning.
+- **A lone exported box detector takes `--peak_threshold` and `--bbox_nms_iou`.**
+  `sleap-nn predict -m <exported detector>` (ONNX or TensorRT, without a pose model)
+  now cuts its boxes at a typed `--peak_threshold` and suppresses overlaps at a typed
+  `--bbox_nms_iou` (Python: `predict(export_dir=..., bbox_nms_iou=...)`); it used to
+  keep the threshold stored at export and the detector style's default suppression,
+  as it still does when the flags are not given. Old behaviour: leave the two flags
+  out.
 - **Hidden points of old files are not used as boxes.** Boxes from labelled keypoints
   (`--boxes gt`, or a box-scaled crop model given alone) ignore the stored coordinates
   of hidden points in files older than format 3.0, as 0.3.5 did (see Training below).

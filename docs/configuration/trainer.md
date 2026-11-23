@@ -716,7 +716,7 @@ trainer_config:
 | `counts` | list of int | `null` | Samples per file per batch (sum = per-GPU batch size) |
 | `weights` | list of float | `null` | Relative share per file (equal when both are `null`) |
 | `per_sample` | bool | `false` | Draw each sample's file with probability `weights` instead of fixed per-batch counts |
-| `overlap_weight` | float | `1.0` | `bbox_*` with `per_sample`: frames whose labelled boxes overlap by at least `overlap_min` of the smaller box are drawn this many times as often within their file |
+| `overlap_weight` | float | `1.0` | **Experimental**, `bbox_*` with `per_sample`: frames whose labelled boxes overlap by at least `overlap_min` of the smaller box are drawn this many times as often within their file |
 | `overlap_min` | float | `0.25` | Overlap that makes a frame count for `overlap_weight` |
 | `frame_weight_key` | str | `null` | **Experimental**, `bbox_*` with `per_sample`: each training frame's relative sampling weight within its file, read from `LabeledFrame.metadata[frame_weight_key]` (a number >= 0; frames without the key weigh 1). File shares are unchanged; multiplies with `overlap_weight` |
 
