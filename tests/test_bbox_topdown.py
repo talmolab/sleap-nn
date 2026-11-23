@@ -1119,14 +1119,86 @@ def test_lone_exported_detector_takes_the_thresholds(
     )
 
     # A typed suppression threshold. 1.0 disables it (as CenterNet's default does); a
-    # low one keeps the best box and only boxes the unsuppressed run also has.
+    # low one keeps the best box and only boxes the unsuppressed run also has. Whether
+    # it removes any of this toy detector's boxes depends on what it learned (its boxes
+    # may not overlap), so suppression itself is checked on built outputs below
+    # (`test_lone_exported_detector_suppresses_overlapping_boxes`).
     nms_off = run("nms_off", "--peak_threshold", "0.0", "--bbox_nms_iou", "1.0")
     assert flat(nms_off) == pytest.approx(flat(everything))
     suppressed = run("nms", "--peak_threshold", "0.0", "--bbox_nms_iou", "0.05")
-    assert 0 < len(suppressed) < len(everything)
+    assert 0 < len(suppressed) <= len(everything)
     assert flat(suppressed[:1]) == pytest.approx(flat(everything[:1]))
     for box in suppressed:
         assert any(flat([box]) == pytest.approx(flat([other])) for other in everything)
+
+
+# Scores of the three boxes `_use_overlapping_detector_outputs` builds: the first two
+# overlap (IoU 0.5), the third overlaps neither.
+_BUILT_SCORES = (0.9, 0.6, 0.4)
+
+
+def _use_overlapping_detector_outputs(monkeypatch):
+    """Feed a lone exported CenterNet detector's decoder three built boxes.
+
+    The exported graph still runs; only its head outputs are replaced, before the
+    detector's own decoder (score threshold, IoU suppression) and the coordinate
+    mapping, so the thresholds are applied by the code under test to boxes whose
+    overlap is fixed by construction rather than learned.
+    """
+    from sleap_nn.inference.layers.bbox import ExportedBBoxLayer
+
+    postprocess = ExportedBBoxLayer.postprocess
+
+    def built(self, raw_out, info):
+        assert self.decoder.model_type == "bbox_centernet"
+        heat = torch.zeros_like(raw_out["BBoxCenterHead"])
+        size = torch.zeros_like(raw_out["BBoxSizeHead"])
+        _, _, h, w = heat.shape
+        # Room for the three boxes inside the grid (this fixture's frames are not
+        # letterboxed, so none reaches into padding and gets clipped).
+        assert h >= 16 and w >= 32, (h, w)
+        y = h // 2
+        # Two 6x6-cell boxes 2 cells apart (IoU 24 / 48 = 0.5), as separate peaks of
+        # the 3x3 peak NMS; a third one far from both.
+        for x, score in zip((w // 4, w // 4 + 2, 3 * w // 4), _BUILT_SCORES):
+            heat[:, 0, y, x] = score
+            size[:, :, y, x] = 6.0
+        out = dict(raw_out, BBoxCenterHead=heat, BBoxSizeHead=size)
+        if out.get("BBoxOffsetHead") is not None:
+            out["BBoxOffsetHead"] = torch.zeros_like(out["BBoxOffsetHead"])
+        return postprocess(self, out, info)
+
+    monkeypatch.setattr(ExportedBBoxLayer, "postprocess", built)
+
+
+@pytest.fixture
+def overlapping_detector_outputs(monkeypatch):
+    """:func:`_use_overlapping_detector_outputs` for one test."""
+    _use_overlapping_detector_outputs(monkeypatch)
+
+
+def test_lone_exported_detector_suppresses_overlapping_boxes(
+    lone_det_export, minimal_instance, tmp_path, overlapping_detector_outputs
+):
+    """A typed --bbox_nms_iou suppresses a lone exported detector's overlapping boxes."""
+
+    def scores(name, *extra):
+        boxes = _lone_detector_boxes(
+            lone_det_export, minimal_instance, tmp_path / f"{name}.slp", *extra
+        )
+        return [s for s, _ in boxes]
+
+    high, low, apart = _BUILT_SCORES
+    # CenterNet's default: no suppression.
+    assert scores("default") == pytest.approx([high, low, apart])
+    assert scores("off", "--bbox_nms_iou", "1.0") == pytest.approx([high, low, apart])
+    # Below the pair's IoU (0.5) the weaker of the two goes; above it both stay.
+    assert scores("low", "--bbox_nms_iou", "0.3") == pytest.approx([high, apart])
+    assert scores("high", "--bbox_nms_iou", "0.7") == pytest.approx([high, low, apart])
+    # The score threshold applies as well.
+    assert scores("both", "--peak_threshold", "0.5", "--bbox_nms_iou", "0.3") == (
+        pytest.approx([high])
+    )
 
 
 def _lone_detector_decoder(monkeypatch, det, data, out, *flags):
@@ -1200,7 +1272,7 @@ def test_lone_exported_ssd_detector_suppression(
 
 
 def test_lone_exported_detector_thresholds_from_python(
-    lone_det_export, minimal_instance
+    lone_det_export, minimal_instance, monkeypatch
 ):
     """The Python calls take the same two thresholds for a lone exported detector."""
     from sleap_nn.inference.predictor import Predictor
@@ -1219,17 +1291,26 @@ def test_lone_exported_detector_thresholds_from_python(
     assert p.layer.decoder.score_threshold == pytest.approx(0.5)
     assert p.layer.decoder.iou_threshold == pytest.approx(0.123)
 
-    def n_boxes(**kwargs):
+    def n_boxes(peak_threshold=0.0, **kwargs):
         labels = predict(
             str(minimal_instance),
             export_dir=str(lone_det_export),
             device="cpu",
-            peak_threshold=0.0,
+            peak_threshold=peak_threshold,
             **kwargs,
         )
         return sum(len(lf.bboxes) for lf in labels)
 
-    assert 0 < n_boxes(bbox_nms_iou=0.05) < n_boxes()
+    # On the trained detector, a smoke check only: whether a low IoU threshold
+    # removes a box depends on what the toy detector learned.
+    assert 0 < n_boxes(bbox_nms_iou=0.05) <= n_boxes()
+    # On built outputs (scores 0.9, 0.6, 0.4; the first two overlap with IoU 0.5),
+    # both thresholds reach `predict`'s decoder.
+    _use_overlapping_detector_outputs(monkeypatch)
+    assert n_boxes() == 3
+    assert n_boxes(bbox_nms_iou=0.3) == 2
+    assert n_boxes(peak_threshold=0.5) == 2
+    assert n_boxes(peak_threshold=0.5, bbox_nms_iou=0.3) == 1
 
 
 def test_lone_network_only_export_runs_as_its_checkpoint(
