@@ -256,10 +256,47 @@ otherwise.
 - **Multi-class bottom-up engines on TensorRT 10 build fp32** when fp16 or bf16 is
   asked for, with a warning, because their reduced-precision engines do not reproduce
   the fp32 graph. Old behaviour: `--force-precision`.
-- **Single-instance models with an input scale other than 1** now build TensorRT
-  engines. Their ONNX graph resizes each frame to its own scaled size, as checkpoint
-  inference does, with an antialiased resize that matches torch's (0.3.5's graph
-  resized every frame to the traced size). For scales such as 0.7 the size can be one
-  pixel larger than `int(size * scale)`, with a warning at export.
+- **Models with an input scale other than 1 resize as checkpoint inference does.**
+  The exported graph of a single-instance, centroid, centered-instance, bottom-up,
+  multi-class or top-down model resizes each frame, and each top-down crop, to its own
+  scaled size with an antialiased resize that matches torch's. 0.3.5's graphs resized
+  every frame to the size traced at export, and all but the single-instance graphs did
+  so without antialiasing, so frames of other sizes gave wrong coordinates.
+  Re-exported models give different outputs from earlier exports, also at the frame
+  size they were exported at; at the training frame size they match checkpoint
+  inference up to rounding (checkpoint inference resizes whole grey levels).
+  Single-instance models with such a scale now also build TensorRT engines. The
+  resize costs time: about 2–7% with TensorRT fp16 on the GPU and 4–20% on the CPU
+  for typical models, more for very small ones. For scales such as 0.7 the size can be
+  one pixel larger than `int(size * scale)`, with a warning at export. Models with an
+  input scale of 1 get no resize, as before; box detectors scale on the host and
+  `--network-only` graphs take crops already resized, so neither changes here.
+  Existing export folders are not changed; to keep their outputs, do not re-export.
+- **UNet, ConvNeXt, SwinT and `pretrained`-backbone graphs pad to the max stride.**
+  The exported graph zero-pads the network input (the frame or crop after the input
+  scale) at the bottom and right to a multiple of the backbone's `max_stride`, as
+  checkpoint inference does, instead of fixing its padding at the size it was traced
+  at. Such graphs now run at frame sizes that need other padding than the traced size
+  (they usually failed there in a decoder `Concat`), and there their confidence maps
+  and PAFs equal the checkpoint network's on the same input. (Checkpoint inference
+  first fits each frame to the training `max_height` x `max_width`, which exported
+  graphs do not, so at other frame sizes the two still differ.) Apart from the resize
+  change above, a graph whose network input at the traced size is a multiple of
+  `max_stride` gives identical outputs wherever the network input is a multiple. A
+  graph whose traced network input is not a multiple changes at every size, the
+  traced one included: it now computes what checkpoint inference computes on that
+  input, and its confidence maps grow to the padded size (for example from 540 to 544
+  rows for 1080-row frames at an input scale of 0.5). `sleap-nn export` traces frame
+  models and top-down bundles at `--input-height` / `--input-width` (default: the
+  training `max_height` x `max_width`) and crop models at the crop size; multiply by
+  the input scale to see which case yours is (`--network-only` graphs are always
+  traced at a multiple). The pad's measured cost is within run-to-run noise on ONNX
+  Runtime and on fixed-shape TensorRT engines (engines with a dynamic profile were not
+  timed). Embedding and `bbox_detr` graphs are not padded. Still not working: a
+  `pretrained` CNN encoder at `output_stride: 2` (that backbone's default) cannot be
+  exported (the trace fails in the decoder; checkpoint inference works), and top-down
+  bundles still size their crops for the frame size they were traced at (see
+  [Limitations](export.md#limitations)). Existing export folders are not changed; to
+  keep their outputs, do not re-export.
 - **`--runtime tensorrt --device cuda:N`** is accepted (it was refused); `cuda` and
   `auto` bind the engine to the device that is current when it is loaded.
