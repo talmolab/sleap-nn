@@ -72,9 +72,9 @@ class TorchBackend:
         autocast_dtype: Run the forward under ``torch.autocast`` with this
             dtype (``torch.bfloat16`` or ``torch.float16``; CUDA only, outputs
             cast back to fp32). Takes precedence over ``use_fp16``. Set by
-            ``Predictor.from_model_paths(precision=...)``; no warning is
-            emitted, as the caller asked for it (e.g. a model trained under
-            ``bf16-mixed`` predicting as it was validated).
+            ``Predictor.from_model_paths(precision=...)``, which warns when it
+            has no effect (off CUDA, exported models); the backend itself
+            emits no warning.
         memory_format: ``"contiguous"`` (default, channels-first) or
             ``"channels_last"``: the memory layout of the model's weights.
             cuDNN's fast convolution kernels on NVIDIA GPUs want the

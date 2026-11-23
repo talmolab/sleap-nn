@@ -142,6 +142,27 @@ def _post_train_predict_settings(config: DictConfig, model_type: str) -> dict:
     return {"batch_size": int(batch_size), "precision": str(precision)}
 
 
+def _post_train_precision_on_device(
+    config: DictConfig, precision: str, device: Any
+) -> str:
+    """``precision`` to pass to the post-training predictions on ``device``.
+
+    Autocast runs on CUDA only, and `predict` warns when a precision other than
+    ``"32"`` is asked for elsewhere. A precision that merely follows
+    ``trainer_config.precision`` was not asked for, so off CUDA it is passed as
+    ``"32"`` (the same fp32 predictions, without the warning). One set in
+    ``trainer_config.eval.post_train_precision`` is passed on as it is.
+    """
+    import torch
+
+    asked = OmegaConf.select(
+        config, "trainer_config.eval.post_train_precision", default=None
+    )
+    if asked is None and torch.device(str(device)).type != "cuda":
+        return "32"
+    return precision
+
+
 def _post_train_progress(d_name: str, interval: float = 60.0):
     """A ``predict`` progress callback that logs frames, rate and ETA.
 
@@ -805,6 +826,11 @@ def run_training(
                 f"Post-training eval of {list(data_paths)} | "
                 f"batch_size={predict_settings['batch_size']} | "
                 f"precision={predict_settings['precision']}"
+            )
+            predict_settings["precision"] = _post_train_precision_on_device(
+                trainer.config,
+                predict_settings["precision"],
+                trainer.trainer.strategy.root_device,
             )
             # TF32 matmuls (`float32_matmul_precision`) for the predictions too,
             # as during `fit`; restored after the eval.
