@@ -95,6 +95,17 @@ jobs:
       # CLI subprocesses it spawns inherit it (honored in sleap_nn/__init__.py).
       # No-op on ubuntu/windows (no MPS).
       SLEAP_NN_DISABLE_MPS: "1"
+      # Windows only: keep oneDNN (PyTorch's CPU conv/matmul library) off its
+      # AMX kernels. Some windows-2025 runners (Xeon 8573C, Emerald Rapids)
+      # advertise AMX in CPUID leaf 7 and XCR0 but report no tile palette in
+      # leaf 0x1D. oneDNN's AMX conv kernels check the palette and decline,
+      # but its AMX matmul and strided-deconvolution kernels do not, so a CPU
+      # bf16 Linear or ConvTranspose executes a tile instruction the VM
+      # rejects and the test process dies with 0xc000001d (illegal
+      # instruction). See actions/runner-images#14483 and
+      # uxlfoundation/oneDNN#5689; remove this once the runner issue is fixed.
+      # The cap still runs the AVX-512 bf16 kernels; "DEFAULT" means no cap.
+      ONEDNN_MAX_CPU_ISA: ${{ matrix.os == 'windows' && 'AVX512_CORE_BF16' || 'DEFAULT' }}
     strategy:
       fail-fast: false
       matrix:
@@ -165,6 +176,25 @@ jobs:
           else:
               print('CUDA is not available')
           " || echo "CUDA check failed"
+          echo "=== CPU ==="
+          uv run --frozen --no-group gpu --extra torch-cpu python -c "
+          import os, platform, subprocess, sys, torch
+          name = platform.processor()
+          if os.name == 'nt':
+              import winreg
+              key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r'HARDWARE\DESCRIPTION\System\CentralProcessor\0')
+              name = winreg.QueryValueEx(key, 'ProcessorNameString')[0].strip()
+          elif os.path.exists('/proc/cpuinfo'):
+              lines = [l for l in open('/proc/cpuinfo') if l.startswith('model name')]
+              name = lines[0].split(':', 1)[1].strip() if lines else name
+          print('CPU:', name, '/', platform.processor())
+          print('ATen CPU capability:', torch.backends.cpu.get_cpu_capability())
+          print('ONEDNN_MAX_CPU_ISA:', os.environ.get('ONEDNN_MAX_CPU_ISA', '(unset)'))
+          print('AMX tile advertised (CPUID 7 and XCR0):', torch._C._cpu._is_amx_tile_supported())
+          code = 'import torch; torch.nn.functional.linear(torch.ones(8, 64, dtype=torch.bfloat16), torch.ones(64, 64, dtype=torch.bfloat16))'
+          out = subprocess.run([sys.executable, '-c', code], env=dict(os.environ, ONEDNN_VERBOSE='1'), capture_output=True, text=True).stdout
+          print('oneDNN ISA in use:', next((l.split(',isa:')[1] for l in out.splitlines() if ',isa:' in l), 'not printed'))
+          " || echo "CPU check failed"
           echo "=== Import Test ==="
           uv run --frozen --no-group gpu --extra torch-cpu python -c "import torch; import lightning; import skia; print('All imports successful')" || echo "Import test failed"
 
