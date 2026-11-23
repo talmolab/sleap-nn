@@ -201,7 +201,12 @@ def test_stream_to_file_route(tmp_path):
                 + cli_args,
             )
         assert result.exit_code == 0, result.output
-        return predictor.predict_to_file.call_args.kwargs
+        call = predictor.predict_to_file.call_args
+        # Close the video the CLI opened for the provider it handed to the mock: the
+        # mock's recorded call would otherwise keep the reader, and its FFmpeg
+        # decoder threads, alive as garbage until a later full collection.
+        call.args[0]._sio_video.close()
+        return call.kwargs
 
     assert _set_keys(_stream([])) == set()
     kw = _stream(SET)
