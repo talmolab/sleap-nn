@@ -44,10 +44,39 @@ import torch.nn as nn
 # ──────────────────────────────────────────────────────────────────────────
 
 
+def _contiguous_strides(shape: torch.Size) -> Tuple[int, ...]:
+    """Strides of a freshly allocated contiguous tensor of ``shape``."""
+    strides = []
+    step = 1
+    for size in reversed(shape):
+        strides.append(step)
+        step *= max(size, 1)
+    return tuple(reversed(strides))
+
+
 def _on_set_memory_format(backend: "TorchBackend", attribute: Any, value: str) -> str:
     """``on_setattr`` hook: convert the model when ``memory_format`` changes."""
     if value != backend.memory_format:
         backend._apply_memory_format(value)
+    return value
+
+
+def _on_set_compile(backend: "TorchBackend", attribute: Any, value: Any) -> Any:
+    """``on_setattr`` hook: (re)compile or drop the compiled model.
+
+    Runs for ``use_compile`` and ``compile_mode``, so either can be changed
+    after construction (e.g. ``predictor.layer.backend.use_compile = True``).
+    """
+    use_compile = value if attribute.name == "use_compile" else backend.use_compile
+    mode = value if attribute.name == "compile_mode" else backend.compile_mode
+    if use_compile and backend.device == "mps":
+        warnings.warn("torch.compile is unreliable on MPS; disabling.", stacklevel=3)
+        use_compile = False
+        if attribute.name == "use_compile":
+            value = False
+    if use_compile and not backend.use_compile and "cuda" in backend.device:
+        backend._warn_compile_numerics()
+    backend._compile(mode if use_compile else None)
     return value
 
 
@@ -60,9 +89,16 @@ class TorchBackend:
             (``SingleInstanceLightningModule`` etc.) but any callable
             ``nn.Module`` works.
         device: ``"cpu"``, ``"cuda"``, ``"cuda:N"``, or ``"mps"``.
-        use_compile: Wrap the model in ``torch.compile``. CUDA-only.
-            Emits a numeric-drift warning.
-        compile_mode: Forwarded to ``torch.compile`` when enabled.
+        use_compile: Wrap the model in ``torch.compile`` (not on MPS). Emits a
+            numeric-drift warning on CUDA. The model is compiled for fixed
+            input shapes, so while it is compiled every batch is padded with
+            zeros to the largest batch size seen so far (or reserved with
+            :meth:`reserve_batch`) and the outputs are cut back to the real
+            batch: a smaller batch (a video's last one, or fewer top-down
+            crops) reuses the compiled model instead of compiling it again.
+            Can also be set after construction.
+        compile_mode: Forwarded to ``torch.compile`` when enabled. Can also be
+            set after construction (compiles again).
         use_fp16: Run the heavy forward ops in float16 via ``torch.autocast``
             (CUDA only; fp32 master weights preserved, outputs cast back to
             fp32). Opt-in; benefits tensor-core hardware only.
@@ -88,8 +124,10 @@ class TorchBackend:
 
     model: nn.Module = attrs.field(repr=False)
     device: str = "cpu"
-    use_compile: bool = False
-    compile_mode: str = "reduce-overhead"
+    use_compile: bool = attrs.field(default=False, on_setattr=_on_set_compile)
+    compile_mode: str = attrs.field(
+        default="reduce-overhead", on_setattr=_on_set_compile
+    )
     use_fp16: bool = False
     fuse_layers: bool = False
     warmup_iterations: int = 1
@@ -101,6 +139,8 @@ class TorchBackend:
 
     # Internal state, not part of the public surface.
     _compiled: Optional[nn.Module] = attrs.field(default=None, init=False, repr=False)
+    # Batch size every call is padded to while compiled (0 = none yet).
+    _padded_batch: int = attrs.field(default=0, init=False, repr=False)
 
     def __attrs_post_init__(self) -> None:
         """Validate device / feature combination, fuse, and (optionally) compile."""
@@ -122,9 +162,7 @@ class TorchBackend:
         # (MPS has half kernels but no tensor cores — no win, warned above).
 
         if self.use_compile and self.device != "mps":
-            self._compiled = torch.compile(
-                self.model, mode=self.compile_mode, dynamic=False
-            )
+            self._compile(self.compile_mode)
 
     # ──────────────────────────────────────────────────────────────────
     # Protocol surface
@@ -139,6 +177,23 @@ class TorchBackend:
         """Forward pass. Always returns a dict for protocol uniformity."""
         model = self._compiled if self._compiled is not None else self.model
         x = x.to(self.device, non_blocking=True)
+
+        # The compiled model is specialized to its input shapes, and every new
+        # batch size compiles it again (seconds each; after torch's recompile
+        # limit, 8, the new sizes silently run uncompiled). Top-down crop
+        # batches change size with the number of animals found, so pad each
+        # batch with zeros to the largest size seen (or reserved) and cut the
+        # outputs back below: the pad samples never reach postprocessing.
+        n = x.shape[0]
+        if self._compiled is not None:
+            self._padded_batch = max(self._padded_batch, n)
+            if n < self._padded_batch:
+                x = torch.cat([x, x.new_zeros((self._padded_batch - n, *x.shape[1:]))])
+            elif x.stride() != _contiguous_strides(x.shape):
+                # Same layout as a padded batch: the compiled model also
+                # guards on strides, size-1 dims included, which
+                # ``.contiguous()`` leaves as they are.
+                x = x.clone(memory_format=torch.contiguous_format)
 
         # FP16 (CUDA only) runs the heavy conv / matmul ops in half precision
         # via ``torch.autocast`` while keeping fp32 master weights and fp32
@@ -155,27 +210,40 @@ class TorchBackend:
             else:
                 out = model(x)
 
+        padded = x.shape[0]
+
+        def finish(v: Any) -> Any:
+            if not isinstance(v, torch.Tensor):
+                return v
+            if padded > n and v.ndim and v.shape[0] == padded:
+                v = v[:n]
+            if use_autocast and v.dtype == torch.float16:
+                v = v.float()
+            return v
+
         if isinstance(out, torch.Tensor):
-            if use_autocast and out.dtype == torch.float16:
-                out = out.float()
-            return {"output": out}
+            return {"output": finish(out)}
 
         if isinstance(out, dict):
-            if use_autocast:
-                out = {
-                    k: (
-                        v.float()
-                        if isinstance(v, torch.Tensor) and v.dtype == torch.float16
-                        else v
-                    )
-                    for k, v in out.items()
-                }
+            if padded > n or use_autocast:
+                out = {k: finish(v) for k, v in out.items()}
             return out
 
         raise TypeError(
             f"TorchBackend got unexpected output type {type(out).__name__}; "
             "expected Tensor or Dict[str, Tensor]."
         )
+
+    def reserve_batch(self, batch_size: int) -> None:
+        """Pad every later batch to at least ``batch_size`` while compiled.
+
+        Lets a caller that knows the largest batch it will send (top-down:
+        one crop per centroid slot) compile once for that size, instead of
+        compiling again each time a batch is larger than all before it.
+        Does nothing when the model isn't compiled.
+        """
+        if self._compiled is not None:
+            self._padded_batch = max(self._padded_batch, int(batch_size))
 
     def warmup(self, input_shape: Tuple[int, ...]) -> None:
         """Prime the backend with ``warmup_iterations`` dummy forwards."""
@@ -210,9 +278,20 @@ class TorchBackend:
         )
         self.model.to(memory_format=fmt)
         if self._compiled is not None:
-            self._compiled = torch.compile(
-                self.model, mode=self.compile_mode, dynamic=False
-            )
+            self._compile(self.compile_mode)
+
+    def _compile(self, mode: Optional[str]) -> None:
+        """Compile the model with ``mode``, or drop the compiled model (``None``).
+
+        Compiled for fixed shapes (``dynamic=False``): ``__call__`` pads every
+        batch to one size, so one compile serves a whole run.
+        """
+        self._padded_batch = 0
+        self._compiled = (
+            None
+            if mode is None
+            else torch.compile(self.model, mode=mode, dynamic=False)
+        )
 
     def _validate_device_features(self) -> None:
         """Warn-and-disable feature combinations that don't work cleanly.
@@ -239,13 +318,7 @@ class TorchBackend:
 
         if "cuda" in self.device:
             if self.use_compile:
-                warnings.warn(
-                    "torch.compile changes numerics: graph fusion can substitute "
-                    "TF32/reduced-precision kernels for FP32, producing small "
-                    "drift vs. eager. Disable for parity-critical comparisons; "
-                    "validate downstream metrics before shipping.",
-                    stacklevel=3,
-                )
+                self._warn_compile_numerics()
             if self.use_fp16:
                 warnings.warn(
                     "FP16 trades precision for speed. This backend runs the heavy "
@@ -258,6 +331,17 @@ class TorchBackend:
                     "speed at your actual batch size before enabling.",
                     stacklevel=3,
                 )
+
+    @staticmethod
+    def _warn_compile_numerics() -> None:
+        """Warn that compiled kernels round differently from eager (CUDA)."""
+        warnings.warn(
+            "torch.compile changes numerics: graph fusion can substitute "
+            "TF32/reduced-precision kernels for FP32, producing small "
+            "drift vs. eager. Disable for parity-critical comparisons; "
+            "validate downstream metrics before shipping.",
+            stacklevel=4,
+        )
 
     def _fuse_conv_bn(self) -> None:
         """Fold ``Conv2d → BatchNorm2d`` pairs in-place inside Sequentials.

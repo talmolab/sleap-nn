@@ -695,3 +695,95 @@ def test_filters_drop_seeding_boxes():
     assert torch.isfinite(dropped.pred_bboxes[0, 0]).all()
     assert torch.isnan(dropped.pred_bboxes[0, 1]).all()
     assert dropped.pred_bbox_classes[0].tolist() == [0, -1]
+
+
+@pytest.mark.parametrize("max_instances", [None, 2])
+def test_compiled_crop_model_behind_detector_pads_to_animals_found(
+    trained_pair, max_instances, monkeypatch
+):
+    """A compiled crop model behind a detector is padded to the animals found.
+
+    A detector without ``max_instances`` keeps up to 100 slots per frame, nearly
+    all empty, so its slot count is no bound on the crops: each crop batch must be
+    padded to its frame count times the most animals found in one of its frames
+    (as behind a centroid model), not to 100 crops per frame. With
+    ``max_instances`` the frame count times the cap is reserved. The padded size
+    only grows, each new size compiles once, and the pad crops never become
+    instances.
+    """
+    import torch._dynamo
+
+    from sleap_nn.inference.predictor import Predictor
+
+    real_compile = torch.compile
+    graphs = []
+
+    def counting_backend(gm, example_inputs):
+        graphs.append(gm)
+        return gm.forward
+
+    def compile_on_eager_backend(model, mode=None, dynamic=None):
+        return real_compile(model, backend=counting_backend, dynamic=dynamic)
+
+    video = sio.load_video("tests/assets/datasets/centered_pair_small.mp4")
+    frames = np.stack([video[i] for i in range(10)])
+    frames[6] = 0  # no animals in one frame
+    # One frame first, so the reserved size grows at the second batch; a short
+    # last batch must reuse the size reached.
+    batches = [frames[0:1], frames[1:5], frames[5:9], frames[9:10]]
+
+    def run(use_compile):
+        pred = Predictor.from_model_paths(
+            [trained_pair["det"].as_posix(), trained_pair["ci_fixed"].as_posix()],
+            device="cpu",
+            batch_size=4,
+            max_instances=max_instances,
+            peak_threshold=0.2,
+        )
+        layer = pred.layer
+        backend = layer.centered_instance_layer.backend
+        if use_compile:
+            backend.use_compile = True  # the crop model only
+        padded = []
+        outs = []
+        for batch in batches:
+            outs.append(layer.predict(batch))
+            padded.append(backend._padded_batch)
+        return outs, padded
+
+    torch._dynamo.reset()
+    monkeypatch.setattr(torch, "compile", compile_on_eager_backend)
+    try:
+        compiled_outs, padded = run(use_compile=True)
+    finally:
+        torch._dynamo.reset()
+    monkeypatch.undo()
+    eager_outs, _ = run(use_compile=False)
+
+    found = [
+        int(torch.isfinite(o.pred_centroids).all(dim=-1).sum(dim=1).max())
+        for o in eager_outs
+    ]
+    assert found[0] >= 1 and found[-1] >= 1
+    if max_instances is None:
+        assert eager_outs[0].pred_centroids.shape[1] > max(found)  # empty slots
+    # Expected padding: the running maximum of frames x animals per frame (the
+    # cap, if set), over the batches that produced crops at all.
+    expected, size = [], 0
+    for batch, n in zip(batches, found):
+        if n:
+            size = max(size, len(batch) * (max_instances or n))
+        expected.append(size)
+    assert padded == expected
+    assert len(set(padded)) >= 2  # the reservation grew once at least
+    # One graph per crop batch size the run was padded to.
+    assert len(graphs) == len(set(padded))
+
+    for c, e in zip(compiled_outs, eager_outs):
+        assert torch.equal(torch.isnan(c.pred_keypoints), torch.isnan(e.pred_keypoints))
+        torch.testing.assert_close(
+            c.pred_keypoints, e.pred_keypoints, equal_nan=True, atol=1e-3, rtol=0
+        )
+        torch.testing.assert_close(
+            c.pred_peak_values, e.pred_peak_values, equal_nan=True, atol=1e-4, rtol=0
+        )
