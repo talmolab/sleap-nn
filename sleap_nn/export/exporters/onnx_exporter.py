@@ -170,7 +170,11 @@ def export_to_onnx(
     # A reference forward is needed to infer output names and/or for parity.
     test_out = None
     if output_names is None or numerical_check:
-        with torch.no_grad():
+        from sleap_nn.architectures.model import padded_like_export
+
+        # The graph pads the network input to the backbone's max stride; so does
+        # the reference.
+        with torch.no_grad(), padded_like_export():
             test_out = model(dummy_input)
     if output_names is None:
         output_names = _infer_output_names(test_out)
