@@ -7702,6 +7702,11 @@ def get_train_val_datasets(
     Returns:
         A tuple (train_dataset, val_dataset).
     """
+    # Experimental decoded coordinate loss: the data loader reads the labelled
+    # channels' head settings, not the latent-point head (no-op otherwise).
+    from sleap_nn.training.coordinate_losses import dataset_config
+
+    config = dataset_config(config)
     cache_imgs = (
         config.data_config.data_pipeline_fw.split("_")[-1]
         if "cache_img" in config.data_config.data_pipeline_fw
