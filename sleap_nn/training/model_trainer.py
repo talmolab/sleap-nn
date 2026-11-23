@@ -51,6 +51,7 @@ from sleap_nn.data.instance_centroids import (
 )
 from sleap_nn.data.providers import get_max_height_width
 from sleap_nn.data.node_weights import carry_labeled_nodes
+from sleap_nn.data.providers import clear_legacy_hidden_points
 from sleap_nn.data.utils import embedding_detections
 from sleap_nn.data.custom_datasets import (
     EMBEDDING_MIN_MASK_AREA,
@@ -620,6 +621,10 @@ class ModelTrainer:
     ):
         """Create train and val labels objects. (Initialize `self.train_labels` and `self.val_labels`)."""
         logger.info(f"Creating train-val split...")
+        # Old-layout files: hidden points' stored coordinates are stale, not
+        # occluded estimates; cleared before anything reads points.
+        for lb in list(labels or []) + list(val_labels or []):
+            clear_legacy_hidden_points(lb)
         total_train_lfs = 0
         total_val_lfs = 0
         # Bounding-box detectors train on boxes only and never read keypoints, so
@@ -2582,6 +2587,7 @@ class ModelTrainer:
                     if test_path.endswith(".slp") or test_path.endswith(".pkg.slp"):
                         try:
                             test_labels = sio.load_slp(test_path)
+                            clear_legacy_hidden_points(test_labels)
                             # Same GT boxes as training/eval derive (no-op for
                             # non-bbox models), or the bbox filter drops every
                             # frame of a pose/mask test file.

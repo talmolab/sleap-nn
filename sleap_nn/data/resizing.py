@@ -1,6 +1,6 @@
 """This module implements image resizing and padding."""
 
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Union
 
 import torch
 import torch.nn.functional as F
@@ -175,6 +175,31 @@ def _warn_size_mismatch(
     )
 
 
+_INFERENCE_RESIZE_NOTED: set = set()
+
+
+def _note_inference_resize(
+    img_height: int, img_width: int, max_height: int, max_width: int
+) -> None:
+    """Log once per target size that prediction fits frames to the model's input size.
+
+    At prediction time ``max_height``/``max_width`` are the model's (from its
+    training config, unless overridden for prediction), so fitting frames to them
+    is how the model runs, not a slow path to fix; an info line, not a warning.
+    Keyed by target size only, like the training warning, so image lists with many
+    frame sizes log once.
+    """
+    key = (int(max_height), int(max_width))
+    if key in _INFERENCE_RESIZE_NOTED:
+        return
+    _INFERENCE_RESIZE_NOTED.add(key)
+    logger.info(
+        f"Frames are fitted to the model's input size {max_height}x{max_width} "
+        f"(HxW; max_height/max_width), for example {img_height}x{img_width}; "
+        "predictions are mapped back to the original frames."
+    )
+
+
 def compute_eff_scale(
     img_hw: Tuple[int, int],
     max_hw: Optional[Tuple[Optional[int], Optional[int]]] = None,
@@ -213,12 +238,14 @@ def apply_sizematcher(
     image: torch.Tensor,
     max_height: Optional[int] = None,
     max_width: Optional[int] = None,
-    warn: bool = True,
+    warn: Union[bool, str] = True,
 ):
     """Apply scaling and padding to image to (max_height, max_width) shape.
 
     ``warn=False`` skips the size-mismatch warning, for callers that resize every
     frame to a fixed size by design (e.g. ``bbox_detr``'s letterbox).
+    ``warn="info"`` replaces it with a one-time info line, for prediction, where
+    the target size is the trained model's and resizing is expected.
     """
     img_height, img_width = image.shape[-2:]
     # pad images to max_height and max_width
@@ -227,7 +254,9 @@ def apply_sizematcher(
     if max_width is None:
         max_width = img_width
     if img_height != max_height or img_width != max_width:
-        if warn:
+        if warn == "info":
+            _note_inference_resize(img_height, img_width, max_height, max_width)
+        elif warn:
             _warn_size_mismatch(img_height, img_width, max_height, max_width)
         eff_scale_ratio = compute_eff_scale(
             (img_height, img_width), (max_height, max_width)
