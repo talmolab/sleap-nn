@@ -1591,8 +1591,10 @@ def _load_lightning_model(
         backbone_type=backbone_type,
         backbone_config=cfg.model_config.backbone_config,
         head_configs=cfg.model_config.head_configs,
-        pretrained_backbone_weights=cfg.model_config.pretrained_backbone_weights,
-        pretrained_head_weights=cfg.model_config.pretrained_head_weights,
+        # The checkpoint holds the trained weights: no initial weights to load
+        # (as the inference loaders do).
+        pretrained_backbone_weights=None,
+        pretrained_head_weights=None,
         init_weights=cfg.model_config.init_weights,
         lr_scheduler=cfg.trainer_config.lr_scheduler,
         online_mining=cfg.trainer_config.online_hard_keypoint_mining.online_mining,

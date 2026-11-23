@@ -1084,6 +1084,23 @@ def test_post_train_predict_settings_defaults_and_overrides():
     }
 
 
+def test_post_train_precision_on_device():
+    """Off CUDA a precision that only follows `fit`'s is passed as "32"."""
+    from sleap_nn.train import _post_train_precision_on_device
+
+    cfg = OmegaConf.create({"trainer_config": {"precision": "bf16-mixed", "eval": {}}})
+    assert _post_train_precision_on_device(cfg, "bf16", "cuda:0") == "bf16"
+    assert _post_train_precision_on_device(cfg, "bf16", torch.device("cuda")) == "bf16"
+    assert _post_train_precision_on_device(cfg, "bf16", "cpu") == "32"
+    assert _post_train_precision_on_device(cfg, "bf16", torch.device("mps")) == "32"
+    assert _post_train_precision_on_device(cfg, "32", "cpu") == "32"
+
+    # Asked for in the config: passed on (and `predict` warns that it does nothing).
+    cfg.trainer_config.eval = {"post_train_precision": "fp16"}
+    assert _post_train_precision_on_device(cfg, "fp16", "cpu") == "fp16"
+    assert _post_train_precision_on_device(cfg, "fp16", "cuda") == "fp16"
+
+
 def test_post_train_progress_logs_rate_and_final_count(monkeypatch):
     """The callback is throttled but always logs the last batch."""
     import sleap_nn.train as train_mod

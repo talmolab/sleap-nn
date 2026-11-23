@@ -506,6 +506,35 @@ def test_bbox_detr_train_predict_eval(config, minimal_instance, tmp_path):
     small_pred.predict(minimal_instance.as_posix())
 
 
+@pytest.mark.parametrize("mixed", [False, True], ids=["one-file", "mixed-files"])
+def test_bbox_detr_dry_run(config, minimal_instance, tmp_path, mixed):
+    """A dry run of a tiny bbox_detr takes one training and one validation batch
+    and leaves nothing behind; also with two training files mixed per sample."""
+    from sleap_nn.data.custom_datasets import DetrBBoxDataset
+    from sleap_nn.data.topdown_warp import BalancedDataLoader
+    from sleap_nn.training.lightning_modules import BBoxDetrLightningModule
+    from tests.utils.dry_run import dry_run
+
+    cfg = _detr_train_config(config, tmp_path)
+    if mixed:
+        cfg.data_config.train_labels_path = [minimal_instance.as_posix()] * 2
+        cfg.trainer_config.train_data_loader.batch_size = 2
+        cfg.trainer_config.balanced_sampler = {
+            "per_sample": True,
+            "weights": [3, 1],
+            "overlap_weight": 2.0,
+        }
+    else:
+        cfg.data_config.data_pipeline_fw = "torch_dataset_cache_img_disk"
+        cfg.data_config.cache_img_path = (tmp_path / "cache").as_posix()
+    trainer = dry_run(cfg, tmp_path)
+    assert isinstance(trainer.lightning_model, BBoxDetrLightningModule)
+    loader = trainer.trainer.train_dataloader
+    assert isinstance(loader.dataset, DetrBBoxDataset)
+    assert isinstance(loader, BalancedDataLoader) == mixed
+    assert torch.isfinite(trainer.trainer.callback_metrics["train/loss"])
+
+
 def _other_skeleton_labels(minimal_instance, tmp_path):
     """A copy of ``minimal_instance`` whose skeleton has different node names."""
     labels = sio.load_slp(minimal_instance.as_posix())
