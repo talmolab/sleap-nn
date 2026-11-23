@@ -206,3 +206,25 @@ def test_prediction_layers_resize_with_info(monkeypatch):
     topdown._sizematch_like_centroid_layer(torch.zeros(2, 1, 100, 80))
 
     assert seen == ["info"] * 4
+
+
+def test_apply_sizematcher_without_upscale():
+    """`upscale=False` pads a smaller frame and still shrinks a larger one."""
+    img = torch.arange(2 * 20 * 30, dtype=torch.float32).reshape(1, 2, 20, 30)
+    out, s = apply_sizematcher(img, 40, 50, upscale=False)
+    assert s == 1.0 and out.shape[-2:] == (40, 50)
+    assert torch.equal(out[..., :20, :30], img)
+    assert out[..., 20:, :].abs().sum() == 0 and out[..., :, 30:].abs().sum() == 0
+    # Larger on one axis: shrunk to fit, then padded on the other.
+    out, s = apply_sizematcher(img, 10, 50, upscale=False)
+    assert s == 0.5 and out.shape[-2:] == (10, 50)
+    assert out[..., :, 15:].abs().sum() == 0
+    # The default still enlarges.
+    out, s = apply_sizematcher(img, 40, 50)
+    assert s == pytest.approx(5 / 3)
+    # The size warning only when a frame is resized.
+    resizing._SIZEMATCHER_WARNED_KEYS.clear()
+    apply_sizematcher(img, 40, 50, upscale=False)
+    assert not resizing._SIZEMATCHER_WARNED_KEYS
+    apply_sizematcher(img, 10, 50, upscale=False)
+    assert resizing._SIZEMATCHER_WARNED_KEYS

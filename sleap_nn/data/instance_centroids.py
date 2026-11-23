@@ -42,7 +42,7 @@ unlabeled nodes never do. ``sleap_io``'s ``to_centroid`` uses visible points onl
 the two agree for files without occluded estimates.
 """
 
-from typing import Optional
+from typing import List, Optional
 
 import torch
 from loguru import logger
@@ -65,6 +65,29 @@ MASK_REDUCE_METHODS = ("center_of_mass", "bbox_center")
 #: sleap-nn always falls back — a NaN training target for a partially-visible
 #: instance would be a silent data loss. This is the pre-#586 behavior.
 DEFAULT_ANCHOR_FALLBACK = "center_of_mass"
+
+
+def anchor_part_names(anchor_part) -> List[str]:
+    """``anchor_part`` as a list of node names (experimental list form).
+
+    ``None`` gives ``[]`` and a node name ``[name]``; a list (the centroid head's
+    experimental list of anchors, in order of preference) is returned as a list.
+    """
+    if anchor_part is None:
+        return []
+    if isinstance(anchor_part, (str, int, float)):
+        return [str(anchor_part)]
+    return [str(n) for n in anchor_part]
+
+
+def primary_anchor_part(anchor_part) -> Optional[str]:
+    """The node an ``anchor_part`` names, or its list form's first node.
+
+    Prediction and evaluation place a centroid on one node; for a list of
+    anchors (experimental) that is the first one listed. ``None`` stays ``None``.
+    """
+    names = anchor_part_names(anchor_part)
+    return names[0] if names else None
 
 
 def find_points_mean(points: torch.Tensor) -> torch.Tensor:

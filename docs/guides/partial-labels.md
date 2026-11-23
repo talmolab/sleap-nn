@@ -165,6 +165,11 @@ Not covered yet: tiled single-instance training (warns and trains unweighted),
 multi-class models, and centroids. Those still use `supervise_occluded` for their
 targets and skip only instances with no labeled point with coordinates.
 
+To train a bottom-up, centroid or single-instance model on files with different
+skeletons (merged by node name, with zero loss on the nodes a file lacks, and a
+centroid anchor given as a list of nodes), see
+[Frame Models on Several Skeletons](multi-skeleton-pool.md) (experimental).
+
 ---
 
 ## Evaluation and predictions
