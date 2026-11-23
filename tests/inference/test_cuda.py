@@ -385,7 +385,6 @@ def test_torch_backend_cuda_does_not_block_default_use_compile_false():
 # 6. Top-down crops on the stage-2 GPU (CPU frames, CUDA model)
 # ─────────────────────────────────────────────────────────────────────────
 
-ASSETS = Path(__file__).resolve().parents[1] / "assets"
 CENTROID_CKPT = ASSETS / "model_ckpts" / "minimal_instance_centroid"
 CENTERED_CKPT = ASSETS / "model_ckpts" / "minimal_instance_centered_instance"
 
