@@ -8,6 +8,17 @@ on:
       - "tests/**"
       - ".github/workflows/ci.yml"
       - "pyproject.toml"
+  # Each merge into a release branch is tested on all systems, macOS included
+  # (pull requests into a release branch skip macOS; see the test matrix).
+  # There is no concurrency group, so a later merge never cancels the run of
+  # an earlier one.
+  push:
+    branches: ["release/**"]
+    paths:
+      - "sleap_nn/**"
+      - "tests/**"
+      - ".github/workflows/ci.yml"
+      - "pyproject.toml"
 
 jobs:
   lint:
@@ -78,22 +89,22 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: ["ubuntu", "windows", "mac"]  # "self-hosted-gpu" temporarily disabled
-        include:
-          - os: ubuntu
-            runs-on: ubuntu-latest
-          - os: windows
-            runs-on: windows-latest
-          - os: mac
-            # Pinned (not macos-latest) so an image change never silently
-            # moves CI. macos-14 is retired 2026-11-02 (actions/runner-images#13518).
-            runs-on: macos-15
-          # - os: self-hosted-gpu
-          #   runs-on: [self-hosted, puma, gpu, 2xgpu]
+        # Pull requests into a release branch skip macOS: the hosted macOS
+        # runners queue for up to hours, while Ubuntu and Windows start at
+        # once. Every push to a release branch (each merge) runs all three, so
+        # the release branches are still tested on macOS after each merge.
+        # Pull requests into any other branch run all three as before.
+        os: ${{ fromJSON(github.event_name == 'pull_request' && startsWith(github.base_ref, 'release/') && '["ubuntu", "windows"]' || '["ubuntu", "windows", "mac"]') }}
+        # "self-hosted-gpu" temporarily disabled (runner:
+        # [self-hosted, puma, gpu, 2xgpu]).
         python: [3.13]
 
     name: Tests (${{ matrix.os }}, Python ${{ matrix.python }})
-    runs-on: ${{ matrix.runs-on }}
+    # The runner for each os. (Not a matrix `include`: an `include` entry for
+    # mac would add the mac job back when the list above leaves it out.)
+    # macos-15 is pinned (not macos-latest) so an image change never silently
+    # moves CI. macos-14 is retired 2026-11-02 (actions/runner-images#13518).
+    runs-on: ${{ fromJSON('{"ubuntu":"ubuntu-latest","windows":"windows-latest","mac":"macos-15"}')[matrix.os] }}
 
     steps:
       - name: Checkout repo
