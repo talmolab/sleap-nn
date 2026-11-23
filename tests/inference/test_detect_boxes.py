@@ -519,3 +519,155 @@ def test_cli_detect_boxes(tmp_path):
     assert res.exit_code != 0 and "exists" in res.output
     res = runner.invoke(cli, ["detect-boxes", "-i", str(src)])
     assert res.exit_code != 0 and "exactly one" in res.output
+
+
+def _coco_dets(tmp_path):
+    dets = tmp_path / "dets.json"
+    dets.write_text(
+        json.dumps(
+            [{"image_id": 1, "category_id": 1, "bbox": [9, 9, 24, 41], "score": 0.9}]
+        )
+    )
+    return dets
+
+
+def test_detect_boxes_save_options(tmp_path):
+    """Unset save options pass nothing new; set ones reach ``save_slp``."""
+    from unittest.mock import patch
+
+    labels, _, _ = _labels(tmp_path)
+    src = tmp_path / "train.slp"
+    labels.save(str(src))
+    dets = _coco_dets(tmp_path)
+    real_save = sio.save_slp
+    calls = []
+
+    def _spy(labels, path, **kwargs):
+        calls.append(kwargs)
+        return real_save(labels, path, **kwargs)
+
+    # autospec keeps save_slp's signature, which the option bridge inspects.
+    with patch(
+        "sleap_nn.inference.detect_boxes.sio.save_slp", autospec=True, side_effect=_spy
+    ):
+        detect_boxes(src, tmp_path / "a.slp", detections=dets)
+        _, out = detect_boxes(
+            src,
+            tmp_path / "b.slp",
+            detections=dets,
+            slp_version="v3",
+            compression="gzip",
+        )
+    from sleap_nn.inference.save_options import _save_slp_parameters
+
+    # Unset: nothing new on a sleap-io without `slp_version`; pinned to "v3" on one
+    # with it, so that its "auto" cannot drop the box scores.
+    pinned = {"slp_version": "v3"} if "slp_version" in _save_slp_parameters() else {}
+    assert calls[0] == {"embed": False, **pinned}
+    assert calls[1]["compression"] == "gzip"
+    with h5py.File(out) as f:
+        assert float(f["metadata"].attrs["format_id"]) >= 3.0
+    back = sio.load_slp(str(out), open_videos=False)
+    assert [b.metadata.get("match_iou") for b in _pred(back[0])][0] > 0.5
+
+
+def test_detect_boxes_refuses_v2(tmp_path):
+    """The 2.x layout cannot keep each box's matching score: refused up front."""
+    with pytest.raises(ValueError, match="only the SLP 3.0 layout"):
+        detect_boxes(tmp_path / "missing.slp", detections="d.json", slp_version="v2")
+    with pytest.raises(ValueError, match="slp_version"):
+        detect_boxes(tmp_path / "missing.slp", detections="d.json", slp_version="v1")
+    with pytest.warns(UserWarning, match="only to embedded frames"):
+        labels, _, _ = _labels(tmp_path)
+        src = tmp_path / "w.slp"
+        labels.save(str(src))
+        detect_boxes(src, detections=_coco_dets(tmp_path), image_format="png")
+
+
+def _flat(text):
+    """CLI output without ANSI colour codes or box borders, whitespace collapsed."""
+    import re
+
+    text = re.sub(r"\x1b\[[0-9;]*m", "", text)
+    return " ".join(text.replace("│", " ").split())
+
+
+def test_cli_detect_boxes_save_options(tmp_path):
+    from unittest.mock import patch
+
+    from sleap_nn.cli import cli
+
+    labels, _, _ = _labels(tmp_path)
+    src = tmp_path / "train.slp"
+    labels.save(str(src))
+    args = ["detect-boxes", "-i", str(src), "--detections", str(_coco_dets(tmp_path))]
+    runner = CliRunner()
+
+    # `v2` is not one of the command's choices (the Python call refuses it too).
+    res = runner.invoke(cli, args + ["--slp_version", "v2"])
+    assert res.exit_code == 2
+    flat = _flat(res.output)
+    assert "'v2' is not one of 'auto', 'v3'" in flat
+    assert not (tmp_path / "train.dets.slp").exists()
+
+    # The output never embeds frames: the frame-format options are refused.
+    for extra, said in (
+        (["--image_format", "png"], "--image_format is not supported"),
+        (
+            ["--image_format", "jpg", "--image_quality", "80"],
+            "--image_format / --image_quality are not supported",
+        ),
+    ):
+        res = runner.invoke(cli, args + extra)
+        assert res.exit_code == 2
+        flat = _flat(res.output)
+        assert said in flat and "never embeds frames" in flat
+    assert not (tmp_path / "train.dets.slp").exists()
+
+    stats = dict.fromkeys(
+        ["people", "matched", "unmatched", "boxes_added", "boxes_linked"], 0
+    )
+    stats.update(recall_iou50=0.0, recall_iou75=0.0, mean_iou_matched=0.0)
+    with patch(
+        "sleap_nn.inference.detect_boxes.detect_boxes", return_value=(stats, None)
+    ) as run:
+        res = runner.invoke(cli, args + ["--dry_run"])
+        assert res.exit_code == 0, res.output
+        assert not set(run.call_args.kwargs) & {
+            "slp_version",
+            "image_format",
+            "image_quality",
+            "compression",
+            "unlabeled_as",
+        }
+        res = runner.invoke(
+            cli, args + ["--slp_version", "auto", "--compression", "lzf"]
+        )
+        assert res.exit_code == 0, res.output
+        kw = run.call_args.kwargs
+        assert kw["slp_version"] == "auto" and kw["compression"] == "lzf"
+
+
+def test_cli_detect_boxes_help_offers_no_v2():
+    from sleap_nn.cli import cli
+
+    out = _flat(CliRunner().invoke(cli, ["detect-boxes", "--help"]).output)
+    assert "[auto|v3]" in out and "auto|v2|v3" not in out
+    out = _flat(CliRunner().invoke(cli, ["predict", "--help"]).output)
+    assert "auto|v2|v3" in out
+
+
+@pytest.mark.parametrize("given", [None, "auto", "v3"])
+def test_detector_file_is_pinned_to_v3_when_sleap_io_has_slp_version(
+    monkeypatch, given
+):
+    """A sleap-io with its own layout option always gets ``slp_version="v3"``.
+
+    Its ``"auto"`` could resolve to the old layout and drop the boxes' scores.
+    """
+    import sleap_nn.inference.save_options as so
+    from sleap_nn.inference.detect_boxes import _detector_save_kwargs
+
+    params = so._save_slp_parameters() | {"slp_version"}
+    monkeypatch.setattr(so, "_save_slp_parameters", lambda: params)
+    assert _detector_save_kwargs(slp_version=given)["slp_version"] == "v3"
