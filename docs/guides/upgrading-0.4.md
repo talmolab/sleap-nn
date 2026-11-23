@@ -10,7 +10,8 @@ otherwise.
 
 ## Files and dependencies
 
-- **sleap-io 0.10 is required** (`sleap-io>=0.10,<0.11`, was `>=0.9.3,<0.10`).
+- **sleap-io 0.10 is required** (`sleap-io>=0.10.0a0,<0.11`, which takes sleap-io's
+  pre-release too; was `>=0.9.3,<0.10`).
   sleap-io 0.10 reads both `.slp` file layouts: the one SLEAP 1.x and sleap-io 0.9
   write, and the newer format 3.0, which stores separate *labelled* and *visible*
   flags per point. With nothing set, a file whose content fits the old layout is

@@ -210,17 +210,26 @@ the model card before you redistribute a model trained from it.
 
 ## Pre-release Versions
 
-Install alpha/beta releases to test new features:
+Pre-releases are alphas (`X.Y.ZaN`, for example `0.4.0a0`). Install one by its
+version:
 
 ```bash
-uv tool install sleap-nn --torch-backend auto --prerelease=allow
+# uv: name sleap-io's pre-release as well. sleap-io is a dependency of sleap-nn, and
+# uv takes a dependency's pre-release only when you ask for it.
+uv tool install "sleap-nn==0.4.0a0" --with "sleap-io>=0.10.0a0" --torch-backend auto
+
+# uv in an environment
+uv pip install "sleap-nn==0.4.0a0" "sleap-io>=0.10.0a0" --torch-backend auto
+
+# pip: the pinned version is enough (pip takes the sleap-io pre-release that
+# sleap-nn's requirement names)
+pip install "sleap-nn==0.4.0a0"
 ```
 
-Install a specific pre-release:
-
-```bash
-uv tool install "sleap-nn==0.1.0a4" --torch-backend auto
-```
+!!! note "Avoid `--prerelease allow` and `pip --pre`"
+    They also install pre-releases of unrelated dependencies (for example release
+    candidates of omegaconf, protobuf or sympy). Name the two packages instead, as
+    above.
 
 ---
 
