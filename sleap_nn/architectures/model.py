@@ -49,7 +49,7 @@ from sleap_nn.config.model_config import DEFAULT_BBOX_CATEGORY, ssd_level_stride
 
 # Backbones whose pooling ("same" padding) and decoder skip resizes decide their
 # padding from the frame size in Python: a trace freezes those decisions.
-_STRIDE_PADDED_BACKBONES = ("unet", "convnext", "swint")
+_STRIDE_PADDED_BACKBONES = ("unet", "convnext", "swint", "pretrained")
 
 
 def _pad_to_stride_traced(x: torch.Tensor, max_stride: int) -> torch.Tensor:
@@ -417,8 +417,15 @@ class Model(nn.Module):
                 # convert rgb to grayscale
                 x = F.rgb_to_grayscale(x, num_output_channels=1)
 
-        if self.backbone_type in _STRIDE_PADDED_BACKBONES and (
-            torch.jit.is_tracing() or torch.onnx.is_in_onnx_export()
+        # Traced graphs (ONNX, TensorRT, ``torch.jit.trace``) pad the network input to
+        # the max stride, as checkpoint inference does on the host, so they stay right
+        # at every frame size. Embedding models are left out: their crops are fixed
+        # size and standardized before the network, where a pad would not match the
+        # checkpoint path.
+        if (
+            self.backbone_type in _STRIDE_PADDED_BACKBONES
+            and self.model_type != "embedding"
+            and (torch.jit.is_tracing() or torch.onnx.is_in_onnx_export())
         ):
             x = _pad_to_stride_traced(x, int(self.backbone_config.max_stride))
 
