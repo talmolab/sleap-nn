@@ -697,3 +697,67 @@ def test_mask_check_skips_model_types_that_do_not_apply_the_mask(minimal_instanc
     _check_train_node_mask("single_instance", stale, tiled, kwargs)
     with pytest.raises(ValueError, match="train on nothing"):
         _check_train_node_mask("single_instance", stale, cfg, kwargs)
+
+
+@pytest.mark.skipif(
+    not hasattr(sio, "v3_defaults"),
+    reason="this sleap-io has no switch for its newer readings",
+)
+def test_labeled_flags_of_a_v3_file_reach_node_weights_under_either_reading(
+    minimal_instance, tmp_path
+):
+    """Points a format 3.0 file marks as not labeled get zero loss weight whether
+    sleap-io's newer readings are switched on or not (they are stored, not inferred)."""
+    labels = sio.load_slp(minimal_instance)
+    pts = labels[0].instances[0].points
+    pts["labeled"][1] = False
+    pts["visible"][1] = False
+    pts["xy"][1] = np.nan
+    path = tmp_path / "v3.pkg.slp"
+    sio.save_slp(labels, path, slp_version="v3", embed="user")
+
+    def weights():
+        ds = _ci_dataset(sio.load_slp(path))
+        return ds[0]["node_weights"]
+
+    assert torch.equal(weights(), torch.tensor([[1.0, 0.0]]))
+    with sio.v3_defaults():
+        assert torch.equal(weights(), torch.tensor([[1.0, 0.0]]))
+
+
+def test_warn_nodes_never_located(minimal_instance):
+    """A node labeled in every instance of a file but never located is reported,
+    unless the file's labeled_nodes or the points' flags already leave it out."""
+    from loguru import logger
+
+    from sleap_nn.data.node_weights import warn_nodes_never_located
+
+    def file(mode):
+        labels = _labels(minimal_instance)
+        for inst in labels[0].instances:
+            inst.points["xy"][1] = np.nan
+            inst.points["visible"][1] = False
+            if mode == "unlabeled" and "labeled" in inst.points.dtype.names:
+                inst.points["labeled"][1] = False
+        if mode == "masked":
+            labels.provenance["labeled_nodes"] = ["A"]
+        return labels
+
+    messages = []
+    handler = logger.add(lambda m: messages.append(str(m)), level="WARNING")
+    try:
+        found = warn_nodes_never_located(
+            [
+                file("absent"),
+                file("unlabeled"),
+                file("masked"),
+                _labels(minimal_instance),
+            ],
+            min_instances=1,
+        )
+    finally:
+        logger.remove(handler)
+    assert found == [(0, ["B"])]
+    assert any("located in none" in m and "unlabeled" in m for m in messages)
+    # Too few instances to judge: not checked.
+    assert warn_nodes_never_located([file("absent")], min_instances=10) == []

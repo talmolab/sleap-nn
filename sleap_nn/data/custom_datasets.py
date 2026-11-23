@@ -80,6 +80,7 @@ from sleap_nn.data.utils import (
 from sleap_nn.data.confidence_maps import generate_confmaps, generate_multiconfmaps
 from sleap_nn.data.node_weights import (
     check_some_node_weighted,
+    warn_nodes_never_located,
     finite_point_weights,
     get_labeled_nodes_weights,
     frame_node_weights,
@@ -7622,6 +7623,12 @@ def get_train_val_datasets(
             "the teacher's crop); use teacher_input_scale otherwise."
         )
     _check_train_node_mask(model_type, train_labels, config, node_weight_kwargs)
+    if model_type in (
+        "single_instance",
+        "centered_instance",
+        "bottomup",
+    ) and node_weight_kwargs.get("node_loss_mask", True):
+        warn_nodes_never_located(train_labels)
 
     # Gate the lossy disk cache for the embedding (appearance / re-ID) model (SPEC §5.1):
     # `torch_dataset_cache_img_disk` writes source frames as JPEG, which silently
