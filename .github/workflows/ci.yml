@@ -224,15 +224,22 @@ jobs:
           # A test that hangs would otherwise run silently into timeout-minutes.
           # -v prints one line per test (without it a file's line only appears
           # once the whole file is done, so a hang never names its test).
-          # faulthandler_timeout + faulthandler_exit_on_timeout: if one test
-          # (setup, call and teardown) runs longer than the limit, Python's
-          # faulthandler prints the stack of every thread and the run exits
-          # with an error. Its watchdog is a C thread, so this works even when
-          # the stuck thread holds the GIL inside native code (a Python-level
-          # timeout, such as pytest-timeout, cannot fire then). The slowest
-          # healthy tests take ~35 s on ubuntu and ~3-5 min on windows and mac
-          # (test_train_method), hence the per-OS limits.
-          uv run --frozen --no-group gpu --extra torch-cpu pytest --cov=sleap_nn --cov-report=xml --durations=-1 -v -o faulthandler_timeout=${{ matrix.os == 'ubuntu' && 300 || 900 }} -o faulthandler_exit_on_timeout=true tests/
+          # faulthandler_timeout + faulthandler_exit_on_timeout: if a test's
+          # setup and call (and its teardown, unless setup or call failed) take
+          # longer than the limit, Python's faulthandler prints the stack of
+          # every thread of the pytest process and the run exits with an error;
+          # the last unfinished -v line names the test during which it hung.
+          # Its watchdog is a C thread, so this also works when the stuck thread
+          # holds the GIL inside native code (a Python-level timeout such as
+          # pytest-timeout cannot fire then). It ends the whole run, and it
+          # pre-empts a test's own longer subprocess timeouts (a few DDP and
+          # distillation tests wait up to 600 s for a child). Limits per OS:
+          # the slowest healthy test (setup + call + teardown) took 35-67 s on
+          # ubuntu and ~2-3.5 min on windows and 3-5.5 min on mac
+          # (test_train_method). On mac, and on windows late in the run, the
+          # job's timeout-minutes can still come first; timeout-minutes stays the
+          # backstop for hangs outside a test (collection, session end).
+          uv run --frozen --no-group gpu --extra torch-cpu pytest --cov=sleap_nn --cov-report=xml --durations=-1 -v -o faulthandler_timeout=${{ fromJSON('{"ubuntu":300,"windows":600,"mac":900}')[matrix.os] }} -o faulthandler_exit_on_timeout=true tests/
 
       - name: Upload coverage
         if: github.repository == 'talmolab/sleap-nn'
