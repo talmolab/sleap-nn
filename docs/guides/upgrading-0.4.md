@@ -91,8 +91,9 @@ otherwise.
   `sleap-nn predict -m <exported detector>` (ONNX or TensorRT, without a pose model)
   now cuts its boxes at a typed `--peak_threshold` and suppresses overlaps at a typed
   `--bbox_nms_iou` (Python: `predict(export_dir=..., bbox_nms_iou=...)`); it used to
-  keep the threshold stored at export and the detector style's default suppression,
-  as it still does when the flags are not given. Old behaviour: leave the two flags
+  keep the threshold stored at export and the detector style's default suppression
+  (0.45 for SSD, none for CenterNet and DETR), as it still does when the flags are
+  not given. Old behaviour: leave the two flags
   out.
 - **Hidden points of old files are not used as boxes.** Boxes from labelled keypoints
   (`--boxes gt`, or a box-scaled crop model given alone) ignore the stored coordinates

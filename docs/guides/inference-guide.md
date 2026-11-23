@@ -93,6 +93,9 @@ runtime has no such option:
   `--center_nms_kernel`, `--mask_cleanup*`, `--distance_gate_alpha`, `--merge_*`,
   `--full_res_masks`, `--mask_output`, `--polygon_epsilon`, `--bbox_nms_iou`)
 
+One exception: an exported box detector passed alone takes a typed `--peak_threshold`
+and `--bbox_nms_iou` (see [Export](export.md)).
+
 `--upload_batches` and `--memory_format` are ignored with a warning.
 `--precision bf16` / `fp16` is refused with an error: an exported model keeps the
 precision it was exported with (see `sleap-nn export --precision`). To change a
