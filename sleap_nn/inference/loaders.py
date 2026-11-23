@@ -19,6 +19,7 @@ from omegaconf import DictConfig, OmegaConf
 if TYPE_CHECKING:
     import sleap_io as sio
 
+from sleap_nn.data.instance_centroids import primary_anchor_part
 from sleap_nn.data.instance_cropping import crop_hw
 from sleap_nn.config.model_config import BBOX_MODEL_TYPES
 from sleap_nn.config.training_job_config import TrainingJobConfig
@@ -1100,7 +1101,9 @@ def _build_topdown(
                 confmap_config.model_config.head_configs.centered_instance.confmaps.anchor_part
             )
         anchor_ind = (
-            skeletons[0].node_names.index(anch_pt) if anch_pt is not None else None
+            skeletons[0].node_names.index(primary_anchor_part(anch_pt))
+            if anch_pt is not None
+            else None
         )
     # Crop geometry follows the crop-CONSUMING model when there is one, else the
     # centroid model's own config (#586).
@@ -1459,7 +1462,9 @@ def _build_topdown_multiclass(
                 confmap_config.model_config.head_configs.multi_class_topdown.confmaps.anchor_part
             )
         anchor_ind = (
-            skeletons[0].node_names.index(anch_pt) if anch_pt is not None else None
+            skeletons[0].node_names.index(primary_anchor_part(anch_pt))
+            if anch_pt is not None
+            else None
         )
     _crop_head = (
         confmap_config.model_config.head_configs.multi_class_topdown.confmaps

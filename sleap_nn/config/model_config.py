@@ -6,8 +6,9 @@ the parameters required to initialize the model config.
 
 from attrs import asdict, define, field, validators
 from sleap_nn.config.utils import oneof
-from typing import Dict, Optional, List
+from typing import Any, Dict, Optional, List
 from loguru import logger
+from omegaconf import ListConfig
 
 
 # Define configuration for each backbone type (unet, convnext, swint) configurations
@@ -682,6 +683,34 @@ class SingleInstanceConfMapsConfig:
     output_stride: int = 1
 
 
+def normalize_anchor_part(value):
+    """A centroid ``anchor_part`` as a node name, or a list of names (experimental).
+
+    ``None`` stays ``None``. A scalar becomes its string, as the field's former
+    ``str`` type did (``1`` -> ``"1"``). A list or tuple becomes a list of strings.
+
+    Raises:
+        ValueError: For an empty list, or a value that is neither a scalar nor a
+            list of names.
+    """
+    if value is None:
+        return None
+    if isinstance(value, (str, int, float, bool)):
+        return str(value)
+    if isinstance(value, (list, tuple, ListConfig)):
+        names = list(value)
+        if not names:
+            raise ValueError(
+                "anchor_part is an empty list; give at least one node name, or null."
+            )
+        if not all(isinstance(n, (str, int, float)) for n in names):
+            raise ValueError(f"anchor_part must list node names, got {value!r}.")
+        return [str(n) for n in names]
+    raise ValueError(
+        f"anchor_part must be a node name or a list of node names, got {value!r}."
+    )
+
+
 @define
 class CentroidConfMapsConfig:
     """Centroid configuration map.
@@ -693,7 +722,16 @@ class CentroidConfMapsConfig:
             anchor part is specified but not visible in the instance. Setting a
             reliable anchor point can significantly improve topdown model
             accuracy as they benefit from a consistent geometry of the body parts
-            relative to the center of the image. Default is None.
+            relative to the center of the image. A scalar is read as a node
+            name (`1` -> `"1"`). **Experimental:** a non-empty list of node names,
+            in order of preference. Only the listed nodes a file labels count
+            (its `labeled_nodes`, set by `data_config.merge_skeletons`; all of
+            them without one): each instance is anchored on the first of those it
+            has located, else on `centroid_fallback`, as with one node. Frames of
+            a file that labels none of them get no centroids and zero loss,
+            instead of a centroid at a fallback location. Prediction treats the
+            first listed node as the anchor; the post-training evaluation uses
+            each file's first labeled one. Default is None.
         centroid_method: (str) How the centroid is derived from the instance's
             points, spelled as in ``sio.Instance.to_centroid``:
             ``"center_of_mass"`` (mean of visible nodes), ``"bbox_center"``
@@ -765,7 +803,7 @@ class CentroidConfMapsConfig:
             `0.5`.
     """
 
-    anchor_part: Optional[str] = None
+    anchor_part: Optional[Any] = field(default=None, converter=normalize_anchor_part)
     centroid_method: Optional[str] = None
     centroid_fallback: Optional[str] = None
     centroid_source: Optional[str] = None

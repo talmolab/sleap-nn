@@ -348,10 +348,13 @@ def resolve_anchor_part(cfg: DictConfig, model_type: str) -> Optional[str]:
         ``embedding`` model the consumer of the export has to produce the crops
         itself, so this is the one piece of geometry it cannot do without.
     """
+    from sleap_nn.data.instance_centroids import primary_anchor_part
+
     leaf = _centroid_head_leaf(cfg, model_type)
     if leaf is _NO_HEAD:
         return None
-    return getattr(leaf, "anchor_part", None)
+    # A list of anchors (experimental, centroid models): its first node.
+    return primary_anchor_part(getattr(leaf, "anchor_part", None))
 
 
 def resolve_centroid_method(cfg: DictConfig, model_type: str) -> Optional[str]:

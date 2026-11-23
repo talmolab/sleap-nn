@@ -52,6 +52,7 @@ from sleap_nn.data.instance_centroids import (
 from sleap_nn.data.providers import get_max_height_width
 from sleap_nn.data.node_weights import carry_labeled_nodes
 from sleap_nn.data.providers import clear_legacy_hidden_points
+from sleap_nn.data import skeleton_pool
 from sleap_nn.data.utils import embedding_detections
 from sleap_nn.data.custom_datasets import (
     EMBEDDING_MIN_MASK_AREA,
@@ -659,28 +660,25 @@ class ModelTrainer:
             self.config, "data_config.user_instances_only", default=True
         )
 
-        if self._uses_warp_pipeline():
+        merge = skeleton_pool.merge_skeletons_enabled(self.config, self.model_type)
+        if self._uses_warp_pipeline() or merge:
             # The warp pipeline matches nodes by name across files, so files may
             # carry different skeletons (COCO-17, AIC-14, a union skeleton): the
             # model's skeleton is its `part_names` (default: every train file's
             # nodes, first seen first) with every edge/symmetry the files have.
-            from sleap_nn.data.topdown_warp import merged_skeleton
-
-            node_names = OmegaConf.select(
+            # `merge_skeletons` (experimental) does the same for the frame models
+            # and maps each file's instances onto that skeleton by node name.
+            names = skeleton_pool.pool_node_names(self.config, self.model_type, labels)
+            edges = OmegaConf.select(
                 self.config,
-                "model_config.head_configs.centered_instance.confmaps.part_names",
+                "model_config.head_configs.bottomup.pafs.edges",
                 default=None,
             )
-            if not node_names:
-                node_names = list(
-                    dict.fromkeys(
-                        n
-                        for lb in labels
-                        for sk in lb.skeletons[:1]
-                        for n in sk.node_names
-                    )
+            self.skeletons = [skeleton_pool.pool_skeleton(labels, names, edges)]
+            if merge:
+                labels, val_labels = skeleton_pool.map_labels_lists(
+                    labels, val_labels, self.skeletons[0]
                 )
-            self.skeletons = [merged_skeleton(labels, list(node_names))]
         # check if all `.slp` file shave same skeleton structure (if multiple slp file paths are provided)
         # Mask-only labels (e.g. instance segmentation) may carry no skeleton, and
         # bounding-box models have none (see above), so neither is checked.
@@ -1020,7 +1018,7 @@ class ModelTrainer:
             )
         files = []
         for name, labels in zip(names, self.val_labels):
-            own = {n for sk in labels.skeletons for n in sk.node_names}
+            own = skeleton_pool.own_node_set(labels, self.config)
             nodes = [n for n in model_nodes if n in own]
             spec = file_nodes.get(name)
             if spec is not None:
@@ -2647,7 +2645,7 @@ class ModelTrainer:
         def own_nodes(labels_list):
             out = []
             for labels in labels_list:
-                own = {n for sk in labels.skeletons for n in sk.node_names}
+                own = skeleton_pool.own_node_set(labels, self.config)
                 out.append([i for i, n in enumerate(model_nodes) if n in own])
             return out
 
@@ -3966,10 +3964,14 @@ class ModelTrainer:
         # inject a DistributedSampler into a custom batch_sampler (it raises), so disable
         # replacement for embedding; every other model type passes an explicit
         # DistributedSampler under DDP, so the default (True) is correct for them.
-        # The balanced per-file batch sampler (`crop_pipeline="warp"`, `bbox_*`)
-        # also draws its own per-rank stream.
+        # The balanced per-file batch sampler (`crop_pipeline="warp"`, `bbox_*`,
+        # the frame models) also draws its own per-rank stream.
         use_distributed_sampler = self.model_type != "embedding" and not (
-            (self._uses_warp_pipeline() or self.model_type.startswith("bbox_"))
+            (
+                self._uses_warp_pipeline()
+                or self.model_type.startswith("bbox_")
+                or self.model_type in skeleton_pool.MERGE_MODEL_TYPES
+            )
             and OmegaConf.select(
                 self.config, "trainer_config.balanced_sampler", default=None
             )
@@ -4113,11 +4115,15 @@ class ModelTrainer:
         if dry_run:
             # The run's two config files, written where the real run writes them.
             OmegaConf.save(
-                config_without_unused_keys(self._initial_config),
+                skeleton_pool.config_for_saving(
+                    config_without_unused_keys(self._initial_config)
+                ),
                 (dry_run_dir / "initial_config.yaml").as_posix(),
             )
             OmegaConf.save(
-                config_without_unused_keys(self.config),
+                skeleton_pool.config_for_saving(
+                    config_without_unused_keys(self.config)
+                ),
                 (dry_run_dir / "training_config.yaml").as_posix(),
             )
 
@@ -4133,7 +4139,9 @@ class ModelTrainer:
             self.config.sleap_nn_version = sleap_nn.__version__
 
             OmegaConf.save(
-                config_without_unused_keys(self._initial_config),
+                skeleton_pool.config_for_saving(
+                    config_without_unused_keys(self._initial_config)
+                ),
                 (Path(ckpt_path) / "initial_config.yaml").as_posix(),
             )
 
@@ -4177,7 +4185,9 @@ class ModelTrainer:
                 )
 
             OmegaConf.save(
-                config_without_unused_keys(self.config),
+                skeleton_pool.config_for_saving(
+                    config_without_unused_keys(self.config)
+                ),
                 (
                     Path(self.config.trainer_config.ckpt_dir)
                     / self.config.trainer_config.run_name

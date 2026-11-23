@@ -11,7 +11,7 @@ from loguru import logger
 import click
 from pathlib import Path
 
-from sleap_nn.data.instance_centroids import generate_centroids
+from sleap_nn.data.instance_centroids import generate_centroids, primary_anchor_part
 from sleap_nn.data.providers import clear_legacy_hidden_points
 
 
@@ -2559,6 +2559,9 @@ def _resolve_anchor_ind(
     ``anchor_part`` is present in the skeleton node names, else ``None`` (which
     drives the mean-of-visible-nodes fallback in :func:`compute_gt_centroids`).
     """
+    # A list of anchors (experimental, centroid models) places GT centroids on
+    # its first node.
+    anchor_part = primary_anchor_part(anchor_part)
     if anchor_part is None or skeleton is None:
         return None
     node_names = list(getattr(skeleton, "node_names", []) or [])

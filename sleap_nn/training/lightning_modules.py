@@ -2576,12 +2576,19 @@ class CentroidLightningModule(LightningModel):
         ``_compute_negative_weighted_loss``'s own val-stage behavior), so
         ``ModelCheckpoint``/``EarlyStopping`` stay comparable across every
         experiment in this family.
+
+        With a list of anchor nodes (experimental), the batch carries
+        ``node_weights`` of shape ``(B, 1, 1)``: frames with an instance that has
+        no labeled anchor weigh 0, and both losses are averaged over the frames
+        that weigh 1. Without them the losses are exactly as described above.
         """
         focal_alpha = self.centroid_focal_loss_alpha
         if focal_alpha == 0.0:
-            return self._compute_negative_weighted_loss(y_preds, y, batch, stage=stage)
+            return self._compute_masked_confmap_loss(y_preds, y, batch, stage=stage)
 
         if stage != "train":
+            if batch.get("node_weights", None) is not None:
+                return self._compute_masked_confmap_loss(y_preds, y, batch, stage=stage)
             return nn.MSELoss()(y_preds, y)
 
         per_sample = compute_centroid_focal_loss(
@@ -2593,7 +2600,18 @@ class CentroidLightningModule(LightningModel):
             reduction="none",
         ).mean(dim=list(range(1, y_preds.ndim)))
 
+        frame_w = self._get_node_weights(batch, 1, y_preds.device)
         is_negative = batch.get("is_negative", None)
+        if frame_w is not None:
+            frame_w = frame_w[:, 0]
+            if is_negative is not None and self.negative_loss_weight != 1.0:
+                per_sample = per_sample * torch.where(
+                    is_negative.to(y_preds.device),
+                    torch.tensor(self.negative_loss_weight, device=y_preds.device),
+                    torch.tensor(1.0, device=y_preds.device),
+                )
+            return (per_sample * frame_w).sum() / frame_w.sum().clamp(min=1e-8)
+
         if is_negative is None or self.negative_loss_weight == 1.0:
             return per_sample.mean()
 

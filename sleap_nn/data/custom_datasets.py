@@ -17,7 +17,7 @@ from itertools import cycle
 from pathlib import Path
 import torch.distributed as dist
 from typing import Any, Dict, Iterator, List, Optional, Tuple, Union
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import DictConfig, ListConfig, OmegaConf
 import numpy as np
 from PIL import Image
 from loguru import logger
@@ -42,9 +42,12 @@ from sleap_nn.config.model_config import (
 )
 from sleap_nn.data.identity import generate_class_maps, make_class_vectors
 from sleap_nn.data.instance_centroids import (
+    DEFAULT_ANCHOR_FALLBACK,
+    anchor_part_names,
     centroid_method_from_config,
     degrade_anchor_if_unresolved,
     generate_centroids,
+    reduce_points,
 )
 from sleap_nn.data.instance_cropping import (
     BBoxCropSpec,
@@ -568,6 +571,95 @@ class SampleTable:
             yield self[i]
 
 
+def _file_scale_source(labels: Optional[sio.Labels]) -> str:
+    """The labels file a ``file_scales`` key is matched against.
+
+    ``provenance["filename"]``, or for a train/val split of a file (which sleap-io
+    records under ``"source_labels"`` instead) the file it was split from. Empty
+    when the labels were not loaded from a file.
+    """
+    prov = (labels.provenance or {}) if labels is not None else {}
+    return str(prov.get("filename") or prov.get("source_labels") or "")
+
+
+def file_scale_keys(labels: Optional[sio.Labels]) -> List[str]:
+    """The names a ``file_scales`` key may give for a labels file.
+
+    Its path, its file name, and its file name up to the first ``"."``, from
+    :func:`_file_scale_source` (empty when the labels were not loaded from a file).
+    """
+    filename = _file_scale_source(labels)
+    if not filename:
+        return []
+    name = Path(filename).name
+    return list(dict.fromkeys([filename, name, name.split(".")[0]]))
+
+
+def resolve_file_scales(
+    labels: List[sio.Labels], file_scales: Optional[Dict[str, float]]
+) -> Optional[List[float]]:
+    """One input scale per labels file from ``file_scales`` (experimental).
+
+    Args:
+        labels: The dataset's labels files.
+        file_scales: ``{file name: scale}`` (see :func:`file_scale_keys`), or
+            ``None``.
+
+    Returns:
+        A scale per file (``1.0`` for files not listed), or ``None`` without
+        ``file_scales``.
+    """
+    if not file_scales:
+        return None
+    scales = dict(file_scales)
+    out = []
+    for lb in labels:
+        hits = [k for k in file_scale_keys(lb) if k in scales]
+        out.append(float(scales[hits[0]]) if hits else 1.0)
+    logger.info(
+        "Per-file input scales: "
+        + ", ".join(
+            f"{(file_scale_keys(lb) or [str(i)])[-1]}={sc:g}"
+            for i, (lb, sc) in enumerate(zip(labels, out))
+        )
+    )
+    return out
+
+
+def check_file_scales(
+    file_scales: Optional[Dict[str, float]], *labels_lists: List[sio.Labels]
+) -> None:
+    """Refuse ``file_scales`` keys that match no labels file, or several files.
+
+    Raises:
+        ValueError: If a key names no file of ``labels_lists``, or names
+            (by file name, or file name up to the first ``"."``) more than one
+            distinct file.
+    """
+    if not file_scales:
+        return
+    labels = [lb for lbs in labels_lists for lb in lbs or []]
+    unknown, ambiguous = [], {}
+    for key in file_scales:
+        files = {_file_scale_source(lb) for lb in labels if key in file_scale_keys(lb)}
+        if not files:
+            unknown.append(key)
+        elif len(files) > 1:
+            ambiguous[key] = sorted(files)
+    if unknown:
+        raise ValueError(
+            f"preprocessing.file_scales names {sorted(unknown)}, which match no "
+            "training or validation file (keys match a file by its path, its file "
+            "name, or its file name up to the first '.')."
+        )
+    if ambiguous:
+        raise ValueError(
+            "preprocessing.file_scales keys match more than one file: "
+            + "; ".join(f"{k!r} -> {v}" for k, v in ambiguous.items())
+            + ". Use the file's path or full file name."
+        )
+
+
 class BaseDataset(Dataset):
     """Base class for custom torch Datasets.
 
@@ -616,6 +708,12 @@ class BaseDataset(Dataset):
         supervise_occluded: Train labeled-but-occluded points (sleap-io >= 0.10
             occluded estimates) at their estimated coordinates; `False` gives them
             weight 0. Default: True.
+        file_scales: Experimental: one input scale per labels file,
+            `{file name: scale}` (see `PreprocessingConfig.file_scales` and
+            :func:`resolve_file_scales`). Each frame is resized by its file's scale,
+            then padded, not stretched, to `max_hw` (shrunk only if still larger).
+            Used by the single-instance, centroid and bottom-up datasets. Default:
+            None (no per-file scale).
         labels_list: List of `sio.Labels` objects. Used to store the labels in the cache. (only used if `cache_img` is `None`)
     """
 
@@ -656,10 +754,15 @@ class BaseDataset(Dataset):
         node_loss_mask: bool = False,
         unlabeled_points: str = "absent",
         supervise_occluded: bool = True,
+        file_scales: Optional[Dict[str, float]] = None,
     ) -> None:
         """Initialize class attributes."""
         super().__init__()
         self.user_instances_only = user_instances_only
+        #: Number of labels files (the groups of ``trainer_config.balanced_sampler``).
+        self.num_files = len(labels)
+        #: Per labels file input scale, or ``None`` (experimental ``file_scales``).
+        self.file_scales = resolve_file_scales(labels, file_scales)
         # Per-node loss weights (see `sleap_nn.data.node_weights`). Only the
         # confmap datasets that emit them turn `node_loss_mask` on, and they emit
         # the `node_weights` sample key only when weights can differ from 1, so
@@ -855,6 +958,38 @@ class BaseDataset(Dataset):
                 # Synchronize all ranks after cache creation
                 if is_distributed_initialized():
                     dist.barrier()
+
+    @property
+    def labels_idx(self) -> np.ndarray:
+        """The labels file of every sample (for the balanced per-file sampler)."""
+        return np.array(
+            [sample["labels_idx"] for sample in self.lf_idx_list], dtype=np.int64
+        )
+
+    def _apply_file_scale(self, sample: Dict, labels_idx: int) -> Dict:
+        """Resize a frame sample by its file's scale and pad it to ``max_hw``.
+
+        Experimental ``file_scales``: the frame is resized by its file's scale,
+        then padded (not stretched) to ``max_hw``, and shrunk only if it is still
+        larger. ``sample["eff_scale"]`` is the product, so predictions map back to
+        the original frame. Leaves the sample alone without ``file_scales``.
+        """
+        if self.file_scales is None:
+            return sample
+        file_scale = self.file_scales[labels_idx]
+        if file_scale != 1.0:
+            sample["image"], sample["instances"] = apply_resizer(
+                sample["image"], sample["instances"], scale=file_scale
+            )
+        sample["image"], fit = apply_sizematcher(
+            sample["image"],
+            max_height=self.max_hw[0],
+            max_width=self.max_hw[1],
+            upscale=False,
+        )
+        sample["instances"] = sample["instances"] * fit
+        sample["eff_scale"] = torch.tensor(file_scale * fit, dtype=torch.float32)
+        return sample
 
     @staticmethod
     def _extract_user_centroid_xy(
@@ -1374,14 +1509,16 @@ class BaseDataset(Dataset):
             sample["image"] = convert_to_grayscale(sample["image"])
 
         if not self.tiling_enabled:
-            # size matcher
-            sample["image"], eff_scale = apply_sizematcher(
-                sample["image"],
-                max_height=self.max_hw[0],
-                max_width=self.max_hw[1],
-            )
-            sample["instances"] = sample["instances"] * eff_scale
-            sample["eff_scale"] = torch.tensor(eff_scale, dtype=torch.float32)
+            # size matcher (already applied with the file's scale under
+            # `file_scales`, see `_apply_file_scale`)
+            if self.file_scales is None:
+                sample["image"], eff_scale = apply_sizematcher(
+                    sample["image"],
+                    max_height=self.max_hw[0],
+                    max_width=self.max_hw[1],
+                )
+                sample["instances"] = sample["instances"] * eff_scale
+                sample["eff_scale"] = torch.tensor(eff_scale, dtype=torch.float32)
 
             # resize image
             sample["image"], sample["instances"] = apply_resizer(
@@ -1596,12 +1733,14 @@ class BottomUpDataset(BaseDataset):
         node_loss_mask: bool = True,
         unlabeled_points: str = "absent",
         supervise_occluded: bool = True,
+        file_scales: Optional[Dict[str, float]] = None,
     ) -> None:
         """Initialize class attributes."""
         super().__init__(
             node_loss_mask=node_loss_mask,
             unlabeled_points=unlabeled_points,
             supervise_occluded=supervise_occluded,
+            file_scales=file_scales,
             labels=labels,
             max_stride=max_stride,
             user_instances_only=user_instances_only,
@@ -1673,6 +1812,7 @@ class BottomUpDataset(BaseDataset):
         if node_weights is not None:
             sample["node_weights"] = node_weights
 
+        sample = self._apply_file_scale(sample, labels_idx)
         sample = self._apply_common_preprocessing(sample)
 
         img_hw = sample["image"].shape[-2:]
@@ -4132,6 +4272,15 @@ class CentroidDataset(BaseDataset):
             divisible by.
         anchor_ind: Index of the node to use as the anchor point, based on its index in the
             ordered list of skeleton nodes.
+        anchor_inds: Experimental: indices of several anchor nodes, in order of
+            preference (``anchor_part`` given as a list). Only the anchors a file
+            labels count (its ``provenance["labeled_nodes"]``; all of them without
+            one). Each instance is anchored on the first of those it has located,
+            else on the fallback, as with ``anchor_ind``. Frames of a file that
+            labels none of them get no centroids and weight 0 on the centroid map
+            (``node_weights`` of shape ``(1, 1)``, emitted for every sample in this
+            mode). ``None`` (default): ``anchor_ind`` alone, as before.
+        file_scales: Experimental per-file input scales (see `BaseDataset`).
         use_user_centroids: Selects the single dataset-wide centroid source.
             `True` trains on user-annotated centroids (``UserCentroid``); `False`
             computes every centroid from instance keypoints (``anchor_ind`` node,
@@ -4203,9 +4352,12 @@ class CentroidDataset(BaseDataset):
         parallel_caching: bool = True,
         cache_workers: int = 0,
         use_negative_frames: bool = False,
+        anchor_inds: Optional[List[int]] = None,
+        file_scales: Optional[Dict[str, float]] = None,
     ) -> None:
         """Initialize class attributes."""
         super().__init__(
+            file_scales=file_scales,
             labels=labels,
             max_stride=max_stride,
             user_instances_only=user_instances_only,
@@ -4225,6 +4377,31 @@ class CentroidDataset(BaseDataset):
             use_negative_frames=use_negative_frames,
         )
         self.anchor_ind = anchor_ind
+        self.anchor_inds = list(anchor_inds) if anchor_inds is not None else None
+        #: Per labels file, the listed anchors its `labeled_nodes` mask has (all of
+        #: them without a mask), in order of preference (anchor-list mode only).
+        self._file_anchors = None
+        if self.anchor_inds is not None:
+            self._file_anchors = []
+            for x in labels:
+                mask = (
+                    get_labeled_nodes_weights(x)
+                    if x is not None and x.skeletons
+                    else None
+                )
+                self._file_anchors.append(
+                    [
+                        a
+                        for a in self.anchor_inds
+                        if mask is None or (a < len(mask) and mask[a] > 0)
+                    ]
+                )
+            unanchored = [i for i, a in enumerate(self._file_anchors) if not a]
+            if unanchored:
+                logger.warning(
+                    f"CentroidDataset: labels file(s) {unanchored} label none of the "
+                    "anchor_part nodes; their frames get zero centroid loss."
+                )
         self.confmap_head_config = confmap_head_config
         # (method, fallback) for the centroid TARGET, resolved once from the head
         # config so the trained target and inference agree (#586).
@@ -4359,6 +4536,37 @@ class CentroidDataset(BaseDataset):
             uc = uc[:n_slots]
         return uc.unsqueeze(0)  # (1, n_slots, 2)
 
+    def _list_anchor_centroids(
+        self, points: torch.Tensor, n_instances: int, anchors: List[int]
+    ) -> Tuple[torch.Tensor, float]:
+        """Centroids for an ``anchor_inds`` list, and the frame's centroid weight.
+
+        Args:
+            points: ``(1, max_instances, n_nodes, 2)`` preprocessed points; the first
+                ``n_instances`` rows are the frame's instances.
+            n_instances: Number of instances in the frame.
+            anchors: The listed anchors the frame's file labels, in order.
+
+        Returns:
+            ``(centroids, weight)``: ``(1, max_instances, 2)`` centroids and the
+            frame's weight. Each instance takes its first anchor with a location,
+            else the configured fallback, as with a single anchor. When the file
+            labels none of the anchors, every centroid is NaN and the weight is
+            ``0.0`` (no centroid at a fallback location); else ``1.0``.
+        """
+        centroids = torch.full(points.shape[:-2] + (2,), torch.nan)
+        if not anchors:
+            return centroids, 0.0 if n_instances > 0 else 1.0
+        fallback = self.centroid_fallback or DEFAULT_ANCHOR_FALLBACK
+        for i in range(n_instances):
+            for a in anchors:
+                if torch.isfinite(points[0, i, a]).all():
+                    centroids[0, i] = points[0, i, a]
+                    break
+            else:
+                centroids[0, i] = reduce_points(points[0, i], fallback)
+        return centroids, 1.0
+
     def __getitem__(self, index) -> Dict:
         """Return dict with image and confmaps for centroids for given index."""
         sample = self.lf_idx_list[index]
@@ -4413,14 +4621,19 @@ class CentroidDataset(BaseDataset):
         elif self.ensure_grayscale:
             sample["image"] = convert_to_grayscale(sample["image"])
 
-        # size matcher
-        sample["image"], eff_scale = apply_sizematcher(
-            sample["image"],
-            max_height=self.max_hw[0],
-            max_width=self.max_hw[1],
-        )
-        sample["instances"] = sample["instances"] * eff_scale
-        sample["eff_scale"] = torch.tensor(eff_scale, dtype=torch.float32)
+        if self.file_scales is not None:
+            # experimental per-file scale, padded to max_hw (no size matcher)
+            sample = self._apply_file_scale(sample, labels_idx)
+            eff_scale = float(sample["eff_scale"])
+        else:
+            # size matcher
+            sample["image"], eff_scale = apply_sizematcher(
+                sample["image"],
+                max_height=self.max_hw[0],
+                max_width=self.max_hw[1],
+            )
+            sample["instances"] = sample["instances"] * eff_scale
+            sample["eff_scale"] = torch.tensor(eff_scale, dtype=torch.float32)
 
         # resize image
         sample["image"], sample["instances"] = apply_resizer(
@@ -4445,6 +4658,13 @@ class CentroidDataset(BaseDataset):
             # The confmap generator and validation GT slice ``[:num_instances]``;
             # align the count with the number of user centroids.
             sample["num_instances"] = min(len(user_centroids), centroids.shape[1])
+            centroid_weight = 1.0
+        elif self.anchor_inds is not None:
+            centroids, centroid_weight = self._list_anchor_centroids(
+                sample["instances"],
+                int(sample["num_instances"]),
+                self._file_anchors[labels_idx],
+            )
         else:
             # get the centroids based on the anchor idx
             centroids = generate_centroids(
@@ -4455,6 +4675,9 @@ class CentroidDataset(BaseDataset):
             )
 
         sample["centroids"] = centroids
+        if self.anchor_inds is not None:
+            # Zero loss on the frame's centroid map when its file labels no anchor.
+            sample["node_weights"] = torch.tensor([[centroid_weight]])
 
         # Pad the image (if needed) according max stride
         sample["image"] = apply_pad_to_stride(
@@ -4565,12 +4788,14 @@ class SingleInstanceDataset(BaseDataset):
         node_loss_mask: bool = True,
         unlabeled_points: str = "absent",
         supervise_occluded: bool = True,
+        file_scales: Optional[Dict[str, float]] = None,
     ) -> None:
         """Initialize class attributes."""
         super().__init__(
             node_loss_mask=node_loss_mask,
             unlabeled_points=unlabeled_points,
             supervise_occluded=supervise_occluded,
+            file_scales=file_scales,
             labels=labels,
             max_stride=max_stride,
             user_instances_only=user_instances_only,
@@ -4637,6 +4862,7 @@ class SingleInstanceDataset(BaseDataset):
         if node_weights is not None:
             sample["node_weights"] = node_weights
 
+        sample = self._apply_file_scale(sample, labels_idx)
         sample = self._apply_common_preprocessing(sample)
 
         img_hw = sample["image"].shape[-2:]
@@ -7869,6 +8095,23 @@ def get_train_val_datasets(
 
     model_type = get_model_type_from_cfg(config=config)
     backbone_type = get_backbone_type_from_cfg(config=config)
+    # Experimental: one input scale per labels file (frame models only).
+    file_scales = OmegaConf.select(
+        config, "data_config.preprocessing.file_scales", default=None
+    )
+    if file_scales:
+        file_scales = dict(file_scales)
+        tiling = OmegaConf.select(
+            config, "data_config.preprocessing.tiling", default=None
+        )
+        if model_type not in ("bottomup", "centroid", "single_instance") or (
+            tiling is not None and tiling.enabled
+        ):
+            raise ValueError(
+                "preprocessing.file_scales is supported for the bottomup, centroid "
+                f"and single_instance model types (without tiling), not {model_type!r}."
+            )
+        check_file_scales(file_scales, train_labels, val_labels)
     if (
         OmegaConf.select(
             config, "data_config.preprocessing.crop_pipeline", default="legacy"
@@ -7980,6 +8223,7 @@ def get_train_val_datasets(
             parallel_caching=parallel_caching,
             cache_workers=cache_workers,
             use_negative_frames=use_negative_frames,
+            file_scales=file_scales,
         )
         val_dataset = BottomUpDataset(
             **node_weight_kwargs,
@@ -8007,6 +8251,7 @@ def get_train_val_datasets(
             parallel_caching=parallel_caching,
             cache_workers=cache_workers,
             use_negative_frames=use_negative_frames,
+            file_scales=file_scales,
         )
 
     elif model_type == "multi_class_bottomup":
@@ -8245,6 +8490,25 @@ def get_train_val_datasets(
         # the pose skeleton must NOT crash (it did: ``nodes.index`` raised
         # ValueError). Resolve when possible, else leave ``anchor_ind=None`` and
         # the fallback derives the centroid from the mean of visible nodes.
+        anchor_inds = None
+        if isinstance(anchor_part, (list, tuple, ListConfig)):
+            # Experimental: several anchors, the first one labeled per instance.
+            names = anchor_part_names(anchor_part)
+            if not names:
+                raise ValueError(
+                    "model_config.head_configs.centroid.confmaps.anchor_part is an "
+                    "empty list; give at least one node name, or null."
+                )
+            missing = [n for n in names if n not in nodes]
+            if missing:
+                raise ValueError(
+                    "model_config.head_configs.centroid.confmaps.anchor_part lists "
+                    f"{missing}, which are not nodes of the skeleton {nodes}."
+                )
+            anchor_inds = [nodes.index(n) for n in names]
+            anchor_part = names[0]
+        elif anchor_part is not None:
+            anchor_part = str(anchor_part)
         anchor_ind = (
             nodes.index(anchor_part)
             if anchor_part is not None and anchor_part in nodes
@@ -8268,6 +8532,8 @@ def get_train_val_datasets(
                 "max_stride"
             ],
             anchor_ind=anchor_ind,
+            anchor_inds=anchor_inds,
+            file_scales=file_scales,
             user_instances_only=config.data_config.user_instances_only,
             ensure_rgb=config.data_config.preprocessing.ensure_rgb,
             ensure_grayscale=config.data_config.preprocessing.ensure_grayscale,
@@ -8303,6 +8569,8 @@ def get_train_val_datasets(
                 "max_stride"
             ],
             anchor_ind=anchor_ind,
+            anchor_inds=anchor_inds,
+            file_scales=file_scales,
             user_instances_only=config.data_config.user_instances_only,
             ensure_rgb=config.data_config.preprocessing.ensure_rgb,
             ensure_grayscale=config.data_config.preprocessing.ensure_grayscale,
@@ -8857,6 +9125,17 @@ def get_train_val_datasets(
         if tiling is not None and tiling.enabled:
             # Tiled single-instance training. Train draws foreground-aware tiles;
             # val always uses a deterministic full-coverage grid (no aug).
+            if (
+                OmegaConf.select(
+                    config, "trainer_config.balanced_sampler", default=None
+                )
+                is not None
+            ):
+                logger.warning(
+                    "trainer_config.balanced_sampler is ignored for tiled "
+                    "single_instance training (preprocessing.tiling.enabled): tiles "
+                    "are drawn by the tiled dataset's own sampler."
+                )
             if node_weights_active(train_labels, **node_weight_kwargs):
                 logger.warning(
                     "Tiled single-instance training does not apply per-node loss "
@@ -8961,6 +9240,7 @@ def get_train_val_datasets(
                 parallel_caching=parallel_caching,
                 cache_workers=cache_workers,
                 use_negative_frames=use_negative_frames,
+                file_scales=file_scales,
             )
             val_dataset = SingleInstanceDataset(
                 **node_weight_kwargs,
@@ -8987,6 +9267,7 @@ def get_train_val_datasets(
                 parallel_caching=parallel_caching,
                 cache_workers=cache_workers,
                 use_negative_frames=use_negative_frames,
+                file_scales=file_scales,
             )
 
     # Every pose dataset reads `supervise_occluded` for its targets, including
@@ -9201,7 +9482,11 @@ def get_train_val_dataloaders(
         is not None
     )
     if isinstance(train_dataset, WarpCenteredInstanceDataset) or (
-        isinstance(train_dataset, BBoxDataset) and balanced
+        balanced
+        and isinstance(
+            train_dataset,
+            (BBoxDataset, BottomUpDataset, CentroidDataset, SingleInstanceDataset),
+        )
     ):
         return _get_balanced_dataloaders(
             train_dataset,
@@ -9432,9 +9717,10 @@ def _get_balanced_dataloaders(
     pin_memory: bool,
     val_pin_memory: bool,
 ):
-    """Loaders for ``crop_pipeline="warp"`` and for mixed bbox training files.
+    """Loaders for ``crop_pipeline="warp"`` and for mixed training files.
 
-    Bbox datasets come here only with ``trainer_config.balanced_sampler`` set.
+    Bbox, bottom-up, centroid and single-instance datasets come here only with
+    ``trainer_config.balanced_sampler`` set.
 
     Training uses :class:`~sleap_nn.data.topdown_warp.BalancedBatchSampler` in a
     resumable :class:`~sleap_nn.data.topdown_warp.BalancedDataLoader` when

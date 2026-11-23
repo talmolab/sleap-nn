@@ -17,6 +17,7 @@ from sleap_nn.config.get_config import (
     get_data_config,
 )
 from sleap_nn.config.utils import get_model_type_from_cfg
+from sleap_nn.data import skeleton_pool
 from sleap_nn.system_info import get_startup_info_string
 
 
@@ -220,7 +221,7 @@ def _post_train_file_nodes(
         if files is not None and int(index) < len(files):
             nodes = list(files[int(index)].node_names)
     if nodes is None:
-        own = {n for skeleton in gt.skeletons for n in skeleton.node_names}
+        own = skeleton_pool.own_node_set(gt, trainer.config)
         nodes = [n for n in model_nodes if n in own]
     if not nodes:
         raise ValueError(f"`{d_name}` has no model node to score.")
@@ -343,6 +344,17 @@ def _run_centroid_split_eval(
         "model_config.head_configs.centroid.confmaps.centroid_fallback",
         default=None,
     )
+    if anchor_part is not None and not isinstance(anchor_part, str):
+        # A list of anchors (experimental): this file's GT centroids use its first
+        # labeled anchor, as in training.
+        path = path if isinstance(path, sio.Labels) else sio.load_slp(path)
+        anchor_part = skeleton_pool.file_anchor_part(path, anchor_part)
+        if anchor_part is None:
+            logger.info(
+                f"Skipping eval on `{d_name}`: the file labels none of the "
+                "anchor_part nodes, so it has no centroid target."
+            )
+            return None
     # Pixel match threshold from the eval config if present, else 50.0.
     match_threshold = OmegaConf.select(
         config, "trainer_config.eval.match_threshold", default=None

@@ -747,7 +747,7 @@ For detecting instance centers (top-down stage 1).
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `anchor_part` | str | `null` | Anchor node (null = mean of the visible nodes) |
+| `anchor_part` | str or list | `null` | Anchor node (null = mean of the visible nodes). **Experimental:** a non-empty list of nodes, in order of preference: each instance uses the first one its file labels and it has located, else `centroid_fallback` as with one node; frames of a file that labels none of them get zero loss instead of a fallback centroid. Prediction uses the first listed node. See [Frame models on several skeletons](../guides/multi-skeleton-pool.md) |
 | `centroid_method` | str | `null` | How the centroid is computed: `center_of_mass`, `bbox_center`, `geometric_median` or `anchor`. `null` = `anchor` when `anchor_part` is set, else `center_of_mass`. A non-anchor method together with `anchor_part` is an error |
 | `centroid_fallback` | str | `null` | Used when the `anchor_part` node is not visible: `center_of_mass` (what `null` means), `bbox_center` or `geometric_median` |
 | `centroid_source` | str | `null` | Training target: `user` (the labels' `UserCentroid`s; frames with poses but no user centroid are dropped) or `computed` (from keypoints, ignoring user centroids). `null` = `user` if the labels have user centroids, else `computed`, with a warning |
