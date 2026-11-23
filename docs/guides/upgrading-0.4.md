@@ -81,9 +81,11 @@ otherwise.
   or with `--stream-to-file`, is ignored; `sleap-nn predict` now says so and points
   to `--video_index N`, where both combine. The frames that run are
   unchanged.
-- **`--frames_on_gpu` is a deprecated alias of `--upload_batches`**, which moves each
-  batch of frames to the GPU for every pipeline. Who: users of development builds of
-  0.4 that had `--frames_on_gpu`. Use `--upload_batches` instead.
+- **`--frames_on_gpu` is a deprecated alias of `--upload_batches`** (Python:
+  `frames_on_gpu=`), which moves each batch of frames to the GPU for every pipeline,
+  one-stage models included (the GPU resize is not bit-identical to the CPU one). Who:
+  users of development builds of 0.4 that had `--frames_on_gpu`. Use
+  `--upload_batches` instead.
 - **Rescoring is off unless asked for, also with `--boxes`.** `sleap-nn predict
   --boxes ...` keeps each instance's box score (1 with `--boxes gt`), as Python's
   `predict(..., boxes=...)` does; `--rescore` gives the COCO/mmpose instance scores
@@ -133,7 +135,7 @@ otherwise.
   in earlier releases, so on one device without `balanced_sampler` its first resumed
   epoch repeats the order of the original first epoch. The new
   `trainer_config.reseed_on_resume: true` (default `false`) seeds `random`, numpy and
-  torch with `seed + epoch` instead.
+  torch with `seed + epoch` at the first resumed epoch instead.
 - **Data loading.** `prefetch_factor` defaults to `2` (0.3.5 used the batch size,
   which could exhaust host or shared memory with large batches), and
   `num_workers: auto` may pick up to 16 workers (was 4); its memory bound now also

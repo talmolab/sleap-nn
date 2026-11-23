@@ -15,7 +15,9 @@ Use it as:
   ([Top-down with a box detector](bbox-topdown.md)), or
 - the source of detector boxes for training crops (`sleap-nn detect-boxes`).
 
-It is detection only: no keypoint or mask heads.
+It is detection only by default (no mask head); an experimental keypoint branch
+predicts keypoints in the same pass (see
+[Boxes and keypoints in one pass](#boxes-and-keypoints-in-one-pass-experimental)).
 
 | | `bbox_centernet` / `bbox_ssd` | `bbox_detr` |
 |---|---|---|
