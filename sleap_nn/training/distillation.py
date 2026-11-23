@@ -724,6 +724,13 @@ def _attach_box_distillation(student: nn.Module, get) -> BoxDistiller:
     from sleap_nn.data.bboxes import bbox_head_categories, get_bbox_target_encoder
     from sleap_nn.inference.bbox import BBoxDecoder
 
+    if getattr(getattr(student.model, "detr", None), "num_keypoints", 0):
+        raise ValueError(
+            "Box distillation does not support a bbox_detr student with keypoints "
+            "(the experimental head_configs.bbox_detr.detr.keypoints branch): the "
+            "teacher's detections carry no keypoints to train it on. Train the "
+            "keypoint model without trainer_config.distillation."
+        )
     if int(get("stage", 1)) != 1:
         raise ValueError(
             "Distillation of box detectors is stage 1 (teacher -> student) only; "

@@ -16,7 +16,9 @@ only. Given the backbone's tapped token maps:
    group 0.
 4. **Decoder.** Every layer attends around the same reference boxes.
 5. **Heads.** One class head (``num_classes + 1`` sigmoid logits) and one box MLP
-   (deltas on the reference boxes), shared by every decoder layer.
+   (deltas on the reference boxes), shared by every decoder layer. Optionally
+   (``num_keypoints > 0``, experimental) a keypoint MLP and a visibility head on
+   the same query embeddings (:meth:`BBoxDetrHead.keypoint_outputs`).
 
 Outputs are the dict :class:`~sleap_nn.training.detr.SetCriterion` consumes:
 ``pred_logits`` / ``pred_boxes`` of the last layer, ``aux_outputs`` of the earlier
@@ -34,6 +36,7 @@ import math
 from typing import Dict, Optional, Sequence, Tuple
 
 import torch
+from omegaconf import DictConfig
 from torch import nn
 
 from sleap_nn.architectures.detr.decoder import (
@@ -112,6 +115,7 @@ class BBoxDetrHead(nn.Module):
         c2f_expansion: float = 0.5,
         projector_activation: str = "silu",
         decoder_activation: str = "relu",
+        num_keypoints: int = 0,
     ):
         """Initialize the detector.
 
@@ -131,6 +135,9 @@ class BBoxDetrHead(nn.Module):
             c2f_expansion: C2f hidden width fraction.
             projector_activation: Projector activation.
             decoder_activation: Decoder FFN activation.
+            num_keypoints: Keypoints per query (experimental; see
+                :meth:`keypoint_outputs`). ``0`` (default): boxes only, and no
+                keypoint module is built.
         """
         super().__init__()
         self.num_classes = num_classes
@@ -176,6 +183,17 @@ class BBoxDetrHead(nn.Module):
         self.enc_out_bbox_embed = nn.ModuleList(
             copy.deepcopy(self.bbox_embed) for _ in range(group_detr)
         )
+        self.num_keypoints = int(num_keypoints)
+        if self.num_keypoints > 0:
+            # Built last, so the box detector's modules draw the same initial
+            # weights with or without the keypoint branch.
+            self.keypoint_embed = MLP(
+                hidden_dim, hidden_dim, 2 * self.num_keypoints, num_layers=3
+            )
+            self.keypoint_visibility_embed = nn.Linear(hidden_dim, self.num_keypoints)
+            # Every point starts at its box center.
+            nn.init.zeros_(self.keypoint_embed.layers[-1].weight)
+            nn.init.zeros_(self.keypoint_embed.layers[-1].bias)
 
     @torch.no_grad()
     def _reset_parameters(self):
@@ -230,6 +248,30 @@ class BBoxDetrHead(nn.Module):
         boxes = boxes.gather(1, topk[..., None].expand(-1, -1, 4))
         return logits, boxes, boxes.detach()
 
+    def keypoint_outputs(
+        self, hidden: torch.Tensor, boxes: torch.Tensor
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Keypoints and visibility logits of every query (experimental branch).
+
+        Each query's ``K`` points are offsets from its predicted box center in
+        units of the box's width and height, ``xy = c + d * wh`` (box-relative
+        keypoints as in ED-Pose, Yang et al. 2023). The box is detached here, so the
+        keypoint loss trains the query embedding and the keypoint MLP, not the box.
+
+        Args:
+            hidden: ``(..., Q, D)`` query embeddings.
+            boxes: ``(..., Q, 4)`` the queries' normalized ``cxcywh`` boxes.
+
+        Returns:
+            ``(points (..., Q, K, 2), logits (..., Q, K))``: normalized ``xy``
+            relative to the model input and visibility logits.
+        """
+        offsets = self.keypoint_embed(hidden)
+        offsets = offsets.reshape(*offsets.shape[:-1], self.num_keypoints, 2)
+        box = boxes.detach()[..., None, :]
+        points = box[..., :2] + offsets * box[..., 2:]
+        return points, self.keypoint_visibility_embed(hidden)
+
     def forward(self, features: Sequence[torch.Tensor]) -> Dict:
         """Detect boxes from the backbone's tapped token maps.
 
@@ -241,7 +283,10 @@ class BBoxDetrHead(nn.Module):
             ``pred_boxes`` ``(B, G * Q, 4)`` normalized ``cxcywh``,
             ``aux_outputs`` (one such dict per earlier decoder layer) and
             ``enc_outputs`` (the selected encoder proposals), where ``G`` is
-            ``group_detr`` in training and 1 in eval.
+            ``group_detr`` in training and 1 in eval. With keypoints, the final
+            and every ``aux_outputs`` dict also hold ``pred_keypoints``
+            ``(B, G * Q, K, 2)`` (normalized ``xy``) and ``pred_keypoint_logits``
+            ``(B, G * Q, K)``.
 
         Raises:
             ValueError: If the map has fewer tokens than ``num_queries``.
@@ -281,7 +326,7 @@ class BBoxDetrHead(nn.Module):
         logits = self.class_embed(hidden)  # (L, B, G * Q, C + 1)
         boxes = refine_boxes(reference, self.bbox_embed(hidden))
 
-        return {
+        out = {
             "pred_logits": logits[-1],
             "pred_boxes": boxes[-1],
             "aux_outputs": [
@@ -293,6 +338,12 @@ class BBoxDetrHead(nn.Module):
                 "pred_boxes": torch.cat(enc_boxes, dim=1),
             },
         }
+        if self.num_keypoints > 0:
+            points, vis = self.keypoint_outputs(hidden, boxes)
+            for layer, p, v in zip(out["aux_outputs"], points[:-1], vis[:-1]):
+                layer["pred_keypoints"], layer["pred_keypoint_logits"] = p, v
+            out["pred_keypoints"], out["pred_keypoint_logits"] = points[-1], vis[-1]
+        return out
 
 
 def build_bbox_detr_head(
@@ -311,6 +362,7 @@ def build_bbox_detr_head(
     """
     if num_classes is None:
         num_classes = len(detr_config.categories or [None])
+    num_keypoints = detr_num_keypoints(detr_config)
     return BBoxDetrHead(
         in_channels=in_channels,
         num_classes=num_classes,
@@ -325,4 +377,42 @@ def build_bbox_detr_head(
         dropout=detr_config.dropout,
         c2f_num_blocks=detr_config.c2f_num_blocks,
         c2f_expansion=detr_config.c2f_expansion,
+        num_keypoints=num_keypoints,
     )
+
+
+def _get(node, key: str):
+    """``node.key`` of an attrs config, a ``DictConfig`` or a dict (``None`` if absent)."""
+    if node is None:
+        return None
+    if isinstance(node, (dict, DictConfig)):
+        return node.get(key, None)
+    return getattr(node, key, None)
+
+
+def detr_keypoints_config(detr_config):
+    """The ``keypoints`` section of a ``bbox_detr`` ``detr`` leaf, or ``None``.
+
+    Reads configs saved before the section existed (no key) as ``None``.
+    """
+    return _get(detr_config, "keypoints")
+
+
+def detr_num_keypoints(detr_config) -> int:
+    """Keypoints per query of a ``bbox_detr`` ``detr`` leaf (0: boxes only).
+
+    Raises:
+        ValueError: If the ``keypoints`` section is set but its ``part_names`` are
+            not (training setup fills them in from the labels).
+    """
+    keypoints = detr_keypoints_config(detr_config)
+    if keypoints is None:
+        return 0
+    names = _get(keypoints, "part_names")
+    if not names:
+        raise ValueError(
+            "model_config.head_configs.bbox_detr.detr.keypoints.part_names is unset. "
+            "Training setup fills it in from the labels' skeleton; set it to build "
+            "a keypoint bbox_detr model outside of it."
+        )
+    return len(names)
