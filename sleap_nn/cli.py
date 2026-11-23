@@ -3028,6 +3028,35 @@ def _warn_ignored_slp_filters_for_non_slp_source(kwargs: dict, src_suffix: str) 
         )
 
 
+def _warn_frames_with_slp_filters(
+    kwargs: dict, src_suffix: str, stream: bool = False
+) -> None:
+    """Warn that ``--frames`` is ignored on a whole ``.slp`` where it is dropped.
+
+    Without ``--video_index`` the ``.slp`` filters build a frame list that
+    ``--frames`` is not applied to, and ``--stream-to-file`` reads a ``.slp``
+    without ``--frames`` even when no filter is given, so the range is dropped; it
+    used to be dropped without a word. With ``--video_index`` the two combine
+    (``--frames`` are that video's frame indices), so that route is not reported.
+    """
+    if src_suffix != ".slp" or kwargs.get("video_index") is not None:
+        return
+    if not kwargs.get("frames"):
+        return
+    filters = [f"--{flag}" for flag in _SLP_ONLY_FRAME_FILTER_FLAGS if kwargs.get(flag)]
+    if filters:
+        reason, runs = f"with {', '.join(filters)}", "every frame the filter selects"
+    elif stream:
+        reason, runs = "by --stream-to-file", "every labeled frame of the .slp"
+    else:
+        return
+    logger.warning(
+        f"--frames is ignored {reason} on a .slp without --video_index: {runs} is "
+        "predicted. Pass --video_index N to predict those frame indices of video N, "
+        "filtered by the .slp's annotations."
+    )
+
+
 def _refuse_overwriting_input_early(source, output_path, output_format) -> None:
     """Refuse, as a usage error, an ``.slp`` output over the input's frame source.
 
@@ -3138,6 +3167,7 @@ def _run_in_memory_new_flow(
     # options (--headers/--stream-mode) are forwarded to the URL-aware loaders.
     source_str, src_suffix, src_is_url = _resolve_data_path(kwargs["data_path"])
     _warn_ignored_slp_filters_for_non_slp_source(kwargs, src_suffix)
+    _warn_frames_with_slp_filters(kwargs, src_suffix)
     remote_kwargs = _build_remote_kwargs(kwargs)
 
     # Build source: use a provider when CLI-specific filtering or
@@ -3791,6 +3821,7 @@ def _run_stream_to_file(
     # set for a non-`.slp` source -- same check as the in-memory flow.
     _early_source, _early_src_suffix, _ = _resolve_data_path(data_path)
     _warn_ignored_slp_filters_for_non_slp_source(kwargs, _early_src_suffix)
+    _warn_frames_with_slp_filters(kwargs, _early_src_suffix, stream=True)
     # Streaming over a file the input reads its frames from (e.g. the input
     # .pkg.slp) destroys those frames, and this path has no save-time check.
     _refuse_overwriting_input_early(_early_source, stream_to_file, "slp")

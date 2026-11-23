@@ -236,6 +236,11 @@ SAM-prompted masks from existing poses (no trained segmentation model; see
 | `--sam_disjointify_masks` | Make a frame's masks non-overlapping | Flag | `false` |
 | `--overlay_path` | Write a review overlay PNG | `PATH` | None |
 
+On a `.slp` without `--video_index`, `--frames` is ignored when one of the four
+annotation filters above is given, and always with `--stream-to-file` (the command
+says so). With `--video_index N` they combine: `--frames` are frame indices of
+video `N`, and the filters keep those of them that match.
+
 ### Filtering
 
 | Option | Description | Values | Default |
