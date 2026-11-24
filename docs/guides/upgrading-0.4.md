@@ -13,15 +13,16 @@ otherwise.
 - **sleap-io 0.10 is required** (was `>=0.9.3,<0.10`).
   sleap-io 0.10 reads both `.slp` file layouts: the one SLEAP 1.x and sleap-io 0.9
   write, and the newer format 3.0, which stores separate *labelled* and *visible*
-  flags per point. Which layout `sleap-nn` writes by default is sleap-io's default
-  (see `--slp_version` below); `--slp_version v2` writes the old layout, which SLEAP
-  1.x and sleap-io 0.9 open. `sleap-nn detect-boxes` always writes 3.0, because each
-  box keeps its matching score.
+  flags per point. By default (`--slp_version auto` or unset), a file whose content
+  fits the 2.x layout is written in 2.x, so SLEAP 1.x and sleap-io 0.9 can open it,
+  and a file that needs format 3.0 is written as 3.0 with a warning; `--slp_version
+  v2` forces the 2.x layout and `--slp_version v3` forces 3.0. `sleap-nn
+  detect-boxes` always writes 3.0, because each box keeps its matching score.
 - **Save options.** `predict`, `track` and `detect-boxes` take `--slp_version`
   (`auto`, `v2`, `v3`; `detect-boxes`: `auto` or `v3`), `--compression` and
   `--unlabeled_as`; `predict` also takes `--image_format` and `--image_quality` for
-  the frames it embeds. Left unset, `--slp_version` saves as `auto`, which leaves the
-  layout to sleap-io.
+  the frames it embeds. Left unset, `--slp_version` saves as `auto` (sleap-io 0.10's
+  default: 2.x when the content fits, else 3.0 with a warning).
 - **Default output name of `sleap-nn predict`.** Without `-o`, `sleap-nn predict -i
   video.mp4` now writes `video.predictions.slp`, as SLEAP's `sleap-track` does (0.3.5
   wrote `video.mp4.slp`, and `labels.slp.slp` for a `labels.slp` input). Who:

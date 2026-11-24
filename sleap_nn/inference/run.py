@@ -354,9 +354,8 @@ def save_predictions(
             output that could not be retracked again). ``True``/``False`` force it.
         slp_version: File layout of the ``.slp`` output: ``"v2"`` (the SLP 2.x
             layout that older sleap-io and SLEAP releases read), ``"v3"`` (SLP
-            3.0) or ``"auto"``, which passes nothing to a sleap-io without its
-            own ``slp_version`` option (such as 0.10.0: SLP 3.0); a sleap-io
-            with it writes the 2.x layout when the content allows. ``None`` (the
+            3.0) or ``"auto"`` (sleap-io 0.10's default: writes the 2.x layout
+            when the content fits, else SLP 3.0 with a warning). ``None`` (the
             default) passes nothing, so sleap-io's default applies.
         image_format: Format of embedded frames: ``"png"``, ``"jpg"`` /
             ``"jpeg"`` or ``"hdf5"`` (raw pixels). Applies only when frames are

@@ -159,7 +159,7 @@ sleap-io's default, so the file is written exactly as without them.
 
 | Option | What it does |
 |--------|--------------|
-| `--slp_version` | `v2` writes the SLP 2.x layout, which older sleap-io (before 0.10) and SLEAP releases can open; `v3` writes SLP 3.0, which they cannot. `auto` passes nothing to a sleap-io without its own `slp_version` option, such as 0.10.0, so the file is SLP 3.0; a sleap-io with its own `slp_version` option writes the 2.x layout when the content allows. Unset saves as `auto` does. |
+| `--slp_version` | `v2` writes the SLP 2.x layout, which older sleap-io (before 0.10) and SLEAP releases can open; `v3` writes SLP 3.0, which they cannot. `auto` (sleap-io 0.10's default) writes the 2.x layout when the content fits and SLP 3.0 with a warning when it needs format 3.0. Unset saves as `auto` does. |
 | `--unlabeled_as` | The 2.x layout cannot store a point marked as not labeled. With `v2`, `error` (sleap-io's default) refuses to write such a file, at the final save, with an error that names `--unlabeled_as absent`; `absent` writes those points as hidden points, with a warning. |
 | `--compression` | `gzip` or `lzf` compress the file's tables: a smaller file that reads more slowly. |
 | `--image_format` | With `--embed true` (or `auto` on an embedded input): store the embedded frames as `png`, `jpg` or `hdf5` (raw pixels). |

@@ -68,11 +68,10 @@ def _parse_int_list(ctx, param, value):
 
 _SLP_VERSION_HELP = (
     "File layout of the output .slp: 'v2' (the SLP 2.x layout that older "
-    "sleap-io and SLEAP releases can open), 'v3' (SLP 3.0) or 'auto'. 'auto' "
-    "passes nothing to a sleap-io without its own slp_version option, such as "
-    "sleap-io 0.10.0, so the file is SLP 3.0; a sleap-io with its own "
-    "slp_version option writes the 2.x layout when the content allows. "
-    "Default: unset, which saves as 'auto' does."
+    "sleap-io and SLEAP releases can open), 'v3' (SLP 3.0) or 'auto'. With "
+    "'auto' (sleap-io 0.10's default), a file whose content fits the 2.x "
+    "layout is written in 2.x and a file that needs format 3.0 is written as "
+    "3.0 with a warning. Default: unset, which saves as 'auto' does."
 )
 
 # `detect-boxes` output keeps each box's matching score, which only SLP 3.0
