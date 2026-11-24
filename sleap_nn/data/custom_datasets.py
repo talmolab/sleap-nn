@@ -10177,11 +10177,16 @@ def _get_balanced_dataloaders(
                     f"Mixed batches: each sample from training file g with "
                     f"probability {list(weights)} (normalized)."
                 )
-            frame_weights = getattr(train_dataset, "frame_weights", None)
+            frame_weight_key = bs.get("frame_weight_key")
+            frame_weights = (
+                getattr(train_dataset, "frame_weights", None)
+                if frame_weight_key is not None
+                else None
+            )
             sample_weights = _overlap_sample_weights(
                 bs, train_dataset, weights, rank, frame_weights
             )
-            if bs.get("frame_weight_key") is not None and frame_weights is None:
+            if frame_weight_key is not None and frame_weights is None:
                 raise ValueError(
                     "balanced_sampler.frame_weight_key is for the bbox_* models."
                 )
@@ -10190,7 +10195,7 @@ def _get_balanced_dataloaders(
                 if rank == 0:
                     logger.info(
                         "Per-frame sampling weights from frame metadata "
-                        f"'{bs.get('frame_weight_key')}': "
+                        f"'{frame_weight_key}': "
                         f"{int((frame_weights != 1).sum())} of {len(frame_weights)} "
                         "training frames weigh other than 1."
                     )

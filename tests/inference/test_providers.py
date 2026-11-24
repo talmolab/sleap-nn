@@ -805,3 +805,59 @@ def test_predictor_rejects_fitted_frames_for_a_layer_without_frame_scales(tmp_pa
     provider = LabelsProvider(labels=labels, batch_size=2, fit=FrameFit(16, 16))
     with pytest.raises(ValueError, match="cannot take frames the provider"):
         list(Predictor(layer=_StubLayer())._batch_iter(provider))
+
+
+def test_numpy_provider_and_inference_layer_handle_negative_stride_views():
+    """Negative-stride views (e.g. ``arr[..., ::-1]``) work through ``NumpyProvider``,
+    ``InferenceLayer.predict``, ``Predictor.predict``, and ``Predictor._upload_images``.
+    """
+    from sleap_nn.inference.layers.backends import TorchBackend
+    from sleap_nn.inference.layers.configs import PostprocessConfig, PreprocessConfig
+    from sleap_nn.inference.layers.single_instance import SingleInstanceLayer
+    from sleap_nn.inference.providers import NumpyProvider
+
+    class _TinyConfmapNet(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.conv = torch.nn.Conv2d(3, 2, kernel_size=3, padding=1)
+
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            if x.ndim == 5:
+                x = x.squeeze(1)
+            return self.conv(x.float() / 255.0)
+
+    torch.manual_seed(0)
+    layer = SingleInstanceLayer(
+        backend=TorchBackend(model=_TinyConfmapNet().eval(), device="cpu"),
+        preprocess_config=PreprocessConfig(),
+        postprocess_config=PostprocessConfig(peak_threshold=0.0, refinement="none"),
+        output_stride=1,
+    )
+    rng = np.random.default_rng(123)
+    bgr = rng.integers(0, 256, size=(3, 16, 20, 3), dtype=np.uint8)
+    rgb_view = bgr[..., ::-1]  # negative channel stride
+    rgb_contig = np.ascontiguousarray(rgb_view)
+    assert any(s < 0 for s in rgb_view.strides)
+
+    # 1. Direct InferenceLayer.predict on negative-stride view.
+    out_layer_view = layer.predict(rgb_view)
+    out_layer_contig = layer.predict(rgb_contig)
+    assert torch.equal(out_layer_view.pred_keypoints, out_layer_contig.pred_keypoints)
+
+    # 2. NumpyProvider + Predictor.predict on negative-stride view.
+    predictor = Predictor(layer=layer, batch_size=2)
+    out_prov_view = predictor.predict(
+        NumpyProvider(images=rgb_view, batch_size=2), make_labels=False
+    )
+    out_prov_contig = predictor.predict(
+        NumpyProvider(images=rgb_contig, batch_size=2), make_labels=False
+    )
+    assert len(out_prov_view) == len(out_prov_contig) == 2
+    for ov, oc in zip(out_prov_view, out_prov_contig):
+        assert torch.equal(ov.pred_keypoints, oc.pred_keypoints)
+
+    # 3. Predictor._upload_images with upload device enabled on negative-stride view.
+    predictor._upload_device = "cpu"
+    uploaded = predictor._upload_images(rgb_view)
+    assert isinstance(uploaded, torch.Tensor)
+    assert torch.equal(uploaded, torch.from_numpy(rgb_contig))

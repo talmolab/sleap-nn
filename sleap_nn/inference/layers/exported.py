@@ -51,6 +51,55 @@ def _to_4d_tensor_for_export(image: Any) -> torch.Tensor:
     return InferenceLayer._to_4d_tensor(image)
 
 
+def _positive_int(val: Any) -> Optional[int]:
+    """Return ``int(val)`` when *val* is a positive int (not bool), else ``None``."""
+    return (
+        int(val)
+        if isinstance(val, int) and not isinstance(val, bool) and val > 0
+        else None
+    )
+
+
+def _coerce_export_channels(
+    x: torch.Tensor,
+    backend: Any,
+    input_channels: Optional[int] = None,
+) -> torch.Tensor:
+    """Coerce 1 <-> 3 channels to match an exported graph's expected channel count.
+
+    Mirrors :meth:`sleap_nn.architectures.model.Model.forward` and
+    :class:`sleap_nn.inference.exported_network.ExportedNetwork`: when a
+    3-channel exported graph receives a 1-channel frame (e.g. a model trained
+    with ``ensure_rgb=False`` run on grayscale frames), repeat the channel to 3;
+    when a 1-channel graph receives a 3-channel frame, convert to grayscale.
+    Preserves the tensor's dtype (uint8 stays uint8) and leaves already-matching
+    or unsupported channel counts untouched.
+    """
+    expected = _positive_int(input_channels) or _positive_int(
+        getattr(backend, "input_channels", None)
+    )
+    if expected is None or x.shape[-3] == expected:
+        return x
+    if x.shape[-3] == 1 and expected == 3:
+        return x.repeat(1, 3, 1, 1)
+    if x.shape[-3] == 3 and expected == 1:
+        import torchvision.transforms.v2.functional as F
+
+        return F.rgb_to_grayscale(x, num_output_channels=1)
+    return x
+
+
+def _prepare_export_input(
+    image: Any,
+    backend: Any,
+    input_channels: Optional[int] = None,
+) -> torch.Tensor:
+    """Coerce an image to ``(B, C, H, W)`` and align 1 <-> 3 channels with the graph."""
+    return _coerce_export_channels(
+        _to_4d_tensor_for_export(image), backend, input_channels
+    )
+
+
 def _raw_to_cpu(raw: dict) -> dict:
     """Move every tensor in a backend output dict to CPU.
 
@@ -89,10 +138,11 @@ class ExportedSingleInstanceLayer:
 
     backend: Any
     return_confmaps: bool = False
+    input_channels: Optional[int] = None
 
     def predict(self, image: Any, **_kwargs: Any) -> Outputs:
         """Run the backend and translate to :class:`Outputs`."""
-        x = _to_4d_tensor_for_export(image)
+        x = _prepare_export_input(image, self.backend, self.input_channels)
         raw = self.backend(x)
         peaks = raw["peaks"]  # (B, N, 2)
         vals = raw["peak_vals"]  # (B, N)
@@ -127,10 +177,11 @@ class ExportedCenteredInstanceLayer:
 
     backend: Any
     return_confmaps: bool = False
+    input_channels: Optional[int] = None
 
     def predict(self, image: Any, **_kwargs: Any) -> Outputs:
         """Run the backend and translate to :class:`Outputs`."""
-        x = _to_4d_tensor_for_export(image)
+        x = _prepare_export_input(image, self.backend, self.input_channels)
         raw = self.backend(x)
         peaks = raw["peaks"]  # (B_crops, N, 2)
         vals = raw["peak_vals"]
@@ -174,10 +225,11 @@ class ExportedCentroidLayer:
     backend: Any
     anchor_ind: Optional[int] = None
     centroid_method: Optional[str] = None
+    input_channels: Optional[int] = None
 
     def predict(self, image: Any, **_kwargs: Any) -> Outputs:
         """Run the backend and translate to :class:`Outputs`."""
-        x = _to_4d_tensor_for_export(image)
+        x = _prepare_export_input(image, self.backend, self.input_channels)
         raw = self.backend(x)
         centroids = raw["centroids"].clone()  # (B, I, 2)
         centroid_vals = raw["centroid_vals"].clone()  # (B, I)
@@ -246,13 +298,14 @@ class ExportedBottomUpLayer:
     min_instance_peaks: float = 0
     min_line_scores: float = 0.25
     peak_conf_threshold: Optional[float] = None
+    input_channels: Optional[int] = None
 
     def predict(self, image: Any, **_kwargs: Any) -> Outputs:
         """Run the backend, translate to ``ScoredBatch``, run CPU grouping."""
         from sleap_nn.inference.preprocess_info import PreprocInfo
         from sleap_nn.inference.streaming import GroupingParams, group_scored_batch
 
-        x = _to_4d_tensor_for_export(image)
+        x = _prepare_export_input(image, self.backend, self.input_channels)
         B, _C, H, W = x.shape
         raw = _raw_to_cpu(self.backend(x))
 
@@ -413,10 +466,11 @@ class ExportedTopDownLayer:
     """
 
     backend: Any
+    input_channels: Optional[int] = None
 
     def predict(self, image: Any, **_kwargs: Any) -> Outputs:
         """Run the backend and translate to :class:`Outputs`."""
-        x = _to_4d_tensor_for_export(image)
+        x = _prepare_export_input(image, self.backend, self.input_channels)
         raw = self.backend(x)
         centroids = raw["centroids"].clone()
         centroid_vals = raw["centroid_vals"].clone()
@@ -467,12 +521,13 @@ class ExportedTopDownMultiClassLayer:
 
     backend: Any
     n_classes: int
+    input_channels: Optional[int] = None
 
     def predict(self, image: Any, **_kwargs: Any) -> Outputs:
         """Run the backend, run softmax + Hungarian, build :class:`Outputs`."""
         from sleap_nn.inference.ops.identity import get_class_inds_from_vectors
 
-        x = _to_4d_tensor_for_export(image)
+        x = _prepare_export_input(image, self.backend, self.input_channels)
         raw = _raw_to_cpu(self.backend(x))
 
         centroids = raw["centroids"]
@@ -563,12 +618,13 @@ class ExportedBottomUpMultiClassLayer:
     n_classes: int
     input_scale: float = 1.0
     peak_conf_threshold: Optional[float] = None
+    input_channels: Optional[int] = None
 
     def predict(self, image: Any, **_kwargs: Any) -> Outputs:
         """Run the backend, flatten + group peaks by class, build ``Outputs``."""
         from sleap_nn.inference.ops.identity import group_class_peaks
 
-        x = _to_4d_tensor_for_export(image)
+        x = _prepare_export_input(image, self.backend, self.input_channels)
         raw = _raw_to_cpu(self.backend(x))
 
         peaks = raw["peaks"]  # (B, n_nodes, k, 2)

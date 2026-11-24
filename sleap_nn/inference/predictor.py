@@ -1189,17 +1189,27 @@ def _select_export_layer(
         ExportedSingleInstanceLayer,
         ExportedTopDownLayer,
         ExportedTopDownMultiClassLayer,
+        _positive_int,
     )
 
     model_type = metadata.model_type
+    # Prefer the graph's actual input channel count over export_metadata.json
+    # (older metadata defaulted missing `input_channels` to 1).
+    input_channels = _positive_int(
+        getattr(backend, "input_channels", None)
+    ) or _positive_int(getattr(metadata, "input_channels", None))
 
     if model_type == "single_instance":
         return ExportedSingleInstanceLayer(
-            backend=backend, return_confmaps=return_confmaps
+            backend=backend,
+            return_confmaps=return_confmaps,
+            input_channels=input_channels,
         )
     if model_type == "centered_instance":
         return ExportedCenteredInstanceLayer(
-            backend=backend, return_confmaps=return_confmaps
+            backend=backend,
+            return_confmaps=return_confmaps,
+            input_channels=input_channels,
         )
     if model_type == "centroid":
         # Resolve the configured anchor node so the centroid lands on it at
@@ -1220,9 +1230,10 @@ def _select_export_layer(
             backend=backend,
             anchor_ind=anchor_ind,
             centroid_method=getattr(metadata, "centroid_method", None),
+            input_channels=input_channels,
         )
     if model_type == "topdown":
-        return ExportedTopDownLayer(backend=backend)
+        return ExportedTopDownLayer(backend=backend, input_channels=input_channels)
     if model_type == "bottomup":
         if metadata.max_peaks_per_node is None:
             raise ValueError(
@@ -1239,6 +1250,7 @@ def _select_export_layer(
             min_instance_peaks=min_instance_peaks,
             min_line_scores=min_line_scores,
             peak_conf_threshold=peak_conf_threshold,
+            input_channels=input_channels,
         )
     if model_type in ("multi_class_topdown", "multi_class_topdown_combined"):
         if metadata.n_classes is None:
@@ -1248,6 +1260,7 @@ def _select_export_layer(
         return ExportedTopDownMultiClassLayer(
             backend=backend,
             n_classes=int(metadata.n_classes),
+            input_channels=input_channels,
         )
     if model_type == "multi_class_bottomup":
         if metadata.n_classes is None:
@@ -1260,6 +1273,7 @@ def _select_export_layer(
             n_classes=int(metadata.n_classes),
             input_scale=float(metadata.input_scale),
             peak_conf_threshold=peak_conf_threshold,
+            input_channels=input_channels,
         )
 
     if model_type in ("bbox_centernet", "bbox_ssd", "bbox_detr"):
@@ -1298,6 +1312,7 @@ def _select_export_layer(
             backend=backend,
             decoder=decoder,
             input_dtype=getattr(metadata, "input_dtype", None) or "uint8",
+            input_channels=input_channels,
             output_stride=int(metadata.output_stride),
             max_stride=int(backbone_cfg.max_stride),
             preprocess_config=PreprocessConfig(
@@ -1739,7 +1754,9 @@ class Predictor:
             integral_patch_size: Refinement patch size.
             max_instances: Cap on instances per frame.
             return_confmaps: Return confidence maps on Outputs.
-            preprocess_config: OmegaConf overrides for preprocessing.
+            preprocess_config: Preprocessing overrides (``OmegaConf.DictConfig``,
+                plain ``dict``, or :class:`PreprocessConfig`). Fields left
+                ``None`` fall back to the model's training config.
             anchor_part: Override centroid anchor node name.
             filter_config: Post-inference :class:`FilterConfig`.
             paf_workers: CPU workers for bottom-up PAF grouping.
@@ -3144,6 +3161,8 @@ class Predictor:
         if device is None:
             return images
         if isinstance(images, np.ndarray):
+            if any(s < 0 for s in images.strides):
+                images = np.ascontiguousarray(images)
             return torch.from_numpy(images).to(device, non_blocking=True)
         if isinstance(images, torch.Tensor):
             return images.to(device, non_blocking=True)

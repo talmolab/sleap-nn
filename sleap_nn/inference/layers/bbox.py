@@ -217,7 +217,13 @@ class ExportedBBoxLayer(BBoxLayer):
         Other args: As for :class:`BBoxLayer`.
     """
 
-    def __init__(self, *args, input_dtype: str = "uint8", **kwargs) -> None:
+    def __init__(
+        self,
+        *args,
+        input_dtype: str = "uint8",
+        input_channels: Optional[int] = None,
+        **kwargs,
+    ) -> None:
         """Store the graph's input dtype; everything else as :class:`BBoxLayer`."""
         if input_dtype not in ("uint8", "float32"):
             raise ValueError(
@@ -225,15 +231,19 @@ class ExportedBBoxLayer(BBoxLayer):
             )
         super().__init__(*args, **kwargs)
         self.input_dtype = input_dtype
+        self.input_channels = input_channels
 
     def preprocess(self, image):
         """Native preprocessing, emitted as the graph's ``(B, C, H, W)`` input."""
+        from sleap_nn.inference.layers.exported import _coerce_export_channels
+
         x = self._to_4d_tensor(image)
         if self.input_dtype == "uint8":
             x = x.float()
         x, eff_scale, orig_hw = self._apply_full_preprocess(
             x, max_stride=self.max_stride, unsqueeze_n_samples=False
         )
+        x = _coerce_export_channels(x, self.backend, self.input_channels)
         info = PreprocInfo(
             original_size=orig_hw,
             processed_size=tuple(x.shape[-2:]),

@@ -1911,3 +1911,72 @@ def test_dataloader_prefetch_factor_is_small_constant(
     )
     assert captured["train"]["prefetch_factor"] == expected
     assert captured["val"]["prefetch_factor"] == expected
+
+
+def test_frame_weight_key_none_ignores_dataset_frame_weights():
+    """``frame_weight_key=None`` must ignore a dataset's ``.frame_weights``.
+
+    Regression test: ``get_train_val_dataloaders`` previously read
+    ``train_dataset.frame_weights`` unconditionally whenever present, even when
+    ``balanced_sampler.frame_weight_key`` was ``None`` (silently applying those
+    weights and logging ``frame metadata 'None'``).
+    """
+    import numpy as np
+    from loguru import logger
+
+    class _WeightedDataset(custom_datasets.BBoxDataset):
+        num_files = 1
+        labels_idx = np.array([0, 0, 0], dtype=np.int64)
+        frame_weights = np.array([20.0, 1.0, 0.05], dtype=np.float64)
+
+        def __init__(self):
+            pass
+
+        def __len__(self):
+            return 3
+
+        def __getitem__(self, idx):
+            return {"idx": idx}
+
+    ds = _WeightedDataset()
+
+    def _run(frame_weight_key):
+        cfg = OmegaConf.create(
+            {
+                "trainer_config": {
+                    "seed": 0,
+                    "train_data_loader": {"batch_size": 4, "num_workers": 0},
+                    "val_data_loader": {"batch_size": 2, "num_workers": 0},
+                    "balanced_sampler": {
+                        "per_sample": True,
+                        "weights": [1.0],
+                        "frame_weight_key": frame_weight_key,
+                    },
+                }
+            }
+        )
+        messages = []
+        hid = logger.add(lambda m: messages.append(m.record["message"]), level="INFO")
+        try:
+            train_loader, _ = custom_datasets.get_train_val_dataloaders(
+                ds, ds, cfg, train_steps_per_epoch=300
+            )
+        finally:
+            logger.remove(hid)
+        draws = np.concatenate(list(train_loader.batch_sampler))
+        freqs = [float(np.mean(draws == i)) for i in range(3)]
+        return freqs, messages
+
+    freqs_off, logs_off = _run(None)
+    assert all(
+        0.25 < f < 0.42 for f in freqs_off
+    ), f"OFF should be ~uniform: {freqs_off}"
+    assert not any("Per-frame sampling weights" in m for m in logs_off), logs_off
+
+    freqs_on, logs_on = _run("w")
+    assert (
+        freqs_on[0] > 0.85 and freqs_on[2] < 0.02
+    ), f"ON should favor frame 0: {freqs_on}"
+    assert any(
+        "Per-frame sampling weights from frame metadata 'w'" in m for m in logs_on
+    ), logs_on

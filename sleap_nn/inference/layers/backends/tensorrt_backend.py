@@ -92,6 +92,8 @@ class TensorRTBackend:
     _trt: object = attrs.field(default=None, init=False, repr=False)
     # Largest batch the engine's optimization profile admits (``None``: unknown).
     _max_batch: Optional[int] = attrs.field(default=None, init=False, repr=False)
+    # Expected input channel count of the engine's input tensor (``None``: dynamic/unknown).
+    _input_channels: Optional[int] = attrs.field(default=None, init=False, repr=False)
     # The CUDA device the engine was loaded on (and runs on).
     _cuda_device: Optional[torch.device] = attrs.field(
         default=None, init=False, repr=False
@@ -157,10 +159,21 @@ class TensorRTBackend:
             self._max_batch = int(max_shape[0]) if int(max_shape[0]) > 0 else None
         except Exception:  # noqa: BLE001 -- static engines / older TensorRT: unknown
             self._max_batch = None
+        try:
+            in_shape = self._engine.get_tensor_shape(self._input_names[0])
+            ch = int(in_shape[1]) if len(in_shape) >= 4 else -1
+            self._input_channels = ch if ch > 0 else None
+        except Exception:  # noqa: BLE001 -- dynamic/unknown input shape
+            self._input_channels = None
 
     # ──────────────────────────────────────────────────────────────────
     # ModelBackend protocol surface
     # ──────────────────────────────────────────────────────────────────
+
+    @property
+    def input_channels(self) -> Optional[int]:
+        """Expected channel count of the TRT engine's input, or ``None`` if dynamic."""
+        return self._input_channels
 
     @property
     def does_baked_postproc(self) -> bool:

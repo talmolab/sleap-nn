@@ -150,3 +150,28 @@ def test_warmup_uses_default_shape():
 def test_warmup_accepts_explicit_shape():
     layer = _new_identity_layer()
     layer.warmup((1, 1, 32, 32))
+
+
+def test_to_4d_tensor_handles_negative_strides_and_keeps_positive_zero_copy():
+    """Negative-stride views (e.g. BGR->RGB ``arr[..., ::-1]``) work cleanly,
+    while normal positive-stride numpy arrays stay zero-copy."""
+    rng = np.random.default_rng(0)
+    base_3d = rng.integers(0, 256, size=(12, 16, 3), dtype=np.uint8)
+    base_4d = rng.integers(0, 256, size=(2, 12, 16, 3), dtype=np.uint8)
+
+    for view in (
+        base_3d[..., ::-1],
+        base_3d[:, ::-1, :],
+        base_4d[..., ::-1],
+        base_4d[::-1],
+    ):
+        assert any(s < 0 for s in view.strides)
+        t_view = InferenceLayer._to_4d_tensor(view)
+        t_contig = InferenceLayer._to_4d_tensor(np.ascontiguousarray(view))
+        assert t_view.dtype == torch.uint8
+        assert torch.equal(t_view, t_contig)
+
+    # Positive-stride contiguous NCHW array must remain zero-copy.
+    contig = np.ascontiguousarray(base_4d.transpose(0, 3, 1, 2))
+    t_zero_copy = InferenceLayer._to_4d_tensor(contig)
+    assert t_zero_copy.data_ptr() == contig.ctypes.data

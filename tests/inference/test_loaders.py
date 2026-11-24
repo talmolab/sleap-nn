@@ -525,3 +525,95 @@ def test_a_graph_file_without_metadata_or_checkpoint_says_so(tmp_path):
     (d / "model.onnx").write_bytes(b"")
     with pytest.raises(ValueError, match="no export_metadata.json and no best.ckpt"):
         load_model_assets([str(d)], device="cpu")
+
+
+def test_from_model_paths_accepts_dictconfig_dict_and_preprocess_config():
+    """``Predictor.from_model_paths(..., preprocess_config=...)`` accepts
+    ``OmegaConf.DictConfig`` (full or partial), plain ``dict``, and
+    ``PreprocessConfig`` with identical override & ``None``-fallback semantics."""
+    import numpy as np
+    import torch
+
+    from sleap_nn.inference.layers.configs import PreprocessConfig
+    from sleap_nn.inference.predictor import Predictor
+
+    if not SINGLE_CKPT.exists():
+        pytest.skip("single-instance ckpt absent")
+
+    override_scale = 0.37
+    full_dc = _scale_only_preprocess_config(override_scale)
+    partial_dc = OmegaConf.create({"scale": override_scale})
+    plain_dict = {"scale": override_scale}
+    dc_obj = PreprocessConfig(scale=override_scale)
+
+    # Snapshot inputs to verify caller objects are not mutated in place.
+    full_dc_before = OmegaConf.to_container(full_dc, resolve=False)
+    plain_dict_before = dict(plain_dict)
+
+    train_cfg = OmegaConf.load(str(SINGLE_CKPT / "training_config.yaml"))
+    expected_rgb = train_cfg.data_config.preprocessing.ensure_rgb
+    expected_gray = train_cfg.data_config.preprocessing.ensure_grayscale
+
+    frame = np.random.default_rng(0).integers(
+        0, 256, size=(1, 64, 64, 3), dtype=np.uint8
+    )
+    preds = []
+    for cfg in (full_dc, partial_dc, plain_dict, dc_obj):
+        pred = Predictor.from_model_paths(
+            [str(SINGLE_CKPT)],
+            device="cpu",
+            peak_threshold=0.0,
+            preprocess_config=cfg,
+        )
+        assert pred.layer.preprocess_config.scale == override_scale
+        assert pred.layer.preprocess_config.ensure_rgb == expected_rgb
+        assert pred.layer.preprocess_config.ensure_grayscale == expected_gray
+        preds.append(pred.layer.predict(frame).pred_keypoints)
+
+    assert torch.isfinite(preds[0]).all()
+    for p in preds[1:]:
+        assert torch.equal(preds[0], p)
+    assert OmegaConf.to_container(full_dc, resolve=False) == full_dc_before
+    assert plain_dict == plain_dict_before
+
+    with pytest.raises(TypeError, match="preprocess_config"):
+        Predictor.from_model_paths(
+            [str(SINGLE_CKPT)], device="cpu", preprocess_config=123
+        )
+
+
+def test_from_model_paths_topdown_accepts_dict_and_preprocess_config():
+    """Top-down builders also accept partial ``dict``, partial ``DictConfig``,
+    and ``PreprocessConfig`` without losing per-stage scale or crop_size semantics."""
+    from sleap_nn.inference.layers.configs import PreprocessConfig
+    from sleap_nn.inference.predictor import Predictor
+
+    if not (CENTROID_CKPT.exists() and CENTERED_CKPT.exists()):
+        pytest.skip("topdown ckpts absent")
+
+    override_scale = 0.37
+    for cfg in (
+        OmegaConf.create({"scale": override_scale}),
+        {"scale": override_scale},
+        PreprocessConfig(scale=override_scale),
+    ):
+        pred = Predictor.from_model_paths(
+            [str(CENTROID_CKPT), str(CENTERED_CKPT)],
+            device="cpu",
+            preprocess_config=cfg,
+        )
+        assert pred.layer.centroid_layer.preprocess_config.scale == override_scale
+        assert (
+            pred.layer.centered_instance_layer.preprocess_config.scale == override_scale
+        )
+        assert pred.layer.crop_size is not None and all(
+            v > 0 for v in pred.layer.crop_size
+        )
+
+    # Partial dict overriding only crop_size keeps trained stage scales intact.
+    pred_crop = Predictor.from_model_paths(
+        [str(CENTROID_CKPT), str(CENTERED_CKPT)],
+        device="cpu",
+        preprocess_config={"crop_size": 96},
+    )
+    assert pred_crop.layer.crop_size == (96, 96)

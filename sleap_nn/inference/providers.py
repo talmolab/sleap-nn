@@ -1433,8 +1433,11 @@ class NumpyProvider:
         n = int(self.images.shape[0])
         for start in range(0, n, self.batch_size):
             stop = min(start + self.batch_size, n)
+            chunk = self.images[start:stop]
+            if isinstance(chunk, np.ndarray) and any(s < 0 for s in chunk.strides):
+                chunk = np.ascontiguousarray(chunk)
             yield Batch(
-                images=self.images[start:stop],
+                images=chunk,
                 frame_indices=self.frame_indices[start:stop],
                 video_indices=self.video_indices[start:stop],
             )

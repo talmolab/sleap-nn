@@ -1123,3 +1123,273 @@ def test_from_export_dir_multiclass_topdown_missing_n_classes_raises(tmp_path):
     (export_dir / "export_metadata.json").write_text(json.dumps(meta))
     with pytest.raises(ValueError, match="n_classes"):
         Predictor.from_export_dir(export_dir, device="cpu")
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Channel auto-coercion (1 <-> 3 channels) across exported layers
+# ──────────────────────────────────────────────────────────────────────
+
+
+def _export_tiny_3ch_single_instance(export_dir: Path, n_nodes: int = 2) -> Path:
+    """Export a 3-channel single-instance ONNX model emitting ``peaks`` + ``peak_vals``."""
+
+    class _TinyRGB(nn.Module):
+        def __init__(self) -> None:
+            super().__init__()
+            self.conv = nn.Conv2d(3, n_nodes, kernel_size=3, padding=1)
+
+        def forward(self, x: torch.Tensor):
+            cms = self.conv(x.float())
+            B, C, H, W = cms.shape
+            flat = cms.view(B, C, -1)
+            idx = flat.argmax(dim=-1)
+            row = (idx // W).float()
+            col = (idx % W).float()
+            peaks = torch.stack([col, row], dim=-1)
+            peak_vals = flat.amax(dim=-1)
+            return peaks, peak_vals
+
+    torch.manual_seed(0)
+    onnx_path = export_dir / "model.onnx"
+    torch.onnx.export(
+        _TinyRGB().eval(),
+        (torch.zeros(1, 3, 16, 16, dtype=torch.uint8),),
+        str(onnx_path),
+        input_names=["image"],
+        output_names=["peaks", "peak_vals"],
+        opset_version=16,
+        do_constant_folding=True,
+        dynamo=False,
+    )
+    return onnx_path
+
+
+def test_exported_single_instance_coerces_1ch_to_3ch(tmp_path):
+    """A 3-channel exported single-instance ONNX model accepts 1-channel frames.
+
+    Mirrors ``Model.forward`` and ``ExportedNetwork``: 1-channel grayscale input
+    is repeated to 3 channels and produces bit-identical predictions to an
+    explicitly repeated 3-channel frame, both through ``Predictor.from_export_dir``
+    and when constructing ``ExportedSingleInstanceLayer(ONNXBackend(...))`` directly.
+    """
+    from sleap_nn.inference.layers.backends import ONNXBackend
+    from sleap_nn.inference.layers.exported import ExportedSingleInstanceLayer
+    from sleap_nn.inference.predictor import Predictor
+    from sleap_nn.inference.providers import NumpyProvider
+
+    export_dir = tmp_path / "rgb_single_instance"
+    export_dir.mkdir()
+    onnx_path = _export_tiny_3ch_single_instance(export_dir, n_nodes=2)
+    meta_path = _write_metadata(export_dir, model_type="single_instance", n_nodes=2)
+    meta = json.loads(meta_path.read_text())
+    meta["input_channels"] = 3
+    meta_path.write_text(json.dumps(meta))
+
+    predictor = Predictor.from_export_dir(export_dir, device="cpu")
+    assert predictor.layer.backend.input_channels == 3
+
+    rng = np.random.default_rng(42)
+    gray_hwc = rng.integers(0, 256, size=(1, 16, 16, 1), dtype=np.uint8)
+    rgb_hwc = np.repeat(gray_hwc, 3, axis=-1)
+
+    out_rgb = predictor.predict(
+        NumpyProvider(images=rgb_hwc, batch_size=1), make_labels=False
+    )[0]
+    out_gray = predictor.predict(
+        NumpyProvider(images=gray_hwc, batch_size=1), make_labels=False
+    )[0]
+    out_2d = predictor.layer.predict(gray_hwc[0, :, :, 0])
+
+    # Direct layer construction (no metadata passed; reads ONNXBackend.input_channels).
+    direct_layer = ExportedSingleInstanceLayer(
+        backend=ONNXBackend(model_path=str(onnx_path), device="cpu")
+    )
+    out_direct = direct_layer.predict(gray_hwc)
+
+    for out in (out_gray, out_2d, out_direct):
+        assert torch.equal(out.pred_keypoints, out_rgb.pred_keypoints)
+        assert torch.equal(out.pred_peak_values, out_rgb.pred_peak_values)
+
+
+def test_exported_single_instance_coerces_3ch_to_1ch(single_instance_export):
+    """A 1-channel exported single-instance ONNX model accepts 3-channel RGB frames."""
+    import torchvision.transforms.v2.functional as tvf
+
+    from sleap_nn.inference.predictor import Predictor
+    from sleap_nn.inference.providers import NumpyProvider
+
+    predictor = Predictor.from_export_dir(single_instance_export, device="cpu")
+    assert predictor.layer.backend.input_channels == 1
+
+    rng = np.random.default_rng(7)
+    rgb = rng.integers(0, 256, size=(1, 16, 16, 3), dtype=np.uint8)
+    expected_gray = (
+        tvf.rgb_to_grayscale(
+            torch.from_numpy(rgb).permute(0, 3, 1, 2), num_output_channels=1
+        )
+        .permute(0, 2, 3, 1)
+        .numpy()
+    )
+
+    out_rgb = predictor.predict(
+        NumpyProvider(images=rgb, batch_size=1), make_labels=False
+    )[0]
+    out_gray = predictor.predict(
+        NumpyProvider(images=expected_gray, batch_size=1), make_labels=False
+    )[0]
+    assert torch.equal(out_rgb.pred_keypoints, out_gray.pred_keypoints)
+    assert torch.equal(out_rgb.pred_peak_values, out_gray.pred_peak_values)
+
+
+@pytest.mark.parametrize(
+    "layer_name",
+    [
+        "single_instance",
+        "centered_instance",
+        "centroid",
+        "bottomup",
+        "topdown",
+        "topdown_multiclass",
+        "bottomup_multiclass",
+    ],
+)
+def test_all_fused_exported_layers_coerce_1ch_to_3ch(layer_name):
+    """Every fused ``Exported*Layer`` coerces 1->3 channels and preserves 3ch / 4ch."""
+    from sleap_nn.inference.layers.exported import (
+        ExportedBottomUpLayer,
+        ExportedBottomUpMultiClassLayer,
+        ExportedCenteredInstanceLayer,
+        ExportedCentroidLayer,
+        ExportedSingleInstanceLayer,
+        ExportedTopDownLayer,
+        ExportedTopDownMultiClassLayer,
+    )
+
+    class _RecordingBackend:
+        input_channels = 3
+        does_baked_postproc = True
+
+        def __init__(self, out):
+            self._out = out
+            self.seen: list[torch.Tensor] = []
+
+        def __call__(self, x: torch.Tensor):
+            self.seen.append(x)
+            return self._out
+
+    schemas = {
+        "single_instance": (
+            {"peaks": torch.zeros(1, 2, 2), "peak_vals": torch.ones(1, 2)},
+            lambda b: ExportedSingleInstanceLayer(backend=b),
+        ),
+        "centered_instance": (
+            {"peaks": torch.zeros(1, 2, 2), "peak_vals": torch.ones(1, 2)},
+            lambda b: ExportedCenteredInstanceLayer(backend=b),
+        ),
+        "centroid": (
+            {
+                "centroids": torch.zeros(1, 1, 2),
+                "centroid_vals": torch.ones(1, 1),
+                "instance_valid": torch.ones(1, 1, dtype=torch.bool),
+            },
+            lambda b: ExportedCentroidLayer(backend=b),
+        ),
+        "bottomup": (
+            {
+                "peaks": torch.zeros(1, 2, 1, 2),
+                "peak_vals": torch.ones(1, 2, 1),
+                "peak_mask": torch.zeros(1, 2, 1, dtype=torch.bool),
+                "line_scores": torch.zeros(1, 1, 1),
+                "candidate_mask": torch.zeros(1, 1, 1, dtype=torch.bool),
+            },
+            lambda b: ExportedBottomUpLayer(
+                backend=b,
+                node_names=["a", "b"],
+                edge_inds=[(0, 1)],
+                max_peaks_per_node=1,
+            ),
+        ),
+        "topdown": (
+            {
+                "centroids": torch.zeros(1, 1, 2),
+                "centroid_vals": torch.ones(1, 1),
+                "peaks": torch.zeros(1, 1, 2, 2),
+                "peak_vals": torch.ones(1, 1, 2),
+                "instance_valid": torch.ones(1, 1, dtype=torch.bool),
+            },
+            lambda b: ExportedTopDownLayer(backend=b),
+        ),
+        "topdown_multiclass": (
+            {
+                "centroids": torch.zeros(1, 1, 2),
+                "centroid_vals": torch.ones(1, 1),
+                "peaks": torch.zeros(1, 1, 2, 2),
+                "peak_vals": torch.ones(1, 1, 2),
+                "class_logits": torch.zeros(1, 1, 2),
+                "instance_valid": torch.ones(1, 1, dtype=torch.bool),
+            },
+            lambda b: ExportedTopDownMultiClassLayer(backend=b, n_classes=2),
+        ),
+        "bottomup_multiclass": (
+            {
+                "peaks": torch.zeros(1, 2, 1, 2),
+                "peak_vals": torch.ones(1, 2, 1),
+                "peak_mask": torch.zeros(1, 2, 1, dtype=torch.bool),
+                "class_probs": torch.zeros(1, 2, 1, 2),
+            },
+            lambda b: ExportedBottomUpMultiClassLayer(
+                backend=b, n_nodes=2, n_classes=2
+            ),
+        ),
+    }
+
+    out_dict, factory = schemas[layer_name]
+    backend = _RecordingBackend(out_dict)
+    layer = factory(backend)
+
+    gray = np.full((1, 16, 16, 1), 77, dtype=np.uint8)
+    layer.predict(gray)
+    assert backend.seen[-1].shape == (1, 3, 16, 16)
+    assert backend.seen[-1].dtype == torch.uint8
+    assert (backend.seen[-1] == 77).all()
+
+    rgb = np.arange(16 * 16 * 3, dtype=np.uint8).reshape(1, 16, 16, 3)
+    layer.predict(rgb)
+    assert backend.seen[-1].shape == (1, 3, 16, 16)
+    assert torch.equal(backend.seen[-1], torch.from_numpy(rgb).permute(0, 3, 1, 2))
+
+    # Unsupported 4-channel input passes through untouched (not silently corrupted).
+    rgba = np.zeros((1, 16, 16, 4), dtype=np.uint8)
+    layer.predict(rgba)
+    assert backend.seen[-1].shape == (1, 4, 16, 16)
+
+
+def test_exported_bbox_layer_coerces_1ch_to_3ch():
+    """``ExportedBBoxLayer`` also coerces 1->3 channels when ``ensure_rgb`` is unset."""
+    from sleap_nn.inference.layers.bbox import ExportedBBoxLayer
+    from sleap_nn.inference.layers.configs import PostprocessConfig, PreprocessConfig
+
+    class _DummyBBoxBackend:
+        device = "cpu"
+        does_baked_postproc = True
+        input_channels = 3
+
+        def __call__(self, x):
+            return {"output": x}
+
+        def warmup(self, shape):
+            return None
+
+    layer = ExportedBBoxLayer(
+        backend=_DummyBBoxBackend(),
+        decoder=None,
+        preprocess_config=PreprocessConfig(),
+        postprocess_config=PostprocessConfig(),
+        output_stride=4,
+        max_stride=4,
+    )
+    gray = np.full((1, 16, 16, 1), 42, dtype=np.uint8)
+    x, _ = layer.preprocess(gray)
+    assert x.shape == (1, 3, 16, 16)
+    assert x.dtype == torch.uint8
+    assert (x == 42).all()
