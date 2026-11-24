@@ -253,8 +253,10 @@ def test_eager_forward_is_not_padded():
     assert out.shape[-2:] == (31, 35)
 
 
-@pytest.mark.parametrize("hw", [(64, 64), (61, 70), (1, 1), (33, 8)])
-@pytest.mark.parametrize("stride", [1, 8, 16])
+@pytest.mark.parametrize(
+    "hw", [(64, 64), (61, 70), (1, 1), (33, 8), (16, 16), (17, 31)]
+)
+@pytest.mark.parametrize("stride", [1, 8, 16, 32])
 def test_pad_to_stride_traced_matches_the_host_pad(hw, stride):
     from sleap_nn.architectures.model import _pad_to_stride_traced
 
@@ -262,3 +264,75 @@ def test_pad_to_stride_traced_matches_the_host_pad(hw, stride):
     torch.testing.assert_close(
         _pad_to_stride_traced(x, stride), apply_pad_to_stride(x, stride)
     )
+
+
+def test_unet_up_interpolate_with_input_scale_matches_checkpoint(tmp_path, monkeypatch):
+    """Verify up_interpolate=True UNet + input_scale=0.5 parity and non-Mod pad."""
+    onnx = pytest.importorskip("onnx")
+    ort = pytest.importorskip("onnxruntime")
+    import sleap_nn.export.wrappers.single_instance as si_mod
+    from sleap_nn.data.resizing import resize_image
+    from sleap_nn.export.exporters import export_to_onnx
+    from sleap_nn.export.wrappers.single_instance import SingleInstanceONNXWrapper
+
+    model = _unet(max_stride=16)
+    wrapper = SingleInstanceONNXWrapper(
+        model, output_stride=2, input_scale=0.5, peak_threshold=0.0
+    ).eval()
+    onnx_path = tmp_path / "unet_scale05.onnx"
+    export_to_onnx(
+        wrapper,
+        onnx_path,
+        input_shape=(1, 1, 128, 128),
+        input_names=["image"],
+        output_names=["peaks", "peak_vals"],
+        verify=False,
+    )
+
+    # Stride padding must use ceiling division rather than ONNX Mod, which breaks
+    # TensorRT 11 Myelin shape inference on up_interpolate=True decoder Resize ops
+    # when composed with an in-graph resize.
+    graph = onnx.load(str(onnx_path)).graph
+    model_mods = [
+        n.name for n in graph.node if n.op_type == "Mod" and "/model/" in n.name
+    ]
+    assert not model_mods, f"Unexpected Mod nodes in stride-pad subgraph: {model_mods}"
+
+    sess = ort.InferenceSession(str(onnx_path), providers=["CPUExecutionProvider"])
+
+    class _HostPadded(torch.nn.Module):
+        def __init__(self, m):
+            super().__init__()
+            self.m = m
+
+        def forward(self, x):
+            return self.m(
+                apply_pad_to_stride(x, int(self.m.backbone_config.max_stride))
+            )
+
+    reference = SingleInstanceONNXWrapper(
+        _HostPadded(model), output_stride=2, input_scale=0.5, peak_threshold=0.0
+    ).eval()
+
+    def _blobs(hw):
+        h, w = hw
+        yy, xx = np.mgrid[0:h, 0:w].astype(np.float64)
+        img = 0.9 * np.exp(-((yy - 0.35 * h) ** 2 + (xx - 0.6 * w) ** 2) / 50.0)
+        return torch.from_numpy(np.clip(img * 230, 0, 255).astype(np.uint8))[None, None]
+
+    # Divisible after 0.5x scaling (64x64, 96x96) and non-multiples of 16 (72x80, 61x70).
+    for hw in [(128, 128), (192, 192), (144, 160), (123, 141)]:
+        x = _blobs(hw)
+        peaks, vals = sess.run(None, {"image": x.numpy()})
+        with monkeypatch.context() as m:
+            m.setattr(
+                si_mod, "antialiased_resize", lambda img, *_r: resize_image(img, 0.5)
+            )
+            with torch.no_grad():
+                want = reference(x)
+        np.testing.assert_allclose(
+            peaks, want["peaks"].numpy(), atol=1e-3, err_msg=f"{hw}"
+        )
+        np.testing.assert_allclose(
+            vals, want["peak_vals"].numpy(), atol=1e-4, err_msg=f"{hw}"
+        )
