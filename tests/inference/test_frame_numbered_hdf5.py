@@ -305,3 +305,54 @@ def test_cli_slp_video_index_predicts_frame_numbers(
         minimal_instance_single_instance_ckpt,
     )
     assert predicted == [n for n in FRAME_NUMBERS if n != USER]
+
+
+def test_embed_auto_keeps_referencing_the_frames_file(project_slp, tmp_path):
+    """``embed="auto"`` doesn't copy a frames file's images into the output.
+
+    Regression: ``auto`` used to treat any HDF5 of encoded images as an embedded
+    ``.pkg.slp`` input, so predictions on a JPEG frames file came out as a
+    package of the predicted frames referencing itself.
+    """
+    from sleap_nn.inference.run import _resolve_embed, save_predictions
+
+    labels = sio.load_slp(str(project_slp))
+    frames_file = Path(labels.videos[0].filename).name
+    assert _resolve_embed("auto", labels) is False
+
+    out = tmp_path / "predictions.slp"
+    save_predictions(labels, str(out), embed="auto")
+    assert Path(sio.load_slp(str(out)).videos[0].filename).name == frames_file
+
+
+def test_embed_auto_still_embeds_a_pkg_slp_input(project_slp, tmp_path):
+    """A frame-numbered video embedded in a ``.pkg.slp`` still auto-embeds."""
+    from sleap_nn.inference.run import _resolve_embed
+
+    pkg_path = tmp_path / "project.pkg.slp"
+    sio.load_slp(str(project_slp)).save(str(pkg_path), embed="user")
+    assert _resolve_embed("auto", sio.load_slp(str(pkg_path))) is True
+
+
+def test_cli_embed_auto_on_frames_file(
+    frames_h5, tmp_path, minimal_instance_single_instance_ckpt
+):
+    """``predict --embed auto`` on the frames file references it in the output."""
+    labels, predicted = _predict(
+        ["--data_path", str(frames_h5), "--frames", "18,108", "--embed", "auto"],
+        tmp_path / "out.slp",
+        minimal_instance_single_instance_ckpt,
+    )
+    assert predicted == [18, 108]
+    assert Path(labels.videos[0].filename).name == frames_h5.name
+
+
+def test_legacy_exclude_user_labeled_without_frames(project_slp):
+    """The legacy ``exclude_user_labeled`` filter starts from the frame numbers."""
+    from sleap_nn.inference.predictors import _filter_user_labeled_frames
+
+    labels = sio.load_slp(str(project_slp))
+    got = _filter_user_labeled_frames(
+        labels, labels.videos[0], None, exclude_user_labeled=True
+    )
+    assert got == [n for n in FRAME_NUMBERS if n != USER]

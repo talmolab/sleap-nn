@@ -268,7 +268,11 @@ def _refuse_overwriting_source_before_inference(
 def _resolve_embed(embed, labels) -> bool:
     """Resolve the ``embed`` control (``"auto"``/``"true"``/``"false"`` or bool) to bool.
 
-    ``"auto"`` -> ``True`` iff any video in ``labels`` carries embedded images.
+    ``"auto"`` -> ``True`` iff any video in ``labels`` is embedded in a ``.slp``
+    (a ``.pkg.slp`` input), per :func:`_video_embedded_in_slp`. An HDF5 file of
+    encoded frames of its own (e.g. extracted JPEGs with a ``frame_numbers``
+    table) is not: its output keeps referencing that file instead of copying
+    the predicted frames' images into the ``.slp``.
     """
     if isinstance(embed, bool):
         return embed
@@ -279,8 +283,7 @@ def _resolve_embed(embed, labels) -> bool:
         return False
     if value == "auto":
         return any(
-            _video_has_embedded_images(v)
-            for v in (getattr(labels, "videos", None) or [])
+            _video_embedded_in_slp(v) for v in (getattr(labels, "videos", None) or [])
         )
     raise ValueError(f"Invalid embed={embed!r}; expected 'auto', 'true', or 'false'.")
 
