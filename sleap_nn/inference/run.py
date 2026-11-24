@@ -27,6 +27,7 @@ Usage::
 
 from __future__ import annotations
 
+import os
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, List, Optional, Sequence, Union
@@ -150,6 +151,26 @@ def _video_has_embedded_images(video) -> bool:
     except Exception:
         return False
     return bool(getattr(backend, "has_embedded_images", False))
+
+
+def _video_embedded_in_slp(video) -> bool:
+    """Best-effort: are this video's frames stored inside a ``.slp`` (a ``.pkg.slp``)?
+
+    Narrower than :func:`_video_has_embedded_images`, which is also true for an
+    HDF5 file of encoded images of its own, e.g. extracted JPEG frames with a
+    ``frame_numbers`` table. That file is the video's own file: its frames are
+    the frame numbers it holds, labeled or not, so ``--video_index`` can select
+    among all of them. A video embedded in a ``.slp`` has ``source_video``
+    provenance, or (saved without it) a ``.slp`` file name.
+    """
+    if getattr(video, "source_video", None) is not None:
+        return True
+    if not _video_has_embedded_images(video):
+        return False
+    filename = getattr(video, "filename", None)
+    if not isinstance(filename, (str, os.PathLike)):
+        return True
+    return str(filename).split("?", 1)[0].lower().endswith(".slp")
 
 
 def _refuse_overwriting_frame_source(labels, output_path) -> None:

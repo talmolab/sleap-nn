@@ -2244,17 +2244,19 @@ def _video_selection_from_kwargs(labels, video_index: int, kwargs: dict):
 
     Returns ``None`` for a video embedded in a ``.pkg.slp``: it has no frames
     beyond those stored with its labels, so the caller keeps scoping it with
-    :func:`_scope_labels_to_video` + ``LabelsProvider``, unchanged.
+    :func:`_scope_labels_to_video` + ``LabelsProvider``, unchanged. An ``.h5``
+    of extracted frames (encoded images + ``frame_numbers``) is a video with its
+    own file, so it gets a ``VideoSelection`` over its frame numbers.
     """
     from sleap_nn.inference.providers import VideoSelection
-    from sleap_nn.inference.run import _video_has_embedded_images
+    from sleap_nn.inference.run import _video_embedded_in_slp
 
     if video_index >= len(labels.videos):
         raise click.UsageError(
             f"--video_index {video_index} is out of range: the .slp has "
             f"{len(labels.videos)} video(s)."
         )
-    if _video_has_embedded_images(labels.videos[video_index]):
+    if _video_embedded_in_slp(labels.videos[video_index]):
         return None
     return VideoSelection(
         labels=labels,

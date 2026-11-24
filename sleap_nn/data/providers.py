@@ -30,6 +30,36 @@ def get_max_instances(labels: sio.Labels):
     return max_instances
 
 
+def video_frame_numbers(video: sio.Video) -> Optional[List[int]]:
+    """Return the frame numbers a frame-mapped video holds, sorted, or None.
+
+    sleap-io's `HDF5Video` reads a `frame_numbers` table stored next to the image
+    dataset (an HDF5 file of extracted frames, or a `.pkg.slp` embed) into
+    `backend.frame_map`, which maps each frame number to its stored image. Such a
+    video reads `video[n]` by frame number `n`, but `len(video)` counts the stored
+    images. So `range(len(video))` is the wrong set of frames for it: positions
+    that are not frame numbers fail to read, and frame numbers at or above
+    `len(video)` look out of range.
+
+    Args:
+        video: The video to inspect.
+
+    Returns:
+        The sorted frame numbers if the video's backend (or the backend that a
+        virtual crop wraps) has a non-empty `frame_map`. None for any other
+        video, whose frames are `range(len(video))`.
+    """
+    backend = getattr(video, "backend", None)
+    frame_map = getattr(backend, "frame_map", None)
+    if frame_map is None:
+        # A virtual crop (sleap-io's CropVideoBackend) wraps the backend with the
+        # map; its inner backend is never itself a crop.
+        frame_map = getattr(getattr(backend, "inner", None), "frame_map", None)
+    if not isinstance(frame_map, dict) or not frame_map:
+        return None
+    return sorted(int(i) for i in frame_map)
+
+
 def _video_read_error(video: sio.Video, frame_inds: List[int]) -> Optional[str]:
     """Return why `video` cannot be read, or None if any of `frame_inds` reads."""
     if len(video) == 0:
@@ -61,6 +91,8 @@ def check_video_readable(video: sio.Video, frames: Optional[list] = None) -> Non
 
     The video counts as readable if frame 0 or the first of `frames` reads. Frame
     0 alone is not enough: a `.pkg.slp` embeds only some frames, often not 0.
+    A frame-mapped video (see `video_frame_numbers`) is probed at a frame number
+    it holds instead: the first of `frames` it holds, else its first one.
     An empty `frames` asks for nothing, so there is nothing to check.
 
     Args:
@@ -72,9 +104,15 @@ def check_video_readable(video: sio.Video, frames: Optional[list] = None) -> Non
     """
     if frames is not None and len(frames) == 0:
         return
-    frame_inds = [0]
-    if frames is not None and len(frames) > 0 and int(frames[0]) != 0:
-        frame_inds.append(int(frames[0]))
+    numbers = video_frame_numbers(video)
+    if numbers is None:
+        frame_inds = [0]
+        if frames is not None and len(frames) > 0 and int(frames[0]) != 0:
+            frame_inds.append(int(frames[0]))
+    else:
+        held = set(numbers)
+        requested = (int(i) for i in (frames if frames is not None else ()))
+        frame_inds = [next((i for i in requested if i in held), numbers[0])]
     error = _video_read_error(video, frame_inds)
     if error is None:
         return
@@ -294,7 +332,10 @@ class VideoReader(Thread):
         # Fail here, not in `run`, which logs read errors and stops quietly.
         check_video_readable(self.video, self.frames)
         if self.frames is None:
-            self.frames = [x for x in range(0, len(self.video))]
+            # A frame-numbered HDF5 video reads by frame number, not position.
+            self.frames = video_frame_numbers(self.video) or [
+                x for x in range(0, len(self.video))
+            ]
 
         # Close the backend
         self.video.close()
