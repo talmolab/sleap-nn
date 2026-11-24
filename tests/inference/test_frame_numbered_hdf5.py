@@ -244,6 +244,27 @@ def test_video_selection_frames_above_len_and_missing(project_slp):
     assert "[19]" in messages[0]
 
 
+@pytest.mark.parametrize(
+    "filename, expected",
+    [
+        ("/data/project.pkg.slp", True),
+        (Path("/data/PROJECT.PKG.SLP"), True),
+        ("https://host/project.pkg.slp?token=abc", True),
+        ("/data/frames.h5", False),
+        (["frame_0.png", "frame_1.png"], True),  # not a path: assume embedded
+    ],
+)
+def test_video_embedded_in_slp_by_file_name(filename, expected):
+    """Without ``source_video``, encoded images count as embedded in a ``.slp`` file."""
+    from unittest.mock import MagicMock
+
+    video = MagicMock()
+    video.source_video = None
+    video.backend.has_embedded_images = True
+    video.filename = filename
+    assert _video_embedded_in_slp(video) is expected
+
+
 def test_pkg_slp_embed_is_still_rejected(project_slp, tmp_path):
     """A frame-numbered video embedded in a ``.pkg.slp`` keeps its old scoping."""
     pkg_path = tmp_path / "project.pkg.slp"
