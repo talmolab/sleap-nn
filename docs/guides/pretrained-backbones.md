@@ -208,10 +208,6 @@ these datasets reach 0.796 (fly32, trained on about as many samples) and 0.818
 - For ViT-S, `vit_neck: sfp` and `token_stride: 8` each gained about 0.03 on
   flies13; `detail_stem` did not help on average and stays off by default.
 
-The configs, logs, per-run metrics and the scripts behind these tables are in
-`scratch/2026-10-20-hf-foundation-backbones/` on the development machine; runs
-were logged to the wandb project `sleap-nn-hf-backbones`.
-
 ## Config
 
 ```yaml

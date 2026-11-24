@@ -6,9 +6,10 @@ save made before these options existed:
 
 * ``slp_version``: ``"auto"``, ``"v2"`` or ``"v3"``, the file layout. ``"v2"`` is
   the SLP 2.x layout that older sleap-io (< 0.10) and SLEAP releases read;
-  ``"v3"`` is the SLP 3.0 layout. ``"auto"`` passes nothing to a sleap-io without
-  its own ``slp_version`` option (such as 0.10.0), which then writes SLP 3.0; a
-  sleap-io with that option writes the 2.x layout when the content allows.
+  ``"v3"`` is the SLP 3.0 layout. ``"auto"`` (sleap-io 0.10's default) writes
+  the 2.x layout when the content fits and SLP 3.0 with a warning otherwise.
+  For an older sleap-io snapshot without its own ``slp_version`` option,
+  ``"auto"`` passes nothing so that snapshot's default applies.
 * ``image_format``: ``"png"``, ``"jpg"`` (or ``"jpeg"``) or ``"hdf5"``, the format
   of embedded frames.
 * ``image_quality``: JPEG quality (0-100) or PNG compression level (0-9) of
@@ -207,10 +208,10 @@ def slp_save_kwargs(
     ``{}`` and the save is unchanged.
 
     ``slp_version`` is passed straight through when the installed sleap-io takes
-    it (its ``"auto"`` writes the 2.x layout when the content allows). An older
-    sleap-io that only has ``legacy_format`` (such as 0.10.0) gets ``v2`` as
-    ``legacy_format=True``, ``v3`` as ``legacy_format=False`` and ``auto`` as
-    nothing, so it writes SLP 3.0.
+    it (sleap-io 0.10's ``"auto"`` writes the 2.x layout when the content fits,
+    else SLP 3.0 with a warning). An older sleap-io snapshot that only has
+    ``legacy_format`` gets ``v2`` as ``legacy_format=True``, ``v3`` as
+    ``legacy_format=False`` and ``auto`` as nothing.
 
     Args:
         slp_version: ``"auto"``, ``"v2"`` or ``"v3"``.

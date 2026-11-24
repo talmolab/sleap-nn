@@ -13,6 +13,10 @@ on:
       - "mkdocs.yml"
       - ".github/workflows/docs.yml"
 
+concurrency:
+  group: docs-deployment
+  cancel-in-progress: false
+
 jobs:
   docs:
     name: Docs
@@ -45,23 +49,37 @@ jobs:
             git config --global user.name "github-actions[bot]"
             git config --global user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Build and upload docs (stable release)
-        if: ${{ github.event_name == 'release' && github.event.action == 'published' && !github.event.release.prerelease }}
+      - name: Build and upload docs (release)
+        if: ${{ github.event_name == 'release' && github.event.action == 'published' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.event.release.tag_name }}
+          PRERELEASE: ${{ github.event.release.prerelease }}
         run: |
-            uv run mike deploy --update-aliases --allow-empty --push "${{ github.event.release.tag_name }}" latest
+          # Fetch the latest gh-pages state to reduce conflicts.
+          git fetch origin gh-pages || true
 
-      - name: Build and upload docs (pre-release)
-        if: ${{ github.event_name == 'release' && github.event.action == 'published' && github.event.release.prerelease }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-            uv run mike deploy --update-aliases --allow-empty --push "${{ github.event.release.tag_name }}" prerelease
+          # Pick the alias this release's docs get. A pre-release gets
+          # "prerelease", never "latest". A stable release gets "latest" only if
+          # no newer stable version is already published (so a patch release of
+          # an older line, published later, doesn't take over the docs).
+          if [ "$PRERELEASE" = "true" ]; then
+            ALIAS="prerelease"
+          else
+            git show origin/gh-pages:versions.json > /tmp/versions.json 2>/dev/null || echo "[]" > /tmp/versions.json
+            ALIAS=$(uv run --no-group gpu --extra torch-cpu --group docs python scripts/docs_alias.py "$TAG" /tmp/versions.json)
+          fi
+          echo "Docs for $TAG get the alias: ${ALIAS:-(none)}"
+
+          if [ -n "$ALIAS" ]; then
+            uv run --no-group gpu --extra torch-cpu --group docs mike deploy --update-aliases --allow-empty --push "$TAG" "$ALIAS"
+          else
+            uv run --no-group gpu --extra torch-cpu --group docs mike deploy --allow-empty --push "$TAG"
+          fi
 
       - name: Build and upload docs (dev)
         if: ${{ github.event_name == 'push' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-            uv run mike deploy --update-aliases --allow-empty --push dev
+          uv run --no-group gpu --extra torch-cpu --group docs mike deploy --update-aliases --allow-empty --push dev

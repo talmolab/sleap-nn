@@ -8,6 +8,7 @@ on:
       - "tests/**"
       - ".github/workflows/ci.yml"
       - "pyproject.toml"
+      - "uv.lock"
   # Each merge into a release branch that touches these paths is tested on
   # all systems, macOS included (pull requests into any branch but main skip
   # macOS; see the test matrix).
@@ -18,6 +19,7 @@ on:
       - "tests/**"
       - ".github/workflows/ci.yml"
       - "pyproject.toml"
+      - "uv.lock"
 
 # A new push to a pull request whose base is not main cancels that pull
 # request's older run. Every other run (pull requests into main, and pushes to
