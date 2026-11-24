@@ -89,6 +89,7 @@ class ONNXBackend:
     _session: object = attrs.field(default=None, init=False, repr=False)
     _input_name: str = attrs.field(default="", init=False, repr=False)
     _input_dtype: Optional[np.dtype] = attrs.field(default=None, init=False, repr=False)
+    _input_channels: Optional[int] = attrs.field(default=None, init=False, repr=False)
     _output_names: list[str] = attrs.field(factory=list, init=False, repr=False)
 
     def __attrs_post_init__(self) -> None:
@@ -115,11 +116,27 @@ class ONNXBackend:
         in_info = self._session.get_inputs()[0]
         self._input_name = in_info.name
         self._input_dtype = _onnx_dtype_to_numpy(in_info.type)
+        in_shape = getattr(in_info, "shape", None)
+        ch = (
+            in_shape[1]
+            if isinstance(in_shape, (list, tuple)) and len(in_shape) >= 4
+            else None
+        )
+        self._input_channels = (
+            int(ch)
+            if isinstance(ch, int) and not isinstance(ch, bool) and ch > 0
+            else None
+        )
         self._output_names = [out.name for out in self._session.get_outputs()]
 
     # ──────────────────────────────────────────────────────────────────
     # ModelBackend protocol surface
     # ──────────────────────────────────────────────────────────────────
+
+    @property
+    def input_channels(self) -> Optional[int]:
+        """Expected channel count of the ONNX graph's input, or ``None`` if dynamic."""
+        return self._input_channels
 
     @property
     def does_baked_postproc(self) -> bool:

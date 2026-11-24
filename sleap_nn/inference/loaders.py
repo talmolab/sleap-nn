@@ -365,13 +365,70 @@ def _resolve_centroid_method(head_config: Any, anchor_override: Optional[str] = 
     return resolve_centroid_method(anchor_override, "anchor", fallback)
 
 
-def _resolve_preprocess_config(preprocess_config: Any, training_config: Any) -> Any:
+_PREPROCESS_OVERRIDE_KEYS = (
+    "ensure_rgb",
+    "ensure_grayscale",
+    "crop_size",
+    "max_width",
+    "max_height",
+    "scale",
+)
+
+
+def _normalize_preprocess_config(preprocess_config: Any) -> DictConfig:
+    """Coerce *preprocess_config* to a mutable :class:`DictConfig`.
+
+    Accepts ``None``, an OmegaConf ``DictConfig``, a plain ``dict`` / mapping,
+    or an attrs / dataclass instance (such as
+    :class:`~sleap_nn.inference.layers.configs.PreprocessConfig` or
+    :class:`~sleap_nn.config.data_config.PreprocessingConfig`). Standard
+    override keys absent from the input default to ``None`` so
+    :func:`_resolve_preprocess_config` fills them from the model's training
+    config without overwriting explicit non-``None`` overrides. Always returns
+    a fresh ``DictConfig`` so the caller's object is not mutated in place.
+    """
+    from collections.abc import Mapping
+    import dataclasses
+
+    if preprocess_config is None:
+        raw: dict = {}
+    elif isinstance(preprocess_config, DictConfig):
+        raw = OmegaConf.to_container(preprocess_config, resolve=False)
+        if not isinstance(raw, dict):
+            raise TypeError(
+                "preprocess_config must be a mapping or PreprocessConfig, "
+                f"got {type(preprocess_config).__name__}."
+            )
+    elif isinstance(preprocess_config, Mapping):
+        raw = dict(preprocess_config)
+    elif attrs.has(type(preprocess_config)):
+        raw = attrs.asdict(preprocess_config)
+    elif dataclasses.is_dataclass(preprocess_config) and not isinstance(
+        preprocess_config, type
+    ):
+        raw = dataclasses.asdict(preprocess_config)
+    else:
+        raise TypeError(
+            "preprocess_config must be None, an OmegaConf DictConfig, a dict, or "
+            f"a PreprocessConfig, got {type(preprocess_config).__name__}."
+        )
+
+    merged = {k: None for k in _PREPROCESS_OVERRIDE_KEYS}
+    merged.update(raw)
+    return OmegaConf.create(merged)
+
+
+def _resolve_preprocess_config(
+    preprocess_config: Any, training_config: Any
+) -> DictConfig:
     """Fill ``None`` fields in *preprocess_config* from the training config.
 
-    Mirrors the resolution loop in every legacy ``from_trained_models``. The
-    resize mode has no override and always comes from the training config: a
-    model trained on squashed frames must see squashed frames.
+    Mirrors the resolution loop in every legacy ``from_trained_models``. Accepts
+    ``None``, a :class:`DictConfig`, a plain ``dict``, or a ``PreprocessConfig``
+    dataclass. The resize mode has no override and always comes from the
+    training config: a model trained on squashed frames must see squashed frames.
     """
+    preprocess_config = _normalize_preprocess_config(preprocess_config)
     for k, v in preprocess_config.items():
         if v is None:
             preprocess_config[k] = (
@@ -926,6 +983,7 @@ def _build_topdown_embedding(
 
     # Resolve preprocess_config: centroid first (sizematcher), then embedding (which
     # carries the crop_size), without clobbering an explicit user crop_size.
+    preprocess_config = _normalize_preprocess_config(preprocess_config)
     user_crop_size = preprocess_config.crop_size
     if centroid_config is not None:
         preprocess_config = _resolve_preprocess_config(
@@ -1113,6 +1171,7 @@ def _build_topdown(
     # so resolve centroid first, then confmap to fill remaining Nones.
     # Capture whether the caller explicitly supplied a crop_size/scale so the
     # confmap default below does not override an intentional user value.
+    preprocess_config = _normalize_preprocess_config(preprocess_config)
     user_crop_size = preprocess_config.crop_size
     user_scale = preprocess_config.scale
     if centroid_config is not None:
@@ -1319,6 +1378,7 @@ def _build_topdown_segmentation(
     # Resolve preprocess_config: centroid first (sizematcher), then seg (which
     # carries the crop_size — a centered-instance property), without clobbering an
     # explicit user crop_size.
+    preprocess_config = _normalize_preprocess_config(preprocess_config)
     user_crop_size = preprocess_config.crop_size
     user_scale = preprocess_config.scale
     if centroid_config is not None:
@@ -1475,6 +1535,7 @@ def _build_topdown_multiclass(
 
     # Capture whether the caller explicitly supplied a crop_size/scale so the
     # confmap default below does not override an intentional user value.
+    preprocess_config = _normalize_preprocess_config(preprocess_config)
     user_crop_size = preprocess_config.crop_size
     user_scale = preprocess_config.scale
     if centroid_config is not None:
@@ -1614,7 +1675,7 @@ def load_model_assets(
     integral_patch_size: int = 5,
     max_instances: Optional[int] = None,
     return_confmaps: bool = False,
-    preprocess_config: Optional["DictConfig"] = None,
+    preprocess_config: Optional[Any] = None,
     anchor_part: Optional[str] = None,
     max_edge_length_ratio: float = 0.25,
     dist_penalty_weight: float = 1.0,
@@ -1681,17 +1742,7 @@ def load_model_assets(
         ``(loaded_assets, model_types)`` — *model_types* is the list of
         detected model types (one per path in *model_paths*).
     """
-    if preprocess_config is None:
-        preprocess_config = OmegaConf.create(
-            {
-                "ensure_rgb": None,
-                "ensure_grayscale": None,
-                "crop_size": None,
-                "max_width": None,
-                "max_height": None,
-                "scale": None,
-            }
-        )
+    preprocess_config = _normalize_preprocess_config(preprocess_config)
 
     # Accept a model directory, a best.ckpt path, or a training_config.{yaml,json}
     # path for each entry; resolve every form to its model directory before

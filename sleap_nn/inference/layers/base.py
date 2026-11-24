@@ -226,6 +226,8 @@ class InferenceLayer(ABC):
         255.00006... values that diverge from the clean uint8 path).
         """
         if isinstance(image, np.ndarray):
+            if any(s < 0 for s in image.strides):
+                image = np.ascontiguousarray(image)
             t = torch.from_numpy(image)
         elif isinstance(image, torch.Tensor):
             t = image
