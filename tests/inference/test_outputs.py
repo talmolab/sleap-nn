@@ -461,3 +461,30 @@ def test_every_field_is_optional_with_default_none():
         assert (
             "Optional" in annotation or "None" in annotation
         ), f"{f.name} should be typed Optional"
+
+
+def test_centroid_only_nan_pad_marks_other_nodes_unlabeled():
+    """A centroid-only output has no prediction for the non-anchor nodes.
+
+    It is a partial-skeleton output, so those nodes are written as unlabeled
+    (``labeled=False``), not as predicted-but-hidden.
+    """
+    skel = _toy_skeleton(n_nodes=3)
+    o = Outputs(
+        pred_centroids=torch.tensor([[[10.0, 20.0]]]),
+        pred_centroid_values=torch.tensor([[0.7]]),
+    )
+    (inst,) = o.to_instances(skeleton=skel, batch_index=0, anchor_ind=1)
+    np.testing.assert_array_equal(inst.points["labeled"], [False, True, False])
+    np.testing.assert_array_equal(inst.points["visible"], [False, True, False])
+    np.testing.assert_allclose(inst.numpy()[1], [10.0, 20.0])
+    assert inst.n_labeled == 1
+
+
+def test_full_skeleton_predictions_stay_labeled():
+    """Ordinary predictions label every node, including nodes without a peak."""
+    skel = _toy_skeleton(n_nodes=2)
+    kpts = torch.tensor([[[[1.0, 2.0], [float("nan"), float("nan")]]]])
+    o = Outputs(pred_keypoints=kpts, pred_peak_values=torch.tensor([[[0.9, 0.0]]]))
+    (inst,) = o.to_instances(skeleton=skel, batch_index=0)
+    np.testing.assert_array_equal(inst.points["labeled"], [True, True])

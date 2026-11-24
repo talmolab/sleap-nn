@@ -6,11 +6,13 @@ the parameters required to initialize the data config.
 
 from attrs import define, field, validators
 from omegaconf import MISSING
-from typing import Optional, Tuple, Any, List, Union
+from typing import Optional, Tuple, Any, Dict, List, Union
 from loguru import logger
 import sleap_io as sio
 import yaml
 from sleap_io.io.skeleton import SkeletonDecoder, SkeletonYAMLEncoder
+
+from sleap_nn.config.utils import parse_hw
 
 
 def validate_proportion(instance, attribute, value):
@@ -155,7 +157,7 @@ class PreprocessingConfig:
         max_height: (int) Maximum height the original image should be resized and padded to. If not provided, the original image size will be retained. *Default*: `None`.
         max_width: (int) Maximum width the original image should be resized and padded to. If not provided, the original image size will be retained. *Default*: `None`.
         scale: (float) Factor to resize the image dimensions by, specified as a float. *Default*: `1.0`.
-        crop_size: (int) Crop size of each instance for centered-instance model. If `None`, this would be automatically computed based on the largest instance in the `sio.Labels` file.
+        crop_size: (int or [height, width]) Crop size of each instance for centered-instance model. A `[height, width]` pair gives non-square crops (`crop_mode="bbox"` only; e.g. `[256, 192]` for people). If `None`, this would be automatically computed based on the largest instance in the `sio.Labels` file.
             If `scale` is provided, then the cropped image will be resized according to `scale`.*Default*: `None`.
         min_crop_size: (int) Minimum crop size to be used if `crop_size` is `None`. *Default*: `100`.
         crop_padding: (int) Padding in pixels to add around the instance bounding box when computing crop size.
@@ -184,7 +186,61 @@ class PreprocessingConfig:
             in size-matched frame pixels, which caps how much a tiny or partial box is
             magnified. If `None`, it is set at training time to a quarter of the median
             training window side and saved into the config. *Default*: `None`.
-        tiling: Configuration of tiled training/inference. Inert unless `tiling.enabled` is `True`.
+        crop_pipeline: (str) How `centered_instance` training crops are produced.
+            `legacy` decodes the frame, size-matches it to
+            `max_height`/`max_width`, cuts an oversized pre-crop, augments it and
+            re-crops it. `warp` (requires `crop_mode="bbox"`) reads the frame and cuts
+            the augmented box-scaled crop with ONE affine warp from the full frame
+            (`sleap_nn.data.topdown_warp`): no size matcher, frames of any size, nodes
+            matched by name across files (nodes a file lacks get zero loss), uint8
+            samples (~4x the legacy loader throughput). *Default*: `"legacy"`.
+        gpu_confmaps: (bool) With `crop_pipeline="warp"`, render the confidence maps
+            on the GPU in the training step instead of in the dataloader workers.
+            *Default*: `False`.
+        crop_bbox_categories: (list of str) With `crop_pipeline="warp"`, only user
+            boxes of these categories (e.g. `["person"]`) are crop boxes; other linked
+            boxes (e.g. MPII head boxes) fall back to the keypoint box. *Default*:
+            `None` (any category).
+        crop_bbox_source: (str) With `crop_pipeline="warp"`, where an instance's crop
+            box comes from. `gt` uses its linked user box (or keypoint box, see
+            `crop_bbox_categories`). `detector` uses the `PredictedBoundingBox` linked
+            to the instance (`box.instance`), i.e. a person-detector box matched to
+            the ground truth, so training crops look like the ones a detector gives at
+            inference (the highest-scoring linked box wins). Instances without one
+            follow `crop_bbox_fallback`. `detector` is experimental: it may change
+            or be removed without a deprecation period, and its measured gain was
+            within noise. *Default*: `"gt"`.
+        crop_bbox_detector: (str) For `crop_bbox_source="detector"`: only predicted
+            boxes whose `source` equals this string count (for files carrying boxes
+            from several detectors). *Default*: `None` (any source).
+        crop_bbox_min_score: (float) For `crop_bbox_source="detector"`: predicted
+            boxes scoring below this do not count. *Default*: `0.0`.
+        crop_bbox_fallback: (str) For `crop_bbox_source="detector"`: `gt` crops an
+            instance with no usable detector box from its `gt` box; `drop` leaves it
+            out of the dataset. *Default*: `"gt"`.
+        crop_bbox_jitter: (float) With `crop_pipeline="warp"`, training only: move
+            each edge of the crop box independently by Gaussian noise with this
+            standard deviation, as a fraction of the box's width (x edges) or height
+            (y edges), before padding. Mimics detector box noise; validation crops are
+            never jittered. *Default*: `0.0` (off).
+        crop_bbox_jitter_tail: (float) Experimental (may change or be removed
+            without a deprecation period; no measured benefit in the developers'
+            tests). With `crop_bbox_jitter_tail_p > 0`, training only: standard
+            deviation of a second, heavy-tail Gaussian component of the edge shift
+            (same units as `crop_bbox_jitter`). Each edge draws from it
+            with probability `crop_bbox_jitter_tail_p` and from `crop_bbox_jitter`
+            otherwise, so the shifts can follow a detector whose box errors are mostly
+            small with a few large ones (a box over two animals, a cut-off box).
+            *Default*: `0.0`.
+        crop_bbox_jitter_tail_p: (float) Experimental. Per-edge probability of the
+            `crop_bbox_jitter_tail` component, in [0, 1]. *Default*: `0.0` (off: the
+            edge shift is plain `crop_bbox_jitter`, drawn exactly as before).
+        crop_bbox_jitter_min_cover: (float) Experimental. Training only, with any
+            box jitter: a jittered box that keeps less than this share of the
+            original box's area is redrawn (up to 10 times; then the edges get the
+            `crop_bbox_jitter` component only), so the animal stays in the crop. In
+            [0, 1]. *Default*: `0.0` (never redraw).
+        tiling:Configuration of tiled training/inference. Inert unless `tiling.enabled` is `True`.
         burn_in: (bool) For the `embedding` model type: burn the instance mask into the
             crop (background pixels set to `background_fill`) so the embedder sees only
             the masked instance. *Default*: `False`.
@@ -200,6 +256,23 @@ class PreprocessingConfig:
             bounding-box midpoint, robust to concave masks whose COM lands off the
             instance). Only `mask`-mode centering is affected; pose-mode centering is
             driven by `anchor_part`. *Default*: `auto`.
+        resize_mode: (str) How a frame is fitted to `(max_height, max_width)`.
+            `letterbox` scales it by one factor to fit and pads the rest. `squash`
+            resizes it to exactly `(max_height, max_width)`, scaling each axis on its
+            own (RF-DETR's preprocessing, needed to reuse its weights), and maps
+            predicted boxes back per axis; it needs both `max_height` and `max_width`
+            and is only supported for `bbox_detr` models. *Default*: `letterbox`.
+        file_scales: (dict) **Experimental.** One input scale per training or
+            validation file for `bottomup`, `centroid` and `single_instance` models,
+            as `{file name: scale}`. A key matches a file by its path, its file
+            name, or its file name up to the first `"."` (`"a"` for
+            `a.pkg.slp`; a validation split of a file matches that file; a key
+            matching more than one file is an error). Each frame is resized by its
+            file's scale before
+            `scale`, then padded (not stretched) to `max_height` x `max_width`;
+            a frame that is still larger is shrunk to fit. Files not listed keep
+            scale 1. Training only: prediction scales every frame by `scale`.
+            Written to `training_config.yaml` only when set. *Default*: `None`.
     """
 
     ensure_rgb: bool = False
@@ -209,7 +282,10 @@ class PreprocessingConfig:
     scale: float = field(
         default=1.0, validator=lambda instance, attr, value: instance.validate_scale()
     )
-    crop_size: Optional[int] = None
+    crop_size: Optional[Any] = field(
+        default=None,
+        validator=lambda instance, attr, value: instance.validate_crop_size(),
+    )
     min_crop_size: Optional[int] = 100  # to help app work in case of error
     crop_padding: Optional[int] = None
     crop_mode: str = field(default="fixed", validator=validators.in_(("fixed", "bbox")))
@@ -220,10 +296,95 @@ class PreprocessingConfig:
     crop_bbox_min_size: Optional[float] = field(
         default=None, validator=validators.optional(validators.gt(0))
     )
+    crop_pipeline: str = field(
+        default="legacy", validator=validators.in_(("legacy", "warp"))
+    )
+    gpu_confmaps: bool = False
+    crop_bbox_categories: Optional[List[str]] = None
+    crop_bbox_source: str = field(
+        default="gt",
+        validator=lambda instance, attr, value: instance.validate_crop_bbox_source(),
+    )
+    crop_bbox_detector: Optional[str] = None
+    crop_bbox_min_score: float = 0.0
+    crop_bbox_fallback: str = field(
+        default="gt", validator=validators.in_(("gt", "drop"))
+    )
+    crop_bbox_jitter: float = field(default=0.0, validator=validators.ge(0))
+    crop_bbox_jitter_tail: float = field(default=0.0, validator=validators.ge(0))
+    crop_bbox_jitter_tail_p: float = field(
+        default=0.0, validator=[validators.ge(0), validators.le(1)]
+    )
+    crop_bbox_jitter_min_cover: float = field(
+        default=0.0, validator=[validators.ge(0), validators.le(1)]
+    )
     tiling: TilingConfig = field(factory=TilingConfig)
     burn_in: bool = False
     background_fill: str = "black"
     crop_centering: str = "auto"
+    resize_mode: str = field(
+        default="letterbox",
+        validator=lambda instance, attr, value: instance.validate_resize_mode(),
+    )
+    file_scales: Optional[Dict[str, float]] = field(
+        default=None,
+        validator=lambda instance, attr, value: instance.validate_file_scales(),
+    )
+
+    def validate_file_scales(self):
+        """`file_scales`: every scale must be a positive number."""
+        for name, value in (self.file_scales or {}).items():
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise ValueError(
+                    f"file_scales[{name!r}] must be a number, got {value!r}."
+                )
+            if not value > 0:
+                raise ValueError(f"file_scales[{name!r}] must be > 0, got {value!r}.")
+
+    def validate_resize_mode(self):
+        """Validate `resize_mode`; `squash` needs both `max_height` and `max_width`."""
+        if self.resize_mode not in ("letterbox", "squash"):
+            raise ValueError(
+                f"resize_mode must be 'letterbox' or 'squash', got {self.resize_mode!r}."
+            )
+        if self.resize_mode == "squash" and (
+            self.max_height is None or self.max_width is None
+        ):
+            raise ValueError(
+                "resize_mode='squash' resizes every frame to exactly "
+                "(max_height, max_width); set both."
+            )
+
+    def validate_crop_size(self):
+        """Validate `crop_size`: an int, or `[height, width]` for warp crops."""
+        value = self.crop_size
+        if value is None or isinstance(value, (int, float)):
+            return
+        if parse_hw(value, allow_int=False) is None:
+            raise ValueError(
+                f"crop_size must be an int or [height, width], got {value!r}."
+            )
+        if self.crop_mode != "bbox" or self.crop_pipeline != "warp":
+            raise ValueError(
+                "A [height, width] crop_size needs crop_mode='bbox' and "
+                "crop_pipeline='warp' (the other crop paths are square)."
+            )
+
+    def validate_crop_bbox_source(self):
+        """Validate `crop_bbox_source`; detector boxes and jitter need warp crops."""
+        if self.crop_bbox_source not in ("gt", "detector"):
+            raise ValueError(
+                "crop_bbox_source must be 'gt' or 'detector', got "
+                f"{self.crop_bbox_source!r}."
+            )
+        jitter = (self.crop_bbox_jitter or 0) > 0 or (
+            getattr(self, "crop_bbox_jitter_tail_p", 0) or 0
+        ) > 0
+        if (self.crop_bbox_source != "gt" or jitter) and self.crop_pipeline != "warp":
+            raise ValueError(
+                "crop_bbox_source='detector' and crop_bbox_jitter need "
+                "crop_pipeline='warp'."
+            )
 
     def validate_scale(self):
         """Scale Validation.
@@ -258,6 +419,42 @@ class IntensityConfig:
         brightness_min: (float) Minimum brightness factor to apply. *Default*: `0.9`.
         brightness_max: (float) Maximum brightness factor to apply. *Default*: `1.1`.
         brightness_p: (float) Probability of applying random brightness. *Default*: `0.0`.
+        hsv_p: (float) `crop_pipeline="warp"` only. Probability of a random HSV shift
+            of the crop (mmdet `YOLOXHSVRandomAug`, which RTMPose applies always:
+            `hsv_p: 1.0`). Each of hue / saturation / value is shifted with p=0.5 by
+            an integer in `[-delta, delta]` (OpenCV 8-bit HSV: hue in [0, 180)).
+            *Default*: `0.0`.
+        hsv_hue_delta: (float) Max hue shift. *Default*: `5.0`.
+        hsv_saturation_delta: (float) Max saturation shift. *Default*: `30.0`.
+        hsv_value_delta: (float) Max value shift. *Default*: `30.0`.
+        blur_p: (float) `crop_pipeline="warp"` only. Probability of a box blur with a
+            random odd kernel in `[blur_kernel_min, blur_kernel_max]`
+            (albumentations `Blur`). *Default*: `0.0`.
+        blur_kernel_min: (int) Smallest box-blur kernel. *Default*: `3`.
+        blur_kernel_max: (int) Largest box-blur kernel. *Default*: `7`.
+        median_blur_p: (float) `crop_pipeline="warp"` only. Probability of a median
+            blur (albumentations `MedianBlur`). *Default*: `0.0`.
+        median_blur_kernel_min: (int) Smallest median kernel. *Default*: `3`.
+        median_blur_kernel_max: (int) Largest median kernel. *Default*: `7`.
+        gaussian_blur_p: (float) `crop_pipeline="warp"` only. Probability of a
+            Gaussian blur with sigma in `[gaussian_blur_sigma_min,
+            gaussian_blur_sigma_max]` crop pixels. *Default*: `0.0`.
+        gaussian_blur_sigma_min: (float) Smallest blur sigma. *Default*: `0.1`.
+        gaussian_blur_sigma_max: (float) Largest blur sigma. *Default*: `2.0`.
+        gray_p, channel_shuffle_p, channel_gain_max, channel_gain_p, gamma_min,
+        gamma_max, gamma_p, invert_p, downup_min, downup_max, downup_p,
+        jpeg_quality_min, jpeg_quality_max, jpeg_p: Experimental (may change or be
+            removed without a deprecation period; no measured benefit in the
+            developers' tests). Appearance ops of
+            :mod:`sleap_nn.data.photometric_extra` (luminance, channel permutation,
+            per-channel gain, log-uniform gamma, inversion, down-then-up sampling by
+            a factor in ``[downup_min, downup_max]``, JPEG re-encoding), applied by
+            `crop_pipeline="warp"` and, with `frame_photometric`, by `bbox_detr`;
+            other pipelines ignore them with a warning. Off by default.
+        frame_photometric: (bool) Experimental. ``bbox_detr`` only: apply the warp
+            pipeline's photometric ops (contrast, brightness, HSV, blurs, noise and
+            the ops above) to the whole frame before RF-DETR's geometry, instead of the
+            stock contrast / brightness / noise. *Default*: `False`.
     """
 
     uniform_noise_min: float = field(default=0.0, validator=validators.ge(0))
@@ -272,6 +469,47 @@ class IntensityConfig:
     brightness_min: float = field(default=0.9, validator=validators.ge(0))
     brightness_max: float = field(default=1.1, validator=validators.le(2))
     brightness_p: float = field(default=0.0, validator=validate_proportion)
+    hsv_p: float = field(default=0.0, validator=validate_proportion)
+    hsv_hue_delta: float = field(default=5.0, validator=validators.ge(0))
+    hsv_saturation_delta: float = field(default=30.0, validator=validators.ge(0))
+    hsv_value_delta: float = field(default=30.0, validator=validators.ge(0))
+    blur_p: float = field(default=0.0, validator=validate_proportion)
+    blur_kernel_min: int = field(default=3, validator=validators.ge(3))
+    blur_kernel_max: int = field(default=7, validator=validators.ge(3))
+    median_blur_p: float = field(default=0.0, validator=validate_proportion)
+    median_blur_kernel_min: int = field(default=3, validator=validators.ge(3))
+    median_blur_kernel_max: int = field(default=7, validator=validators.ge(3))
+    gaussian_blur_p: float = field(default=0.0, validator=validate_proportion)
+    gaussian_blur_sigma_min: float = field(default=0.1, validator=validators.gt(0))
+    gaussian_blur_sigma_max: float = field(default=2.0, validator=validators.gt(0))
+    # Experimental appearance ops (sleap_nn.data.photometric_extra); crop_pipeline=
+    # "warp" and, with frame_photometric, bbox_detr frames. All off by default.
+    gray_p: float = field(default=0.0, validator=validate_proportion)
+    channel_shuffle_p: float = field(default=0.0, validator=validate_proportion)
+    channel_gain_max: float = field(default=0.0, validator=validators.ge(0))
+    channel_gain_p: float = field(default=0.0, validator=validate_proportion)
+    gamma_min: float = field(default=1.0, validator=validators.gt(0))
+    gamma_max: float = field(default=1.0, validator=validators.gt(0))
+    gamma_p: float = field(default=0.0, validator=validate_proportion)
+    invert_p: float = field(default=0.0, validator=validate_proportion)
+    downup_min: float = field(default=1.0, validator=validators.ge(1))
+    downup_max: float = field(default=1.0, validator=validators.ge(1))
+    downup_p: float = field(default=0.0, validator=validate_proportion)
+    jpeg_quality_min: int = field(default=95, validator=validators.ge(1))
+    jpeg_quality_max: int = field(default=95, validator=validators.le(100))
+    jpeg_p: float = field(default=0.0, validator=validate_proportion)
+    frame_photometric: bool = False
+
+
+def _warn_mixup(instance, attribute, value):
+    """Warn that `mixup_p` is not implemented (it used to be silently ignored)."""
+    validate_proportion(instance, attribute, value)
+    if value is not None and value > 0:
+        logger.warning(
+            f"geometric.mixup_p={value} is not implemented by any sleap-nn data "
+            "pipeline and is ignored (crop_pipeline='warp' raises instead). Set "
+            "mixup_p: 0 to silence this warning."
+        )
 
 
 @define
@@ -296,7 +534,44 @@ class GeometricConfig:
         erase_p: (float) Probability of applying random erase. *Default*: `1.0`.
         mixup_lambda_min: (float) Minimum mixup strength value. *Default*: `0.01`.
         mixup_lambda_max: (float) Maximum mixup strength value. *Default*: `0.05`.
-        mixup_p: (float) Probability of applying random mixup v2. *Default*: `0.0`.
+        mixup_p: (float) NOT IMPLEMENTED: a value > 0 logs a warning (and raises with
+            `crop_pipeline="warp"`). *Default*: `0.0`.
+        affine_sampling: (str) `crop_pipeline="warp"` only. `"uniform"`: rotation,
+            scale and translation are uniform in their ranges and `scale_*` scales the
+            image content (> 1 zooms in), as in the stock pipeline. `"mmpose"`: mmpose
+            `RandomBBoxTransform` semantics -- truncated-normal draws (+-1 sigma =
+            the range ends) around the range middle, `scale_*` scales the crop *box*
+            (content scale = 1 / box scale) and the shift moves the box before it is
+            rotated, so `scale_min: 0.6, scale_max: 1.4, rotation_min: -80,
+            rotation_max: 80` reproduce RTMPose's config. *Default*: `"uniform"`.
+        half_body_p: (float) `crop_pipeline="warp"` only. Probability of mmpose's
+            `RandomHalfBody`: crop to the upper or lower body only. The crop box is
+            recomputed from the chosen half's visible nodes (centered on their mean,
+            `half_body_padding` times their extent, fit to the crop aspect) before
+            the single warp, so it costs nothing extra. *Default*: `0.0` (ViTPose /
+            RTMPose: `0.3`).
+        half_body_min_total_keypoints: (int) Only instances with at least this many
+            visible (labeled, located) nodes are eligible. *Default*: `9`.
+        half_body_min_upper_keypoints: (int) Visible upper-body nodes needed to
+            choose the upper half. *Default*: `2`.
+        half_body_min_lower_keypoints: (int) Visible lower-body nodes needed to
+            choose the lower half. *Default*: `3`.
+        half_body_padding: (float) Box size as a multiple of the half's keypoint
+            extent. *Default*: `1.5`.
+        half_body_upper_prob: (float) Probability of preferring the upper half when
+            both qualify. *Default*: `0.7`.
+        half_body_lower_nodes: (list of str) Lower-body node names. `None` takes
+            the nodes whose name contains hip / knee / ankle / heel / toe / foot (COCO:
+            hips, knees, ankles, like mmpose's `lower_body_ids`). *Default*: `None`.
+        coarse_dropout_p: (float) `crop_pipeline="warp"` only. Probability of
+            albumentations `CoarseDropout`: black holes in the crop. Keypoints inside
+            holes keep their targets (as in mmpose). *Default*: `0.0` (RTMPose stage
+            1: `1.0`, stage 2: `0.5`).
+        coarse_dropout_min_holes: (int) Fewest holes. *Default*: `1`.
+        coarse_dropout_max_holes: (int) Most holes. *Default*: `1`.
+        coarse_dropout_min_size: (float) Smallest hole side as a fraction of the crop
+            side (height and width drawn independently). *Default*: `0.2`.
+        coarse_dropout_max_size: (float) Largest hole side fraction. *Default*: `0.4`.
         flip_p: (float) Probability of mirroring the image and keypoints left/right (`x' = (W-1) - x`). When applied, left/right symmetric body parts are swapped using the skeleton's symmetries so labels stay correct. *Correctness note*: if the skeleton has no symmetries, flipping is only valid when the animal is truly left/right symmetric in labeling; a warning is emitted otherwise. *Default*: `0.0` (disabled).
     """
 
@@ -317,8 +592,151 @@ class GeometricConfig:
     erase_p: float = field(default=0.0, validator=validate_proportion)
     mixup_lambda_min: float = field(default=0.01, validator=validators.ge(0))
     mixup_lambda_max: float = field(default=0.05, validator=validators.le(1))
-    mixup_p: float = field(default=0.0, validator=validate_proportion)
+    mixup_p: float = field(default=0.0, validator=_warn_mixup)
     flip_p: float = field(default=0.0, validator=validate_proportion)
+    affine_sampling: str = field(
+        default="uniform", validator=validators.in_(("uniform", "mmpose"))
+    )
+    half_body_p: float = field(default=0.0, validator=validate_proportion)
+    half_body_min_total_keypoints: int = field(default=9, validator=validators.ge(0))
+    half_body_min_upper_keypoints: int = field(default=2, validator=validators.ge(1))
+    half_body_min_lower_keypoints: int = field(default=3, validator=validators.ge(1))
+    half_body_padding: float = field(default=1.5, validator=validators.gt(0))
+    half_body_upper_prob: float = field(default=0.7, validator=validate_proportion)
+    half_body_lower_nodes: Optional[List[str]] = None
+    coarse_dropout_p: float = field(default=0.0, validator=validate_proportion)
+    coarse_dropout_min_holes: int = field(default=1, validator=validators.ge(0))
+    coarse_dropout_max_holes: int = field(default=1, validator=validators.ge(0))
+    coarse_dropout_min_size: float = field(default=0.2, validator=validate_proportion)
+    coarse_dropout_max_size: float = field(default=0.4, validator=validate_proportion)
+
+
+@define
+class AugmentationStage2Config:
+    """A second augmentation stage from a given epoch or step (warp pipeline only).
+
+    The "stage-2 pipeline switch" of RTMPose (mmdet `PipelineSwitchHook`): the last
+    epochs train with weaker augmentation. `geometric` / `intensity` are partial
+    overrides merged over the stage-1 sections (e.g. `{rotation_min: -60,
+    rotation_max: 60, coarse_dropout_p: 0.5}`). Applied by
+    `AugmentationStageCallback`, which flips a shared-memory flag that persistent
+    workers read per sample; batches already prefetched when the switch happens
+    (at most `num_workers * prefetch_factor`) still use stage 1.
+
+    Attributes:
+        start_epoch: (int) First epoch (0-based) of stage 2. *Default*: `None`.
+        start_step: (int) First global step of stage 2 (used when `start_epoch` is
+            `None`). *Default*: `None`.
+        geometric: (dict) Overrides of `augmentation_config.geometric`.
+            *Default*: `None`.
+        intensity: (dict) Overrides of `augmentation_config.intensity`.
+            *Default*: `None`.
+    """
+
+    start_epoch: Optional[int] = field(
+        default=None, validator=validators.optional(validators.ge(0))
+    )
+    start_step: Optional[int] = field(
+        default=None, validator=validators.optional(validators.ge(0))
+    )
+    geometric: Optional[Dict[str, Any]] = None
+    intensity: Optional[Dict[str, Any]] = None
+
+
+@define
+class DetrAugmentationConfig:
+    """RF-DETR's training geometry for `bbox_detr` models.
+
+    Applied to training frames (with `use_augmentations_train`) before the
+    `intensity` / `geometric` sections, which still apply on top
+    (`sleap_nn.data.detr_augmentation`). Defaults are RF-DETR's. `bbox_centernet`
+    and `bbox_ssd` models apply the `zoom_out_*` keys too (after the size matcher,
+    `scale` and stride padding; same meaning) and ignore the rest.
+
+    Attributes:
+        crop_p: (float) Probability of the resize + crop branch: the shortest side
+            is resized to one of `shortest_sides`, a random square with a side in
+            `crop_range` is cropped, and the crop is resized to the training size.
+            Otherwise the whole frame is resized to it. Boxes are clipped to the
+            crop and dropped when no area is left. *Default*: `0.5`.
+        shortest_sides: (List[int]) Pre-crop shortest sides. *Default*:
+            `[400, 500, 600]`.
+        crop_range: (List[int]) Inclusive `[min, max]` crop side. *Default*:
+            `[384, 600]`.
+        flip_p: (float) Horizontal flip probability. *Default*: `0.5`.
+        vflip_p: (float) Vertical flip probability (not in RF-DETR). *Default*:
+            `0.0`.
+        rot90_p: (float) Probability of a 90 degree rotation, clockwise or
+            counterclockwise at random, before the frame is fitted to the
+            training size (not in RF-DETR). Boxes stay exact, unlike the
+            `geometric` rotation, which turns box corners and so enlarges the
+            boxes. With `flip_p: 0.5, vflip_p: 0.5, rot90_p: 0.5` every
+            orientation and mirror image is equally likely (overhead footage).
+            *Default*: `0.0`.
+        zoom_out_p: (float) Probability of shrinking the fitted training frame by a
+            factor drawn log-uniformly from ``[zoom_out_min, zoom_out_max]`` onto a
+            canvas (see ``zoom_out_canvas``) at a random offset (animals smaller than
+            in the source; not in RF-DETR). *Default*: `0.0`.
+        zoom_out_min: (float) Smallest zoom-out factor. *Default*: `0.4`.
+        zoom_out_max: (float) Largest zoom-out factor. *Default*: `1.0`.
+        zoom_out_canvas: (str) What the shrunk frame is pasted on: ``"zero"`` (a black
+            canvas) or ``"frame"`` (another random training frame, fitted to the training
+            size with its own boxes; its boxes covered >= 50% by the pasted frame are
+            dropped, the rest clipped to outside it), so the surroundings are real scenes.
+            *Default*: `"zero"`.
+        paste_p: (float) Experimental (may change or be removed without a
+            deprecation period; no measured benefit in the developers' tests).
+            Probability of pasting animals cut from other training frames
+            onto the fitted training frame (copy-paste; not in RF-DETR): crowds, small
+            animals and new backgrounds. Each pasted animal is its box region cut with a
+            soft mask, the convex hull of the linked instance's points inside the box,
+            dilated and feathered; boxes with no linked instance or fewer than 4 points
+            inside are never pasted. *Default*: `0.0` (off).
+        paste_max: (int) Most animals pasted onto one frame (a uniform draw from 1..max).
+            *Default*: `6`.
+        paste_frames: (int) Most source frames read per paste (each a uniformly drawn
+            training file, then frame). *Default*: `2`.
+        paste_scale_min: (float) Smallest scale of a pasted animal relative to its size in
+            its own fitted frame (log-uniform draw). *Default*: `0.3`.
+        paste_scale_max: (float) Largest such scale. *Default*: `1.2`.
+        paste_overlap: (float) Largest share of a pasted box that may overlap boxes already
+            in the frame (a pasted box never covers half of another box). *Default*: `0.3`.
+        paste_dilate: (float) Mask dilation, as a share of the box's longest side.
+            *Default*: `0.08`.
+        paste_feather: (float) Mask edge blur (Gaussian radius), as a share of the box's
+            longest side. *Default*: `0.04`.
+        multi_scale: (bool) Per-batch multi-scale: frames are made at the largest
+            scale and every training batch is resized to one size drawn per
+            optimizer step (the same on every rank) from `max_height x max_width`
+            +/- `multi_scale_steps` multiples of the backbone's `max_stride`.
+            *Default*: `True`.
+        multi_scale_steps: (int) Size steps up and down. *Default*: `5`.
+    """
+
+    crop_p: float = field(default=0.5, validator=validate_proportion)
+    # Tuples, not `field(factory=...)`: OmegaConf cannot call an attrs Factory
+    # when it builds this class from its type (they land as lists).
+    shortest_sides: List[int] = (400, 500, 600)
+    crop_range: List[int] = (384, 600)
+    flip_p: float = field(default=0.5, validator=validate_proportion)
+    vflip_p: float = field(default=0.0, validator=validate_proportion)
+    rot90_p: float = field(default=0.0, validator=validate_proportion)
+    zoom_out_p: float = field(default=0.0, validator=validate_proportion)
+    zoom_out_min: float = field(default=0.4, validator=validators.gt(0))
+    zoom_out_max: float = field(default=1.0, validator=validators.le(1))
+    zoom_out_canvas: str = field(
+        default="zero", validator=validators.in_(("zero", "frame"))
+    )
+    paste_p: float = field(default=0.0, validator=validate_proportion)
+    paste_max: int = field(default=6, validator=validators.ge(1))
+    paste_frames: int = field(default=2, validator=validators.ge(1))
+    paste_scale_min: float = field(default=0.3, validator=validators.gt(0))
+    paste_scale_max: float = field(default=1.2, validator=validators.gt(0))
+    paste_overlap: float = field(default=0.3, validator=validate_proportion)
+    paste_dilate: float = field(default=0.08, validator=validators.ge(0))
+    paste_feather: float = field(default=0.04, validator=validators.ge(0))
+    multi_scale: bool = True
+    multi_scale_steps: int = field(default=5, validator=validators.ge(0))
 
 
 @define
@@ -328,10 +746,17 @@ class AugmentationConfig:
     Attributes:
         intensity: Configuration options for intensity-based augmentations like brightness, contrast, etc. If None, no intensity augmentations will be applied.
         geometric: Configuration options for geometric augmentations like rotation, scaling, translation etc. If None, no geometric augmentations will be applied.
+        stage2: (AugmentationStage2Config) Optional second augmentation stage
+            (`crop_pipeline="warp"` only). *Default*: `None`.
+        detr: (DetrAugmentationConfig) RF-DETR's resize/crop/flip and per-batch
+            multi-scale (`bbox_detr` only; its `zoom_out_*` keys also apply to
+            `bbox_centernet` and `bbox_ssd`). *Default*: `None`.
     """
 
     intensity: Optional[IntensityConfig] = None
     geometric: Optional[GeometricConfig] = None
+    stage2: Optional[AugmentationStage2Config] = None
+    detr: Optional[DetrAugmentationConfig] = None
 
 
 def validate_test_file_path(instance, attribute, value):
@@ -411,12 +836,31 @@ class SplitConfig:
 
 
 @define
+class InstanceFilterConfig:
+    """Train-time instance filters (`crop_pipeline="warp"` only).
+
+    Attributes:
+        min_labeled_nodes: (int) Train only on instances with at least this many of
+            `count_nodes` labeled. *Default*: `0`.
+        count_nodes: (list of str) Nodes counted by `min_labeled_nodes` (e.g. the 12
+            limb joints). `None` counts every model node. *Default*: `None`.
+        min_bbox_size: (float) Train only on instances whose box has
+            `sqrt(area) >= min_bbox_size` frame pixels. *Default*: `0.0`.
+    """
+
+    min_labeled_nodes: int = field(default=0, validator=validators.ge(0))
+    count_nodes: Optional[List[str]] = None
+    min_bbox_size: float = field(default=0.0, validator=validators.ge(0))
+
+
+@define
 class DataConfig:
     """Data configuration.
 
     Attributes:
         train_labels_path: (List[str]) List of paths to training data (`.slp` file(s)). *Default*: `None`.
         val_labels_path: (List[str]) List of paths to validation data (`.slp` file(s)). *Default*: `None`.
+        val_names: (List[str]) Display names of the validation labels files, one per file of `val_labels_path` (or per training file when the validation set is split from them). With several validation files, each gets its own metrics: `val/<name>/loss` (warp centered-instance pipeline) and `eval/<name>/*` (epoch-end evaluation), plus their unweighted means `val/macro/loss` and `eval/macro/*`. Names must be unique, without `/`, and not `val` or `macro`. `None` uses each file's stem (`.slp`/`.pkg` stripped; repeats get a `-<i>` suffix). *Default*: `None`.
         validation_fraction: (float) Float between 0 and 1 specifying the fraction of the training set to sample for generating the validation set. The remaining labeled frames will be left in the training set. If the `validation_labels` are already specified, this has no effect. *Default*: `0.1`.
         use_same_data_for_val: (bool) If `True`, use the same data for both training and validation (train = val). Useful for intentional overfitting on small datasets. When enabled, `val_labels_path` and `validation_fraction` are ignored. *Default*: `False`.
         test_file_path: (str or List[str]) Path or list of paths to test dataset(s) (`.slp` file(s) or `.mp4` file(s)). *Note*: This is used only with CLI to get evaluation on test set after training is completed. *Default*: `None`.
@@ -439,6 +883,56 @@ class DataConfig:
         negative_loss_weight: (float) Relative weight applied to the loss for negative samples. Must be > 0.
             Values < 1 down-weight negatives; values > 1 up-weight them. Only has effect when
             ``use_negative_frames`` is ``True``. *Default*: `1.0`.
+        val_negative_frames: (bool) **Experimental.** ``bbox_*`` models only: also
+            keep the user-confirmed negative frames of the validation labels in the
+            validation set (training keeps them with ``use_negative_frames``). The
+            validation loss then includes their background terms (``val/loss``,
+            which checkpoints, early stopping and ``reduce_lr_on_plateau`` follow
+            by default, grows; prefer a box metric), and boxes detected on them
+            count as false positives in the training-time box metrics. The
+            post-training metrics skip frames with no labelled box. Not written to
+            ``training_config.yaml`` while ``False``. *Default*: ``False``.
+        ignore_box_category: (str) **Experimental.** ``bbox_detr`` only: user boxes
+            of this category mark regions that are not objects and not background,
+            e.g. animals left unlabelled in a partly labelled frame. They go through
+            the same augmentation as the other boxes but are never matched, never
+            counted as objects and never ground truth. In the score loss, a query
+            that matches no object and whose predicted box lies inside an ignore
+            box by at least ``ignore_box_min_cover`` of its own area gets no
+            background loss; in the box metrics a detection is neither a hit nor a
+            false positive by the same rule. They are kept when the other boxes
+            are derived from instances or masks (``bbox_source``), and do not make
+            ``bbox_source: auto`` choose ``bboxes``. Frames whose only boxes are
+            ignore boxes are training frames. Must not be one of the detector's
+            ``categories``, nor ``"object"`` (the name of boxes without a
+            category). ``None`` turns it off. Not written to
+            ``training_config.yaml`` while ``None``. *Default*: ``None``.
+        ignore_box_min_cover: (float) **Experimental.** With
+            ``ignore_box_category``: the share of a query's predicted box (or a
+            detection, in the box metrics) that must lie inside one ignore box
+            (intersection over the predicted box's area) for it to be ignored. Not
+            written to
+            ``training_config.yaml`` while ``0.5``. *Default*: ``0.5``.
+        node_loss_mask: (bool) Per-node loss weighting for partially labeled
+            skeletons (single-instance, centered-instance and bottom-up confmaps).
+            Unlabeled points (sleap-io >= 0.10 ``labeled=False`` and
+            ``visible=False``, e.g. COCO ``v=0`` or nodes another dataset of a merged
+            skeleton annotates) get zero loss instead of being trained as absent, as
+            do nodes listed as unannotated by the per-file stopgap
+            ``Labels.provenance["labeled_nodes"]`` (node names or indices; all nodes
+            when absent). Also the master switch for ``unlabeled_points``. Fully
+            labeled data (every pre-SLP-3.0 file) with ``unlabeled_points: absent``
+            trains exactly as with ``False``. *Default*: ``True``.
+        unlabeled_points: (str) What a point with no location in the model input
+            (NaN, e.g. COCO ``v=0``, or pushed out of the image/crop by augmentation)
+            trains as. ``"absent"`` keeps weight 1 and trains an all-zero confmap
+            (SLEAP's historical behavior); ``"ignore"`` gives it zero loss weight
+            (as mmpose does). Negative frames always train as absent. Requires
+            ``node_loss_mask``. *Default*: ``"absent"``.
+        supervise_occluded: (bool) If ``True``, labeled-but-occluded points that carry
+            estimated coordinates (sleap-io >= 0.10; COCO ``v=1``) are trained as
+            Gaussians at those coordinates; if ``False`` they get zero loss. Crop sizes,
+            crop boxes and centroids use them either way. *Default*: ``True``.
         skeletons: skeleton configuration for the `.slp` file. This will be pulled from the train dataset and saved to the `training_config.yaml`
         split: (Optional[SplitConfig]) Group-aware train/val split decided before training.
             When set and `val_labels_path` is not provided, the trainer
@@ -470,10 +964,25 @@ class DataConfig:
             Pose keypoints sit inside the animal's outline, so a tight keypoint box
             is slightly smaller than the animal; a few pixels of padding compensate.
             Never applied to existing `UserBoundingBox` annotations. *Default*: `0.0`.
+        instance_filter: (InstanceFilterConfig) Train-time instance filters for
+            `crop_pipeline="warp"` (validation keeps every instance). *Default*: `None`.
+        merge_skeletons: (bool) **Experimental.** Train a `bottomup`, `centroid` or
+            `single_instance` model on labels files whose skeletons differ. The
+            model's skeleton is the union of the training files' nodes, matched by
+            name (the head's `part_names` when set, else every node in the order
+            first seen), with every file's edges and symmetries (a bottom-up head's
+            `pafs.edges` replace the edges when set). Each training and validation
+            file's instances are mapped onto it by node name; the nodes a file
+            does not have are marked unlabeled, so with `node_loss_mask` they get
+            zero loss (and a part-affinity edge counts only where the file labels
+            both ends). `False` keeps the check that every file has the same
+            skeleton. Written to `training_config.yaml` only when `True`.
+            *Default*: `False`.
     """
 
     train_labels_path: Optional[List[str]] = None
     val_labels_path: Optional[List[str]] = None  # TODO : revisit MISSING!
+    val_names: Optional[List[str]] = None
     validation_fraction: float = 0.1
     use_same_data_for_val: bool = False
     test_file_path: Optional[Any] = field(
@@ -494,6 +1003,16 @@ class DataConfig:
     )
     use_negative_frames: bool = False
     negative_loss_weight: float = field(default=1.0, validator=validators.gt(0))
+    val_negative_frames: bool = False
+    ignore_box_category: Optional[str] = None
+    ignore_box_min_cover: float = field(
+        default=0.5, validator=[validators.gt(0), validators.le(1)]
+    )
+    node_loss_mask: bool = True
+    unlabeled_points: str = field(
+        default="absent", validator=validators.in_(("absent", "ignore"))
+    )
+    supervise_occluded: bool = True
     skeletons: Optional[list] = None
     identity: Optional[IdentityConfig] = None
     split: Optional[SplitConfig] = None
@@ -503,6 +1022,8 @@ class DataConfig:
         validator=validators.in_(("auto", "bboxes", "instances", "masks")),
     )
     bbox_padding: float = field(default=0.0, validator=validators.ge(0))
+    instance_filter: Optional[InstanceFilterConfig] = None
+    merge_skeletons: bool = False
 
 
 def data_mapper(legacy_config: dict) -> DataConfig:

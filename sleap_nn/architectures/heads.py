@@ -47,11 +47,14 @@ class Head:
         """Return the name of the loss function to use for this head."""
         return "mse"
 
-    def make_head(self, x_in: int) -> nn.Sequential:
+    def make_head(self, x_in: int, kernel_size: int = 1) -> nn.Sequential:
         """Make head output tensor from input feature tensor.
 
         Args:
             x_in: An int input for the input channels.
+            kernel_size: Kernel size of the output conv. 1 (the default) for every
+                backbone except those that ask for more (a ViTPose ``simple``
+                decoder ends in a 3x3 conv, see `PretrainedBackbone`).
 
         Returns:
             A `nn.Sequential` with the correct shape for the head.
@@ -61,7 +64,7 @@ class Head:
             nn.Conv2d(
                 in_channels=x_in,
                 out_channels=self.channels,
-                kernel_size=1,
+                kernel_size=kernel_size,
                 stride=1,
                 padding="same",
             ),

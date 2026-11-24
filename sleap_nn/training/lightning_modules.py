@@ -40,6 +40,9 @@ from sleap_nn.architectures.model import Model
 from sleap_nn.data.normalization import EMBEDDING_STD_FLOOR, normalize_on_gpu
 from sleap_nn.training.losses import (
     compute_ohkm_loss,
+    compute_weighted_mse_loss,
+    compute_weighted_ohkm_loss,
+    per_node_mse,
     compute_bce_dice_loss,
     compute_masked_smooth_l1,
     build_contrastive_masks,
@@ -49,7 +52,8 @@ from sleap_nn.training.losses import (
     compute_ssd_loss,
     get_contrastive_loss,
 )
-from sleap_nn.data.bboxes import bbox_head_categories
+from sleap_nn.data.bboxes import bbox_head_categories, collate_set_targets
+from sleap_nn.data.detr_augmentation import batch_scale, resize_batch
 from sleap_nn.inference.bbox import BBoxDecoder
 from loguru import logger
 from sleap_nn.training.utils import (
@@ -73,15 +77,31 @@ from sleap_nn.config.trainer_config import (
     ReduceLROnPlateauConfig,
     StepLRConfig,
 )
+from sleap_nn.training.optim import (
+    is_embedding_or_token,
+    no_weight_decay_names,
+    resolve_encoder_lr_options,
+    split_weight_decay,
+)
+from sleap_nn.training.detr import build_set_criterion
 from sleap_nn.training.schedulers import (
     LinearWarmupCosineAnnealingLR,
     LinearWarmupLinearDecayLR,
+    LinearWarmupMultiStepLR,
 )
 from sleap_nn.config.get_config import get_backbone_config
 from sleap_nn.config.model_config import resolve_embedding_objective
 from sleap_nn.legacy_models import (
     load_legacy_model_weights,
 )
+from sleap_nn.training.weight_transfer import (
+    CHECKPOINT_HEADS_KEY,
+    init_from_checkpoint,
+    model_head_channels,
+    reinit as reinit_selected,
+)
+from sleap_nn.training.distillation import drop_distiller_keys
+from sleap_nn.training.coordinate_losses import build_coordinate_losses
 
 MODEL_WEIGHTS = {
     "Swin_T_Weights": Swin_T_Weights,
@@ -95,6 +115,25 @@ MODEL_WEIGHTS = {
     "ConvNeXt_Small_Weights": ConvNeXt_Small_Weights,
     "ConvNeXt_Large_Weights": ConvNeXt_Large_Weights,
 }
+
+
+def _outputs_to_fp32(outputs):
+    """Upcast floating tensors in an inference output to float32.
+
+    Under ``bf16-mixed``/``16-mixed`` the inference layers return half-precision
+    peaks and confidence maps, and ``.numpy()`` cannot convert bfloat16. Integer
+    and uint8 tensors (e.g. images) are returned unchanged. Dicts, lists and
+    tuples are converted recursively.
+    """
+    if torch.is_tensor(outputs):
+        if outputs.is_floating_point() and outputs.dtype != torch.float32:
+            return outputs.float()
+        return outputs
+    if isinstance(outputs, dict):
+        return {k: _outputs_to_fp32(v) for k, v in outputs.items()}
+    if isinstance(outputs, (list, tuple)):
+        return type(outputs)(_outputs_to_fp32(v) for v in outputs)
+    return outputs
 
 
 def _bbox_crop_points_to_frame(points, batch: dict, i: int) -> np.ndarray:
@@ -156,7 +195,33 @@ class LightningModel(L.LightningModule):
         optimizer: Optimizer name. One of ["Adam", "AdamW"].
         learning_rate: Learning rate for the optimizer. Default: 1e-3.
         amsgrad: Enable AMSGrad with the optimizer. Default: False.
+        init_from: Optional `InitFromConfig` (or dict): shape-tolerant,
+            skeleton-aware initialization from another checkpoint plus optional
+            re-initialization, applied after every other weight source.
+
+    Attributes:
+        weight_decay: Weight decay for the weight matrices only (see
+            `sleap_nn.training.optim.split_weight_decay`), or ``None`` for the
+            optimizer's torch default on every parameter. Set after construction
+            from ``trainer_config.optimizer.weight_decay`` by
+            `get_lightning_model_from_config` (the subclasses' constructors do not
+            take it).
+        encoder_lr_scale: Learning-rate multiplier for a ``pretrained`` encoder,
+            or ``None`` to keep the backbone's own. Set like ``weight_decay``, from
+            `sleap_nn.training.optim.resolve_encoder_lr_options`.
+        layer_decay: Layer-wise learning-rate decay for a plain-ViT ``pretrained``
+            encoder, or ``None`` to keep the backbone's own. Set like
+            ``encoder_lr_scale``.
     """
+
+    weight_decay: Optional[float] = None
+    encoder_lr_scale: Optional[float] = None
+    layer_decay: Optional[float] = None
+    # Online hard keypoint mining ranks nodes per sample (over nodes with nonzero
+    # `node_weights`) unless set False, which restores the batch-level ranking of
+    # `compute_ohkm_loss`. Set from `trainer_config.online_hard_keypoint_mining.
+    # per_sample` by `get_lightning_model_from_config`.
+    ohkm_per_sample: bool = True
 
     def __init__(
         self,
@@ -177,10 +242,16 @@ class LightningModel(L.LightningModule):
         learning_rate: Optional[float] = 1e-3,
         amsgrad: Optional[bool] = False,
         negative_loss_weight: Optional[float] = 1.0,
+        init_from: Optional[Union[DictConfig, Dict[str, Any]]] = None,
     ):
         """Initialise the configs and the model."""
         super().__init__()
+        # `trainer_config.distillation` (set by `attach_distillation`): adds the
+        # teacher -> student loss to the supported training steps.
+        self.distiller = None
         self.negative_loss_weight = negative_loss_weight
+        self.init_from = init_from
+        self.transfer_reports = []
         self.model_type = model_type
         self.backbone_type = backbone_type
         if not isinstance(backbone_config, DictConfig):
@@ -228,9 +299,18 @@ class LightningModel(L.LightningModule):
         self.val_loss = {}
         self.learning_rate = {}
 
-        # For epoch-averaged loss tracking
+        # For epoch-averaged loss tracking. Sums stay on the device (a tensor once
+        # the first step has run) so no step forces a host sync; they are read
+        # back once per epoch in `on_train_epoch_end`.
         self._epoch_loss_sum = 0.0
         self._epoch_loss_count = 0
+        self._epoch_node_loss_sum = None
+        self._epoch_node_loss_count = 0
+        # Validation run inside the train epoch (excluded from train throughput).
+        self._epoch_val_time = 0.0
+        # Confmap fg/bg MSE diagnostic: None = centroid models only (set from
+        # `trainer_config.confmap_fg_bg_diagnostics` by the config factory).
+        self.confmap_fg_bg_diagnostics = None
 
         # For throughput logging (samples/frames per second).
         self._epoch_sample_count = 0
@@ -240,6 +320,13 @@ class LightningModel(L.LightningModule):
         self.val_predictions: List[Dict] = []
         self.val_ground_truth: List[Dict] = []
         self._collect_val_predictions: bool = False
+
+        # Multi-file validation: one display name per validation labels file (set
+        # by the trainer when there are several). Batches carrying `labels_idx`
+        # then also log `val/<name>/loss` and `val/macro/loss`.
+        self.val_file_names: Optional[List[str]] = None
+        self._val_file_num: Optional[torch.Tensor] = None
+        self._val_file_den: Optional[torch.Tensor] = None
 
         # Initialization for encoder and decoder stacks.
         if self.init_weights == "xavier":
@@ -260,6 +347,9 @@ class LightningModel(L.LightningModule):
         # weights in __init__, but the xavier init above clobbered them (it runs
         # on every Conv2d/Linear). Re-apply the snapshotted pretrained weights, then
         # freeze the encoder if requested. Mirrors the convnext/swint ordering.
+        if self.backbone_type == "dinov2_windowed":
+            # Same for RF-DETR's DINOv2 (when `weights` is set).
+            self.model.backbone.reload_pretrained_weights()
         if self.backbone_type == "pretrained":
             self.model.backbone.reload_pretrained_weights()
             if getattr(self.model.backbone, "freeze", False):
@@ -271,17 +361,21 @@ class LightningModel(L.LightningModule):
                 f"Loading backbone weights from `{self.pretrained_backbone_weights}` ..."
             )
             if self.pretrained_backbone_weights.endswith(".ckpt"):
-                ckpt = torch.load(
-                    self.pretrained_backbone_weights,
-                    map_location="cpu",
-                    weights_only=False,
+                # Strict by default on this route, as before `init_from` existed:
+                # a tensor that does not fit raises unless `init_from.strict` is
+                # false (then matching tensors load and the rest are reported).
+                strict = self._init_from_option("strict", True)
+                self.transfer_reports.append(
+                    init_from_checkpoint(
+                        self,
+                        self.pretrained_backbone_weights,
+                        include=["backbone"],
+                        strict=strict,
+                        # Strict: a positional table of another size raises, as
+                        # before; lenient: it is resized like `init_from.path` does.
+                        interpolate_pos_embed=not strict,
+                    )
                 )
-                ckpt["state_dict"] = {
-                    k: ckpt["state_dict"][k]
-                    for k in ckpt["state_dict"].keys()
-                    if ".backbone" in k
-                }
-                self.load_state_dict(ckpt["state_dict"], strict=False)
 
             elif self.pretrained_backbone_weights.endswith(".h5"):
                 # load from sleap model weights
@@ -302,17 +396,22 @@ class LightningModel(L.LightningModule):
                 f"Loading head weights from `{self.pretrained_head_weights}` ..."
             )
             if self.pretrained_head_weights.endswith(".ckpt"):
-                ckpt = torch.load(
-                    self.pretrained_head_weights,
-                    map_location="cpu",
-                    weights_only=False,
+                # As before `init_from` existed: per-node channels are copied by
+                # position and a tensor that does not fit raises. With
+                # `init_from.remap_nodes: true` they are copied by node name
+                # (source skeleton from the checkpoint / its training_config.yaml),
+                # and `init_from.strict: false` skips what does not fit.
+                strict = self._init_from_option("strict", True)
+                self.transfer_reports.append(
+                    init_from_checkpoint(
+                        self,
+                        self.pretrained_head_weights,
+                        include=["head"],
+                        strict=strict,
+                        remap_nodes=self._init_from_option("remap_nodes", False),
+                        interpolate_pos_embed=not strict,
+                    )
                 )
-                ckpt["state_dict"] = {
-                    k: ckpt["state_dict"][k]
-                    for k in ckpt["state_dict"].keys()
-                    if ".head_layers" in k
-                }
-                self.load_state_dict(ckpt["state_dict"], strict=False)
 
             elif self.pretrained_head_weights.endswith(".h5"):
                 # load from sleap model weights
@@ -326,6 +425,62 @@ class LightningModel(L.LightningModule):
                 message = f"Unsupported file extension for pretrained head weights. Please provide a .ckpt or .h5 file."
                 logger.error(message)
                 raise ValueError(message)
+
+        if self.init_from is not None:
+            self._apply_init_from()
+
+    def _init_from_option(self, key: str, default: Any = None) -> Any:
+        """One ``model_config.init_from`` option (``default`` when unset)."""
+        cfg = self.init_from
+        if cfg is None:
+            return default
+        val = (
+            OmegaConf.select(cfg, key, default=default)
+            if OmegaConf.is_config(cfg)
+            else cfg.get(key, default)
+        )
+        if OmegaConf.is_config(val):
+            val = OmegaConf.to_container(val)
+        return default if val is None else val
+
+    def _apply_init_from(self) -> None:
+        """Apply ``model_config.init_from``: transfer, then re-initialize."""
+        get = self._init_from_option
+
+        if get("path") is not None:
+            self.transfer_reports.append(
+                init_from_checkpoint(
+                    self,
+                    get("path"),
+                    include=get("include"),
+                    exclude=get("exclude"),
+                    remap_nodes=get("remap_nodes", True),
+                    node_map=get("node_map"),
+                    source_part_names=get("source_part_names"),
+                    interpolate_pos_embed=get("interpolate_pos_embed", True),
+                    strict=get("strict", False),
+                )
+            )
+        if get("reinit"):
+            reinit_selected(
+                self,
+                list(get("reinit")),
+                layer_scale=float(get("reinit_layer_scale", 1e-5)),
+            )
+
+    def on_save_checkpoint(self, checkpoint: Dict[str, Any]) -> None:
+        """Record each head's output-channel names (node names) in the checkpoint.
+
+        Lets `init_from` / `pretrained_head_weights` remap channels by node name
+        without the ``training_config.yaml`` next to the checkpoint. While
+        distilling, the distiller's own weights move to
+        ``checkpoint["distillation"]``.
+        """
+        checkpoint[CHECKPOINT_HEADS_KEY] = model_head_channels(self)
+        if self.distiller is not None:
+            # The projector is training-only: keep it out of `state_dict` so the
+            # checkpoint loads strictly into a plain model.
+            self.distiller.pop_state(checkpoint)
 
     @classmethod
     def get_lightning_model_from_config(cls, config: DictConfig):
@@ -346,6 +501,7 @@ class LightningModel(L.LightningModule):
             "embedding": EmbeddingLightningModule,
             "bbox_centernet": BBoxCenterNetLightningModule,
             "bbox_ssd": BBoxSSDLightningModule,
+            "bbox_detr": BBoxDetrLightningModule,
         }
 
         if model_type not in lightning_models:
@@ -371,6 +527,21 @@ class LightningModel(L.LightningModule):
                 centroid_confmaps_config, "focal_loss_pos_threshold", 0.5
             )
 
+        init_from = OmegaConf.select(config, "model_config.init_from", default=None)
+        if init_from is not None and OmegaConf.select(
+            config, "trainer_config.resume_ckpt_path", default=None
+        ):
+            # The resumed checkpoint overwrites every weight anyway, so `path` and
+            # `reinit` are skipped. `strict` and `remap_nodes` stay: they tell the
+            # `.ckpt` forms of `pretrained_*_weights`, which still load first, how
+            # to load (a run that needed them to start would fail to resume).
+            logger.info("Resuming: skipping model_config.init_from.path / reinit.")
+            init_from = {
+                k: v
+                for k, v in OmegaConf.to_container(init_from).items()
+                if k not in ("path", "reinit")
+            }
+
         lightning_model = lightning_models[model_type](
             model_type=model_type,
             backbone_type=backbone_type,
@@ -389,12 +560,61 @@ class LightningModel(L.LightningModule):
             learning_rate=config.trainer_config.optimizer.lr,
             amsgrad=config.trainer_config.optimizer.amsgrad,
             negative_loss_weight=negative_loss_weight,
+            init_from=init_from,
             **extra_kwargs,
+        )
+
+        lightning_model.ohkm_per_sample = bool(
+            getattr(
+                config.trainer_config.online_hard_keypoint_mining, "per_sample", True
+            )
         )
 
         if model_type == "embedding":
             # Make `data_config.preprocessing.burn_in` live (mask-on vs centroid-crop).
             set_embedding_burn_in_from_config(lightning_model, config)
+
+        if model_type == "centered_instance":
+            # Experimental `trainer_config.coordinate_losses` (None when unset).
+            lightning_model.coord_losses = build_coordinate_losses(config)
+
+        lightning_model.confmap_fg_bg_diagnostics = OmegaConf.select(
+            config, "trainer_config.confmap_fg_bg_diagnostics", default=None
+        )
+
+        # Optimizer-only knobs: read in `configure_optimizers`, so they are set here
+        # rather than threaded through every subclass constructor.
+        lightning_model.weight_decay = OmegaConf.select(
+            config, "trainer_config.optimizer.weight_decay", default=None
+        )
+        (
+            lightning_model.encoder_lr_scale,
+            lightning_model.layer_decay,
+        ) = resolve_encoder_lr_options(config)
+        # The input geometry a model trained at (read by box distillation to warn
+        # when a teacher trained at another one).
+        lightning_model.input_preprocessing = {
+            key: OmegaConf.select(
+                config, f"data_config.preprocessing.{key}", default=None
+            )
+            for key in ("scale", "max_height", "max_width")
+        }
+        if model_type == "bbox_detr":
+            from sleap_nn.data.custom_datasets import detr_multi_scale_sizes
+
+            lightning_model.multi_scale_sizes = detr_multi_scale_sizes(config)
+            cover = float(
+                OmegaConf.select(
+                    config, "data_config.ignore_box_min_cover", default=0.5
+                )
+            )
+            lightning_model.criterion.ignore_min_cover = cover
+            if OmegaConf.select(config, "data_config.ignore_box_category") is not None:
+                # The box metrics ignore detections by the loss's rule.
+                lightning_model.ignore_metric_rule = {
+                    "ignore_cover": cover,
+                    "ignore_cover_of": "detection",
+                }
 
         return lightning_model
 
@@ -402,19 +622,125 @@ class LightningModel(L.LightningModule):
         """Forward pass of the model."""
         pass
 
+    def on_load_checkpoint(self, checkpoint: Dict[str, Any]) -> None:
+        """Resume a weight-EMA checkpoint without EMA from its online weights.
+
+        A checkpoint saved with ``trainer_config.ema`` holds the EMA weights as
+        its ``state_dict`` and the online (trained) weights under ``"ema"``. When
+        training resumes from it with no `WeightEMA` callback, continue from the
+        online weights rather than the average. Loading for inference (no
+        trainer) keeps the EMA weights.
+
+        While distilling, the distiller's weights saved under
+        ``checkpoint["distillation"]`` are put back (fresh ones for a checkpoint
+        saved without distillation); otherwise stray distiller weights are
+        dropped.
+        """
+        self._restore_online_weights(checkpoint)
+        if self.distiller is not None:
+            self.distiller.restore_state(checkpoint, prefix_root="distiller.")
+        else:
+            drop_distiller_keys(checkpoint)
+
+    def _restore_online_weights(self, checkpoint: Dict[str, Any]) -> None:
+        """Load an EMA checkpoint's online weights when resuming without EMA."""
+        from sleap_nn.training.callbacks import WeightEMA
+
+        state = checkpoint.get(WeightEMA.CHECKPOINT_KEY)
+        trainer = getattr(self, "_trainer", None)
+        if not state or trainer is None:
+            return
+        if any(isinstance(cb, WeightEMA) for cb in trainer.callbacks):
+            return
+        checkpoint["state_dict"].update(state["online_state_dict"])
+        logger.warning(
+            "Resuming a weight-EMA checkpoint with trainer_config.ema off: training "
+            "continues from its online weights and the average is dropped."
+        )
+
     def on_train_epoch_start(self):
         """Configure the train timer at the beginning of each epoch."""
         self.train_start_time = time.time()
         # Reset epoch loss tracking
         self._epoch_loss_sum = 0.0
         self._epoch_loss_count = 0
+        self._epoch_node_loss_sum = None
+        self._epoch_node_loss_count = 0
+        self._epoch_val_time = 0.0
         # Reset per-device sample count for throughput.
         self._epoch_sample_count = 0
 
     def _accumulate_loss(self, loss: torch.Tensor):
-        """Accumulate loss for epoch-averaged logging. Call this in training_step."""
-        self._epoch_loss_sum += loss.detach().item()
+        """Accumulate loss for epoch-averaged logging. Call this in training_step.
+
+        The running sum stays on the loss's device (no ``.item()`` per step, which
+        would block the host on the GPU every iteration).
+        """
+        if isinstance(loss, torch.Tensor):
+            loss = loss.detach().float()
+        self._epoch_loss_sum = self._epoch_loss_sum + loss
         self._epoch_loss_count += 1
+
+    def _accumulate_node_loss(self, mse: torch.Tensor, batch: Optional[Dict] = None):
+        """Accumulate per-node confmap MSE (logged per node once per epoch).
+
+        Each node's loss is averaged over the samples that label it: with
+        ``node_weights`` in ``batch``, a sample whose weight for a node is 0 (its
+        source file does not annotate that node) is left out of that node's mean.
+        Without it, a multi-dataset head's curve averaged over every file's samples,
+        mostly ones it is not trained on, and rose as the model learned to fire on
+        any animal. Replaces one ``self.log`` call per node per step (17 for COCO)
+        with a single on-device add; ``on_train_epoch_end`` logs
+        ``train/confmaps/<node>``.
+
+        Args:
+            mse: ``(B, n_nodes, h, w)`` squared confmap error.
+            batch: The training batch (for ``node_weights``), or ``None``.
+        """
+        per_sample = mse.detach().float().mean(dim=(2, 3))  # (B, n_nodes)
+        weights = (
+            None
+            if batch is None
+            else self._get_node_weights(batch, per_sample.shape[1], per_sample.device)
+        )
+        labeled = (
+            torch.ones_like(per_sample) if weights is None else (weights > 0).float()
+        )
+        sums = (per_sample * labeled).sum(dim=0)
+        counts = labeled.sum(dim=0)
+        if self._epoch_node_loss_sum is None:
+            self._epoch_node_loss_sum = sums
+            self._epoch_node_loss_count = counts
+        else:
+            self._epoch_node_loss_sum = self._epoch_node_loss_sum + sums
+            self._epoch_node_loss_count = self._epoch_node_loss_count + counts
+
+    def _log_epoch_node_losses(self):
+        """Log the per-node confmap losses accumulated by `_accumulate_node_loss`.
+
+        Sums the per-node sums and sample counts over ranks before dividing (a
+        rank's batches may hold none of a node's file), so every rank logs the
+        same values; a node no sample labeled this epoch logs NaN.
+        """
+        node_names = getattr(self, "node_names", None)
+        if self._epoch_node_loss_sum is None or node_names is None:
+            return
+        sums, counts = self._epoch_node_loss_sum, self._epoch_node_loss_count
+        if self.trainer.world_size > 1:
+            sums = self.trainer.strategy.reduce(sums, reduce_op="sum")
+            counts = self.trainer.strategy.reduce(counts, reduce_op="sum")
+        node_avg = torch.where(
+            counts > 0, sums / counts.clamp(min=1), torch.full_like(sums, torch.nan)
+        )
+        for node_idx, name in enumerate(node_names):
+            self.log(
+                f"train/confmaps/{name}",
+                node_avg[node_idx],
+                prog_bar=False,
+                on_step=False,
+                on_epoch=True,
+                sync_dist=False,
+            )
 
     def on_train_batch_end(self, outputs, batch, batch_idx):
         """Count per-device samples this epoch (for throughput logging)."""
@@ -448,7 +774,9 @@ class LightningModel(L.LightningModule):
 
     def on_train_epoch_end(self):
         """Configure the train timer at the end of every epoch."""
-        train_time = time.time() - self.train_start_time
+        # Lightning runs the epoch's validation loop BEFORE this hook, so exclude
+        # it: `train/time` and the throughput metrics are training-only.
+        train_time = time.time() - self.train_start_time - self._epoch_val_time
         self.log(
             "train/time",
             train_time,
@@ -468,6 +796,8 @@ class LightningModel(L.LightningModule):
         # Log epoch-averaged training loss
         if self._epoch_loss_count > 0:
             avg_loss = self._epoch_loss_sum / self._epoch_loss_count
+            if isinstance(avg_loss, torch.Tensor):
+                avg_loss = avg_loss.item()
             self.log(
                 "train/loss",
                 avg_loss,
@@ -476,6 +806,7 @@ class LightningModel(L.LightningModule):
                 on_epoch=True,
                 sync_dist=True,
             )
+        self._log_epoch_node_losses()
         # Log current learning rate (useful for monitoring LR schedulers)
         if self.trainer.optimizers:
             lr = self.trainer.optimizers[0].param_groups[0]["lr"]
@@ -519,10 +850,14 @@ class LightningModel(L.LightningModule):
         # Clear accumulated predictions for new epoch
         self.val_predictions = []
         self.val_ground_truth = []
+        self._val_file_num = self._val_file_den = None
 
     def on_validation_epoch_end(self):
         """Configure the val timer at the end of every epoch."""
+        self._log_per_file_val_loss()
         val_time = time.time() - self.val_start_time
+        if not self.trainer.sanity_checking:
+            self._epoch_val_time += val_time
         self.log(
             "val/time",
             val_time,
@@ -597,6 +932,239 @@ class LightningModel(L.LightningModule):
             torch.tensor(1.0, device=y_preds.device),
         )
         return (per_sample * weights).mean()
+
+    def _get_node_weights(
+        self,
+        batch: Dict,
+        n_channels: int,
+        device: torch.device,
+        weights_key: str = "node_weights",
+    ) -> Optional[torch.Tensor]:
+        """Return the batch's ``(B, n_channels)`` per-channel loss weights, or ``None``.
+
+        The datasets emit ``node_weights`` (``(1, n_nodes)`` per sample) only when
+        per-node weighting is active (``data_config.node_loss_mask``; see
+        :mod:`sleap_nn.data.node_weights`), so ``None`` means plain losses. The
+        bottom-up dataset then also emits ``edge_weights`` (``(1, n_edges)``);
+        with ``weights_key="edge_weights"`` each is repeated over its edge's two
+        PAF channels (``2e`` and ``2e + 1``).
+
+        Raises:
+            ValueError: If the weights do not have one entry per head channel.
+        """
+        node_weights = batch.get(weights_key, None)
+        if node_weights is None:
+            return None
+        node_weights = node_weights.reshape(node_weights.shape[0], -1)
+        if weights_key == "edge_weights":
+            node_weights = node_weights.repeat_interleave(2, dim=1)
+        if node_weights.shape[1] != n_channels:
+            raise ValueError(
+                f"{weights_key} has {node_weights.shape[1]} channel weights per "
+                f"sample but the head has {n_channels} channels."
+            )
+        return node_weights.to(device=device, dtype=torch.float32)
+
+    def _compute_masked_confmap_loss(
+        self,
+        y_preds: torch.Tensor,
+        y: torch.Tensor,
+        batch: Dict,
+        stage: str = "train",
+        weights_key: str = "node_weights",
+    ) -> torch.Tensor:
+        """Per-node weighted confmap MSE, normalized by the node-weight sum.
+
+        Nodes with ``node_weights == 0`` (not labeled by the sample's source, or
+        without a location under ``unlabeled_points: ignore``) get no loss and no
+        gradient. Negative frames carry weight 1 on every node and, on the train
+        stage only, are scaled by ``negative_loss_weight`` exactly as in
+        :meth:`_compute_negative_weighted_loss`. Without ``node_weights`` in the
+        batch this IS :meth:`_compute_negative_weighted_loss`, so fully labeled
+        datasets train exactly as before.
+
+        Args:
+            y_preds: ``(B, C, H, W)`` predictions.
+            y: ``(B, C, H, W)`` targets.
+            batch: Batch dict, may contain ``node_weights`` ``(B, 1, C)`` and
+                ``is_negative`` ``(B,)``.
+            stage: ``"train"`` applies the negative-frame weight.
+            weights_key: ``"node_weights"``, or ``"edge_weights"`` for PAFs.
+        """
+        node_w = self._get_node_weights(
+            batch, y_preds.shape[1], y_preds.device, weights_key=weights_key
+        )
+        if node_w is None:
+            return self._compute_negative_weighted_loss(y_preds, y, batch, stage=stage)
+        sample_w = None
+        is_negative = batch.get("is_negative", None)
+        if (
+            stage == "train"
+            and is_negative is not None
+            and self.negative_loss_weight != 1.0
+        ):
+            is_neg = is_negative.to(y_preds.device)
+            sample_w = torch.where(
+                is_neg,
+                torch.tensor(self.negative_loss_weight, device=y_preds.device),
+                torch.tensor(1.0, device=y_preds.device),
+            )
+        return compute_weighted_mse_loss(y_preds, y, node_w, sample_w)
+
+    def _compute_ohkm(
+        self,
+        y_preds: torch.Tensor,
+        y: torch.Tensor,
+        batch: Dict,
+        weights_key: str = "node_weights",
+    ) -> torch.Tensor:
+        """Online hard keypoint mining loss for a confmap (or PAF) head.
+
+        Per-sample and node-weight aware (:func:`compute_weighted_ohkm_loss`) by
+        default; ``ohkm_per_sample = False`` uses the batch-level
+        :func:`compute_ohkm_loss`, which cannot see ``node_weights``.
+        """
+        node_w = self._get_node_weights(
+            batch, y_preds.shape[1], y_preds.device, weights_key=weights_key
+        )
+        if self.ohkm_per_sample:
+            return compute_weighted_ohkm_loss(
+                y_gt=y,
+                y_pr=y_preds,
+                node_weights=node_w,
+                hard_to_easy_ratio=self.hard_to_easy_ratio,
+                min_hard_keypoints=self.min_hard_keypoints,
+                max_hard_keypoints=self.max_hard_keypoints,
+                loss_scale=self.loss_scale,
+            )
+        if node_w is not None and not getattr(self, "_warned_legacy_ohkm", False):
+            logger.warning(
+                "online_hard_keypoint_mining.per_sample is False: hard keypoints are "
+                "ranked on batch-summed losses that ignore node_weights, so nodes "
+                "with zero loss weight can be mined. Set per_sample: true."
+            )
+            self._warned_legacy_ohkm = True
+        return compute_ohkm_loss(
+            y_gt=y,
+            y_pr=y_preds,
+            hard_to_easy_ratio=self.hard_to_easy_ratio,
+            min_hard_keypoints=self.min_hard_keypoints,
+            max_hard_keypoints=self.max_hard_keypoints,
+            loss_scale=self.loss_scale,
+        )
+
+    def _compute_paf_ohkm(
+        self, y_preds: torch.Tensor, y: torch.Tensor, batch: Dict
+    ) -> torch.Tensor:
+        """OHKM loss for a PAF head.
+
+        Weighted by ``edge_weights`` (:meth:`_compute_ohkm`) when the batch
+        carries them, else the batch-level :func:`compute_ohkm_loss` PAFs always
+        used.
+        """
+        if batch.get("edge_weights", None) is not None:
+            return self._compute_ohkm(y_preds, y, batch, weights_key="edge_weights")
+        return compute_ohkm_loss(
+            y_gt=y,
+            y_pr=y_preds,
+            hard_to_easy_ratio=self.hard_to_easy_ratio,
+            min_hard_keypoints=self.min_hard_keypoints,
+            max_hard_keypoints=self.max_hard_keypoints,
+            loss_scale=self.loss_scale,
+        )
+
+    def _accumulate_per_file_val_loss(
+        self, y_preds: torch.Tensor, y: torch.Tensor, batch: Dict
+    ) -> None:
+        """Add a val batch's masked confmap MSE to its files' running sums.
+
+        Only with several validation files (:attr:`val_file_names`) and batches that
+        carry ``labels_idx`` (the warp centered-instance pipeline); otherwise a
+        no-op. Each file accumulates ``sum(w * mse)`` and ``sum(w)`` over its
+        samples and nodes, so ``val/<name>/loss`` (logged at epoch end by
+        :meth:`_log_per_file_val_loss`) is
+        :func:`~sleap_nn.training.losses.compute_weighted_mse_loss` over the file's
+        whole val set: per node, normalized by the node-weight sum, without OHKM.
+        """
+        names = self.val_file_names
+        labels_idx = batch.get("labels_idx", None)
+        if not names or labels_idx is None:
+            return
+        mse = per_node_mse(y_preds.detach().float(), y.float())  # (B, C)
+        w = self._get_node_weights(batch, mse.shape[1], mse.device)
+        if w is None:
+            w = torch.ones_like(mse)
+        idx = torch.as_tensor(labels_idx, device=mse.device).reshape(-1).long()
+        if self._val_file_num is None:
+            n = len(names)
+            self._val_file_num = torch.zeros(n, device=mse.device, dtype=torch.float64)
+            self._val_file_den = torch.zeros(n, device=mse.device, dtype=torch.float64)
+        self._val_file_num.index_add_(0, idx, (w * mse).sum(1).double())
+        self._val_file_den.index_add_(0, idx, w.sum(1).double())
+
+    def _log_per_file_val_loss(self) -> None:
+        """Log ``val/<name>/loss`` per val file and their mean ``val/macro/loss``.
+
+        A collective under DDP (the sums are reduced across ranks), so every rank
+        calls it, including ranks that saw no batch with ``labels_idx``. Files
+        with no weighted node this epoch are left out of the macro average.
+        """
+        names = self.val_file_names
+        if not names:
+            return
+        num, den = self._val_file_num, self._val_file_den
+        if num is None:
+            num = torch.zeros(len(names), device=self.device, dtype=torch.float64)
+            den = torch.zeros_like(num)
+        trainer = getattr(self, "_trainer", None)
+        if trainer is not None and getattr(trainer, "world_size", 1) > 1:
+            num = trainer.strategy.reduce(num, reduce_op="sum")
+            den = trainer.strategy.reduce(den, reduce_op="sum")
+        self._val_file_num = self._val_file_den = None
+        if not bool((den > 0).any()):
+            return
+        losses = []
+        for name, n, d in zip(names, num.tolist(), den.tolist()):
+            if d <= 0:
+                continue
+            losses.append(n / d)
+            self.log(
+                f"val/{name}/loss",
+                n / d,
+                prog_bar=False,
+                on_step=False,
+                on_epoch=True,
+                sync_dist=False,
+            )
+        self.log(
+            "val/macro/loss",
+            float(np.mean(losses)),
+            prog_bar=False,
+            on_step=False,
+            on_epoch=True,
+            sync_dist=False,
+        )
+
+    def _log_unmasked_val_loss(
+        self, y_preds: torch.Tensor, y: torch.Tensor, batch: Dict
+    ) -> None:
+        """Log ``val/loss_unmasked`` (plain confmap MSE) when weights are active.
+
+        Only logged for batches carrying ``node_weights``: without them
+        ``val/loss`` is already unmasked. It excludes OHKM, so it is the plain
+        MSE of every node (unlabeled ones trained as absent), for comparison with
+        runs that did not mask.
+        """
+        if batch.get("node_weights", None) is None:
+            return
+        self.log(
+            "val/loss_unmasked",
+            nn.MSELoss()(y_preds, y),
+            prog_bar=False,
+            on_step=False,
+            on_epoch=True,
+            sync_dist=True,
+        )
 
     def _log_negative_split_metrics(
         self,
@@ -771,14 +1339,22 @@ class LightningModel(L.LightningModule):
             threshold: Foreground/background split on the target value.
                 *Default*: ``0.5``.
         """
+        enabled = getattr(self, "confmap_fg_bg_diagnostics", None)
+        if enabled is None:
+            enabled = getattr(self, "model_type", None) == "centroid"
+        if not enabled:
+            return
+        # Masked sums instead of boolean indexing / `.any()`, which each force a
+        # host-device sync every step. Empty sets give 0, as before.
         with torch.no_grad():
-            se = (y_pred - y).pow(2)
-            fg = y > threshold
-            bg = y < threshold
-            zero = torch.zeros((), device=y_pred.device)
-            fg_loss = se[fg].mean() if fg.any() else zero
-            bg_loss = se[bg].mean() if bg.any() else zero
-            fg_frac = fg.float().mean()
+            se = (y_pred.float() - y.float()).pow(2)
+            fg = (y > threshold).float()
+            bg = (y < threshold).float()
+            fg_n = fg.sum()
+            bg_n = bg.sum()
+            fg_loss = (se * fg).sum() / fg_n.clamp_min(1.0)
+            bg_loss = (se * bg).sum() / bg_n.clamp_min(1.0)
+            fg_frac = fg_n / fg.numel()
         for key, val in (
             (f"{stage}/confmap_loss_fg", fg_loss),
             (f"{stage}/confmap_loss_bg", bg_loss),
@@ -793,6 +1369,62 @@ class LightningModel(L.LightningModule):
                 sync_dist=True,
             )
 
+    def train(self, mode: bool = True):
+        """Set train/eval mode; a backbone frozen by distillation stays in eval."""
+        super().train(mode)
+        distiller = getattr(self, "distiller", None)
+        if mode and distiller is not None and distiller.frozen_backbone:
+            self.model.backbone.eval()
+        return self
+
+    def _forward_train(
+        self, X: torch.Tensor
+    ) -> Tuple[Dict[str, torch.Tensor], Optional[Dict[str, Any]]]:
+        """Head outputs for a training step, plus the backbone's while distilling."""
+        if self.distiller is None:
+            return self.model(X), None
+        return self.model(X, return_backbone_outputs=True)
+
+    def _with_distillation(
+        self,
+        loss: torch.Tensor,
+        X: torch.Tensor,
+        outputs: Dict[str, torch.Tensor],
+        backbone_outputs: Optional[Dict[str, Any]],
+        batch: Dict,
+    ) -> torch.Tensor:
+        """The loss to optimize: ``loss`` plus the distillation terms, if any.
+
+        Logs ``train/distill_heatmap``, ``train/distill_feat`` (stage 1 with a
+        feature term) and ``train/distill_weight`` (``r(t)``) as epoch means.
+        ``loss`` (the supervised loss) is what ``loss`` / ``train/loss`` log, so
+        those stay comparable with runs that do not distill.
+
+        Args:
+            loss: The step's supervised loss.
+            X: The normalized input batch.
+            outputs: The network's head outputs.
+            backbone_outputs: The backbone's output dict (`_forward_train`).
+            batch: The training batch.
+        """
+        distiller = self.distiller
+        if distiller is None:
+            return loss
+        n_nodes = outputs[distiller.student_head].shape[1]
+        node_weights = self._get_node_weights(batch, n_nodes, X.device)
+        terms = distiller.loss_terms(X, outputs, backbone_outputs, batch, node_weights)
+        r = distiller.weight(self.global_step, distiller.total_steps(self._trainer))
+        for key, value in terms.items():
+            self.log(
+                f"train/distill_{key}",
+                value,
+                on_step=False,
+                on_epoch=True,
+                sync_dist=True,
+            )
+        self.log("train/distill_weight", r, on_step=False, on_epoch=True)
+        return distiller.combine(loss, terms, r)
+
     def training_step(self, batch, batch_idx):
         """Training step."""
         pass
@@ -806,18 +1438,89 @@ class LightningModel(L.LightningModule):
 
         A ``pretrained`` backbone can train its encoder at a scaled (and, for a
         plain ViT, layer-wise decayed) learning rate; everything else -- neck,
-        decoder, heads -- trains at ``self.lr``. Without those options this is the
-        flat list of trainable parameters (a single optimizer group, as before).
+        decoder, heads -- trains at ``self.lr`` in the group named ``"base"``.
+        Without those options this is the flat list of trainable parameters (a
+        single optimizer group, as before).
         """
         trainable = [p for p in self.parameters() if p.requires_grad]
         backbone = getattr(self.model, "backbone", None)
         groups_fn = getattr(backbone, "encoder_param_groups", None)
-        encoder_groups = groups_fn(self.lr) if groups_fn is not None else None
+        if groups_fn is None:
+            if (self.encoder_lr_scale not in (None, 1.0)) or self.layer_decay:
+                logger.warning(
+                    "trainer_config.optimizer.encoder_lr_scale / layer_decay apply "
+                    "to `pretrained` backbones only; ignored for this backbone."
+                )
+            return trainable
+        encoder_groups = groups_fn(
+            self.lr,
+            encoder_lr_scale=self.encoder_lr_scale,
+            layer_decay=self.layer_decay,
+        )
         if not encoder_groups:
             return trainable
         in_encoder = {id(p) for g in encoder_groups for p in g["params"]}
         rest = [p for p in trainable if id(p) not in in_encoder]
-        return [{"params": rest, "lr": self.lr}] + encoder_groups
+        return [{"params": rest, "lr": self.lr, "name": "base"}] + encoder_groups
+
+    def _build_optimizer(self) -> torch.optim.Optimizer:
+        """The optimizer over the trainable parameters (see `_trainable_param_groups`).
+
+        With ``weight_decay`` set, every LR group is split into a decayed half
+        (weight matrices / kernels) and a no-decay half (biases, norms, 1-D params,
+        position embeddings and special tokens), each keeping the group's LR.
+        Without it, the optimizer is built exactly as before (torch's default
+        decay for the optimizer, on every parameter).
+        """
+        optimizers = {"Adam": torch.optim.Adam, "AdamW": torch.optim.AdamW}
+        if self.optimizer not in optimizers:
+            raise ValueError(
+                f"Unknown optimizer {self.optimizer!r}; expected one of "
+                f"{list(optimizers)}."
+            )
+        # Only optimize params that require gradients so a frozen pretrained
+        # backbone (freeze=True) is excluded; a no-op for fully-trainable models.
+        params = self._trainable_param_groups()
+        kwargs: Dict[str, Any] = dict(lr=self.lr, amsgrad=self.amsgrad)
+        if self.weight_decay is not None:
+            params = split_weight_decay(params, self, self.weight_decay)
+            kwargs["weight_decay"] = float(self.weight_decay)
+        return optimizers[self.optimizer](params, **kwargs)
+
+    def _optimizer_steps_per_epoch(self) -> int:
+        """Optimizer steps per epoch on this rank (for per-step LR schedules).
+
+        The training batches Lightning runs per epoch on this rank (the train
+        loader's length, after ``limit_train_batches``) over
+        ``accumulate_grad_batches``, as Lightning counts them. Independent of
+        ``max_epochs`` / ``max_steps``.
+        """
+        trainer = self.trainer
+        if trainer.train_dataloader is None:
+            # `configure_optimizers` runs before the fit loop loads the data.
+            trainer.fit_loop.setup_data()
+        batches = trainer.num_training_batches
+        if not batches or math.isinf(batches):
+            raise ValueError(
+                "A per-step LR schedule needs a finite number of training batches "
+                "per epoch."
+            )
+        return max(1, math.ceil(batches / trainer.accumulate_grad_batches))
+
+    def _total_optimizer_steps(self) -> int:
+        """Optimizer steps in the whole run (``max_epochs``, capped by ``max_steps``)."""
+        trainer = self.trainer
+        max_steps = trainer.max_steps if trainer.max_steps not in (None, -1) else None
+        if trainer.max_epochs is None or trainer.max_epochs < 0:
+            if max_steps is None:
+                raise ValueError(
+                    "A per-step LR schedule needs a finite run length; set "
+                    "trainer_config.max_epochs, trainer_config.max_steps, or the "
+                    "schedule's own max_steps."
+                )
+            return int(max_steps)
+        total = trainer.max_epochs * self._optimizer_steps_per_epoch()
+        return int(min(total, max_steps) if max_steps is not None else total)
 
     def configure_optimizers(self, optimizer=None):
         """Configure optimiser and learning rate scheduler.
@@ -830,18 +1533,7 @@ class LightningModel(L.LightningModule):
                 to an optimizer that is not returned from ``configure_optimizers``).
         """
         if optimizer is None:
-            if self.optimizer == "Adam":
-                optim = torch.optim.Adam
-            elif self.optimizer == "AdamW":
-                optim = torch.optim.AdamW
-
-            # Only optimize params that require gradients so a frozen pretrained
-            # backbone (freeze=True) is excluded; a no-op for fully-trainable models.
-            optimizer = optim(
-                self._trainable_param_groups(),
-                lr=self.lr,
-                amsgrad=self.amsgrad,
-            )
+            optimizer = self._build_optimizer()
 
         lr_scheduler_cfg = LRSchedulerConfig()
         if self.lr_scheduler is None:
@@ -941,42 +1633,83 @@ class LightningModel(L.LightningModule):
                 return OmegaConf.create(sub) if isinstance(sub, Mapping) else sub
             return getattr(lr_scheduler_cfg, name, None)
 
-        if _sched("cosine_annealing_warmup") is not None:
-            cfg = _sched("cosine_annealing_warmup")
-            # Use trainer's max_epochs if not specified in config
+        def _opt(cfg, key, default=None):
+            """Optional sub-config field (absent in configs saved before it existed)."""
+            if OmegaConf.is_config(cfg):
+                return OmegaConf.select(cfg, key, default=default)
+            return getattr(cfg, key, default)
+
+        def _warmup_schedule_lengths(cfg):
+            """(warmup, total, interval) of a warmup + decay schedule.
+
+            Per-epoch (the original behavior) unless ``warmup_steps`` is set, in
+            which case both lengths are in optimizer steps and Lightning steps the
+            scheduler after every optimizer step.
+            """
             max_epochs = (
                 cfg.max_epochs
                 if cfg.max_epochs is not None
                 else self.trainer.max_epochs
             )
+            warmup_steps = _opt(cfg, "warmup_steps")
+            if warmup_steps is None:
+                return cfg.warmup_epochs, max_epochs, "epoch"
+            max_steps = _opt(cfg, "max_steps")
+            if max_steps is None:
+                if cfg.max_epochs is not None:
+                    max_steps = cfg.max_epochs * self._optimizer_steps_per_epoch()
+                else:
+                    max_steps = self._total_optimizer_steps()
+            return int(warmup_steps), int(max_steps), "step"
+
+        interval = "epoch"
+        if _sched("cosine_annealing_warmup") is not None:
+            cfg = _sched("cosine_annealing_warmup")
+            warmup, total, interval = _warmup_schedule_lengths(cfg)
             scheduler = LinearWarmupCosineAnnealingLR(
                 optimizer=optimizer,
-                warmup_epochs=cfg.warmup_epochs,
-                max_epochs=max_epochs,
+                warmup_epochs=warmup,
+                max_epochs=total,
                 warmup_start_lr=_per_group_lr(cfg.warmup_start_lr),
                 eta_min=_per_group_lr(cfg.eta_min),
                 # Stepped once per epoch: without this the default
-                # `warmup_start_lr=0` trains the whole first epoch at LR 0.
-                skip_warmup_start=True,
+                # `warmup_start_lr=0` trains the whole first epoch at LR 0. A
+                # per-step warmup starts at `warmup_start_lr` (one step there).
+                skip_warmup_start=interval == "epoch",
             )
         elif _sched("linear_warmup_linear_decay") is not None:
             cfg = _sched("linear_warmup_linear_decay")
-            # Use trainer's max_epochs if not specified in config
-            max_epochs = (
-                cfg.max_epochs
-                if cfg.max_epochs is not None
-                else self.trainer.max_epochs
-            )
+            warmup, total, interval = _warmup_schedule_lengths(cfg)
             scheduler = LinearWarmupLinearDecayLR(
                 optimizer=optimizer,
-                warmup_epochs=cfg.warmup_epochs,
-                max_epochs=max_epochs,
+                warmup_epochs=warmup,
+                max_epochs=total,
                 warmup_start_lr=_per_group_lr(cfg.warmup_start_lr),
                 end_lr=_per_group_lr(cfg.end_lr),
                 # Stepped once per epoch: without this the default
-                # `warmup_start_lr=0` trains the whole first epoch at LR 0.
-                skip_warmup_start=True,
+                # `warmup_start_lr=0` trains the whole first epoch at LR 0. A
+                # per-step warmup starts at `warmup_start_lr` (one step there).
+                skip_warmup_start=interval == "epoch",
             )
+        elif _sched("multi_step_lr") is not None:
+            cfg = _sched("multi_step_lr")
+            milestones = [int(m) for m in (_opt(cfg, "milestones") or [])]
+            if not milestones:
+                raise ValueError(
+                    "lr_scheduler.multi_step_lr.milestones is empty; give the epochs "
+                    "(or steps, with milestone_unit: step) to decay the LR at."
+                )
+            if _opt(cfg, "milestone_unit", "epoch") == "epoch":
+                steps_per_epoch = self._optimizer_steps_per_epoch()
+                milestones = [m * steps_per_epoch for m in milestones]
+            scheduler = LinearWarmupMultiStepLR(
+                optimizer=optimizer,
+                milestones=milestones,
+                gamma=_opt(cfg, "gamma", 0.1),
+                warmup_steps=_opt(cfg, "warmup_steps", 0),
+                warmup_start_factor=_opt(cfg, "warmup_start_factor", 0.001),
+            )
+            interval = "step"
         elif _sched("step_lr") is not None:
             scheduler = torch.optim.lr_scheduler.StepLR(
                 optimizer=optimizer,
@@ -999,12 +1732,31 @@ class LightningModel(L.LightningModule):
                 "optimizer": optimizer,
             }
 
+        if not isinstance(scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau) and (
+            _sched("reduce_lr_on_plateau") is not None
+        ):
+            # `reduce_lr_on_plateau` is populated by default; it is replaced, not
+            # stacked, by any explicit schedule. Say so, since the config shows both.
+            logger.info(
+                f"LR schedule: {type(scheduler).__name__} (stepped per {interval}); "
+                "the default reduce_lr_on_plateau is not used."
+            )
+
+        lr_scheduler = {
+            "scheduler": scheduler,
+            "monitor": "val/loss",
+            "interval": interval,
+            "frequency": 1,
+        }
+        trainer = getattr(self, "_trainer", None)
+        if trainer is not None and trainer.check_val_every_n_epoch is None:
+            # An int `val_check_interval` validates every N batches, not every
+            # epoch, so epoch ends before the first validation have no `val/loss`
+            # yet; skip the plateau update there instead of raising.
+            lr_scheduler["strict"] = False
         return {
             "optimizer": optimizer,
-            "lr_scheduler": {
-                "scheduler": scheduler,
-                "monitor": "val/loss",
-            },
+            "lr_scheduler": lr_scheduler,
         }
 
 
@@ -1071,6 +1823,7 @@ class SingleInstanceLightningModule(LightningModel):
         learning_rate: Optional[float] = 1e-3,
         amsgrad: Optional[bool] = False,
         negative_loss_weight: Optional[float] = 1.0,
+        init_from: Optional[Union[DictConfig, Dict[str, Any]]] = None,
     ):
         """Initialise the configs and the model."""
         super().__init__(
@@ -1091,6 +1844,7 @@ class SingleInstanceLightningModule(LightningModel):
             learning_rate=learning_rate,
             amsgrad=amsgrad,
             negative_loss_weight=negative_loss_weight,
+            init_from=init_from,
         )
 
         self.single_instance_inf_layer = SingleInstanceInferenceModel(
@@ -1117,7 +1871,7 @@ class SingleInstanceLightningModule(LightningModel):
             if isinstance(v, torch.Tensor):
                 ex[k] = v.to(device=self.device)
         ex["image"] = ex["image"].unsqueeze(dim=0)
-        output = self.single_instance_inf_layer(ex)[0]
+        output = _outputs_to_fp32(self.single_instance_inf_layer(ex))[0]
 
         peaks = output["pred_instance_peaks"].cpu().numpy()
         peak_values = output["pred_peak_values"].cpu().numpy()
@@ -1167,39 +1921,21 @@ class SingleInstanceLightningModule(LightningModel):
         )
         X = normalize_on_gpu(X)
 
-        y_preds = self.model(X)["SingleInstanceConfmapsHead"]
+        outputs, backbone_outputs = self._forward_train(X)
+        y_preds = outputs["SingleInstanceConfmapsHead"]
 
-        loss = self._compute_negative_weighted_loss(y_preds, y, batch)
+        loss = self._compute_masked_confmap_loss(y_preds, y, batch)
         self._log_negative_split_metrics(
             [("confmaps", y_preds, y, 1.0)], batch, stage="train"
         )
         self._log_confmap_fg_bg_loss(y_preds, y, stage="train")
 
         if self.online_mining is not None and self.online_mining:
-            ohkm_loss = compute_ohkm_loss(
-                y_gt=y,
-                y_pr=y_preds,
-                hard_to_easy_ratio=self.hard_to_easy_ratio,
-                min_hard_keypoints=self.min_hard_keypoints,
-                max_hard_keypoints=self.max_hard_keypoints,
-                loss_scale=self.loss_scale,
-            )
-            loss = loss + ohkm_loss
+            loss = loss + self._compute_ohkm(y_preds, y, batch)
 
         # for part-wise loss
         if self.node_names is not None:
-            batch_size, _, h, w = y.shape
-            mse = (y - y_preds) ** 2
-            channel_wise_loss = torch.sum(mse, dim=(0, 2, 3)) / (batch_size * h * w)
-            for node_idx, name in enumerate(self.node_names):
-                self.log(
-                    f"train/confmaps/{name}",
-                    channel_wise_loss[node_idx],
-                    prog_bar=False,
-                    on_step=False,
-                    on_epoch=True,
-                    sync_dist=True,
-                )
+            self._accumulate_node_loss((y - y_preds) ** 2, batch)
         # Log step-level loss (every batch, uses global_step x-axis)
         self.log(
             "loss",
@@ -1212,7 +1948,7 @@ class SingleInstanceLightningModule(LightningModel):
 
         # Accumulate for epoch-averaged loss (logged in on_train_epoch_end)
         self._accumulate_loss(loss)
-        return loss
+        return self._with_distillation(loss, X, outputs, backbone_outputs, batch)
 
     def validation_step(self, batch, batch_idx):
         """Validation step."""
@@ -1223,21 +1959,13 @@ class SingleInstanceLightningModule(LightningModel):
         X = normalize_on_gpu(X)
 
         y_preds = self.model(X)["SingleInstanceConfmapsHead"]
-        val_loss = self._compute_negative_weighted_loss(y_preds, y, batch, stage="val")
+        val_loss = self._compute_masked_confmap_loss(y_preds, y, batch, stage="val")
         self._log_negative_split_metrics(
             [("confmaps", y_preds, y, 1.0)], batch, stage="val"
         )
         self._log_confmap_fg_bg_loss(y_preds, y, stage="val")
         if self.online_mining is not None and self.online_mining:
-            ohkm_loss = compute_ohkm_loss(
-                y_gt=y,
-                y_pr=y_preds,
-                hard_to_easy_ratio=self.hard_to_easy_ratio,
-                min_hard_keypoints=self.min_hard_keypoints,
-                max_hard_keypoints=self.max_hard_keypoints,
-                loss_scale=self.loss_scale,
-            )
-            val_loss = val_loss + ohkm_loss
+            val_loss = val_loss + self._compute_ohkm(y_preds, y, batch)
         self.log(
             "val/loss",
             val_loss,
@@ -1246,6 +1974,7 @@ class SingleInstanceLightningModule(LightningModel):
             on_epoch=True,
             sync_dist=True,
         )
+        self._log_unmasked_val_loss(y_preds, y, batch)
 
         # Collect predictions for epoch-end evaluation if enabled
         if self._collect_val_predictions:
@@ -1254,7 +1983,9 @@ class SingleInstanceLightningModule(LightningModel):
                 inference_batch = {k: v for k, v in batch.items()}
                 if inference_batch["image"].ndim == 5:
                     inference_batch["image"] = inference_batch["image"].squeeze(1)
-                inference_output = self.single_instance_inf_layer(inference_batch)
+                inference_output = _outputs_to_fp32(
+                    self.single_instance_inf_layer(inference_batch)
+                )
                 if isinstance(inference_output, list):
                     inference_output = inference_output[0]
 
@@ -1356,6 +2087,7 @@ class TopDownCenteredInstanceLightningModule(LightningModel):
         learning_rate: Optional[float] = 1e-3,
         amsgrad: Optional[bool] = False,
         negative_loss_weight: Optional[float] = 1.0,
+        init_from: Optional[Union[DictConfig, Dict[str, Any]]] = None,
     ):
         """Initialise the configs and the model."""
         super().__init__(
@@ -1376,16 +2108,25 @@ class TopDownCenteredInstanceLightningModule(LightningModel):
             learning_rate=learning_rate,
             amsgrad=amsgrad,
             negative_loss_weight=negative_loss_weight,
+            init_from=init_from,
         )
 
+        # Epoch-end eval decodes like `sleap-nn predict` does by default: DARK,
+        # blurred with the head's training sigma (it used grid peaks before).
         self.instance_peaks_inf_layer = FindInstancePeaks(
             torch_model=self.forward,
             peak_threshold=0.2,
             return_confmaps=True,
             output_stride=self.head_configs.centered_instance.confmaps.output_stride,
+            refinement="dark",
+            dark_blur_sigma=float(self.head_configs.centered_instance.confmaps.sigma),
         )
 
         self.node_names = self.head_configs.centered_instance.confmaps.part_names
+        # Experimental coordinate losses (`sleap_nn.training.coordinate_losses`),
+        # set from `trainer_config.coordinate_losses` by
+        # `get_lightning_model_from_config`; None = plain confmap training.
+        self.coord_losses = None
 
     def get_visualization_data(self, sample) -> VisualizationData:
         """Extract visualization data from a sample."""
@@ -1395,7 +2136,7 @@ class TopDownCenteredInstanceLightningModule(LightningModel):
             if isinstance(v, torch.Tensor):
                 ex[k] = v.to(device=self.device)
         ex["instance_image"] = ex["instance_image"].unsqueeze(dim=0)
-        output = self.instance_peaks_inf_layer(ex)
+        output = _outputs_to_fp32(self.instance_peaks_inf_layer(ex))
 
         peaks = output["pred_instance_peaks"].cpu().numpy()
         peak_values = output["pred_peak_values"].cpu().numpy()
@@ -1433,44 +2174,87 @@ class TopDownCenteredInstanceLightningModule(LightningModel):
         img = normalize_on_gpu(img)
         return self.model(img)["CenteredInstanceConfmapsHead"]
 
+    def _confmap_targets(self, batch, X):
+        """Batch confidence maps, rendered on the GPU when the loader skipped them.
+
+        ``crop_pipeline="warp"`` with ``gpu_confmaps`` ships only crop keypoints
+        (``instance``); the maps use the same ``make_confmaps`` math as the workers.
+        """
+        if "confidence_maps" in batch:
+            return torch.squeeze(batch["confidence_maps"], dim=1)
+        from sleap_nn.data.topdown_warp import render_confmaps
+
+        cfg = self.head_configs.centered_instance.confmaps
+        return render_confmaps(
+            batch["instance"], tuple(X.shape[-2:]), cfg.sigma, cfg.output_stride
+        )
+
+    def _coordinate_term(self, y_preds, batch, stage: str) -> torch.Tensor:
+        """The unweighted coordinate term, logged as ``{stage}/coord_<term>``."""
+        term = self.coord_losses(y_preds, batch)
+        self.log(
+            f"{stage}/{self.coord_losses.log_name}",
+            term,
+            prog_bar=False,
+            on_step=False,
+            on_epoch=True,
+            sync_dist=True,
+        )
+        return term
+
+    def _decoded_step(self, batch, stage: str) -> torch.Tensor:
+        """Train/val step of the latent-point head (``coordinate_losses.decoded``).
+
+        The loss is the weighted decoded-coordinate term alone: the head's latent
+        channels have no confidence-map targets. It is what ``loss``,
+        ``train/loss`` and ``val/loss`` log.
+        """
+        X = normalize_on_gpu(torch.squeeze(batch["instance_image"], dim=1))
+        y_preds = self.model(X)["CenteredInstanceConfmapsHead"]
+        loss = self.coord_losses.weight * self._coordinate_term(y_preds, batch, stage)
+        if stage == "train":
+            self.log(
+                "loss",
+                loss,
+                prog_bar=True,
+                on_step=True,
+                on_epoch=False,
+                sync_dist=True,
+            )
+            self._accumulate_loss(loss)
+        else:
+            self.log(
+                "val/loss",
+                loss,
+                prog_bar=True,
+                on_step=False,
+                on_epoch=True,
+                sync_dist=True,
+            )
+        return loss
+
     def training_step(self, batch, batch_idx):
         """Training step."""
-        X, y = (
-            torch.squeeze(batch["instance_image"], dim=1),
-            torch.squeeze(batch["confidence_maps"], dim=1),
-        )
+        coord = self.coord_losses
+        if coord is not None and coord.mode == "decoded":
+            return self._decoded_step(batch, "train")
+        X = torch.squeeze(batch["instance_image"], dim=1)
+        y = self._confmap_targets(batch, X)
         X = normalize_on_gpu(X)
 
-        y_preds = self.model(X)["CenteredInstanceConfmapsHead"]
+        outputs, backbone_outputs = self._forward_train(X)
+        y_preds = outputs["CenteredInstanceConfmapsHead"]
 
-        loss = nn.MSELoss()(y_preds, y)
+        # Per-node weighted MSE (plain nn.MSELoss() without `node_weights`).
+        loss = self._compute_masked_confmap_loss(y_preds, y, batch)
         self._log_confmap_fg_bg_loss(y_preds, y, stage="train")
 
         if self.online_mining is not None and self.online_mining:
-            ohkm_loss = compute_ohkm_loss(
-                y_gt=y,
-                y_pr=y_preds,
-                hard_to_easy_ratio=self.hard_to_easy_ratio,
-                min_hard_keypoints=self.min_hard_keypoints,
-                max_hard_keypoints=self.max_hard_keypoints,
-                loss_scale=self.loss_scale,
-            )
-            loss = loss + ohkm_loss
+            loss = loss + self._compute_ohkm(y_preds, y, batch)
 
         # for part-wise loss
         if self.node_names is not None:
-            batch_size, _, h, w = y.shape
-            mse = (y - y_preds) ** 2
-            channel_wise_loss = torch.sum(mse, dim=(0, 2, 3)) / (batch_size * h * w)
-            for node_idx, name in enumerate(self.node_names):
-                self.log(
-                    f"train/confmaps/{name}",
-                    channel_wise_loss[node_idx],
-                    prog_bar=False,
-                    on_step=False,
-                    on_epoch=True,
-                    sync_dist=True,
-                )
+            self._accumulate_node_loss((y - y_preds) ** 2, batch)
 
         # Log step-level loss (every batch, uses global_step x-axis)
         self.log(
@@ -1483,29 +2267,34 @@ class TopDownCenteredInstanceLightningModule(LightningModel):
         )
         # Accumulate for epoch-averaged loss (logged in on_train_epoch_end)
         self._accumulate_loss(loss)
-        return loss
+        total = self._with_distillation(loss, X, outputs, backbone_outputs, batch)
+        if coord is not None:
+            # `loss` / `train/loss` stay the confmap loss; the term is added here.
+            total = total + coord.weight * self._coordinate_term(
+                y_preds, batch, "train"
+            )
+        return total
 
     def validation_step(self, batch, batch_idx):
         """Perform validation step."""
-        X, y = (
-            torch.squeeze(batch["instance_image"], dim=1),
-            torch.squeeze(batch["confidence_maps"], dim=1),
-        )
+        coord = self.coord_losses
+        if coord is not None and coord.mode == "decoded":
+            self._decoded_step(batch, "val")
+            return
+        X = torch.squeeze(batch["instance_image"], dim=1)
+        y = self._confmap_targets(batch, X)
         X = normalize_on_gpu(X)
 
         y_preds = self.model(X)["CenteredInstanceConfmapsHead"]
-        val_loss = nn.MSELoss()(y_preds, y)
+        if coord is not None:
+            # Logged only: val/loss stays the confmap loss.
+            self._coordinate_term(y_preds, batch, "val")
+        # Checkpoint selection (val/loss) uses the masked loss; the plain MSE is
+        # logged as val/loss_unmasked for comparison with older runs.
+        val_loss = self._compute_masked_confmap_loss(y_preds, y, batch, stage="val")
         self._log_confmap_fg_bg_loss(y_preds, y, stage="val")
         if self.online_mining is not None and self.online_mining:
-            ohkm_loss = compute_ohkm_loss(
-                y_gt=y,
-                y_pr=y_preds,
-                hard_to_easy_ratio=self.hard_to_easy_ratio,
-                min_hard_keypoints=self.min_hard_keypoints,
-                max_hard_keypoints=self.max_hard_keypoints,
-                loss_scale=self.loss_scale,
-            )
-            val_loss = val_loss + ohkm_loss
+            val_loss = val_loss + self._compute_ohkm(y_preds, y, batch)
         self.log(
             "val/loss",
             val_loss,
@@ -1514,6 +2303,8 @@ class TopDownCenteredInstanceLightningModule(LightningModel):
             on_epoch=True,
             sync_dist=True,
         )
+        self._log_unmasked_val_loss(y_preds, y, batch)
+        self._accumulate_per_file_val_loss(y_preds, y, batch)
 
         # Collect predictions for epoch-end evaluation if enabled
         if self._collect_val_predictions:
@@ -1521,7 +2312,9 @@ class TopDownCenteredInstanceLightningModule(LightningModel):
             bbox_prep_saved = batch["instance_bbox"].clone()
 
             with torch.no_grad():
-                inference_output = self.instance_peaks_inf_layer(batch)
+                inference_output = _outputs_to_fp32(
+                    self.instance_peaks_inf_layer(batch)
+                )
 
             batch_size = len(batch["frame_idx"])
             for i in range(batch_size):
@@ -1563,8 +2356,16 @@ class TopDownCenteredInstanceLightningModule(LightningModel):
                 # own GT instance (a frame holds several crops, each in its own
                 # crop coordinates, so they must not be pooled by frame).
                 crop_id = len(self.val_ground_truth)
+                # Multi-file validation keys entries by (labels_idx, video_idx,
+                # frame_idx): `video_idx` indexes that file's own videos.
+                file_key = (
+                    {"labels_idx": int(batch["labels_idx"][i])}
+                    if "labels_idx" in batch
+                    else {}
+                )
                 self.val_predictions.append(
                     {
+                        **file_key,
                         "video_idx": batch["video_idx"][i].item(),
                         "frame_idx": batch["frame_idx"][i].item(),
                         "crop_id": crop_id,
@@ -1576,6 +2377,7 @@ class TopDownCenteredInstanceLightningModule(LightningModel):
                 )
                 self.val_ground_truth.append(
                     {
+                        **file_key,
                         "video_idx": batch["video_idx"][i].item(),
                         "frame_idx": batch["frame_idx"][i].item(),
                         "crop_id": crop_id,
@@ -1650,6 +2452,7 @@ class CentroidLightningModule(LightningModel):
         learning_rate: Optional[float] = 1e-3,
         amsgrad: Optional[bool] = False,
         negative_loss_weight: Optional[float] = 1.0,
+        init_from: Optional[Union[DictConfig, Dict[str, Any]]] = None,
         centroid_focal_loss_alpha: Optional[float] = 0.0,
         centroid_focal_loss_beta: Optional[float] = 4.0,
         centroid_focal_loss_pos_threshold: Optional[float] = 0.5,
@@ -1673,6 +2476,7 @@ class CentroidLightningModule(LightningModel):
             learning_rate=learning_rate,
             amsgrad=amsgrad,
             negative_loss_weight=negative_loss_weight,
+            init_from=init_from,
         )
         # Centroid-only knobs, not threaded through the base `LightningModel`
         # since no other model type implements this loss -- see
@@ -1717,7 +2521,7 @@ class CentroidLightningModule(LightningModel):
                 ex[k] = v.to(device=self.device)
         ex["image"] = ex["image"].unsqueeze(dim=0)
         gt_centroids = ex["centroids"].cpu().numpy()
-        output = self.centroid_inf_layer(ex)
+        output = _outputs_to_fp32(self.centroid_inf_layer(ex))
 
         peaks = output["centroids"][0].cpu().numpy()
         centroid_vals = output["centroid_vals"][0].cpu().numpy()
@@ -1772,12 +2576,19 @@ class CentroidLightningModule(LightningModel):
         ``_compute_negative_weighted_loss``'s own val-stage behavior), so
         ``ModelCheckpoint``/``EarlyStopping`` stay comparable across every
         experiment in this family.
+
+        With a list of anchor nodes (experimental), the batch carries
+        ``node_weights`` of shape ``(B, 1, 1)``: frames with an instance that has
+        no labeled anchor weigh 0, and both losses are averaged over the frames
+        that weigh 1. Without them the losses are exactly as described above.
         """
         focal_alpha = self.centroid_focal_loss_alpha
         if focal_alpha == 0.0:
-            return self._compute_negative_weighted_loss(y_preds, y, batch, stage=stage)
+            return self._compute_masked_confmap_loss(y_preds, y, batch, stage=stage)
 
         if stage != "train":
+            if batch.get("node_weights", None) is not None:
+                return self._compute_masked_confmap_loss(y_preds, y, batch, stage=stage)
             return nn.MSELoss()(y_preds, y)
 
         per_sample = compute_centroid_focal_loss(
@@ -1789,7 +2600,18 @@ class CentroidLightningModule(LightningModel):
             reduction="none",
         ).mean(dim=list(range(1, y_preds.ndim)))
 
+        frame_w = self._get_node_weights(batch, 1, y_preds.device)
         is_negative = batch.get("is_negative", None)
+        if frame_w is not None:
+            frame_w = frame_w[:, 0]
+            if is_negative is not None and self.negative_loss_weight != 1.0:
+                per_sample = per_sample * torch.where(
+                    is_negative.to(y_preds.device),
+                    torch.tensor(self.negative_loss_weight, device=y_preds.device),
+                    torch.tensor(1.0, device=y_preds.device),
+                )
+            return (per_sample * frame_w).sum() / frame_w.sum().clamp(min=1e-8)
+
         if is_negative is None or self.negative_loss_weight == 1.0:
             return per_sample.mean()
 
@@ -1858,7 +2680,7 @@ class CentroidLightningModule(LightningModel):
             batch["gt_centroids"] = batch["centroids"].clone()
 
             with torch.no_grad():
-                inference_output = self.centroid_inf_layer(batch)
+                inference_output = _outputs_to_fp32(self.centroid_inf_layer(batch))
 
             batch_size = len(batch["frame_idx"])
             for i in range(batch_size):
@@ -1971,6 +2793,7 @@ class BottomUpLightningModule(LightningModel):
         learning_rate: Optional[float] = 1e-3,
         amsgrad: Optional[bool] = False,
         negative_loss_weight: Optional[float] = 1.0,
+        init_from: Optional[Union[DictConfig, Dict[str, Any]]] = None,
     ):
         """Initialise the configs and the model."""
         super().__init__(
@@ -1991,6 +2814,7 @@ class BottomUpLightningModule(LightningModel):
             learning_rate=learning_rate,
             amsgrad=amsgrad,
             negative_loss_weight=negative_loss_weight,
+            init_from=init_from,
         )
 
         paf_scorer = PAFScorer(
@@ -2021,7 +2845,7 @@ class BottomUpLightningModule(LightningModel):
             if isinstance(v, torch.Tensor):
                 ex[k] = v.to(device=self.device)
         ex["image"] = ex["image"].unsqueeze(dim=0)
-        output = self.bottomup_inf_layer(ex)[0]
+        output = _outputs_to_fp32(self.bottomup_inf_layer(ex))[0]
 
         peaks = output["pred_instance_peaks"][0].cpu().numpy()
         peak_values = output["pred_peak_values"][0].cpu().numpy()
@@ -2097,8 +2921,12 @@ class BottomUpLightningModule(LightningModel):
         pafs = preds["PartAffinityFieldsHead"]
         confmaps = preds["MultiInstanceConfmapsHead"]
 
-        confmap_loss = self._compute_negative_weighted_loss(confmaps, y_confmap, batch)
-        pafs_loss = self._compute_negative_weighted_loss(pafs, y_paf, batch)
+        # Per-node weighted confmap MSE; PAF edges weighted by the product of
+        # their endpoints' weights (`edge_weights`). Plain losses without them.
+        confmap_loss = self._compute_masked_confmap_loss(confmaps, y_confmap, batch)
+        pafs_loss = self._compute_masked_confmap_loss(
+            pafs, y_paf, batch, weights_key="edge_weights"
+        )
         self._log_negative_split_metrics(
             [
                 ("confmaps", confmaps, y_confmap, self.loss_weights[0]),
@@ -2109,22 +2937,8 @@ class BottomUpLightningModule(LightningModel):
         )
 
         if self.online_mining is not None and self.online_mining:
-            confmap_ohkm_loss = compute_ohkm_loss(
-                y_gt=y_confmap,
-                y_pr=confmaps,
-                hard_to_easy_ratio=self.hard_to_easy_ratio,
-                min_hard_keypoints=self.min_hard_keypoints,
-                max_hard_keypoints=self.max_hard_keypoints,
-                loss_scale=self.loss_scale,
-            )
-            pafs_ohkm_loss = compute_ohkm_loss(
-                y_gt=y_paf,
-                y_pr=pafs,
-                hard_to_easy_ratio=self.hard_to_easy_ratio,
-                min_hard_keypoints=self.min_hard_keypoints,
-                max_hard_keypoints=self.max_hard_keypoints,
-                loss_scale=self.loss_scale,
-            )
+            confmap_ohkm_loss = self._compute_ohkm(confmaps, y_confmap, batch)
+            pafs_ohkm_loss = self._compute_paf_ohkm(pafs, y_paf, batch)
             confmap_loss += confmap_ohkm_loss
             pafs_loss += pafs_ohkm_loss
 
@@ -2172,11 +2986,11 @@ class BottomUpLightningModule(LightningModel):
         pafs = preds["PartAffinityFieldsHead"]
         confmaps = preds["MultiInstanceConfmapsHead"]
 
-        confmap_loss = self._compute_negative_weighted_loss(
+        confmap_loss = self._compute_masked_confmap_loss(
             confmaps, y_confmap, batch, stage="val"
         )
-        pafs_loss = self._compute_negative_weighted_loss(
-            pafs, y_paf, batch, stage="val"
+        pafs_loss = self._compute_masked_confmap_loss(
+            pafs, y_paf, batch, stage="val", weights_key="edge_weights"
         )
         self._log_negative_split_metrics(
             [
@@ -2188,22 +3002,8 @@ class BottomUpLightningModule(LightningModel):
         )
 
         if self.online_mining is not None and self.online_mining:
-            confmap_ohkm_loss = compute_ohkm_loss(
-                y_gt=y_confmap,
-                y_pr=confmaps,
-                hard_to_easy_ratio=self.hard_to_easy_ratio,
-                min_hard_keypoints=self.min_hard_keypoints,
-                max_hard_keypoints=self.max_hard_keypoints,
-                loss_scale=self.loss_scale,
-            )
-            pafs_ohkm_loss = compute_ohkm_loss(
-                y_gt=y_paf,
-                y_pr=pafs,
-                hard_to_easy_ratio=self.hard_to_easy_ratio,
-                min_hard_keypoints=self.min_hard_keypoints,
-                max_hard_keypoints=self.max_hard_keypoints,
-                loss_scale=self.loss_scale,
-            )
+            confmap_ohkm_loss = self._compute_ohkm(confmaps, y_confmap, batch)
+            pafs_ohkm_loss = self._compute_paf_ohkm(pafs, y_paf, batch)
             confmap_loss += confmap_ohkm_loss
             pafs_loss += pafs_ohkm_loss
 
@@ -2241,7 +3041,7 @@ class BottomUpLightningModule(LightningModel):
             with torch.no_grad():
                 # Note: Do NOT squeeze the image here - the forward() method expects
                 # (batch, n_samples, C, H, W) and handles the n_samples squeeze internally
-                inference_output = self.bottomup_inf_layer(batch)
+                inference_output = _outputs_to_fp32(self.bottomup_inf_layer(batch))
                 if isinstance(inference_output, list):
                     inference_output = inference_output[0]
 
@@ -2348,6 +3148,7 @@ class BottomUpMultiClassLightningModule(LightningModel):
         learning_rate: Optional[float] = 1e-3,
         amsgrad: Optional[bool] = False,
         negative_loss_weight: Optional[float] = 1.0,
+        init_from: Optional[Union[DictConfig, Dict[str, Any]]] = None,
     ):
         """Initialise the configs and the model."""
         super().__init__(
@@ -2368,6 +3169,7 @@ class BottomUpMultiClassLightningModule(LightningModel):
             learning_rate=learning_rate,
             amsgrad=amsgrad,
             negative_loss_weight=negative_loss_weight,
+            init_from=init_from,
         )
         self.bottomup_inf_layer = BottomUpMultiClassInferenceModel(
             torch_model=self.forward,
@@ -2392,7 +3194,7 @@ class BottomUpMultiClassLightningModule(LightningModel):
             if isinstance(v, torch.Tensor):
                 ex[k] = v.to(device=self.device)
         ex["image"] = ex["image"].unsqueeze(dim=0)
-        output = self.bottomup_inf_layer(ex)[0]
+        output = _outputs_to_fp32(self.bottomup_inf_layer(ex))[0]
 
         peaks = output["pred_instance_peaks"][0].cpu().numpy()
         peak_values = output["pred_peak_values"][0].cpu().numpy()
@@ -2701,7 +3503,7 @@ class BottomUpMultiClassLightningModule(LightningModel):
             with torch.no_grad():
                 # Note: Do NOT squeeze the image here - the forward() method expects
                 # (batch, n_samples, C, H, W) and handles the n_samples squeeze internally
-                inference_output = self.bottomup_inf_layer(batch)
+                inference_output = _outputs_to_fp32(self.bottomup_inf_layer(batch))
                 if isinstance(inference_output, list):
                     inference_output = inference_output[0]
 
@@ -2808,6 +3610,7 @@ class TopDownCenteredInstanceMultiClassLightningModule(LightningModel):
         learning_rate: Optional[float] = 1e-3,
         amsgrad: Optional[bool] = False,
         negative_loss_weight: Optional[float] = 1.0,
+        init_from: Optional[Union[DictConfig, Dict[str, Any]]] = None,
     ):
         """Initialise the configs and the model."""
         super().__init__(
@@ -2828,6 +3631,7 @@ class TopDownCenteredInstanceMultiClassLightningModule(LightningModel):
             learning_rate=learning_rate,
             amsgrad=amsgrad,
             negative_loss_weight=negative_loss_weight,
+            init_from=init_from,
         )
         self.instance_peaks_inf_layer = TopDownMultiClassFindInstancePeaks(
             torch_model=self.forward,
@@ -2846,7 +3650,7 @@ class TopDownCenteredInstanceMultiClassLightningModule(LightningModel):
             if isinstance(v, torch.Tensor):
                 ex[k] = v.to(device=self.device)
         ex["instance_image"] = ex["instance_image"].unsqueeze(dim=0)
-        output = self.instance_peaks_inf_layer(ex)
+        output = _outputs_to_fp32(self.instance_peaks_inf_layer(ex))
 
         peaks = output["pred_instance_peaks"].cpu().numpy()
         peak_values = output["pred_peak_values"].cpu().numpy()
@@ -2894,7 +3698,7 @@ class TopDownCenteredInstanceMultiClassLightningModule(LightningModel):
         y_confmap = torch.squeeze(batch["confidence_maps"], dim=1)
         y_classvector = batch["class_vectors"]
         X = normalize_on_gpu(X)
-        preds = self.model(X)
+        preds, backbone_outputs = self._forward_train(X)
         classvector = preds["ClassVectorsHead"]
         confmaps = preds["CenteredInstanceConfmapsHead"]
 
@@ -2920,18 +3724,7 @@ class TopDownCenteredInstanceMultiClassLightningModule(LightningModel):
 
         # for part-wise loss
         if self.node_names is not None:
-            batch_size, _, h, w = y_confmap.shape
-            mse = (y_confmap - confmaps) ** 2
-            channel_wise_loss = torch.sum(mse, dim=(0, 2, 3)) / (batch_size * h * w)
-            for node_idx, name in enumerate(self.node_names):
-                self.log(
-                    f"train/confmaps/{name}",
-                    channel_wise_loss[node_idx],
-                    prog_bar=False,
-                    on_step=False,
-                    on_epoch=True,
-                    sync_dist=True,
-                )
+            self._accumulate_node_loss((y_confmap - confmaps) ** 2, batch)
 
         # Log step-level loss (every batch, uses global_step x-axis)
         self.log(
@@ -2971,7 +3764,7 @@ class TopDownCenteredInstanceMultiClassLightningModule(LightningModel):
             on_epoch=True,
             sync_dist=True,
         )
-        return loss
+        return self._with_distillation(loss, X, preds, backbone_outputs, batch)
 
     def validation_step(self, batch, batch_idx):
         """Perform validation step."""
@@ -3044,7 +3837,9 @@ class TopDownCenteredInstanceMultiClassLightningModule(LightningModel):
             bbox_prep_saved = batch["instance_bbox"].clone()
 
             with torch.no_grad():
-                inference_output = self.instance_peaks_inf_layer(batch)
+                inference_output = _outputs_to_fp32(
+                    self.instance_peaks_inf_layer(batch)
+                )
 
             batch_size = len(batch["frame_idx"])
             for i in range(batch_size):
@@ -3507,6 +4302,7 @@ class EmbeddingLightningModule(LightningModel):
         learning_rate: Optional[float] = 1e-3,
         amsgrad: Optional[bool] = False,
         negative_loss_weight: Optional[float] = 1.0,
+        init_from: Optional[Union[DictConfig, Dict[str, Any]]] = None,
     ):
         """Initialise the configs, model, objective + projection head."""
         super().__init__(
@@ -3527,6 +4323,7 @@ class EmbeddingLightningModule(LightningModel):
             learning_rate=learning_rate,
             amsgrad=amsgrad,
             negative_loss_weight=negative_loss_weight,
+            init_from=init_from,
         )
         leaf = self.head_configs.embedding.embedding
         self.embedding_dim = leaf.embedding_dim
@@ -3815,10 +4612,7 @@ class EmbeddingLightningModule(LightningModel):
         optimizer that is returned (val/loss monitor; checkpoint SELECTION still moves
         to the retrieval metric via ModelCheckpoint in the trainer).
         """
-        optim = torch.optim.AdamW if self.optimizer == "AdamW" else torch.optim.Adam
-        optimizer = optim(
-            self._trainable_param_groups(), lr=self.lr, amsgrad=self.amsgrad
-        )
+        optimizer = self._build_optimizer()
         return LightningModel.configure_optimizers(self, optimizer=optimizer)
 
 
@@ -3848,6 +4642,7 @@ class BottomUpSegmentationLightningModule(LightningModel):
         learning_rate: Optional[float] = 1e-3,
         amsgrad: Optional[bool] = False,
         negative_loss_weight: Optional[float] = 1.0,
+        init_from: Optional[Union[DictConfig, Dict[str, Any]]] = None,
     ):
         """Initialise the configs and the model."""
         super().__init__(
@@ -3868,6 +4663,7 @@ class BottomUpSegmentationLightningModule(LightningModel):
             learning_rate=learning_rate,
             amsgrad=amsgrad,
             negative_loss_weight=negative_loss_weight,
+            init_from=init_from,
         )
 
         seg_cfg = self.head_configs[self.model_type]
@@ -4201,6 +4997,7 @@ class TopDownCenteredInstanceSegmentationLightningModule(LightningModel):
         learning_rate: Optional[float] = 1e-3,
         amsgrad: Optional[bool] = False,
         negative_loss_weight: Optional[float] = 1.0,
+        init_from: Optional[Union[DictConfig, Dict[str, Any]]] = None,
     ):
         """Initialise the configs and the model."""
         super().__init__(
@@ -4221,6 +5018,7 @@ class TopDownCenteredInstanceSegmentationLightningModule(LightningModel):
             learning_rate=learning_rate,
             amsgrad=amsgrad,
             negative_loss_weight=negative_loss_weight,
+            init_from=init_from,
         )
         self.seg_output_stride = self.head_configs[
             self.model_type
@@ -4386,6 +5184,7 @@ class SemanticSegmentationLightningModule(LightningModel):
         learning_rate: Optional[float] = 1e-3,
         amsgrad: Optional[bool] = False,
         negative_loss_weight: Optional[float] = 1.0,
+        init_from: Optional[Union[DictConfig, Dict[str, Any]]] = None,
     ):
         """Initialise the configs and the model."""
         super().__init__(
@@ -4406,6 +5205,7 @@ class SemanticSegmentationLightningModule(LightningModel):
             learning_rate=learning_rate,
             amsgrad=amsgrad,
             negative_loss_weight=negative_loss_weight,
+            init_from=init_from,
         )
         seg = self.head_configs[self.model_type].segmentation
         self.seg_output_stride = seg.output_stride
@@ -4577,6 +5377,8 @@ class _BBoxLightningModel(LightningModel):
             score_threshold=self._EVAL_SCORE_THRESHOLD,
         )
         self.node_names = ["bbox"]
+        # Per-stage `[term names, on-device sum, step count]` (`_accumulate_terms`).
+        self._epoch_term_sums: Dict[str, list] = {}
 
     def _decoder_inputs(self, raw: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         """Raw head outputs -> the decoder's input dict (identity by default)."""
@@ -4594,9 +5396,22 @@ class _BBoxLightningModel(LightningModel):
         img = normalize_on_gpu(img)
         return self._decoder_inputs(self.model(img))
 
+    def _train_input(self, X: torch.Tensor) -> torch.Tensor:
+        """The normalized training batch as the model sees it (identity by default)."""
+        return X
+
     def _step(self, batch, stage: str):
+        """``(supervised loss, raw outputs, input, backbone outputs)`` of a batch.
+
+        The backbone outputs are returned only while distilling (training).
+        """
         X = normalize_on_gpu(torch.squeeze(batch["image"], dim=1))
-        raw = self.model(X)
+        backbone_outputs = None
+        if stage == "train":
+            X = self._train_input(X)
+            raw, backbone_outputs = self._forward_train(X)
+        else:
+            raw = self.model(X)
         loss, terms = self._compute_losses(raw, batch)
         if stage == "train":
             self.log(
@@ -4617,20 +5432,90 @@ class _BBoxLightningModel(LightningModel):
                 on_epoch=True,
                 sync_dist=True,
             )
-        for name, value in terms.items():
+        self._accumulate_terms(stage, terms)
+        return loss, raw, X, backbone_outputs
+
+    def _accumulate_terms(self, stage: str, terms: Dict[str, torch.Tensor]):
+        """Add a step's loss terms to the stage's running sum (logged per epoch).
+
+        One on-device stack and add instead of one ``self.log`` per term per step
+        (20 for a 4-layer ``bbox_detr``); ``_log_epoch_terms`` logs the means.
+        """
+        if not terms:
+            return
+        values = torch.stack([v.detach().float() for v in terms.values()])
+        prev = self._epoch_term_sums.get(stage)
+        if prev is None or prev[0] != list(terms):
+            self._epoch_term_sums[stage] = [list(terms), values, 1]
+        else:
+            prev[1] = prev[1] + values
+            prev[2] += 1
+
+    def _log_epoch_terms(self, stage: str):
+        """Log ``<stage>/<term>`` epoch means of the accumulated loss terms."""
+        entry = self._epoch_term_sums.pop(stage, None)
+        if entry is None:
+            return
+        names, total, count = entry
+        for name, value in zip(names, total / count):
             self.log(
                 f"{stage}/{name}", value, on_step=False, on_epoch=True, sync_dist=True
             )
-        return loss, raw, X
+
+    def on_train_epoch_end(self):
+        """Log the epoch's training loss terms, then the base epoch metrics."""
+        self._log_epoch_terms("train")
+        super().on_train_epoch_end()
+
+    def on_validation_epoch_start(self):
+        """Reset the validation loss-term sums, then the base epoch state."""
+        self._epoch_term_sums.pop("val", None)
+        super().on_validation_epoch_start()
+
+    def on_validation_epoch_end(self):
+        """Log the epoch's validation loss terms, then the base epoch metrics."""
+        self._log_epoch_terms("val")
+        super().on_validation_epoch_end()
 
     def training_step(self, batch, batch_idx):
-        """Training step."""
-        loss, _, _ = self._step(batch, "train")
-        return loss
+        """Training step (plus the distillation terms while distilling)."""
+        loss, raw, X, backbone_outputs = self._step(batch, "train")
+        return self._with_distillation(loss, X, raw, backbone_outputs, batch)
+
+    def _with_distillation(self, loss, X, outputs, backbone_outputs, batch):
+        """The loss to optimize: ``loss`` plus the box distillation terms, if any.
+
+        Logs ``train/distill_box``, ``train/distill_feat`` (with a feature term),
+        ``train/distill_teacher_boxes`` (the teacher's boxes per image used as
+        targets) and ``train/distill_weight`` (``r(t)``) as epoch means; ``loss``
+        (the supervised loss) is what ``loss`` / ``train/loss`` log.
+        """
+        distiller = self.distiller
+        if distiller is None:
+            return loss
+        terms, n_boxes = distiller.box_loss_terms(self, X, outputs, backbone_outputs)
+        r = distiller.weight(self.global_step, distiller.total_steps(self._trainer))
+        for key, value in terms.items():
+            self.log(
+                f"train/distill_{key}",
+                value,
+                on_step=False,
+                on_epoch=True,
+                sync_dist=True,
+            )
+        self.log(
+            "train/distill_teacher_boxes",
+            n_boxes,
+            on_step=False,
+            on_epoch=True,
+            sync_dist=True,
+        )
+        self.log("train/distill_weight", r, on_step=False, on_epoch=True)
+        return distiller.combine(loss, terms, r)
 
     def validation_step(self, batch, batch_idx):
         """Validation step (loss terms + optional detection collection)."""
-        _, raw, X = self._step(batch, "val")
+        _, raw, X, _ = self._step(batch, "val")
         if not self._collect_val_predictions:
             return
         with torch.no_grad():
@@ -4651,14 +5536,17 @@ class _BBoxLightningModel(LightningModel):
                     "pred_classes": classes[i][valid].numpy(),
                 }
             )
-            self.val_ground_truth.append(
-                {
-                    "video_idx": int(batch["video_idx"][i]),
-                    "frame_idx": int(batch["frame_idx"][i]),
-                    "gt_bboxes": gt_boxes[i, :n_gt].numpy(),
-                    "gt_classes": gt_classes[i, :n_gt].numpy(),
-                }
-            )
+            gt = {
+                "video_idx": int(batch["video_idx"][i]),
+                "frame_idx": int(batch["frame_idx"][i]),
+                "gt_bboxes": gt_boxes[i, :n_gt].numpy(),
+                "gt_classes": gt_classes[i, :n_gt].numpy(),
+            }
+            if "num_ignore" in batch:
+                # Ignore boxes: a detection covering one is neither hit nor miss.
+                n_ign = int(batch["num_ignore"][i])
+                gt["gt_ignore_bboxes"] = batch["ignore_bboxes"][i, :n_ign].cpu().numpy()
+            self.val_ground_truth.append(gt)
 
     def _viz_heatmap(self, dec_in: Dict[str, torch.Tensor]) -> Optional[np.ndarray]:
         """An ``(h, w, C)`` map to overlay in the visualization, if the style has one."""
@@ -4699,6 +5587,193 @@ class _BBoxLightningModel(LightningModel):
         from sleap_nn.training.utils import MatplotlibRenderer
 
         return MatplotlibRenderer().render(self.get_visualization_data(sample))
+
+
+#: Substrings of backbone parameter names trained without weight decay: RF-DETR's
+#: rule (``get_dinov2_weight_decay_rate``: norms, biases, embeddings, position
+#: tables, layer-scale ``gamma``).
+DETR_BACKBONE_NO_DECAY = ("gamma", "pos_embed", "rel_pos", "bias", "norm", "embeddings")
+
+
+class BBoxDetrLightningModule(_BBoxLightningModel):
+    """Lightning Module for the ``bbox_detr`` (RF-DETR-style set prediction) detector.
+
+    ``forward`` returns the model's set-output dict, whose ``pred_logits`` /
+    ``pred_boxes`` the ``bbox_detr`` decoder reads. Training follows RF-DETR:
+
+    * **Loss.** The set criterion (``sleap_nn.training.detr``): Hungarian matching
+      per query group, IA-BCE + L1 + GIoU on the final layer, every earlier decoder
+      layer (``_<i>``) and the encoder proposals (``_enc``), all logged. Group DETR
+      runs in training only (``model.train()`` puts both the head and the criterion
+      in group mode). The loss is computed in float32 outside autocast. The
+      normalizer (targets x groups) is averaged over ranks in training; validation
+      keeps the local count (ranks may run different numbers of val batches).
+    * **Targets** come from the dataset's ``SetTargetEncoder`` via
+      :func:`~sleap_nn.data.bboxes.collate_set_targets`.
+    * **Multi-scale.** With ``multi_scale_sizes`` set (from
+      ``augmentation_config.detr``), each training batch is resized to the size
+      drawn for the current optimizer step (the same on every rank).
+    * **Parameter groups** (RF-DETR's ``get_param_dict``): the backbone trains at
+      ``lr * encoder_lr_scale * lr_component_decay ** 2`` times its layer decay
+      (``layer_decay``), the decoder at ``lr * lr_component_decay``, everything
+      else at ``lr``. With ``weight_decay`` set, every parameter decays except
+      backbone norms, biases and embeddings (:data:`DETR_BACKBONE_NO_DECAY`), and
+      backbone position embeddings / special tokens by name (timm's
+      ``cls_token`` / ``reg_token``: :func:`~sleap_nn.training.optim.
+      is_embedding_or_token`) or as the module declares them
+      (``no_weight_decay()``).
+    * ``init_weights: xavier`` is ignored: the detector has its own init.
+
+    EMA, gradient clipping, precision and the LR schedule are the trainer's
+    (``trainer_config.ema`` / ``gradient_clip_val`` / ``precision`` /
+    ``lr_scheduler``).
+
+    Attributes:
+        criterion: The :class:`~sleap_nn.training.detr.SetCriterion`.
+        lr_component_decay: RF-DETR's ``lr_component_decay``.
+        multi_scale_sizes: Per-batch training sizes, or ``None`` (set by
+            ``get_lightning_model_from_config``).
+    """
+
+    multi_scale_sizes: Optional[List[Tuple[int, int]]] = None
+
+    def __init__(self, **kwargs):
+        """Initialise the configs, the model, the decoder and the criterion."""
+        if kwargs.get("init_weights") == "xavier":
+            logger.warning(
+                "bbox_detr models keep their own (RF-DETR) initialization; "
+                "init_weights: xavier is ignored."
+            )
+            kwargs["init_weights"] = "default"
+        super().__init__(**kwargs)
+        detr = self.head_configs.bbox_detr.detr
+        self.criterion = build_set_criterion(detr, num_classes=len(self.categories))
+        self.lr_component_decay = float(
+            OmegaConf.select(detr, "lr_component_decay", default=0.7)
+            if OmegaConf.is_config(detr)
+            else getattr(detr, "lr_component_decay", 0.7)
+        )
+
+    def _train_input(self, X: torch.Tensor) -> torch.Tensor:
+        """Resize the batch to this step's multi-scale size (if on)."""
+        if not self.multi_scale_sizes:
+            return X
+        return resize_batch(X, batch_scale(self.global_step, self.multi_scale_sizes))
+
+    def _compute_losses(self, raw, batch):
+        targets = collate_set_targets(batch)
+        device = raw["pred_logits"].device
+        num_boxes = self.criterion.num_boxes(
+            targets, device, distributed=self.criterion.training
+        )
+        with torch.autocast(device_type=device.type, enabled=False):
+            losses = self.criterion(_float_outputs(raw), targets, num_boxes=num_boxes)
+            loss = self.criterion.total_loss(losses)
+        return loss, losses
+
+    def _rfdetr_param_groups(self) -> List[Dict[str, Any]]:
+        """``{"params", "lr", "name"}`` groups: base, decoder, backbone (by depth)."""
+        component = self.lr_component_decay
+        backbone = self.model.backbone
+        decoder_ids = {id(p) for p in self.model.detr.decoder.parameters()}
+        backbone_lr = self.lr * (self.encoder_lr_scale or 1.0) * component**2
+
+        backbone_groups = None
+        groups_fn = getattr(backbone, "encoder_param_groups", None)
+        if groups_fn is not None:
+            backbone_groups = groups_fn(
+                backbone_lr, encoder_lr_scale=1.0, layer_decay=self.layer_decay
+            )
+        if backbone_groups is None:
+            if self.layer_decay:
+                logger.warning(
+                    "trainer_config.optimizer.layer_decay: this bbox_detr backbone "
+                    "has no layers to decay; it trains at one learning rate."
+                )
+            params = [p for p in backbone.parameters() if p.requires_grad]
+            backbone_groups = (
+                [{"params": params, "lr": backbone_lr, "name": "backbone"}]
+                if params
+                else []
+            )
+        else:
+            backbone_groups = [
+                {**g, "name": "backbone/" + str(g.get("name", i))}
+                for i, g in enumerate(backbone_groups)
+            ]
+        in_backbone = {id(p) for g in backbone_groups for p in g["params"]}
+
+        base, decoder = [], []
+        for p in self.parameters():
+            if not p.requires_grad or id(p) in in_backbone:
+                continue
+            (decoder if id(p) in decoder_ids else base).append(p)
+        groups = [{"params": base, "lr": self.lr, "name": "base"}]
+        if decoder:
+            groups.append(
+                {"params": decoder, "lr": self.lr * component, "name": "decoder"}
+            )
+        return groups + backbone_groups
+
+    def _trainable_param_groups(self):
+        """RF-DETR's learning-rate groups (see the class docstring)."""
+        return self._rfdetr_param_groups()
+
+    def _build_optimizer(self) -> torch.optim.Optimizer:
+        """The optimizer with RF-DETR's weight-decay rule when ``weight_decay`` is set."""
+        if self.weight_decay is None:
+            return super()._build_optimizer()
+        optimizers = {"Adam": torch.optim.Adam, "AdamW": torch.optim.AdamW}
+        if self.optimizer not in optimizers:
+            raise ValueError(
+                f"Unknown optimizer {self.optimizer!r}; expected one of "
+                f"{list(optimizers)}."
+            )
+        name_of = {id(p): n for n, p in self.named_parameters()}
+        backbone_ids = {id(p) for p in self.model.backbone.parameters()}
+        declared = no_weight_decay_names(self)
+        wd = float(self.weight_decay)
+        params = []
+        for group in self._trainable_param_groups():
+            rest = {k: v for k, v in group.items() if k != "params"}
+            name = rest.pop("name")
+            decay, no_decay = [], []
+            for p in group["params"]:
+                name = name_of.get(id(p), "")
+                exempt = id(p) in backbone_ids and (
+                    any(key in name for key in DETR_BACKBONE_NO_DECAY)
+                    or is_embedding_or_token(name)
+                    or any(name == n or name.startswith(n + ".") for n in declared)
+                )
+                (no_decay if exempt else decay).append(p)
+            for half, half_wd, suffix in (
+                (decay, wd, "decay"),
+                (no_decay, 0.0, "no_decay"),
+            ):
+                if half:
+                    params.append(
+                        {
+                            **rest,
+                            "params": half,
+                            "weight_decay": half_wd,
+                            "name": f"{name}/{suffix}",
+                        }
+                    )
+        return optimizers[self.optimizer](
+            params, lr=self.lr, amsgrad=self.amsgrad, weight_decay=wd
+        )
+
+
+def _float_outputs(outputs):
+    """A set-output dict (nested lists/dicts of tensors) with half floats as float32."""
+    if isinstance(outputs, torch.Tensor):
+        half = outputs.dtype in (torch.float16, torch.bfloat16)
+        return outputs.float() if half else outputs
+    if isinstance(outputs, dict):
+        return {k: _float_outputs(v) for k, v in outputs.items()}
+    if isinstance(outputs, (list, tuple)):
+        return [_float_outputs(v) for v in outputs]
+    return outputs
 
 
 class BBoxCenterNetLightningModule(_BBoxLightningModel):

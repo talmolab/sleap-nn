@@ -38,6 +38,7 @@ from sleap_nn.data.instance_cropping import (
     points_from_crop,
     window_corners,
 )
+from sleap_nn.inference.layers.backends.torch_backend import TorchBackend
 from sleap_nn.inference.layers.base import ImageInput, InferenceLayer
 from sleap_nn.inference.layers.centered_instance import CenteredInstanceLayer
 from sleap_nn.inference.layers.centroid import CentroidLayer
@@ -109,6 +110,8 @@ class TopDownLayer:
         image: ImageInput,
         instances: Optional[torch.Tensor] = None,
         instance_boxes: Optional[torch.Tensor] = None,
+        frame_boxes: Optional[torch.Tensor] = None,
+        frame_box_scores: Optional[torch.Tensor] = None,
     ) -> Outputs:
         """Run stage 1 → stage B → stage 2 → coord lift.
 
@@ -120,6 +123,9 @@ class TopDownLayer:
             instance_boxes: Optional ``(B, max_inst, 4)`` GT boxes aligned with
                 ``instances``, for a GT-box stage 1 (derived from ``instances``
                 when absent).
+            frame_boxes: Optional ``(B, K, 4)`` xyxy boxes per frame for a
+                given-box stage 1 (``BBoxStageLayer(use_given_boxes=True)``).
+            frame_box_scores: Optional ``(B, K)`` scores of ``frame_boxes``.
 
         Returns:
             ``Outputs`` populated with ``pred_keypoints`` (image-space),
@@ -127,7 +133,11 @@ class TopDownLayer:
             ``pred_centroid_values``, and ``instance_bboxes``.
         """
         # Stage 1: centroids.
-        if not self.centroid_layer.use_gt_centroids:
+        if getattr(self.centroid_layer, "use_given_boxes", False):
+            centroid_out = self.centroid_layer.predict(
+                image, boxes=frame_boxes, box_scores=frame_box_scores
+            )
+        elif not self.centroid_layer.use_gt_centroids:
             centroid_out = self.centroid_layer.predict(image)
         elif getattr(self.centroid_layer, "use_gt_boxes", False):
             centroid_out = self.centroid_layer.predict(
@@ -182,6 +192,11 @@ class TopDownLayer:
         #    original-image space.
         x_raw = self.centroid_layer._to_4d_tensor(image)
         x_sized, eff_scale = self._sizematch_like_centroid_layer(x_raw)
+        crop_device = self._crop_device()
+        if crop_device is not None:
+            # Crop on the stage-2 GPU: cutting crops out of full CPU frames was
+            # ~10x slower than the rest of top-down inference on COCO.
+            x_sized = x_sized.to(crop_device, non_blocking=True)
         sized_centroids = centroids * eff_scale.view(-1, 1, 1).to(centroids.device)
         boxes = centroid_out.pred_bboxes
         stage_2_kwargs = {}
@@ -223,6 +238,31 @@ class TopDownLayer:
             )
         return out
 
+    def _crop_device(self) -> Optional[torch.device]:
+        """The CUDA device to cut stage-2 crops on, or ``None`` to crop in place.
+
+        The sized frame moves to the device the stage-2 PyTorch model runs on,
+        so cropping (a gather, or ``grid_sample`` for box-scaled crops) runs
+        there and the crops are already where the model needs them. ``None``
+        (crop wherever the frame is, as before) when stage 2 is not a CUDA
+        :class:`TorchBackend` (CPU, MPS, exported models), and when stage 2
+        resamples its crops (``scale`` / ``max_height`` / ``max_width`` in its
+        preprocessing): a ``uint8`` resize on the GPU rounds some pixels 1
+        grey level differently than on the CPU, which would change outputs.
+        """
+        backend = getattr(self.centered_instance_layer, "backend", None)
+        if not isinstance(backend, TorchBackend):
+            return None
+        device = torch.device(backend.device)
+        if device.type != "cuda":
+            return None
+        cfg = getattr(self.centered_instance_layer, "preprocess_config", None)
+        if cfg is not None and (
+            cfg.scale != 1.0 or cfg.max_height is not None or cfg.max_width is not None
+        ):
+            return None
+        return device
+
     def _sizematch_like_centroid_layer(
         self, x_raw: torch.Tensor
     ) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -247,7 +287,7 @@ class TopDownLayer:
         sized_list: list = []
         eff_list: list = []
         for b in range(B):
-            r, scale = apply_sizematcher(x_raw[b], max_height, max_width)
+            r, scale = apply_sizematcher(x_raw[b], max_height, max_width, warn="info")
             sized_list.append(r)
             eff_list.append(float(scale))
         x_sized = torch.stack(sized_list, dim=0)
@@ -322,8 +362,12 @@ class TopDownLayer:
         windows = scales = None
         if self.bbox_crop is not None:
             valid_boxes = boxes[valid_idx[:, 0], valid_idx[:, 1]].float()
-            windows, scales, keep_half = self.bbox_crop.windows(valid_boxes, crop_h)
-            crops = crop_windows(image_4d, windows, sample_inds, crop_h)
+            # Non-square crops (`crop_size: [h, w]`) use the same window rule as
+            # training (`bbox_crop_windows`), so pass both sides.
+            windows, scales, keep_half = self.bbox_crop.windows(
+                valid_boxes, (crop_h, crop_w)
+            )
+            crops = crop_windows(image_4d, windows, sample_inds, (crop_h, crop_w))
             if self.bbox_crop.aspect == "letterbox":
                 crops = letterbox_crops(crops, keep_half)
             if not torch.is_floating_point(image_4d):
@@ -574,13 +618,30 @@ class TopDownLayer:
     def _infer_n_nodes(self) -> int:
         """Best-effort guess of the skeleton node count from the inner model.
 
-        Falls back to 1 so any "no detections" early-return still has a
-        valid 4D shape.
+        Reads the output channels of the confmap head (the model's first
+        ``head_layers`` entry): scanning the whole model would hit the backbone
+        first (a ViT's patch embedding has ``embed_dim`` channels). Falls back to
+        1 so any "no detections" early-return still has a valid 4D shape.
         """
         try:
-            for m in self.centered_instance_layer.backend.model.modules():
-                if hasattr(m, "out_channels") and m.out_channels > 1:
-                    return int(m.out_channels)
+            model = self.centered_instance_layer.backend.model
+            head = next(
+                (
+                    m.head_layers[0]
+                    for m in model.modules()
+                    if hasattr(m, "head_layers")
+                ),
+                model,
+            )
+            channels = [
+                int(m.out_channels)
+                for m in head.modules()
+                if hasattr(m, "out_channels") and m.out_channels > 1
+            ]
+            if channels:
+                # The head's output conv is its last; the whole-model fallback
+                # keeps the historical first match.
+                return channels[-1] if head is not model else channels[0]
         except Exception:
             pass
         return 1
@@ -590,6 +651,14 @@ class TopDownLayer:
         image: ImageInput,
         instances: Optional[torch.Tensor] = None,
         instance_boxes: Optional[torch.Tensor] = None,
+        frame_boxes: Optional[torch.Tensor] = None,
+        frame_box_scores: Optional[torch.Tensor] = None,
     ) -> Outputs:
         """Alias for :meth:`predict`."""
-        return self.predict(image, instances=instances, instance_boxes=instance_boxes)
+        return self.predict(
+            image,
+            instances=instances,
+            instance_boxes=instance_boxes,
+            frame_boxes=frame_boxes,
+            frame_box_scores=frame_box_scores,
+        )

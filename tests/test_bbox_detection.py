@@ -651,6 +651,74 @@ def test_bbox_train_predict_eval(
     _check_onnx_export_parity(run_dir, minimal_instance, labels, tmp_path)
 
 
+@pytest.mark.parametrize("model_type", ["bbox_centernet", "bbox_ssd"])
+def test_bbox_dry_run(config, tmp_path, model_type):
+    """A dry run of a box detector takes one training and one validation batch
+    through the configured image cache and leaves nothing behind."""
+    from sleap_nn.training.lightning_modules import (
+        BBoxCenterNetLightningModule,
+        BBoxSSDLightningModule,
+    )
+    from tests.utils.dry_run import dry_run
+
+    cfg = _bbox_train_config(config, model_type, tmp_path)
+    cfg.data_config.data_pipeline_fw = "torch_dataset_cache_img_disk"
+    cfg.data_config.cache_img_path = (tmp_path / "cache").as_posix()
+    trainer = dry_run(cfg, tmp_path)
+    expected = {
+        "bbox_centernet": BBoxCenterNetLightningModule,
+        "bbox_ssd": BBoxSSDLightningModule,
+    }[model_type]
+    assert isinstance(trainer.lightning_model, expected)
+    assert torch.isfinite(trainer.trainer.callback_metrics["train/loss"])
+
+
+def _box_only_labels(minimal_instance, boxes_on_frames):
+    """Frames with user boxes and no pose instance, one per entry of
+    ``boxes_on_frames`` (``False``: a frame without boxes)."""
+    labels = sio.load_slp(minimal_instance.as_posix())
+    lf = labels[0]
+    corners = [
+        (*np.nanmin(inst.numpy(), axis=0), *np.nanmax(inst.numpy(), axis=0))
+        for inst in lf.instances
+    ]
+    frames = [
+        sio.LabeledFrame(
+            video=lf.video,
+            frame_idx=lf.frame_idx,
+            bboxes=[sio.UserBoundingBox.from_xyxy(*c) for c in corners if has_boxes],
+        )
+        for has_boxes in boxes_on_frames
+    ]
+    return sio.Labels(videos=labels.videos, labeled_frames=frames)
+
+
+def test_bbox_dry_run_takes_its_batches_from_frames_with_boxes(
+    config, minimal_instance, tmp_path
+):
+    """Box files may hold no pose instance, and frames without boxes. A dry run
+    cuts every file to one batch of frames that have boxes. Cut to the file's
+    first frames instead, such a file has no sample left for the balanced sampler
+    (or, alone, for the dataset), although the whole file trains."""
+    from sleap_nn.data.topdown_warp import BalancedDataLoader
+    from tests.utils.dry_run import dry_run
+
+    cfg = _bbox_train_config(config, "bbox_centernet", tmp_path)
+    cfg.trainer_config.train_data_loader.batch_size = 2
+    cfg.trainer_config.balanced_sampler = {"counts": [1, 1]}
+    train = [
+        sio.load_slp(minimal_instance.as_posix()),  # boxes derived from its poses
+        _box_only_labels(minimal_instance, [False, False, True, True, True]),
+    ]
+    val = [_box_only_labels(minimal_instance, [False, True])]
+    trainer = dry_run(cfg, tmp_path, train_labels=train, val_labels=val)
+    loader = trainer.trainer.train_dataloader
+    assert isinstance(loader, BalancedDataLoader)
+    # One batch of frames per file, all with boxes: each is a sample.
+    assert np.bincount(loader.dataset.labels_idx).tolist() == [1, 2]
+    assert len(trainer.trainer.val_dataloaders.dataset) == 1
+
+
 def _check_onnx_export_parity(run_dir, slp_path, torch_labels, tmp_path):
     """ONNX export decodes (with the shared BBoxDecoder) to the PyTorch boxes."""
     pytest.importorskip("onnxruntime")
@@ -1068,3 +1136,271 @@ def test_bbox_split_eval_skips_without_boxes(monkeypatch, tmp_path):
         device="cpu",
     )
     assert out is None and not called and not metrics_path.exists()
+
+
+def _tiny_ssd_layer(resize_mode="letterbox", max_hw=(128, 128)):
+    from sleap_nn.inference.layers.backends import TorchBackend
+    from sleap_nn.inference.layers.bbox import BBoxLayer
+    from sleap_nn.inference.layers.configs import PostprocessConfig, PreprocessConfig
+
+    module = _tiny_ssd_module()
+    decoder = BBoxDecoder.from_head_configs(
+        "bbox_ssd", module.head_configs, score_threshold=0.0, max_detections=20
+    )
+    return BBoxLayer(
+        backend=TorchBackend(model=module, device="cpu"),
+        decoder=decoder,
+        output_stride=8,
+        max_stride=16,
+        preprocess_config=PreprocessConfig(
+            max_height=max_hw[0], max_width=max_hw[1], resize_mode=resize_mode
+        ),
+        postprocess_config=PostprocessConfig(peak_threshold=0.0, max_instances=20),
+    )
+
+
+def _png_labels(tmp_path, sizes):
+    """One PNG image-list video per size (lossless, so no reduced decode)."""
+    import imageio.v3 as iio
+
+    rng = np.random.default_rng(0)
+    videos, frames = [], []
+    for v, hw in enumerate(sizes):
+        img = (rng.random((*hw, 1)) * 255).astype(np.uint8)
+        path = tmp_path / f"f{v}.png"
+        iio.imwrite(path, img[..., 0])
+        videos.append(sio.Video.from_filename([str(path)]))
+        frames.append(img)
+    lfs = [sio.LabeledFrame(video=v, frame_idx=0) for v in videos]
+    return sio.Labels(videos=videos, labeled_frames=lfs), frames
+
+
+@pytest.mark.parametrize("resize_mode", ["letterbox", "squash"])
+def test_bbox_layer_on_prefit_frames_matches_native(tmp_path, resize_mode):
+    """Frames fitted by the provider give the boxes the layer's own resize gives.
+
+    Two frame sizes in one batch: each frame's boxes map back with its own scale
+    and are clipped to its own size.
+    """
+    from sleap_nn.inference.providers import FrameFit
+
+    layer = _tiny_ssd_layer(resize_mode)
+    sizes = [(150, 230), (90, 60)]
+    labels, frames = _png_labels(tmp_path, sizes)
+    fit = FrameFit(128, 128, resize_mode)
+    reads = [fit.read(v, 0) for v in labels.videos]
+    fitted = layer.predict(
+        np.stack([r[0] for r in reads]),
+        frame_scales=np.stack([r[1] for r in reads]),
+        frame_sizes=np.asarray([r[2] for r in reads]),
+    )
+    for b, (frame, (h, w)) in enumerate(zip(frames, sizes)):
+        native = layer.predict(torch.from_numpy(frame[None]).permute(0, 3, 1, 2))
+        ok = torch.isfinite(native.pred_bbox_scores[0])
+        assert ok.any()
+        torch.testing.assert_close(
+            fitted.pred_bboxes[b][ok], native.pred_bboxes[0][ok], atol=1e-3, rtol=0
+        )
+        torch.testing.assert_close(
+            fitted.pred_bbox_scores[b][ok], native.pred_bbox_scores[0][ok]
+        )
+        boxes = fitted.pred_bboxes[b][torch.isfinite(fitted.pred_bbox_scores[b])]
+        assert boxes[:, [0, 2]].max() <= w - 1 and boxes[:, [1, 3]].max() <= h - 1
+
+
+def test_bbox_layer_rejects_frame_scales_on_unfitted_frames():
+    """``frame_scales`` with frames that still need resizing is an error."""
+    layer = _tiny_ssd_layer()
+    frame = np.zeros((1, 1, 90, 60), np.uint8)
+    with pytest.raises(ValueError, match="not at the model input size"):
+        layer.predict(
+            frame, frame_scales=np.ones((1, 2)), frame_sizes=np.array([[90, 60]])
+        )
+    with pytest.raises(ValueError, match="frame_scales needs frame_sizes"):
+        layer.predict(
+            np.zeros((1, 1, 128, 128), np.uint8), frame_scales=np.ones((1, 2))
+        )
+
+
+def test_predictor_fits_detector_frames_on_cpu(tmp_path, monkeypatch):
+    """``Predictor.predict`` reads a detector's frames fitted to the model input.
+
+    Batches fill whatever the frame sizes, with the boxes of the layer's own fit.
+    """
+    from sleap_nn.inference.predictor import Predictor
+    from sleap_nn.inference.providers import FrameFit
+
+    layer = _tiny_ssd_layer()
+    sizes = [(150, 230), (90, 60), (128, 128), (70, 200)]
+    labels, _ = _png_labels(tmp_path, sizes)
+
+    batch_sizes = []
+    predict = type(layer).predict
+
+    def counting(self, image, frame_scales=None, frame_sizes=None):
+        batch_sizes.append(image.shape[0])
+        return predict(self, image, frame_scales, frame_sizes)
+
+    monkeypatch.setattr(type(layer), "predict", counting)
+    predictor = Predictor(layer=layer, batch_size=4)
+    assert predictor._frame_fit() == FrameFit(128, 128, "letterbox")
+    fitted = predictor.predict(labels)
+    assert batch_sizes == [4]
+
+    monkeypatch.setattr(Predictor, "_frame_fit", lambda self: None)
+    batch_sizes.clear()
+    native = predictor.predict(labels)
+    assert batch_sizes == [1, 1, 1, 1]  # one frame per size
+
+    for a, b in zip(fitted.labeled_frames, native.labeled_frames):
+        assert (a.video, a.frame_idx) == (b.video, b.frame_idx)
+        xa = np.array([bb.xyxy for bb in a.bboxes])
+        xb = np.array([bb.xyxy for bb in b.bboxes])
+        np.testing.assert_allclose(xa, xb, atol=1e-3)
+
+
+def test_frame_fit_only_for_whole_frame_detectors_with_fixed_size():
+    """No ``FrameFit`` without a fixed input size or for a non-detector layer."""
+    from sleap_nn.inference.predictor import Predictor
+
+    assert Predictor(layer=_tiny_ssd_layer(max_hw=(None, None)))._frame_fit() is None
+    assert Predictor(layer=_tiny_ssd_layer(max_hw=(128, None)))._frame_fit() is None
+
+
+# --------------------------------------------------------------------------- #
+# Zoom-out (`augmentation_config.detr.zoom_out_*`) for CenterNet / SSD
+# --------------------------------------------------------------------------- #
+def _zoom_dataset(labels, model_type, apply_aug=True, **zoom):
+    from sleap_nn.config.data_config import DetrAugmentationConfig
+    from sleap_nn.data.bboxes import get_bbox_target_encoder
+    from sleap_nn.data.custom_datasets import BBoxDataset
+
+    hc = _head_configs(model_type, categories=["object"])
+    if model_type == "bbox_ssd":
+        hc.bbox_ssd.ssd.anchor_sizes = [32.0, 64.0, 128.0]
+    return BBoxDataset(
+        labels=[labels],
+        target_encoder=get_bbox_target_encoder(model_type, hc),
+        categories=["object"],
+        max_stride=32,
+        apply_aug=apply_aug,
+        zoom_out_aug=OmegaConf.structured(DetrAugmentationConfig(**zoom)),
+    )
+
+
+@pytest.mark.parametrize("model_type", ["bbox_centernet", "bbox_ssd"])
+def test_bbox_dataset_zoom_out_zero_canvas(minimal_instance, model_type):
+    labels = sio.load_slp(minimal_instance)
+    add_bboxes_to_labels(labels)
+    gt = torch.from_numpy(frame_bbox_arrays(labels[0], ["object"])[0])
+    ds = _zoom_dataset(
+        labels, model_type, zoom_out_p=1.0, zoom_out_min=0.5, zoom_out_max=0.5
+    )
+    assert ds.zoom_out_aug is not None and ds.max_instances == 2
+    torch.manual_seed(0)
+    s = ds[0]
+    boxes = s["bboxes"][: s["num_instances"]]
+    assert s["num_instances"] == 2 and s["image"].shape == (1, 1, 384, 384)
+    # Every box shrinks by the factor; one offset moves them all.
+    torch.testing.assert_close(boxes[:, 2:] - boxes[:, :2], (gt[:, 2:] - gt[:, :2]) / 2)
+    shift = boxes[:, :2] - gt[:, :2] / 2
+    torch.testing.assert_close(shift[0], shift[1])
+    # The frame fills a 192 x 192 window; the rest of the canvas is black.
+    ox, oy = (int(round(float(v))) for v in shift[0])
+    inside = torch.zeros(384, 384, dtype=torch.bool)
+    inside[oy : oy + 192, ox : ox + 192] = True
+    assert s["image"][0, 0][~inside].abs().sum() == 0
+    if model_type == "bbox_centernet":
+        assert s["reg_mask"].sum() == 2
+    else:
+        assert (s["ssd_cls_target"] > 0).sum() >= 2
+    # Off without training augmentation (validation) and at p = 0.
+    torch.manual_seed(0)
+    off = _zoom_dataset(labels, model_type, apply_aug=False, zoom_out_p=1.0)
+    assert off.zoom_out_aug is None
+    torch.testing.assert_close(off[0]["bboxes"][:2], gt)
+    assert _zoom_dataset(labels, model_type, zoom_out_p=0.0).zoom_out_aug is None
+
+
+def test_bbox_dataset_zoom_out_frame_canvas(minimal_instance):
+    labels = sio.load_slp(minimal_instance)
+    add_bboxes_to_labels(labels)
+    ds = _zoom_dataset(
+        labels,
+        "bbox_ssd",
+        zoom_out_p=1.0,
+        zoom_out_min=0.4,
+        zoom_out_max=0.4,
+        zoom_out_canvas="frame",
+    )
+    # A zoomed frame keeps the visible boxes of its canvas too.
+    assert ds.max_instances == 4
+    counts = []
+    for seed in range(8):
+        torch.manual_seed(seed)
+        s = ds[0]
+        n = int(s["num_instances"])
+        counts.append(n)
+        assert s["bboxes"].shape == (4, 4) and 2 <= n <= 4
+        assert torch.isfinite(s["bboxes"][:n]).all()
+        assert s["bbox_classes"][:n].tolist() == [0] * n
+    assert max(counts) > 2  # some canvas boxes stay visible
+
+
+def test_bbox_zoom_out_from_config(config, minimal_instance):
+    from loguru import logger
+
+    from sleap_nn.data.custom_datasets import box_zoom_out_aug, get_train_val_datasets
+
+    labels = sio.load_slp(minimal_instance)
+    add_bboxes_to_labels(labels)
+    cfg = _bbox_train_config(config, "bbox_ssd", ".")
+    cfg.model_config.head_configs.bbox_ssd.ssd.anchor_sizes = [32.0, 64.0, 128.0]
+    assert box_zoom_out_aug(cfg) is None  # no `detr` section: no zoom-out
+    train, val = get_train_val_datasets([labels], [labels], cfg)
+    assert train.zoom_out_aug is None and val.zoom_out_aug is None
+
+    cfg.data_config.augmentation_config.detr = {"zoom_out_p": 0.4, "crop_p": 0.3}
+    from sleap_nn.config.training_job_config import verify_training_cfg
+
+    cfg = verify_training_cfg(cfg)
+    msgs = []
+    sink = logger.add(lambda m: msgs.append(m.record["message"]), level="INFO")
+    try:
+        train, val = get_train_val_datasets([labels], [labels], cfg)
+    finally:
+        logger.remove(sink)
+    assert train.zoom_out_aug.zoom_out_p == 0.4 and val.zoom_out_aug is None
+    assert any("ignored: ['crop_p']" in m for m in msgs)
+    assert any(m.startswith("Zoom-out on for training frames: p=0.4") for m in msgs)
+    cfg.data_config.use_augmentations_train = False
+    assert box_zoom_out_aug(cfg) is None
+
+
+def test_bbox_ssd_trains_with_zoom_out(config, tmp_path, monkeypatch):
+    from sleap_nn.data.custom_datasets import BBoxDataset
+    from sleap_nn.training.model_trainer import ModelTrainer
+
+    calls = []
+    zoom = BBoxDataset._zoom_out_on_frame
+
+    def counted(self, *args, **kwargs):
+        calls.append(self.apply_aug)
+        return zoom(self, *args, **kwargs)
+
+    monkeypatch.setattr(BBoxDataset, "_zoom_out_on_frame", counted)
+
+    cfg = _bbox_train_config(config, "bbox_ssd", tmp_path)
+    cfg.trainer_config.eval = {"enabled": False}
+    cfg.trainer_config.visualize_preds_during_training = False
+    cfg.trainer_config.max_epochs = 1
+    cfg.data_config.augmentation_config.detr = {
+        "zoom_out_p": 1.0,
+        "zoom_out_min": 0.3,
+        "zoom_out_canvas": "frame",
+    }
+    trainer = ModelTrainer.get_model_trainer_from_config(cfg)
+    trainer.train()
+    assert calls and all(calls)  # every training sample, never a validation one
+    saved = OmegaConf.load(tmp_path / "bbox_ssd" / "training_config.yaml")
+    assert saved.data_config.augmentation_config.detr.zoom_out_p == 1.0

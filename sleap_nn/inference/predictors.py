@@ -13,6 +13,8 @@
     classes in this file will be removed in a future release.
 """
 
+from sleap_nn.data.instance_centroids import primary_anchor_part
+from sleap_nn.data.instance_cropping import crop_hw
 import threading
 import warnings
 from collections import defaultdict
@@ -523,6 +525,7 @@ class Predictor(ABC):
                 frame["image"],
                 self.preprocess_config["max_height"],
                 self.preprocess_config["max_width"],
+                warn="info",
             )
             if self.instances_key:
                 frame["instances"] = frame["instances"] * eff_scale
@@ -882,7 +885,7 @@ class TopDownPredictor(Predictor):
                     self.confmap_config.model_config.head_configs.centered_instance.confmaps.anchor_part
                 )
             anchor_ind = (
-                self.skeletons[0].node_names.index(anch_pt)
+                self.skeletons[0].node_names.index(primary_anchor_part(anch_pt))
                 if anch_pt is not None
                 else None
             )
@@ -905,10 +908,7 @@ class TopDownPredictor(Predictor):
             )
             centroid_crop_layer = CentroidCrop(
                 use_gt_centroids=True,
-                crop_hw=(
-                    self.preprocess_config.crop_size,
-                    self.preprocess_config.crop_size,
-                ),
+                crop_hw=crop_hw(self.preprocess_config.crop_size),
                 anchor_ind=anchor_ind,
                 centroid_method=centroid_method,
                 centroid_fallback=centroid_fallback,
@@ -931,10 +931,7 @@ class TopDownPredictor(Predictor):
                 max_instances=self.max_instances,
                 max_stride=max_stride,
                 input_scale=self.centroid_scale,
-                crop_hw=(
-                    self.preprocess_config.crop_size,
-                    self.preprocess_config.crop_size,
-                ),
+                crop_hw=crop_hw(self.preprocess_config.crop_size),
                 use_gt_centroids=False,
             )
 
@@ -3312,7 +3309,7 @@ class TopDownMultiClassPredictor(Predictor):
                     self.confmap_config.model_config.head_configs.multi_class_topdown.confmaps.anchor_part
                 )
             anchor_ind = (
-                self.skeletons[0].node_names.index(anch_pt)
+                self.skeletons[0].node_names.index(primary_anchor_part(anch_pt))
                 if anch_pt is not None
                 else None
             )
@@ -3335,10 +3332,7 @@ class TopDownMultiClassPredictor(Predictor):
             )
             centroid_crop_layer = CentroidCrop(
                 use_gt_centroids=True,
-                crop_hw=(
-                    self.preprocess_config.crop_size,
-                    self.preprocess_config.crop_size,
-                ),
+                crop_hw=crop_hw(self.preprocess_config.crop_size),
                 anchor_ind=anchor_ind,
                 centroid_method=centroid_method,
                 centroid_fallback=centroid_fallback,
@@ -3361,10 +3355,7 @@ class TopDownMultiClassPredictor(Predictor):
                 max_instances=self.max_instances,
                 max_stride=max_stride,
                 input_scale=self.centroid_scale,
-                crop_hw=(
-                    self.preprocess_config.crop_size,
-                    self.preprocess_config.crop_size,
-                ),
+                crop_hw=crop_hw(self.preprocess_config.crop_size),
                 use_gt_centroids=False,
             )
 

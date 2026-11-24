@@ -1,6 +1,6 @@
 """Transformers for generating edge confidence maps and part affinity fields."""
 
-from typing import Tuple, Optional, List, Text, Iterator, Dict
+from typing import Tuple, Optional, List, Text, Iterator, Dict, Union
 import torch
 import attrs
 
@@ -321,3 +321,24 @@ def generate_pafs(
         assert pafs.shape == (n_edges * 2, grid_height, grid_width)
 
     return pafs
+
+
+def generate_edge_weights(
+    node_weights: torch.Tensor, edge_inds: Union[torch.Tensor, List[Tuple[int, int]]]
+) -> torch.Tensor:
+    """Return per-edge loss weights from per-node weights.
+
+    A part affinity field edge's weight is the product of its endpoints' weights, so
+    an edge is supervised only where both of its nodes are. With
+    ``flatten_channels=True`` PAFs, edge ``e`` owns channels ``2e`` and ``2e + 1``
+    (expand with ``repeat_interleave(2, dim=-1)``).
+
+    Args:
+        node_weights: Per-node weights of shape ``(..., n_nodes)``.
+        edge_inds: ``(n_edges, 2)`` source/destination node indices.
+
+    Returns:
+        Per-edge weights of shape ``(..., n_edges)``.
+    """
+    edge_inds = torch.as_tensor(edge_inds, dtype=torch.long).reshape(-1, 2)
+    return node_weights[..., edge_inds[:, 0]] * node_weights[..., edge_inds[:, 1]]

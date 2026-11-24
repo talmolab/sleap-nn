@@ -264,7 +264,8 @@ class TiledLayer:
             peaks, vals = find_global_peaks(
                 stitched.unsqueeze(0),  # (1, N, h, w)
                 threshold=self.inner.postprocess_config.peak_threshold,
-                refinement=self.inner.postprocess_config.effective_refinement,
+                refinement=self.inner.postprocess_config.resolve_refinement(),
+                dark_blur_sigma=self.inner.postprocess_config.dark_blur_sigma,
                 integral_patch_size=self.inner.postprocess_config.integral_patch_size,
             )  # peaks (1, N, 2) in (x, y)
 

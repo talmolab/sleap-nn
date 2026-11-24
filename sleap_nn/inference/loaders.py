@@ -19,6 +19,9 @@ from omegaconf import DictConfig, OmegaConf
 if TYPE_CHECKING:
     import sleap_io as sio
 
+from sleap_nn.data.instance_centroids import primary_anchor_part
+from sleap_nn.data.instance_cropping import crop_hw
+from sleap_nn.config.model_config import BBOX_MODEL_TYPES
 from sleap_nn.config.training_job_config import TrainingJobConfig
 from sleap_nn.config.utils import get_model_type_from_cfg, resolve_model_dir
 from sleap_nn.inference.bottomup import (
@@ -34,6 +37,7 @@ from sleap_nn.inference.topdown import (
     TopDownInferenceModel,
     TopDownMultiClassFindInstancePeaks,
 )
+from sleap_nn.inference.ops.peaks import flip_idx_from_symmetries, resolve_refinement
 from sleap_nn.inference.utils import get_skeleton_from_config
 from sleap_nn.legacy_models import load_legacy_model
 from sleap_nn.inference.segmentation import (
@@ -184,6 +188,61 @@ def _apply_ckpt_overrides(
         module.load_state_dict(ckpt["state_dict"], strict=False)
 
 
+def _refuse_unloadable_export(model_dir: str, n_paths: Optional[int] = None) -> None:
+    """Stop, saying what to do, on an export folder the loader cannot run.
+
+    Runs before the folder's training config is read, so the message names the
+    folder's kind (an export bundle has no ``training_config.yaml`` of its own).
+    A folder holding ``best.ckpt`` (or a SLEAP ``best_model.h5``) loads its
+    checkpoint and a folder holding a network-only export runs it; neither is
+    refused here.
+
+    Args:
+        model_dir: A resolved model directory.
+        n_paths: How many model paths were given (``1`` names the export-directory
+            route as the way to run a fused export), or ``None`` if unknown.
+    """
+    from sleap_nn.inference.exported_network import _holds_network_export
+
+    d = Path(model_dir)
+    if not d.is_dir() or (d / "best.ckpt").exists() or (d / "best_model.h5").exists():
+        return
+    graph = next((g for g in ("model.onnx", "model.trt") if (d / g).exists()), None)
+    if not (d / "export_metadata.json").exists():
+        if graph is not None:
+            raise ValueError(
+                f"{model_dir} holds {graph} but no export_metadata.json and no "
+                "best.ckpt: it is neither a trained model directory nor a "
+                "directory written by `sleap-nn export`. Re-export the model, or "
+                "pass its checkpoint directory."
+            )
+        return
+    if graph is None:
+        raise ValueError(
+            f"{model_dir} holds export_metadata.json but no model.onnx or model.trt "
+            "(and no best.ckpt): copy the graph file back next to the metadata, "
+            "re-export the model, or pass its checkpoint directory."
+        )
+    if _holds_network_export(d):
+        return
+    if n_paths == 1:
+        raise ValueError(
+            f"{model_dir} is an exported model with its post-processing in the "
+            "graph; as a model path (also as a part model and in open_stream) an "
+            "export must be network-only (`sleap-nn export --network-only`, box "
+            "detectors always are). To run it on its own, pass it as an export "
+            f"directory: `sleap-nn predict -m {model_dir}`, or from Python "
+            "`predict(..., export_dir=...)` / `Predictor.from_export_dir(...)`."
+        )
+    raise ValueError(
+        f"{model_dir} is an exported model with its post-processing in the "
+        "graph; among several model paths (and in open_stream) an export "
+        "must be network-only (`sleap-nn export --network-only`, box "
+        "detectors always are). Pass the checkpoint directory, or run a "
+        "single exported model directory on its own."
+    )
+
+
 def _load_lightning_module(
     cls: type,
     ckpt_dir: str,
@@ -198,8 +257,25 @@ def _load_lightning_module(
     Returns:
         ``(module, config, backbone_type)``
     """
+    from sleap_nn.inference.exported_network import (
+        EXPORT_RUNTIME,
+        ExportedNetwork,
+        is_network_export,
+    )
+
+    _refuse_unloadable_export(ckpt_dir)
     config, is_legacy = _load_training_config(ckpt_dir)
     backbone_type = _detect_backbone_type(config)
+    if is_network_export(ckpt_dir):
+        # A network-only export directory stands in for the checkpoint: same
+        # config (copied next to the graph), same forward contract.
+        if backbone_ckpt_path is not None or head_ckpt_path is not None:
+            raise ValueError(
+                f"{ckpt_dir} is an exported network; backbone / head checkpoint "
+                "overrides apply to checkpoint directories only."
+            )
+        module = ExportedNetwork(ckpt_dir, runtime=EXPORT_RUNTIME.get(), device=device)
+        return module, config, backbone_type
     kwargs = _common_lightning_kwargs(config, backbone_type, model_type)
 
     if not is_legacy:
@@ -292,7 +368,9 @@ def _resolve_centroid_method(head_config: Any, anchor_override: Optional[str] = 
 def _resolve_preprocess_config(preprocess_config: Any, training_config: Any) -> Any:
     """Fill ``None`` fields in *preprocess_config* from the training config.
 
-    Mirrors the resolution loop in every legacy ``from_trained_models``.
+    Mirrors the resolution loop in every legacy ``from_trained_models``. The
+    resize mode has no override and always comes from the training config: a
+    model trained on squashed frames must see squashed frames.
     """
     for k, v in preprocess_config.items():
         if v is None:
@@ -301,6 +379,11 @@ def _resolve_preprocess_config(preprocess_config: Any, training_config: Any) -> 
                 if k in training_config.data_config.preprocessing
                 else None
             )
+    preprocess_config["resize_mode"] = OmegaConf.select(
+        training_config,
+        "data_config.preprocessing.resize_mode",
+        default="letterbox",
+    )
     return preprocess_config
 
 
@@ -338,10 +421,13 @@ def _build_single_instance(
         torch_model=module,
         peak_threshold=peak_threshold,
         output_stride=config.model_config.head_configs.single_instance.confmaps.output_stride,
-        refinement=integral_refinement,
+        refinement=resolve_refinement(integral_refinement),
         integral_patch_size=integral_patch_size,
         return_confmaps=return_confmaps,
         input_scale=preprocess_config.scale,
+        dark_blur_sigma=float(
+            config.model_config.head_configs.single_instance.confmaps.sigma
+        ),
     )
     return LoadedAssets(
         inference_model=inference_model,
@@ -371,6 +457,8 @@ def _build_bottomup(
     min_instance_peaks: Union[int, float] = 0,
     min_line_scores: float = 0.25,
 ) -> LoadedAssets:
+    # Bottom-up finds local peaks: "dark"/"local" raise here, before loading.
+    refinement = resolve_refinement(integral_refinement, peaks="local")
     module, config, backbone_type = _load_lightning_module(
         BottomUpLightningModule,
         ckpt_path,
@@ -406,7 +494,7 @@ def _build_bottomup(
         peak_threshold=peak_threshold,
         cms_output_stride=config.model_config.head_configs.bottomup.confmaps.output_stride,
         pafs_output_stride=config.model_config.head_configs.bottomup.pafs.output_stride,
-        refinement=integral_refinement,
+        refinement=refinement,
         integral_patch_size=integral_patch_size,
         return_confmaps=return_confmaps,
         input_scale=preprocess_config.scale,
@@ -434,6 +522,8 @@ def _build_bottomup_multiclass(
     return_confmaps: bool,
     preprocess_config: Any,
 ) -> LoadedAssets:
+    # Bottom-up finds local peaks: "dark"/"local" raise here, before loading.
+    refinement = resolve_refinement(integral_refinement, peaks="local")
     module, config, backbone_type = _load_lightning_module(
         BottomUpMultiClassLightningModule,
         ckpt_path,
@@ -451,7 +541,7 @@ def _build_bottomup_multiclass(
         peak_threshold=peak_threshold,
         cms_output_stride=config.model_config.head_configs.multi_class_bottomup.confmaps.output_stride,
         class_maps_output_stride=config.model_config.head_configs.multi_class_bottomup.class_maps.output_stride,
-        refinement=integral_refinement,
+        refinement=refinement,
         integral_patch_size=integral_patch_size,
         return_confmaps=return_confmaps,
         input_scale=preprocess_config.scale,
@@ -645,7 +735,7 @@ def _build_bbox(
     max_instances: Optional[int] = None,
     nms_iou: Optional[float] = None,
 ) -> LoadedAssets:
-    """Load a ``bbox_centernet`` / ``bbox_ssd`` detector and wrap it for inference.
+    """Load a ``bbox_*`` detector and wrap it for inference.
 
     ``peak_threshold`` is the detection score threshold and ``max_instances`` caps
     detections per frame (default 100). ``nms_iou`` is the class-wise IoU-NMS
@@ -659,14 +749,15 @@ def _build_bbox(
     from sleap_nn.inference.bbox import BBoxDecoder, BBoxInferenceModel
     from sleap_nn.training.lightning_modules import (
         BBoxCenterNetLightningModule,
+        BBoxDetrLightningModule,
         BBoxSSDLightningModule,
     )
 
-    cls = (
-        BBoxCenterNetLightningModule
-        if model_type == "bbox_centernet"
-        else BBoxSSDLightningModule
-    )
+    cls = {
+        "bbox_centernet": BBoxCenterNetLightningModule,
+        "bbox_ssd": BBoxSSDLightningModule,
+        "bbox_detr": BBoxDetrLightningModule,
+    }[model_type]
     module, config, backbone_type = _load_lightning_module(
         cls,
         ckpt_path,
@@ -875,7 +966,7 @@ def _build_topdown_embedding(
     if centroid_config is None:
         centroid_crop = CentroidCrop(
             use_gt_centroids=True,
-            crop_hw=(preprocess_config.crop_size, preprocess_config.crop_size),
+            crop_hw=crop_hw(preprocess_config.crop_size),
             anchor_ind=anchor_ind,
             centroid_method=centroid_method,
             centroid_fallback=centroid_fallback,
@@ -889,14 +980,14 @@ def _build_topdown_embedding(
             torch_model=centroid_model,
             peak_threshold=centroid_peak_threshold,
             output_stride=centroid_config.model_config.head_configs.centroid.confmaps.output_stride,
-            refinement=integral_refinement,
+            refinement=resolve_refinement(integral_refinement, peaks="centroid"),
             integral_patch_size=integral_patch_size,
             return_confmaps=return_confmaps,
             return_crops=True,
             max_instances=max_instances,
             max_stride=max_stride_centroid,
             input_scale=centroid_config.data_config.preprocessing.scale,
-            crop_hw=(preprocess_config.crop_size, preprocess_config.crop_size),
+            crop_hw=crop_hw(preprocess_config.crop_size),
             use_gt_centroids=False,
             anchor_ind=anchor_ind,
             centroid_method=centroid_method,
@@ -928,6 +1019,38 @@ def _build_topdown_embedding(
     )
 
 
+def _flip_test_idx(skeleton: Any, part_names: Optional[List[str]]) -> torch.Tensor:
+    """Confmap-channel permutation for flip-test, from the skeleton symmetries.
+
+    Channels follow the head's ``part_names`` (the skeleton's node order when
+    unset); symmetry pairs with a node the head does not predict are skipped.
+    Without any symmetries the mirrored confmaps are averaged channel for
+    channel, which is right only when no node has a left/right partner, so
+    this warns.
+
+    Args:
+        skeleton: The model's ``sio.Skeleton``.
+        part_names: The confmap head's ``part_names`` (``None``: skeleton nodes).
+
+    Returns:
+        ``(n_channels,)`` long permutation (see :func:`flip_idx_from_symmetries`).
+    """
+    names = list(part_names) if part_names else [n.name for n in skeleton.nodes]
+    pairs = []
+    for symmetry in getattr(skeleton, "symmetries", None) or []:
+        node_a, node_b = (node.name for node in symmetry)
+        if node_a in names and node_b in names:
+            pairs.append((names.index(node_a), names.index(node_b)))
+    if not pairs:
+        logger.warning(
+            "flip_test: the skeleton has no symmetries, so the mirrored confmaps "
+            "are averaged without swapping any left/right nodes. This is only "
+            "correct if no node has a left/right partner; otherwise define the "
+            "symmetries in the skeleton and retrain, or turn flip_test off."
+        )
+    return flip_idx_from_symmetries(len(names), pairs)
+
+
 def _build_topdown(
     centroid_ckpt_path: Optional[str],
     confmap_ckpt_path: Optional[str],
@@ -942,6 +1065,7 @@ def _build_topdown(
     return_confmaps: bool,
     preprocess_config: Any,
     anchor_part: Optional[str],
+    flip_test: bool = False,
 ) -> LoadedAssets:
     if isinstance(peak_threshold, list):
         centroid_peak_threshold = peak_threshold[0]
@@ -1033,7 +1157,9 @@ def _build_topdown(
                 confmap_config.model_config.head_configs.centered_instance.confmaps.anchor_part
             )
         anchor_ind = (
-            skeletons[0].node_names.index(anch_pt) if anch_pt is not None else None
+            skeletons[0].node_names.index(primary_anchor_part(anch_pt))
+            if anch_pt is not None
+            else None
         )
     # Crop geometry follows the crop-CONSUMING model when there is one, else the
     # centroid model's own config (#586).
@@ -1055,7 +1181,7 @@ def _build_topdown(
     if centroid_config is None:
         centroid_crop = CentroidCrop(
             use_gt_centroids=True,
-            crop_hw=(preprocess_config.crop_size, preprocess_config.crop_size),
+            crop_hw=crop_hw(preprocess_config.crop_size),
             anchor_ind=anchor_ind,
             centroid_method=centroid_method,
             centroid_fallback=centroid_fallback,
@@ -1069,14 +1195,14 @@ def _build_topdown(
             torch_model=centroid_model,
             peak_threshold=centroid_peak_threshold,
             output_stride=centroid_config.model_config.head_configs.centroid.confmaps.output_stride,
-            refinement=integral_refinement,
+            refinement=resolve_refinement(integral_refinement, peaks="centroid"),
             integral_patch_size=integral_patch_size,
             return_confmaps=return_confmaps,
             return_crops=return_crops,
             max_instances=max_instances,
             max_stride=max_stride_centroid,
             input_scale=centroid_scale,
-            crop_hw=(preprocess_config.crop_size, preprocess_config.crop_size),
+            crop_hw=crop_hw(preprocess_config.crop_size),
             use_gt_centroids=False,
             anchor_ind=anchor_ind,
             centroid_method=centroid_method,
@@ -1090,15 +1216,26 @@ def _build_topdown(
         max_stride_inst = confmap_config.model_config.backbone_config[
             centered_instance_backbone_type
         ]["max_stride"]
+        ci_confmaps = (
+            confmap_config.model_config.head_configs.centered_instance.confmaps
+        )
         instance_peaks = FindInstancePeaks(
             torch_model=confmap_model,
             peak_threshold=centered_instance_peak_threshold,
-            output_stride=confmap_config.model_config.head_configs.centered_instance.confmaps.output_stride,
-            refinement=integral_refinement,
+            output_stride=ci_confmaps.output_stride,
+            # Top-down keypoints default to DARK, blurred with the training sigma.
+            refinement=resolve_refinement(integral_refinement, auto="dark"),
             integral_patch_size=integral_patch_size,
             return_confmaps=return_confmaps,
             max_stride=max_stride_inst,
             input_scale=confmap_scale,
+            dark_blur_sigma=float(ci_confmaps.sigma),
+            flip_test=flip_test,
+            flip_idx=(
+                _flip_test_idx(skeletons[0], ci_confmaps.part_names)
+                if flip_test
+                else None
+            ),
         )
 
     inference_model = TopDownInferenceModel(
@@ -1229,7 +1366,7 @@ def _build_topdown_segmentation(
     if centroid_config is None:
         centroid_crop = CentroidCrop(
             use_gt_centroids=True,
-            crop_hw=(preprocess_config.crop_size, preprocess_config.crop_size),
+            crop_hw=crop_hw(preprocess_config.crop_size),
             anchor_ind=anchor_ind,
             centroid_method=centroid_method,
             centroid_fallback=centroid_fallback,
@@ -1243,14 +1380,14 @@ def _build_topdown_segmentation(
             torch_model=centroid_model,
             peak_threshold=centroid_peak_threshold,
             output_stride=centroid_config.model_config.head_configs.centroid.confmaps.output_stride,
-            refinement=integral_refinement,
+            refinement=resolve_refinement(integral_refinement, peaks="centroid"),
             integral_patch_size=integral_patch_size,
             return_confmaps=return_confmaps,
             return_crops=True,
             max_instances=max_instances,
             max_stride=max_stride_centroid,
             input_scale=centroid_scale,
-            crop_hw=(preprocess_config.crop_size, preprocess_config.crop_size),
+            crop_hw=crop_hw(preprocess_config.crop_size),
             use_gt_centroids=False,
             anchor_ind=anchor_ind,
             centroid_method=centroid_method,
@@ -1381,7 +1518,9 @@ def _build_topdown_multiclass(
                 confmap_config.model_config.head_configs.multi_class_topdown.confmaps.anchor_part
             )
         anchor_ind = (
-            skeletons[0].node_names.index(anch_pt) if anch_pt is not None else None
+            skeletons[0].node_names.index(primary_anchor_part(anch_pt))
+            if anch_pt is not None
+            else None
         )
     _crop_head = (
         confmap_config.model_config.head_configs.multi_class_topdown.confmaps
@@ -1400,7 +1539,7 @@ def _build_topdown_multiclass(
     if centroid_config is None:
         centroid_crop = CentroidCrop(
             use_gt_centroids=True,
-            crop_hw=(preprocess_config.crop_size, preprocess_config.crop_size),
+            crop_hw=crop_hw(preprocess_config.crop_size),
             anchor_ind=anchor_ind,
             centroid_method=centroid_method,
             centroid_fallback=centroid_fallback,
@@ -1414,14 +1553,14 @@ def _build_topdown_multiclass(
             torch_model=centroid_model,
             peak_threshold=centroid_peak_threshold,
             output_stride=centroid_config.model_config.head_configs.centroid.confmaps.output_stride,
-            refinement=integral_refinement,
+            refinement=resolve_refinement(integral_refinement, peaks="centroid"),
             integral_patch_size=integral_patch_size,
             return_confmaps=return_confmaps,
             return_crops=return_crops,
             max_instances=max_instances,
             max_stride=max_stride_centroid,
             input_scale=centroid_scale,
-            crop_hw=(preprocess_config.crop_size, preprocess_config.crop_size),
+            crop_hw=crop_hw(preprocess_config.crop_size),
             use_gt_centroids=False,
             anchor_ind=anchor_ind,
             centroid_method=centroid_method,
@@ -1435,11 +1574,15 @@ def _build_topdown_multiclass(
         torch_model=confmap_model,
         peak_threshold=centered_instance_peak_threshold,
         output_stride=confmap_config.model_config.head_configs.multi_class_topdown.confmaps.output_stride,
-        refinement=integral_refinement,
+        # Top-down keypoints default to DARK, blurred with the training sigma.
+        refinement=resolve_refinement(integral_refinement, auto="dark"),
         integral_patch_size=integral_patch_size,
         return_confmaps=return_confmaps,
         max_stride=max_stride_inst,
         input_scale=confmap_scale,
+        dark_blur_sigma=float(
+            confmap_config.model_config.head_configs.multi_class_topdown.confmaps.sigma
+        ),
     )
 
     inference_model = TopDownInferenceModel(
@@ -1467,7 +1610,7 @@ def load_model_assets(
     backbone_ckpt_path: Optional[str] = None,
     head_ckpt_path: Optional[str] = None,
     peak_threshold: Union[float, List[float]] = 0.2,
-    integral_refinement: str = "integral",
+    integral_refinement: str = "auto",
     integral_patch_size: int = 5,
     max_instances: Optional[int] = None,
     return_confmaps: bool = False,
@@ -1494,6 +1637,9 @@ def load_model_assets(
     mask_output: str = "mask",
     polygon_epsilon: float = 0.01,
     bbox_nms_iou: Optional[float] = None,
+    flip_test: bool = False,
+    node_filter: Optional[Union[str, List[str]]] = None,
+    strip_prefix: Optional[Union[bool, str]] = None,
 ) -> tuple[LoadedAssets, List[str]]:
     """Load checkpoints and build inference models.
 
@@ -1508,6 +1654,28 @@ def load_model_assets(
     other model types. Likewise ``fg_threshold`` / ``min_mask_area`` are
     forwarded ONLY to the bottom-up segmentation builder, and ``bbox_nms_iou``
     only to the ``bbox_*`` detector builder.
+
+    ``integral_refinement`` is resolved per stage
+    (:func:`~sleap_nn.inference.ops.peaks.resolve_refinement`): ``"auto"`` is
+    DARK for the top-down keypoint stage (``centered_instance`` /
+    ``multi_class_topdown``) and integral regression everywhere else.
+    ``flip_test`` (centered-instance models only) runs the centered-instance
+    model on mirrored crops too and averages the confmaps, swapping the
+    skeleton's symmetric nodes.
+
+    ``node_filter`` (``single_instance`` / ``centered_instance`` only) keeps a
+    subset of the confmap channels: a list of node names, or a string prefix such
+    as ``"lab_a/"``. The confmap head's output conv is sliced to those channels
+    (the others are never computed) and the skeleton restricted to them, with
+    their edges and symmetries and the flip-test permutation recomputed;
+    ``strip_prefix`` (``True``: the filter's prefix, or a string) renames the
+    output nodes. See :mod:`sleap_nn.inference.node_filter`.
+
+    Raises:
+        ValueError: On an unknown ``integral_refinement``, ``"dark"`` /
+            ``"local"`` with a bottom-up model, ``flip_test`` without a
+            ``centered_instance`` model, or a ``node_filter`` that selects nothing
+            or targets another model type.
 
     Returns:
         ``(loaded_assets, model_types)`` — *model_types* is the list of
@@ -1530,6 +1698,8 @@ def load_model_assets(
     # detection/dispatch (the builders below index back into model_paths and join
     # `best.ckpt` onto it). #575.
     model_paths = [resolve_model_dir(mp) for mp in model_paths]
+    for mp in model_paths:
+        _refuse_unloadable_export(mp, n_paths=len(model_paths))
 
     model_types: List[str] = []
     configs: List[Any] = []
@@ -1546,6 +1716,13 @@ def load_model_assets(
     # consumed by whichever branch below ends up winning -- would need
     # dispatch-branch-aware validation; that's a separate, bigger follow-up,
     # not covered here.)
+    resolve_refinement(integral_refinement)  # unknown names fail before loading
+    if flip_test and "centered_instance" not in model_types:
+        raise ValueError(
+            "flip_test is implemented for top-down centered_instance models only; "
+            f"detected types: {model_types}."
+        )
+
     _seen_type_paths: dict = {}
     for mp, mt in zip(model_paths, model_types):
         if mt in _seen_type_paths:
@@ -1634,15 +1811,16 @@ def load_model_assets(
             **common_kwargs,
         )
 
-    elif "bbox_centernet" in model_types or "bbox_ssd" in model_types:
+    elif set(BBOX_MODEL_TYPES) & set(model_types):
         # Whole-frame bounding-box detectors. Alone they are single-stage; with a
         # crop-consuming top-down model they replace the centroid model as stage 1.
-        model_type = "bbox_centernet" if "bbox_centernet" in model_types else "bbox_ssd"
-        if "bbox_centernet" in model_types and "bbox_ssd" in model_types:
+        detectors = [t for t in BBOX_MODEL_TYPES if t in model_types]
+        if len(detectors) > 1:
             raise ValueError(
-                "Got two bounding-box detectors (bbox_centernet and bbox_ssd); pass "
+                f"Got two bounding-box detectors ({' and '.join(detectors)}); pass "
                 "one."
             )
+        model_type = detectors[0]
         path = model_paths[model_types.index(model_type)]
         stage_2 = [t for t in BBOX_STAGE_2_MODEL_TYPES if t in model_types]
         detector_kwargs = dict(common_kwargs)
@@ -1685,11 +1863,14 @@ def load_model_assets(
                 "multi_class_topdown": _build_topdown_multiclass,
             }.get(stage_2[0])
             if builder is not None:
+                # flip_test is a centered_instance (_build_topdown) knob.
+                extra = {"flip_test": flip_test} if builder is _build_topdown else {}
                 assets = builder(
                     None,
                     stage_2_path,
                     max_instances=max_instances,
                     anchor_part=anchor_part,
+                    **extra,
                     **common_kwargs,
                 )
             else:
@@ -1768,6 +1949,7 @@ def load_model_assets(
                 confmap_path,
                 max_instances=max_instances,
                 anchor_part=anchor_part,
+                flip_test=flip_test,
                 **common_kwargs,
             )
         elif "multi_class_topdown" in model_types:
@@ -1794,6 +1976,13 @@ def load_model_assets(
             f"Detected types: {model_types}"
         )
 
+    if node_filter is not None:
+        from sleap_nn.inference.node_filter import apply_node_filter
+
+        apply_node_filter(assets, model_types, node_filter, strip_prefix)
+    elif strip_prefix not in (None, False):
+        raise ValueError("strip_prefix needs a node_filter.")
+
     _check_crop_stage(assets, model_types)
     return assets, model_types
 
@@ -1804,6 +1993,36 @@ BBOX_STAGE_2_MODEL_TYPES = (
     "multi_class_topdown",
     "centered_instance_segmentation",
 )
+
+
+def _padding_difference_detail(det_cfg, crop_cfg, det_val, crop_val) -> str:
+    """Describe how a ``bbox_padding`` difference changes the crop model's boxes.
+
+    ``bbox_padding`` is added on every side of boxes derived from keypoints or
+    masks, never to user-drawn boxes, so a size is stated only when both models
+    derive their boxes (``bbox_source`` of ``instances`` or ``masks``).
+    """
+    sources = {
+        OmegaConf.select(c, "data_config.bbox_source", default="auto") or "auto"
+        for c in (det_cfg, crop_cfg)
+    }
+    if not sources <= {"instances", "masks"}:
+        return (
+            "where boxes are derived from keypoints or masks (padding is not added "
+            "to user-drawn boxes), the detector's boxes and the boxes the crop "
+            "model was trained on differ in size, so crops are scaled differently "
+            "from training"
+        )
+    try:
+        grow = 2 * (float(det_val or 0.0) - float(crop_val or 0.0))
+    except (TypeError, ValueError):
+        return "the boxes differ in size, so crops are scaled differently from training"
+    return (
+        f"each side of the detector's boxes is about {abs(grow):g} px "
+        f"{'longer' if grow > 0 else 'shorter'} than in the boxes the crop model was "
+        "trained on, so each animal fills its crop "
+        f"{'less' if grow > 0 else 'more'} than in training"
+    )
 
 
 def _check_crop_stage(assets: LoadedAssets, model_types: List[str]) -> None:
@@ -1831,7 +2050,8 @@ def _check_crop_stage(assets: LoadedAssets, model_types: List[str]) -> None:
         raise ValueError(
             "This centered-instance model crops each instance's bounding box "
             "(preprocessing.crop_mode='bbox'), so its first stage must be a "
-            "bbox_centernet / bbox_ssd detector, not a centroid model (or run it "
+            "bbox_centernet / bbox_ssd / bbox_detr detector, not a centroid model "
+            "(or run it "
             "alone on labeled frames to use ground-truth boxes)."
         )
     detector = assets.detector_assets
@@ -1840,17 +2060,43 @@ def _check_crop_stage(assets: LoadedAssets, model_types: List[str]) -> None:
     det_cfg = detector.bottomup_config
     if det_cfg is None:
         return
+    # A crop model trained on a detector's own boxes (warp path) shares its boxes.
+    trained_on_detector = (
+        OmegaConf.select(crop_cfg, "data_config.preprocessing.crop_pipeline") == "warp"
+        and OmegaConf.select(crop_cfg, "data_config.preprocessing.crop_bbox_source")
+        == "detector"
+    )
+    sources = [
+        OmegaConf.select(c, "data_config.bbox_source", default="auto") or "auto"
+        for c in (det_cfg, crop_cfg)
+    ]
     for key, default in (("bbox_source", "auto"), ("bbox_padding", 0.0)):
+        if trained_on_detector:
+            break
         det_val = OmegaConf.select(det_cfg, f"data_config.{key}", default=default)
         crop_val = OmegaConf.select(crop_cfg, f"data_config.{key}", default=default)
         if key == "bbox_source" and "auto" in (det_val, crop_val):
             continue  # resolved per labels file; only explicit values compare
+        if key == "bbox_padding":
+            if sources == ["bboxes", "bboxes"]:
+                continue  # padding is never added to user-drawn boxes
+            det_val, crop_val = (float(v or 0.0) for v in (det_val, crop_val))
         if spec is not None and det_val != crop_val:
+            if key == "bbox_padding":
+                detail = _padding_difference_detail(
+                    det_cfg, crop_cfg, det_val, crop_val
+                )
+            else:
+                detail = (
+                    "the two models define boxes differently, so crops are scaled "
+                    "differently from training"
+                )
             logger.warning(
                 f"The detector was trained with data_config.{key}={det_val!r} but "
                 f"the box-scaled centered-instance model with {key}={crop_val!r}: "
-                "their boxes differ, so crops will be scaled differently from "
-                "training."
+                f"{detail}. This is expected only if the two models were trained "
+                f"with different {key} on purpose (see the box-scaled top-down "
+                "guide)."
             )
     if spec is None:
         from sleap_nn.data.instance_centroids import centroid_method_from_config

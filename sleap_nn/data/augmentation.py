@@ -5,12 +5,37 @@ Uses Skia (skia-python) for ~1.5x faster augmentation compared to Kornia.
 
 from typing import Optional, Sequence, Tuple
 import torch
+from loguru import logger
 
 from sleap_nn.data.skia_augmentation import (
     apply_intensity_augmentation_skia,
     apply_geometric_augmentation_skia,
     apply_flip_augmentation_skia,
 )
+
+_WARNED_WARP_ONLY = set()
+
+
+def _ignore_warp_only(kwargs: dict) -> None:
+    """Accept (and warn once about) `crop_pipeline="warp"`-only augmentation keys.
+
+    The config carries keys (half-body, HSV, blur, coarse dropout, ...) that only the
+    warp pipeline (:mod:`sleap_nn.data.topdown_warp`) implements; the datasets
+    splat whole config sections into these functions, so they must accept them.
+    """
+    active = sorted(
+        k
+        for k, v in kwargs.items()
+        if (k.endswith("_p") and v)
+        or (k == "affine_sampling" and v not in (None, "uniform"))
+    )
+    new = [k for k in active if k not in _WARNED_WARP_ONLY]
+    if new:
+        _WARNED_WARP_ONLY.update(new)
+        logger.warning(
+            f"{new} are only implemented by preprocessing.crop_pipeline='warp' "
+            "(centered_instance); ignored by this pipeline."
+        )
 
 
 def apply_flip_augmentation(
@@ -19,6 +44,7 @@ def apply_flip_augmentation(
     symmetric_inds: Optional[Sequence[Tuple[int, int]]] = None,
     flip_p: float = 0.0,
     masks: Optional[torch.Tensor] = None,
+    node_weights: Optional[torch.Tensor] = None,
 ) -> Tuple[torch.Tensor, ...]:
     """Randomly mirror an image and keypoints left/right, swapping symmetric pairs.
 
@@ -36,11 +62,14 @@ def apply_flip_augmentation(
         masks: Optional segmentation masks of shape ``(n_samples, K, H, W)`` to mirror
             under the SAME flip draw. When provided, the return tuple gains a third
             element holding the mirrored masks. Default: None.
+        node_weights: Optional per-node loss weights (node axis last), swapped with
+            the symmetric pairs under the SAME flip draw. When provided, the return
+            tuple gains a trailing element holding them. Default: None.
 
     Returns:
-        ``(image, instances)`` when ``masks`` is ``None``, else
-        ``(image, instances, masks)`` with the flip applied (or unchanged inputs when
-        not applied). NaN keypoints are preserved.
+        ``(image, instances)``, plus ``masks`` and/or ``node_weights`` (in that
+        order) when given, with the flip applied (or unchanged inputs when not
+        applied). NaN keypoints are preserved.
     """
     return apply_flip_augmentation_skia(
         image=image,
@@ -48,6 +77,7 @@ def apply_flip_augmentation(
         symmetric_inds=symmetric_inds,
         flip_p=flip_p,
         masks=masks,
+        node_weights=node_weights,
     )
 
 
@@ -66,6 +96,7 @@ def apply_intensity_augmentation(
     brightness_min: Optional[float] = 0.9,
     brightness_max: Optional[float] = 1.1,
     brightness_p: float = 0.0,
+    **warp_only,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """Apply intensity augmentation on image and instances.
 
@@ -84,10 +115,13 @@ def apply_intensity_augmentation(
         brightness_min: Minimum brightness factor to apply. Default: 1.0.
         brightness_max: Maximum brightness factor to apply. Default: 1.0.
         brightness_p: Probability of applying random brightness.
+        **warp_only: Keys only ``crop_pipeline="warp"`` implements (HSV, blur,
+            ...); accepted and warned about once when active.
 
     Returns:
         Returns tuple: (image, instances) with augmentation applied.
     """
+    _ignore_warp_only(warp_only)
     return apply_intensity_augmentation_skia(
         image=image,
         instances=instances,
@@ -130,6 +164,8 @@ def apply_geometric_augmentation(
     flip_p: float = 0.0,
     symmetric_inds: Optional[Sequence[Tuple[int, int]]] = None,
     masks: Optional[torch.Tensor] = None,
+    node_weights: Optional[torch.Tensor] = None,
+    **warp_only,
 ) -> Tuple[torch.Tensor, ...]:
     """Apply geometric augmentation on image and instances.
 
@@ -168,11 +204,17 @@ def apply_geometric_augmentation(
             flip/affine transform (nearest-neighbor, re-binarized). Erase/mixup are
             image-only. When provided, the return tuple gains a third element holding
             the co-transformed masks. Default: None.
+        node_weights: Optional per-node loss weights (node axis last), swapped with
+            the symmetric pairs when the sample is flipped. When provided, the
+            return tuple gains a trailing element holding them. Default: None.
+        **warp_only: Keys only ``crop_pipeline="warp"`` implements (half-body,
+            coarse dropout, ...); accepted and warned about once when active.
 
     Returns:
-        ``(image, instances)`` when ``masks`` is ``None``, else
-        ``(image, instances, masks)`` with augmentation applied.
+        ``(image, instances)`` with augmentation applied, plus ``masks`` and/or
+        ``node_weights`` (in that order) when given.
     """
+    _ignore_warp_only(warp_only)
     return apply_geometric_augmentation_skia(
         image=image,
         instances=instances,
@@ -197,4 +239,5 @@ def apply_geometric_augmentation(
         flip_p=flip_p,
         symmetric_inds=symmetric_inds,
         masks=masks,
+        node_weights=node_weights,
     )

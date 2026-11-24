@@ -119,6 +119,8 @@ def _run_new(models, source, n, device, peak_threshold, max_instances):
         batch_size=n,
         peak_threshold=peak_threshold,
         max_instances=max_instances,
+        # Legacy decodes with integral regression; top-down now defaults to DARK.
+        integral_refinement="integral",
     )
     video = sio.load_video(str(source))
     skel = sio.Skeleton(nodes=[sio.Node(f"n{i}") for i in range(2)])

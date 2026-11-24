@@ -21,6 +21,10 @@ Works with:
 
 - Legacy SLEAP `.h5` files (UNet only)
 
+To grow or reorder the skeleton, re-initialize parts of the model, or load into a
+model that differs in places, use `model_config.init_from`; see
+[Initializing from Another Model](init-from.md).
+
 ---
 
 ## Resume Training
@@ -53,6 +57,19 @@ To resume with a different config file, set the checkpoint directly:
 sleap-nn train --config config.yaml \
     trainer_config.resume_ckpt_path=/path/to/checkpoint.ckpt
 ```
+
+What a resumed run continues and what it starts again:
+
+- The step count, the learning-rate schedule, a `freeze_schedule` and weight
+  averaging (`ema`) continue from the checkpoint.
+- `balanced_sampler` continues its stream where the checkpoint left it, also
+  from `last.ckpt` / `best.ckpt`. Multi-GPU runs and the other epoch-aware
+  samplers continue with the resumed epoch's order.
+- On one device without `balanced_sampler`, the run is seeded with
+  `trainer_config.seed` again, so its first resumed epoch repeats the order and
+  augmentation draws of the original run's first epoch. Set
+  `trainer_config.reseed_on_resume: true` to seed it with `seed + epoch`
+  instead (off by default, so resumed runs train as in earlier releases).
 
 !!! warning "Ensure the same seed when resuming"
     The train/val split is regenerated on resume — it is **not** saved in the checkpoint. If you change `trainer_config.seed` between runs (default: `42`), you will get a different split, which can leak training data into validation. Always use the same seed as the original run. `sleap-nn` will warn you if it detects a mismatch.

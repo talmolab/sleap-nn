@@ -2,8 +2,10 @@
 
 Train a whole-frame **object detector** that predicts one axis-aligned box (and a
 class) per animal, and write the predictions to `.slp` as
-`sio.PredictedBoundingBox` on `LabeledFrame.bboxes`. Two detection styles share one
-data pipeline, one output type and one COCO-style evaluation:
+`sio.PredictedBoundingBox` on `LabeledFrame.bboxes`. Two dense detection styles share one
+data pipeline, one output type and one COCO-style evaluation (a third,
+`bbox_detr`, predicts a set of boxes with a pretrained ViT and no NMS: see the
+[DETR box detector guide](bbox-detr.md)):
 
 | | `bbox_centernet` (CenterNet-style) | `bbox_ssd` (SSD-style) |
 |---|---|---|
@@ -113,7 +115,20 @@ Notes:
   Prefer **little or no rotation**: the axis-aligned box of rotated corners is larger
   than the rotated animal, so rotation inflates the targets. Scale, translation and
   `flip_p` are exact.
-- **Tiling** is not supported for detectors yet (a clear error is raised).
+- **Zoom-out:** the `zoom_out_*` keys of `augmentation_config.detr` work here as for
+  `bbox_detr`: with probability `zoom_out_p` a training frame is shrunk onto a black
+  canvas, or onto another training frame (`zoom_out_canvas: frame`), so the detector
+  sees animals smaller than the labels show. Off by default; the section's other
+  keys are `bbox_detr` only.
+
+  ```yaml
+  data_config:
+    augmentation_config:
+      detr: {zoom_out_p: 0.4, zoom_out_min: 0.3, zoom_out_max: 1.0, zoom_out_canvas: frame}
+  ```
+- **Tiling** is not supported for detectors in `sleap-nn predict` yet (a clear error
+  is raised). `sleap-nn detect-boxes --tile_width` has a full-height tiled mode for
+  wide panoramas (see [detector-box crops](warp-data-path.md#detector-box-crops)).
 
 ## Training and monitoring
 
@@ -147,7 +162,88 @@ config; it takes `bbox_source=` / `bbox_padding=` and, like `sleap-nn train`, de
 After training, when checkpoints are saved (`trainer_config.save_ckpt: true`),
 every split (and `data_config.test_file_path`) is predicted and evaluated
 automatically; metrics are saved as `metrics.<split>.npz/.json` and
-logged to the wandb summary as `eval/<split>/bbox_*` (plus `predict_fps`).
+logged to the wandb summary as `eval/<split>/bbox_*` (plus `predict_fps`). Val and
+test run first. For a large training set, skip the train split
+(`trainer_config.eval.post_train_splits: [val, test]`) or score a sample of it
+(`post_train_max_train_frames`); see the
+[EvalConfig reference](../configuration/trainer.md#evalconfig).
+
+## Experimental training options
+
+Four opt-in options. Each is off by default; a config that does not set it trains,
+saves and predicts as before, and its `training_config.yaml` gets no new key.
+
+**Ignore boxes** (`bbox_detr` only). In a partly labelled frame, a detector that
+finds an unlabelled animal is trained to call it background. Draw a box of a
+dedicated category around such regions and name that category:
+
+```yaml
+data_config:
+  ignore_box_category: ignore   # boxes of this category are not objects
+  ignore_box_min_cover: 0.5     # share of a query's box inside an ignore box
+```
+
+Ignore boxes go through the same augmentation as the other boxes (crop, flips,
+90 degree turns, zoom-out, rotation) and leave the data path as a separate target.
+They are never matched to a query, never counted in the loss normalizer and never
+ground truth. In the score loss (RF-DETR's IoU-aware BCE), a query that matches no
+object and whose predicted box lies inside one ignore box by at least
+`ignore_box_min_cover` of its own area gets no background term, so it is neither
+pushed towards background nor towards an object. Matched queries are unaffected.
+The box metrics (during training and after it) use the same rule: a detection
+that lies inside an ignore box by at least `ignore_box_min_cover` of its own area
+(COCO's crowd rule), and matches no labelled box, is neither a hit nor a false
+positive. A frame whose only boxes are ignore boxes is a training frame (everything
+outside them is background).
+
+The animals can be labelled with poses or masks: with `bbox_source: instances` or
+`masks` (or `auto` on a file whose only user boxes are ignore boxes), the object
+boxes are derived from them and the ignore boxes are kept. The category must not
+be one of the detector's `categories`, nor `object` (the name boxes without a
+category get); with `categories` unset it is left out of the categories read from
+the labels. With zoom-out onto another training frame, an ignore box of the canvas
+frame that the shrunk frame covers by less than half is kept whole, so it can
+reach over the shrunk frame (object boxes of the canvas behave the same way).
+
+**Negative frames in validation** (`bbox_*`). Validation normally leaves out
+negative frames, so the box metrics during training say nothing about false boxes
+on empty scenes. `data_config.val_negative_frames: true` keeps the validation
+labels' user-confirmed negative frames (see [Negative frames](negative-frames.md)).
+Detections on them count as false positives in `eval/val/bbox_*`, and their
+background terms enter `val/loss`. A `bbox_detr` set loss divides by the number of
+labelled boxes in the batch, clamped at 1, so a validation batch of only negative
+frames has a much larger loss than a batch with boxes. By default the best
+checkpoint (`trainer_config.model_ckpt.monitor`), early stopping
+(`trainer_config.early_stopping`) and `trainer_config.lr_scheduler.reduce_lr_on_plateau`
+follow `val/loss`; with this option on, turn on `trainer_config.eval.enabled` so
+checkpoints and early stopping follow a box metric (`eval.select_metric`, e.g.
+`bbox_mAP`), and consider a fixed LR schedule. Training logs a warning when the
+checkpoint monitor is still `val/loss`. The post-training metrics
+(`metrics.val.*`) skip frames with no labelled box, so they do not count false
+boxes on the negative frames.
+
+**Per-frame sampling weights** (`bbox_*`, with
+`trainer_config.balanced_sampler.per_sample: true`). Give frames a relative weight
+within their file in the frame metadata, and name the key:
+
+```python
+lf.metadata["sample_weight"] = 3.0   # drawn 3x as often as a frame of weight 1
+```
+
+```yaml
+trainer_config:
+  balanced_sampler: {per_sample: true, weights: [1, 1], frame_weight_key: sample_weight}
+```
+
+Frames without the key weigh 1, and weight 0 never draws a frame. Each file keeps
+its share of the samples; the weights multiply with `overlap_weight`.
+
+**Encoder-only reduced precision at prediction.** `sleap-nn predict --precision
+bf16-encoder` (or `fp16-encoder`) runs only the backbone under autocast. A
+`bbox_detr` detector's projector, transformer decoder and box and score heads run
+in fp32 on fp32 features. It applies to every `bbox_detr` backbone (DINOv2,
+DINOv3 and other HF or timm ViTs). See
+[Reduced precision](inference-performance.md#reduced-precision-precision).
 
 ## Inference
 
@@ -176,6 +272,13 @@ labels = predictor.predict("video.mp4")
 boxes = labels[0].bboxes
 ```
 
+On a `.slp` input, a detector with a fixed input size (`max_height` and
+`max_width`) reads its frames already fitted to that size. Large JPEGs of an image
+list are decoded at 1/2, 1/4 or 1/8 size, as in `bbox_detr` training. Each frame is
+then letterboxed (or squashed) on the CPU, on 8 threads for image lists. Every
+frame comes out the same size, so batches fill whatever the mix of image sizes.
+The boxes are mapped back to each frame's original pixels.
+
 Tracking is not supported for detector output (the tracker works on poses and
 masks). The legacy `sleap-nn track` / `run_inference` pipeline refuses detectors and
 points to `sleap-nn predict`.
@@ -189,7 +292,8 @@ sleap-nn predict -m models/my_detector/exported -i video.mp4 -o boxes.slp
 
 A detector exports its **network only**: the graph returns the decoder-ready head
 outputs (CenterNet's center probabilities + size/offset maps; SSD's per-anchor
-logits + deltas), and the exported-model adapter decodes them with the same
+logits + deltas; `bbox_detr`'s final-layer logits and boxes, see
+[DETR detection](bbox-detr.md#export-onnx-tensorrt)), and the exported-model adapter decodes them with the same
 `BBoxDecoder` as checkpoint inference, rebuilt from the `training_config.yaml`
 copied into the export directory. Anchors, NMS and thresholds therefore live in one
 place, exported and native boxes match, and the graph's spatial axes stay dynamic.

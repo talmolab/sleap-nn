@@ -5,7 +5,8 @@ parameters required to construct the actual model. This allows for easy querying
 model configuration without actually instantiating the model itself.
 """
 
-from typing import List
+import contextlib
+from typing import Dict, List, Optional, Tuple, Union
 import numpy as np
 import torch
 from omegaconf.dictconfig import DictConfig
@@ -34,12 +35,56 @@ from sleap_nn.architectures.heads import (
     default_embedding_pool,
     embedding_encoder_is_frozen,
 )
+from sleap_nn.architectures.common import run_encoder
 from sleap_nn.architectures.unet import UNet
 from sleap_nn.architectures.convnext import ConvNextWrapper
 from sleap_nn.architectures.swint import SwinTWrapper
 from sleap_nn.architectures.pretrained import PretrainedBackbone
+from sleap_nn.architectures.detr import (
+    DETR_BACKBONES,
+    build_bbox_detr_head,
+    build_detr_backbone,
+)
 import torchvision.transforms.v2.functional as F
 from sleap_nn.config.model_config import DEFAULT_BBOX_CATEGORY, ssd_level_strides
+
+# Backbones whose pooling ("same" padding) and decoder skip resizes decide their
+# padding from the frame size in Python: a trace freezes those decisions.
+_STRIDE_PADDED_BACKBONES = ("unet", "convnext", "swint", "pretrained")
+
+
+_PAD_EAGER_LIKE_EXPORT = False
+
+
+@contextlib.contextmanager
+def padded_like_export():
+    """Run eager forwards with the input padding an exported graph applies.
+
+    A parity check of an exported graph against the eager model (``export_to_onnx(
+    numerical_check=True)``) runs its reference forward inside this, so both pad.
+    """
+    global _PAD_EAGER_LIKE_EXPORT
+    previous, _PAD_EAGER_LIKE_EXPORT = _PAD_EAGER_LIKE_EXPORT, True
+    try:
+        yield
+    finally:
+        _PAD_EAGER_LIKE_EXPORT = previous
+
+
+def _pad_to_stride_traced(x: torch.Tensor, max_stride: int) -> torch.Tensor:
+    """Zero-pad ``x`` at the bottom and right to a multiple of ``max_stride``.
+
+    The traced counterpart of the checkpoint pipeline's ``apply_pad_to_stride``. The
+    pad amounts are shape arithmetic with no Python branch, so a traced graph (ONNX,
+    TensorRT) keeps them dependent on the frame size: every pooling layer then sees
+    a size divisible by its stride, where the padding decisions frozen at trace time
+    are right. The pad is zero, and the values unchanged, for frames that are already
+    a multiple of ``max_stride``.
+    """
+    h, w = x.shape[-2], x.shape[-1]
+    pad_h = (max_stride - h % max_stride) % max_stride
+    pad_w = (max_stride - w % max_stride) % max_stride
+    return torch.nn.functional.pad(x, (0, pad_w, 0, pad_h))
 
 
 def get_backbone(
@@ -74,6 +119,10 @@ def get_backbone(
         "pretrained": PretrainedBackbone,
     }
 
+    if backbone in DETR_BACKBONES and backbone not in backbones:
+        message = f"The {backbone} backbone is only supported for bbox_detr models."
+        logger.error(message)
+        raise KeyError(message)
     if backbone not in backbones:
         message = f"Unsupported backbone: {backbone}. Supported backbones are: {', '.join(backbones.keys())}"
         logger.error(message)
@@ -105,6 +154,7 @@ def get_head(model_type: str, head_config: DictConfig) -> Head:
             - 'embedding'
             - 'bbox_centernet'
             - 'bbox_ssd'
+            ('bbox_detr' has no `Head`; `Model` builds its detector directly.)
         head_config (DictConfig): A config for the head.
 
     Returns:
@@ -237,6 +287,11 @@ class Model(nn.Module):
         backbone_config: An `DictConfig` configuration dictionary for the model backbone.
         head_configs: An `DictConfig` configuration dictionary for the model heads.
         model_type: Type of the model. One of `single_instance`, `centered_instance`, `centroid`, `bottomup`, `multi_class_bottomup`, `multi_class_topdown`.
+
+    A `bbox_detr` model has no `Head`s: its backbone is a DETR backbone
+    (`sleap_nn.architectures.detr.build_detr_backbone`, returning tapped token maps)
+    and everything after it is `self.detr` (a `BBoxDetrHead`), whose output dict
+    (`pred_logits`, `pred_boxes`, `aux_outputs`, `enc_outputs`) `forward` returns.
     """
 
     def __init__(
@@ -251,6 +306,17 @@ class Model(nn.Module):
         self.backbone_type = backbone_type
         self.backbone_config = backbone_config
         self.head_configs = head_configs
+        self.model_type = model_type
+
+        if model_type == "bbox_detr":
+            self.heads = []
+            self.head_layers = nn.ModuleList([])
+            self.backbone = build_detr_backbone(backbone_type, backbone_config)
+            self.detr = build_bbox_detr_head(
+                head_configs.detr,
+                in_channels=self.backbone.out_channels * self.backbone.num_taps,
+            )
+            return
 
         self.heads = get_head(model_type, self.head_configs)
         for head in self.heads:
@@ -282,6 +348,9 @@ class Model(nn.Module):
             ),
         )
 
+        # Kernel size of the spatial heads' output conv: 1 unless the backbone's
+        # decoder asks for more (a pretrained ViT's `vit_decoder: simple`).
+        head_kernel_size = int(getattr(self.backbone, "head_kernel_size", 1))
         self.head_layers = nn.ModuleList([])
         for head in self.heads:
             if isinstance(head, MultiScaleHead):
@@ -306,6 +375,7 @@ class Model(nn.Module):
                 continue
             if isinstance(head, (ClassVectorsHead, EmbeddingHead)):
                 in_channels = int(self.backbone.middle_blocks[-1].filters)
+                head_kwargs = {}
             else:
                 stride_to_filters = self.backbone.decoder_stride_to_filters
                 if head.output_stride not in stride_to_filters:
@@ -325,7 +395,8 @@ class Model(nn.Module):
                     logger.error(message)
                     raise ValueError(message)
                 in_channels = stride_to_filters[head.output_stride]
-            self.head_layers.append(head.make_head(x_in=in_channels))
+                head_kwargs = {"kernel_size": head_kernel_size}
+            self.head_layers.append(head.make_head(x_in=in_channels, **head_kwargs))
 
     @classmethod
     def from_config(
@@ -343,8 +414,20 @@ class Model(nn.Module):
             model_type=model_type,
         )
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Forward pass through the model."""
+    def forward(
+        self, x: torch.Tensor, return_backbone_outputs: bool = False
+    ) -> Union[Dict[str, torch.Tensor], Tuple[Dict[str, torch.Tensor], dict]]:
+        """Forward pass through the model.
+
+        Args:
+            x: Input images ``(B, C, H, W)``.
+            return_backbone_outputs: Also return the backbone's output dict (used by
+                distillation to read intermediate features without hooks).
+
+        Returns:
+            ``{head name: output}``, or ``(that, backbone outputs)`` when
+            ``return_backbone_outputs`` is set.
+        """
         if x.shape[-3] != self.backbone_config.in_channels:
             if x.shape[-3] == 1:
                 # convert grayscale to rgb
@@ -353,10 +436,49 @@ class Model(nn.Module):
                 # convert rgb to grayscale
                 x = F.rgb_to_grayscale(x, num_output_channels=1)
 
-        backbone_outputs = self.backbone(x)
+        # Traced graphs (ONNX, TensorRT, ``torch.jit.trace``) pad the network input to
+        # the max stride, as checkpoint inference does on the host, so they stay right
+        # at every frame size. Left out: embedding models (fixed-size crops,
+        # standardized before the network, where a pad would not match the checkpoint
+        # path) and ``bbox_detr`` (exported at a fixed, already padded size).
+        if (
+            self.backbone_type in _STRIDE_PADDED_BACKBONES
+            and self.model_type not in ("embedding", "bbox_detr")
+            and (
+                _PAD_EAGER_LIKE_EXPORT
+                or torch.jit.is_tracing()
+                or torch.onnx.is_in_onnx_export()
+            )
+        ):
+            x = _pad_to_stride_traced(x, int(self.backbone_config.max_stride))
 
+        if self.model_type == "bbox_detr":
+            # The whole DETR backbone is the encoder (`encoder_autocast`).
+            backbone_outputs = run_encoder(self.backbone, x)
+        else:
+            backbone_outputs = self.backbone(x)
+        if self.model_type == "bbox_detr":
+            outputs = self.detr(backbone_outputs)
+        else:
+            outputs = self.forward_heads(backbone_outputs)
+        if return_backbone_outputs:
+            return outputs, backbone_outputs
+        return outputs
+
+    def forward_heads(
+        self, backbone_outputs: dict, head_layers: Optional[nn.ModuleList] = None
+    ) -> Dict[str, torch.Tensor]:
+        """Run the heads on the backbone's output dict.
+
+        Args:
+            backbone_outputs: The backbone's output dict.
+            head_layers: Head modules to run in place of ``self.head_layers`` (one
+                per head, same layout), e.g. a frozen copy acting as a teacher.
+        """
+        if head_layers is None:
+            head_layers = self.head_layers
         outputs = {}
-        for head, head_layer in zip(self.heads, self.head_layers):
+        for head, head_layer in zip(self.heads, head_layers):
             if isinstance(head, MultiScaleHead):
                 outputs[head.name] = head_layer(
                     [

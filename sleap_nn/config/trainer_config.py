@@ -7,9 +7,22 @@ the parameters required to initialize the trainer config.
 from attrs import define, field, validators
 from pathlib import Path
 import time
-from typing import Optional, List, Any
+from typing import Optional, List, Any, Dict
 from loguru import logger
 import re
+
+from sleap_nn.config.utils import parse_hw
+
+#: Lightning ``Trainer(precision=...)`` values accepted by ``trainer_config.precision``.
+TRAINER_PRECISIONS = {"32", "32-true", "bf16-mixed", "16-mixed"}
+
+#: ``torch.compile`` modes accepted by ``trainer_config.compile`` (``True`` = ``"default"``).
+COMPILE_MODES = (
+    "default",
+    "reduce-overhead",
+    "max-autotune",
+    "max-autotune-no-cudagraphs",
+)
 
 
 @define
@@ -20,6 +33,8 @@ class DataLoaderConfig:
         batch_size: (int) Number of samples per batch or batch size for training/validation data. This is the per-GPU batch size; with multi-GPU (DDP) training the effective (global) batch size is `batch_size × num_GPUs`. *Default*: `4`.
         shuffle: (bool) True to have the data reshuffled at every epoch. *Default*: `False`.
         num_workers: (int or "auto") Number of subprocesses to use for data loading. 0 means that the data will be loaded in the main process. Set to `"auto"` to size the pool from the CPUs usable by this process (capped, and leaving one core for the main process); `"auto"` resolves to `0` for the `torch_dataset` (streaming) pipeline, whose video backends cannot be pickled to worker processes. The resolved integer is written back into the saved `training_config.yaml`. *Default*: `0`.
+        prefetch_factor: (int) Number of batches each worker loads ahead (ignored when `num_workers` is 0), so at most `prefetch_factor x num_workers` batches are buffered per loader. `None` = `2` (the PyTorch default). Before 0.4 this was tied to `batch_size`, which buffered `batch_size x num_workers` batches and could exhaust host/shared memory with large batches. *Default*: `2`.
+        pin_memory: (bool) Use pinned (page-locked) host memory for batches. `None` = `True` for the train loader; the val loader falls back to the train loader's setting. *Default*: `None`.
     """
 
     batch_size: int = 4
@@ -28,6 +43,11 @@ class DataLoaderConfig:
         default=0,
         validator=lambda inst, attr, val: DataLoaderConfig.validate_num_workers(val),
     )
+    prefetch_factor: Optional[int] = field(
+        default=2,
+        validator=validators.optional(validators.ge(1)),
+    )
+    pin_memory: Optional[bool] = None
 
     @staticmethod
     def validate_num_workers(value):
@@ -51,9 +71,11 @@ class TrainDataLoaderConfig(DataLoaderConfig):
         batch_size: (int) Number of samples per batch or batch size for training/validation data. This is the per-GPU batch size; with multi-GPU (DDP) training the effective (global) batch size is `batch_size × num_GPUs`. *Default*: `4`.
         shuffle: (bool) True to have the data reshuffled at every epoch. *Default*: `True`.
         num_workers: (int or "auto") Number of subprocesses to use for data loading. 0 means that the data will be loaded in the main process. Set to `"auto"` to size the pool from the CPUs usable by this process. *Default*: `0`.
+        drop_last: (bool) Drop the partial batch at the end of each pass over the training data. `None` = `True` only when `trainer_config.compile` is enabled (a new batch size triggers a recompile), else `False`. Never applied when the data is smaller than one batch. *Default*: `None`.
     """
 
     shuffle: bool = True
+    drop_last: Optional[bool] = None
 
 
 @define
@@ -114,6 +136,20 @@ class WandBConfig:
             training. If False, keep the folder. If None (default), automatically delete
             if logging online (wandb_mode != "offline") and keep if logging offline.
             *Default*: `None`.
+        gallery: (bool) Log a prediction gallery at the end of every validation epoch
+            (box detectors and centered-instance models): a fixed, stratified panel of
+            validation samples with ground truth and predictions (`viz/gallery/val`)
+            and a few augmented training inputs with their targets
+            (`viz/gallery/train`). On whenever `use_wandb` is on; independent of
+            `visualize_preds_during_training` and the `viz_*` options. *Default*: `True`.
+        gallery_size: (int) Maximum number of validation samples in the gallery panel.
+            *Default*: `64`.
+        gallery_max_logs: (int) Approximate maximum number of gallery logging events
+            per run; runs that validate more often log every k-th validation (always
+            the first and the last). *Default*: `50`.
+        gallery_labs: (dict, optional) Validation/training file display name -> lab
+            (or any group label) shown in gallery captions. Without it, a file's
+            `provenance["lab"]` is used if present. *Default*: `None`.
     """
 
     entity: Optional[str] = None
@@ -132,6 +168,10 @@ class WandBConfig:
     viz_confmap_threshold: float = 0.1
     log_viz_table: bool = False
     delete_local_logs: Optional[bool] = None
+    gallery: bool = True
+    gallery_size: int = 64
+    gallery_max_logs: int = 50
+    gallery_labs: Optional[Dict[str, str]] = None
 
 
 @define
@@ -141,10 +181,41 @@ class OptimizerConfig:
     Attributes:
         lr: (float) Learning rate of type float. *Default*: `1e-4`.
         amsgrad: (bool) Enable AMSGrad with the optimizer. *Default*: `False`.
+        weight_decay: (float) Weight decay applied to the weight matrices/kernels
+            only. When set, the optimizer's parameters are split into a decayed
+            group (>= 2-D weights) and a no-decay group (biases, norm weights, any
+            other 1-D parameter, and position embeddings / CLS / register / mask
+            tokens, including a timm model's ``no_weight_decay()`` names); each
+            encoder learning-rate group (``encoder_lr_scale`` / ``layer_decay``)
+            is split the same way and keeps its learning rate. ``None`` keeps the
+            torch default for the optimizer applied to EVERY parameter (``0`` for
+            Adam, ``0.01`` for AdamW). *Default*: `None`.
+        encoder_lr_scale: (float) Learning-rate multiplier for a ``pretrained``
+            backbone's encoder; the neck, decoder and heads train at ``lr``. Has no
+            effect on other backbones. ``None`` = ``1.0``. Replaces
+            ``model_config.backbone_config.pretrained.encoder_lr_scale``, which is
+            still read (with a deprecation warning) when this is unset.
+            *Default*: `None`.
+        layer_decay: (float) Layer-wise learning-rate decay for a plain-ViT
+            ``pretrained`` encoder: block ``i`` of ``L`` trains at
+            ``encoder_lr_scale * layer_decay**(L + 1 - i)`` times ``lr``
+            (embeddings decay the most). ``None`` disables it. Replaces
+            ``model_config.backbone_config.pretrained.layer_decay``, which is still
+            read (with a deprecation warning) when this is unset. *Default*: `None`.
     """
 
     lr: float = field(default=1e-4, validator=validators.gt(0))
     amsgrad: bool = False
+    weight_decay: Optional[float] = field(
+        default=None, validator=validators.optional(validators.ge(0))
+    )
+    encoder_lr_scale: Optional[float] = field(
+        default=None, validator=validators.optional(validators.gt(0))
+    )
+    layer_decay: Optional[float] = field(
+        default=None,
+        validator=validators.optional([validators.gt(0), validators.le(1)]),
+    )
 
 
 @define
@@ -212,14 +283,34 @@ class CosineAnnealingWarmupConfig:
         warmup_start_lr: (float) Learning rate the warmup ramp starts from. The ramp
             leaves out its start point: epoch `e` of the warmup trains at
             `(e + 1) / (warmup_epochs + 1)` of the way to the base learning rate, so
-            the first epoch does not train at `warmup_start_lr`. *Default*: `0.0`.
+            the first epoch does not train at `warmup_start_lr`. A per-step warmup
+            (``warmup_steps``) starts there: step `s` trains at
+            `s / warmup_steps` of the way. *Default*: `0.0`.
         eta_min: (float) Minimum learning rate at end of cosine decay. *Default*: `0.0`.
+        warmup_steps: (int) Warmup length in optimizer steps (iterations). Setting
+            it (``0`` included) switches the schedule to per-step updates: the
+            learning rate changes every optimizer step instead of every epoch,
+            ``warmup_epochs`` is ignored, and the cosine runs over ``max_steps``.
+            ``None`` keeps the per-epoch schedule (warmup epoch ``e`` trains at
+            ``(e + 1) / (warmup_epochs + 1)`` of the way to the base LR).
+            *Default*: `None`.
+        max_steps: (int) Total schedule length in optimizer steps when
+            ``warmup_steps`` is set. ``None`` uses this schedule's ``max_epochs``
+            times the optimizer steps per epoch when that is set, else the run's
+            total optimizer steps (``trainer_config.max_epochs``, capped by
+            ``trainer_config.max_steps``). *Default*: `None`.
     """
 
     warmup_epochs: int = field(default=5, validator=validators.ge(0))
     max_epochs: Optional[int] = None
     warmup_start_lr: float = field(default=0.0, validator=validators.ge(0))
     eta_min: float = field(default=0.0, validator=validators.ge(0))
+    warmup_steps: Optional[int] = field(
+        default=None, validator=validators.optional(validators.ge(0))
+    )
+    max_steps: Optional[int] = field(
+        default=None, validator=validators.optional(validators.gt(0))
+    )
 
 
 @define
@@ -236,29 +327,109 @@ class LinearWarmupLinearDecayConfig:
         warmup_start_lr: (float) Learning rate the warmup ramp starts from. The ramp
             leaves out its start point: epoch `e` of the warmup trains at
             `(e + 1) / (warmup_epochs + 1)` of the way to the base learning rate, so
-            the first epoch does not train at `warmup_start_lr`. *Default*: `0.0`.
+            the first epoch does not train at `warmup_start_lr`. A per-step warmup
+            (``warmup_steps``) starts there: step `s` trains at
+            `s / warmup_steps` of the way. *Default*: `0.0`.
         end_lr: (float) Learning rate at end of training. *Default*: `0.0`.
+        warmup_steps: (int) Warmup length in optimizer steps; setting it switches
+            the schedule to per-step updates (see
+            ``CosineAnnealingWarmupConfig.warmup_steps``). *Default*: `None`.
+        max_steps: (int) Total schedule length in optimizer steps when
+            ``warmup_steps`` is set. ``None`` uses this schedule's ``max_epochs``
+            times the optimizer steps per epoch when that is set, else the run's
+            total optimizer steps (``trainer_config.max_epochs``, capped by
+            ``trainer_config.max_steps``). *Default*: `None`.
     """
 
     warmup_epochs: int = field(default=5, validator=validators.ge(0))
     max_epochs: Optional[int] = None
     warmup_start_lr: float = field(default=0.0, validator=validators.ge(0))
     end_lr: float = field(default=0.0, validator=validators.ge(0))
+    warmup_steps: Optional[int] = field(
+        default=None, validator=validators.optional(validators.ge(0))
+    )
+    max_steps: Optional[int] = field(
+        default=None, validator=validators.optional(validators.gt(0))
+    )
+
+
+@define
+class MultiStepLRConfig:
+    """Configuration for the step-decay schedule with an optional linear warmup.
+
+    The ViTPose / mmpose recipe: a linear warmup over ``warmup_steps`` optimizer
+    steps from ``warmup_start_factor`` x the learning rate, then the learning rate
+    is multiplied by ``gamma`` at every milestone. The schedule is always updated
+    per optimizer step; epoch milestones are converted with the number of
+    optimizer steps per epoch, so a milestone of ``170`` takes effect on the first
+    step of epoch ``170`` (0-indexed), as in mmcv's ``step`` policy. Each param
+    group keeps its own (encoder_lr_scale / layer_decay) learning rate ratio.
+
+    Attributes:
+        milestones: (List[int]) Increasing epochs (or steps, per
+            ``milestone_unit``) at which the learning rate is multiplied by
+            ``gamma``. Required. *Default*: `None`.
+        gamma: (float) Multiplicative factor at each milestone. *Default*: `0.1`.
+        milestone_unit: (str) ``"epoch"`` or ``"step"``. *Default*: `"epoch"`.
+        warmup_steps: (int) Linear warmup length in optimizer steps. ``0``
+            disables warmup. *Default*: `0`.
+        warmup_start_factor: (float) Fraction of the learning rate the warmup
+            starts from (mmcv's ``warmup_ratio``). *Default*: `0.001`.
+    """
+
+    milestones: Optional[List[int]] = field(
+        default=None,
+        validator=lambda inst, attr, val: MultiStepLRConfig.validate_milestones(val),
+    )
+    gamma: float = field(default=0.1, validator=validators.gt(0))
+    milestone_unit: str = field(
+        default="epoch", validator=validators.in_(["epoch", "step"])
+    )
+    warmup_steps: int = field(default=0, validator=validators.ge(0))
+    warmup_start_factor: float = field(
+        default=0.001, validator=[validators.gt(0), validators.le(1)]
+    )
+
+    @staticmethod
+    def validate_milestones(value):
+        """Validate that milestones are strictly increasing non-negative ints."""
+        if value is None:
+            return
+        value = list(value)
+        if all(isinstance(m, int) and not isinstance(m, bool) for m in value) and (
+            all(m >= 0 for m in value) and all(b > a for a, b in zip(value, value[1:]))
+        ):
+            return
+        message = (
+            "multi_step_lr.milestones must be strictly increasing non-negative "
+            f"integers, got {value!r}."
+        )
+        logger.error(message)
+        raise ValueError(message)
 
 
 @define
 class LRSchedulerConfig:
     """Configuration for lr_scheduler.
 
-    Only one scheduler should be configured at a time. If multiple are set,
-    priority order is: cosine_annealing_warmup > linear_warmup_linear_decay >
-    step_lr > reduce_lr_on_plateau.
+    Only one scheduler is used. If multiple are set, priority order is:
+    cosine_annealing_warmup > linear_warmup_linear_decay > multi_step_lr >
+    step_lr > reduce_lr_on_plateau. ``reduce_lr_on_plateau`` is populated by
+    default, so setting any other scheduler replaces it (they never stack).
+    The default ``reduce_lr_on_plateau`` section stays in the saved config with a
+    fixed-length schedule (``cosine_annealing_warmup``,
+    ``linear_warmup_linear_decay`` or ``multi_step_lr``); it does not run. Early
+    stopping stays on unless
+    ``early_stopping.stop_training_on_plateau`` is ``false``, so it can end a run
+    before such a schedule has finished.
 
     Attributes:
         step_lr: Configuration for StepLR scheduler.
         reduce_lr_on_plateau: Configuration for ReduceLROnPlateau scheduler.
         cosine_annealing_warmup: Configuration for Cosine Annealing with Linear Warmup scheduler.
         linear_warmup_linear_decay: Configuration for Linear Warmup + Linear Decay scheduler.
+        multi_step_lr: Configuration for the step-decay (milestones) schedule
+            with a per-step linear warmup.
     """
 
     step_lr: Optional[StepLRConfig] = None
@@ -267,6 +438,40 @@ class LRSchedulerConfig:
     )
     cosine_annealing_warmup: Optional[CosineAnnealingWarmupConfig] = None
     linear_warmup_linear_decay: Optional[LinearWarmupLinearDecayConfig] = None
+    multi_step_lr: Optional[MultiStepLRConfig] = None
+
+
+#: ``lr_scheduler`` branches planned around a fixed training length, in priority
+#: order (all of them outrank ``step_lr`` and ``reduce_lr_on_plateau``).
+FIXED_LENGTH_LR_SCHEDULES = (
+    "cosine_annealing_warmup",
+    "linear_warmup_linear_decay",
+    "multi_step_lr",
+)
+
+
+def fixed_length_lr_schedule(lr_scheduler: Any) -> Optional[str]:
+    """Name of the fixed-length LR schedule that training will run, if any.
+
+    Args:
+        lr_scheduler: The ``trainer_config.lr_scheduler`` section (``DictConfig``,
+            dict or `LRSchedulerConfig`), or ``None``.
+
+    Returns:
+        The highest-priority entry of `FIXED_LENGTH_LR_SCHEDULES` that is set, or
+        ``None`` when the run uses ``step_lr``, ``reduce_lr_on_plateau`` or no
+        scheduler.
+    """
+    if lr_scheduler is None:
+        return None
+    for name in FIXED_LENGTH_LR_SCHEDULES:
+        if hasattr(lr_scheduler, "get"):
+            value = lr_scheduler.get(name, None)
+        else:
+            value = getattr(lr_scheduler, name, None)
+        if value is not None:
+            return name
+    return None
 
 
 @define
@@ -274,14 +479,41 @@ class EarlyStoppingConfig:
     """Configuration for early_stopping.
 
     Attributes:
-        stop_training_on_plateau: (bool) True if early stopping should be enabled. *Default*: `True`.
+        stop_training_on_plateau: (bool) True if early stopping should be enabled, under every LR schedule. `None` is read as `True`. With a fixed-length LR schedule (`lr_scheduler.cosine_annealing_warmup`, `linear_warmup_linear_decay` or `multi_step_lr`) early stopping can end the run before the schedule has finished; set `False` to run the whole schedule. *Default*: `True`.
         min_delta: (float) Minimum change in the monitored quantity to qualify as an improvement, i.e. an absolute change of less than or equal to min_delta, will count as no improvement. *Default*: `1e-8`.
         patience: (int) Number of checks with no improvement after which training will be stopped. Under the default configuration, one check happens after every training epoch. For the ``embedding`` model type, which selects on a retrieval metric measured every ``eval.frequency`` epochs, one check happens per evaluation, so patience counts evaluations. *Default*: `10`.
     """
 
     min_delta: float = field(default=1e-8, validator=validators.ge(0))
     patience: int = field(default=10, validator=validators.ge(0))
-    stop_training_on_plateau: bool = True
+    stop_training_on_plateau: Optional[bool] = True
+
+
+@define
+class EMAConfig:
+    """Configuration for an exponential moving average (EMA) of the model weights.
+
+    When enabled, a float32 copy of the trainable weights (and floating-point
+    buffers) is updated after every optimizer step as
+    ``ema = d * ema + (1 - d) * weights`` with ``d = decay * (1 - exp(-step /
+    warmup_steps))`` (mmdet/RTMPose ``ExpMomentumEMA``; ``warmup_steps=0`` uses
+    ``decay`` from the first step). The EMA weights are swapped in for
+    validation (so ``val/loss``, epoch-end evaluation and checkpoint selection
+    see them) and are what checkpoints store as ``state_dict``, so inference and
+    export load them with no changes. The raw (online) weights ride along in the
+    checkpoint under ``"ema"`` for resuming.
+
+    Attributes:
+        enabled: (bool) Track and use an EMA of the weights. *Default*: `False`.
+        decay: (float) EMA decay after warmup (``1 - momentum``). *Default*:
+            `0.9998`.
+        warmup_steps: (int) Time constant (in optimizer steps) of the decay
+            warmup; ``0`` disables it. *Default*: `2000`.
+    """
+
+    enabled: bool = False
+    decay: float = field(default=0.9998, validator=[validators.ge(0), validators.lt(1)])
+    warmup_steps: int = field(default=2000, validator=validators.ge(0))
 
 
 @define
@@ -293,6 +525,19 @@ class EvalConfig:
         frequency: (int) Evaluate every N epochs. *Default*: `1`.
         oks_stddev: (float) OKS standard deviation for evaluation. *Default*: `0.025`.
         oks_scale: (float) OKS scale override. If None, uses default. *Default*: `None`.
+        oks_sigmas: Per-node OKS sigmas for post-training evaluation, overriding
+            ``oks_stddev``: a preset (``"coco"``, ``"crowdpose"``, ``"ochuman"``),
+            ``"provenance"`` / ``"auto"`` (the GT file's ``node_sigmas``), or a list
+            with one value per node. *Default*: `None`.
+        coco_metrics: (bool) Also report COCOeval-faithful keypoint AP/AR
+            (``coco.AP``, ``coco.AP50``, ...; see ``sleap_nn.evaluation_coco``) in
+            post-training evaluation. For top-down models
+            (``centered_instance``, ``multi_class_topdown``) it also switches the
+            post-training predictions to the COCO protocol: no keypoint is
+            dropped (``peak_threshold`` 0) and instances are rescored as mmpose
+            does (stage-1 score x mean keypoint score above 0.2). Without it,
+            low-confidence keypoints are dropped at 0.2, which costs several AP
+            on COCO. *Default*: `False`.
         match_threshold: (float) Match threshold for post-training evaluation.
             For centroid models it is the maximum centroid distance in PIXELS
             (default `50.0`). For ``bottomup_segmentation`` it is reinterpreted
@@ -309,12 +554,60 @@ class EvalConfig:
             when ``enabled`` and on ``val/loss`` otherwise. Box and retrieval
             metrics are checked on evaluation epochs only. Ignored by every other
             model type, which selects on ``val/loss``. *Default*: `"rank1"`.
+        file_nodes: (dict) With several validation files, the nodes each file is
+            scored on by the epoch-end evaluation, keyed by the file's display name
+            (``data_config.val_names``): a list of node names, or a string prefix
+            such as ``"lab_a/"``. Files not listed are scored on the model nodes
+            their skeleton has. *Default*: `None`.
+        post_train_splits: (list) Splits that the post-training evaluation (after
+            `fit`, with `save_ckpt`) predicts and scores, any of `"val"`, `"test"`
+            and `"train"`. They run in that order, so the held-out metrics land
+            first. `None` runs all three. *Default*: `None`.
+        post_train_max_train_frames: (int) Predict and score only this many
+            randomly chosen frames (seeded by `trainer_config.seed`) of each train
+            file in the post-training evaluation. Val and test files always run in
+            full. `None` uses every train frame. *Default*: `None`.
+        post_train_batch_size: (int) Frames per batch for the post-training
+            predictions. `None` uses `val_data_loader.batch_size` for models whose
+            validation batches are whole frames, and 4 for the crop-based top-down
+            models (`centered_instance`, `multi_class_topdown`,
+            `centered_instance_segmentation`), whose validation batches are crops.
+            *Default*: `None`.
+        norm_scale: (str) Opt-in point error relative to instance size, logged next to
+            the pixel distances (``eval/<file>/norm_distance/p50``, ``p95``, ``miss_rate``)
+            and written to the post-training metrics (``normalized_distance_metrics``):
+            ``"bbox"`` divides by ``sqrt(w x h)`` of the GT instance's linked user box (else
+            of the tight box of its labeled points), ``"points"`` by that tight box; every
+            labeled point the model left unpredicted counts as ``norm_missing_error``.
+            ``None`` turns it off. *Default*: `None`.
+        norm_missing_error: (float) Error of an unpredicted labeled point, in scale units.
+            *Default*: `1.0`.
+        norm_pad_frac: (float) Padding of a points box on every side, as a fraction of its
+            longest side (0.1 matches a body box padded by 10% of its longest side).
+            *Default*: `0.0`.
+        norm_bootstrap: (int) Percentile-bootstrap resamples for 95% intervals of the
+            normalized p50 / p95 / miss rate in the post-training metrics (0 = none).
+            *Default*: `0`.
+        norm_bootstrap_by: (str) Resampling unit of ``norm_bootstrap``: ``"frame"`` or
+            ``"video"``. *Default*: `"frame"`.
+        bbox_cover_metrics: (bool) For box detectors with ``enabled``: also log the share of
+            GT boxes covered by a prediction (a box holding at least half of the GT box) at
+            0.1 / 0.25 / 0.5 false boxes per frame, the cover-rule AP, and the covered share
+            and false boxes per frame at score 0.1 (``eval/val/bbox_cover_*``; see
+            :func:`sleap_nn.evaluation.compute_bbox_cover_metrics`). These read finding
+            objects apart from box tightness. *Default*: `False`.
+        post_train_precision: (str) Precision of the post-training predictions on
+            CUDA: `"32"`, `"bf16"` or `"fp16"` (autocast). `None` follows
+            `precision` (`bf16-mixed` -> `"bf16"`, `16-mixed` -> `"fp16"`), so the
+            predictions run as the validation steps did. *Default*: `None`.
     """
 
     enabled: bool = False
     frequency: int = field(default=1, validator=validators.ge(1))
     oks_stddev: float = field(default=0.025, validator=validators.gt(0))
     oks_scale: Optional[float] = None
+    oks_sigmas: Optional[Any] = None
+    coco_metrics: bool = False
     match_threshold: float = field(default=50.0, validator=validators.gt(0))
     # Declared here so it is reachable from YAML at all: a structured merge against
     # this dataclass raises `ConfigKeyError` for any key it does not define, so
@@ -322,6 +615,44 @@ class EvalConfig:
     # the mode table in `model_trainer` was dead for config users and selection was
     # always rank-1. The valid names are validated there (one table, one place).
     select_metric: str = "rank1"
+    file_nodes: Optional[Dict[str, Any]] = None
+    post_train_splits: Optional[List[str]] = field(
+        default=None,
+        validator=lambda inst, attr, val: EvalConfig.validate_post_train_splits(val),
+    )
+    norm_scale: Optional[str] = field(
+        default=None,
+        validator=validators.optional(validators.in_(["bbox", "points"])),
+    )
+    norm_missing_error: float = field(default=1.0, validator=validators.ge(0))
+    norm_pad_frac: float = field(default=0.0, validator=validators.ge(0))
+    norm_bootstrap: int = field(default=0, validator=validators.ge(0))
+    norm_bootstrap_by: str = field(
+        default="frame", validator=validators.in_(["frame", "video"])
+    )
+    bbox_cover_metrics: bool = False
+    post_train_max_train_frames: Optional[int] = field(
+        default=None, validator=validators.optional(validators.ge(1))
+    )
+    post_train_batch_size: Optional[int] = field(
+        default=None, validator=validators.optional(validators.ge(1))
+    )
+    post_train_precision: Optional[str] = field(
+        default=None,
+        validator=validators.optional(validators.in_(["32", "bf16", "fp16"])),
+    )
+
+    @staticmethod
+    def validate_post_train_splits(value):
+        """Check that `post_train_splits` only names `train`, `val` and `test`."""
+        if value is None:
+            return
+        unknown = set(value) - {"train", "val", "test"}
+        if unknown:
+            raise ValueError(
+                f"trainer_config.eval.post_train_splits: unknown split(s) "
+                f"{sorted(unknown)}; use any of 'val', 'test', 'train'."
+            )
 
 
 @define
@@ -334,6 +665,13 @@ class HardKeypointMiningConfig:
         min_hard_keypoints: The minimum number of keypoints that will be considered as "hard", even if they are not below the `hard_to_easy_ratio`. *Default*: `2`.
         max_hard_keypoints: The maximum number of hard keypoints to apply scaling to. This can help when there are few very easy keypoints which may skew the ratio and result in loss scaling being applied to most keypoints, which can reduce the impact of hard mining altogether. *Default*: `None`.
         loss_scale: Factor to scale the hard keypoint losses by. *Default*: `5.0`.
+        per_sample: If True, hard keypoints are ranked within each sample, over the
+            nodes with non-zero loss weight (see `data_config.node_loss_mask`), and the
+            loss is the mean of the selected (sample, node) losses. If False, they are
+            ranked on losses summed over the batch (the behavior before sleap-nn 0.4,
+            which cannot see node weights). Applies to the single-instance,
+            centered-instance and bottom-up confmap heads; results differ from
+            `False` for batch size > 1. *Default*: `True`.
     """
 
     online_mining: bool = False
@@ -341,6 +679,7 @@ class HardKeypointMiningConfig:
     min_hard_keypoints: int = 2
     max_hard_keypoints: Optional[int] = None
     loss_scale: float = 5.0
+    per_sample: bool = True
 
 
 @define
@@ -364,6 +703,331 @@ class ZMQConfig:
 
 
 @define
+class FreezeScheduleConfig:
+    """Freeze part of the model for the first steps of training.
+
+    Attributes:
+        targets: (List[str]) What to freeze: ``"encoder"`` (the backbone's
+            pretrained encoder), ``"embeddings"``, ``"blocks[:6]"`` (a slice of a
+            plain ViT's blocks), ``"backbone"``, ``"decoder"``, ``"head"`` or a glob
+            on parameter names. *Default*: ``None`` (``["encoder"]``).
+        unfreeze_at_step: (int) Global step at which the targets are unfrozen;
+            ``None`` keeps them frozen for the whole run. Requires the backbone's
+            ``freeze: false`` (the parameters must be in the optimizer).
+            *Default*: ``None``.
+
+    Under DDP, ``find_unused_parameters`` is turned on automatically (frozen
+    parameters get no gradient); an explicit
+    ``trainer_strategy: ddp_find_unused_parameters_false`` is refused.
+    """
+
+    targets: Optional[List[str]] = None
+    unfreeze_at_step: Optional[int] = field(
+        default=None, validator=validators.optional(validators.ge(0))
+    )
+
+
+@define
+class BalancedSamplerConfig:
+    """Per-file batch composition (`crop_pipeline="warp"`, the `bbox_*` models and, experimentally, the `bottomup`, `centroid` and `single_instance` models without tiling).
+
+    Every training batch takes a fixed number of samples from each training file
+    (in `train_labels_path` order), so small datasets are oversampled. With
+    `per_sample`, each sample instead comes from file `g` with probability
+    `weights[g]` (drawn with replacement), which mixes any number of files at any
+    batch size. An epoch is
+    `train_steps_per_epoch` batches summed over ranks (default: one pass over the
+    training instances). Under DDP each rank draws its own stream (seed + rank)
+    instead of a shard, and the stream position is saved in checkpoints, so a
+    resumed run continues where it stopped.
+
+    Attributes:
+        counts: (list of int) Samples per file per batch (sum = per-GPU batch size).
+        weights: (list of float) Relative share per file, rounded to
+            `train_data_loader.batch_size`. Used when `counts` is `None`; equal
+            shares when both are `None`.
+        per_sample: (bool) Draw every sample's file at random with probability
+            `weights` (normalized; equal when `None`) instead of fixed per-batch
+            counts. *Default*: `False`.
+        overlap_weight: (float) Experimental (may change or be removed without a
+            deprecation period; no measured benefit in the developers' tests).
+            `bbox_*` models with `per_sample` only: within each
+            file, a frame whose labelled boxes overlap (two boxes sharing at least
+            `overlap_min` of the smaller box's area) is drawn `overlap_weight` times
+            as often as the file's other frames. Each file's share of the samples
+            is unchanged. `1.0` leaves sampling as it is. *Default*: `1.0`.
+        overlap_min: (float) Overlap of two labelled boxes, as a share of the
+            smaller box, that makes a frame count for `overlap_weight`.
+            *Default*: `0.25`.
+        frame_weight_key: (str) **Experimental.** `bbox_*` models with
+            `per_sample` only: read each training frame's relative sampling weight
+            within its file from the labelled frame's metadata under this key
+            (`LabeledFrame.metadata[key]`, a number >= 0; frames without it weigh
+            `1`). Each file's share of the samples is unchanged; combines with
+            `overlap_weight` by multiplying. Not written to `training_config.yaml`
+            while `None`. *Default*: `None`.
+    """
+
+    counts: Optional[List[int]] = None
+    weights: Optional[List[float]] = None
+    per_sample: bool = False
+    overlap_weight: float = field(default=1.0, validator=validators.gt(0))
+    overlap_min: float = field(
+        default=0.25, validator=[validators.gt(0), validators.le(1)]
+    )
+    frame_weight_key: Optional[str] = None
+
+
+@define
+class DistillationConfig:
+    """DWPose-style knowledge distillation (Yang et al. 2023, arXiv 2307.15880).
+
+    Experimental: it may change or be removed without a deprecation period, its
+    defaults are untuned, and it showed no measured benefit in the developers' tests.
+
+    **Stage 1** (teacher -> student) adds to the supervised loss
+    ``r(t) * (alpha * L_feat + beta * L_heatmap)``:
+
+    * ``L_feat``: MSE between the teacher's deepest backbone feature (a plain
+      ViT's last tapped token map, else the bottleneck) and the student's, mapped
+      to the teacher's channels by a trainable 1x1 projector. The projector is
+      dropped from saved checkpoints.
+    * ``L_heatmap``: MSE between teacher and student confidence maps over the
+      nodes they share BY NAME (a COCO-17 teacher can teach a larger student
+      skeleton), node-weighted like the supervised loss (see
+      ``mask_unlabeled_nodes``).
+    * ``r(t) = 1 - t / T`` over the run's optimizer steps (``decay``; stage 1
+      only by default).
+
+    **Stage 2** (head self-distillation): the student's own trained head
+    becomes the teacher; everything except ``trainable`` is frozen (and kept in
+    eval mode when the whole backbone is frozen), ``trainable`` is
+    re-initialized, and the new head learns ``gamma * L_heatmap`` against the
+    old one (no supervised loss by default, as in DWPose).
+
+    The teacher is frozen, in eval mode, outside the state dict, optimizer and
+    checkpoints, and is replicated on every DDP rank without DDP wrapping.
+
+    **Box detectors** (``bbox_centernet``, ``bbox_ssd``, ``bbox_detr``;
+    experimental, stage 1 only): the teacher is a trained box detector of any of
+    the three styles, and ``L_heatmap`` is replaced by ``L_box``, the student's
+    own detection loss against the teacher's detections on the same training
+    frame (scores >= ``teacher_score_threshold``; categories matched by name, or
+    one category to one; the teacher must detect every student category) used as
+    targets. ``L_feat`` is as above (a ``bbox_detr``
+    backbone's last tapped token map). ``beta`` weights ``L_box``; ``gamma``,
+    ``teacher_crop_size``, ``mask_unlabeled_nodes`` and ``trainable`` do not
+    apply.
+
+    Attributes:
+        teacher: (str) Teacher model directory (``training_config.yaml`` +
+            ``best.ckpt``) or a ``.ckpt`` next to its ``training_config.yaml``.
+            Required for stage 1. Stage 2: the stage-1 student to load and
+            refine; ``None`` uses the student's own weights as initialized (e.g.
+            by ``model_config.init_from``). *Default*: ``None``.
+        stage: (int) ``1`` (teacher -> student) or ``2`` (head self-distillation).
+            *Default*: ``1``.
+        alpha: (float) Feature loss weight (stage 1; ``0`` skips the feature
+            term and builds no projector). *Default*: ``1.0``.
+        beta: (float) Heatmap loss weight (stage 1); box detectors: the weight of
+            the loss against the teacher's boxes. *Default*: ``1.0``.
+        gamma: (float) Heatmap loss weight (stage 2). *Default*: ``1.0``.
+        supervised_weight: (float) Weight of the supervised loss. ``None`` = 1 at
+            stage 1 and 0 at stage 2. *Default*: ``None``.
+        decay: (str) ``"linear"`` (``r(t) = 1 - t / T``, DWPose) or ``"none"``
+            (constant weights). ``None`` = ``"linear"`` at stage 1 and ``"none"``
+            at stage 2 (where the distillation term is the whole loss).
+            *Default*: ``None``.
+        teacher_input_scale: (float) The teacher sees the student's input crop
+            resampled by this factor (e.g. ``1.5`` for a 384x288 teacher and a
+            256x192 student). Its outputs are resized back to the student's
+            grids. This only upsamples the student's pixels; prefer
+            ``teacher_crop_size`` where it is available. *Default*: ``1.0``.
+        teacher_crop_size: (int or [height, width]) Stage 1 with
+            ``preprocessing.crop_pipeline: warp`` (``centered_instance``): the
+            training loader also cuts each crop's window at this size (e.g.
+            ``[384, 288]`` for a 384x288 teacher and a 256x192 student; same
+            aspect ratio as ``crop_size``, a multiple of the teacher's
+            ``max_stride``) from the same decoded frame with the same
+            augmentation draw, and the teacher reads that real high-resolution
+            crop (``teacher_image`` in the batch) instead of an upsampled
+            student crop. Its outputs are resized back to the student's grids.
+            Training only; exclusive with ``teacher_input_scale``.
+            *Default*: ``None``.
+        mask_unlabeled_nodes: (bool) Weight the heatmap term by the batch's
+            ``node_weights`` (data_config.node_loss_mask), so nodes the sample's
+            source did not label get no teacher signal. ``False`` distills every
+            shared node everywhere (DWPose's unmasked logit loss). No effect
+            without ``node_weights`` in the batch. *Default*: ``True``.
+        trainable: (List[str]) Stage 2: selectors (as in
+            ``model_config.init_from``) of what is re-initialized and trained;
+            everything else is frozen. Use e.g. ``["head", "backbone.vit_dec"]``
+            to retrain a ViTPose decoder too. *Default*: ``None``
+            (``["head"]``).
+        teacher_precision: (str) ``"bf16"`` runs the teacher under bf16 autocast
+            on CUDA; ``"32"`` in the training precision. *Default*: ``"bf16"``.
+        teacher_score_threshold: (float) Box detectors only: the teacher's
+            detections with at least this score are the student's distillation
+            targets. *Default*: ``0.5``.
+    """
+
+    teacher: Optional[str] = None
+    stage: int = field(default=1, validator=validators.in_([1, 2]))
+    alpha: float = field(default=1.0, validator=validators.ge(0))
+    beta: float = field(default=1.0, validator=validators.ge(0))
+    gamma: float = field(default=1.0, validator=validators.ge(0))
+    supervised_weight: Optional[float] = field(
+        default=None, validator=validators.optional(validators.ge(0))
+    )
+    decay: Optional[str] = field(
+        default=None, validator=validators.optional(validators.in_(["linear", "none"]))
+    )
+    teacher_input_scale: float = field(
+        default=1.0,
+        validator=[
+            validators.gt(0),
+            lambda instance, attr, value: instance.validate_teacher_crop_size(
+                attr, value
+            ),
+        ],
+    )
+    teacher_crop_size: Optional[Any] = field(
+        default=None,
+        validator=lambda instance, attr, value: instance.validate_teacher_crop_size(
+            attr, value
+        ),
+    )
+    mask_unlabeled_nodes: bool = True
+    trainable: Optional[List[str]] = None
+    teacher_precision: str = field(
+        default="bf16", validator=validators.in_(["bf16", "32"])
+    )
+    teacher_score_threshold: float = field(
+        default=0.5, validator=[validators.ge(0), validators.le(1)]
+    )
+
+    def validate_teacher_crop_size(self, attr=None, new=None):
+        """`teacher_crop_size`: an int or `[height, width]`, stage 1 only.
+
+        The validator of both `teacher_crop_size` and `teacher_input_scale`
+        (``attr`` / ``new``: the field being validated and its incoming value,
+        which on assignment is not set yet), so the two cannot be combined even
+        when one is assigned after construction.
+        """
+        name = getattr(attr, "name", None)
+        value = new if name == "teacher_crop_size" else self.teacher_crop_size
+        scale = new if name == "teacher_input_scale" else self.teacher_input_scale
+        if value is None:
+            return
+        if parse_hw(value) is None:
+            message = (
+                "trainer_config.distillation.teacher_crop_size must be an int or "
+                f"[height, width], got {value!r}."
+            )
+        elif self.stage != 1:
+            message = (
+                "trainer_config.distillation.teacher_crop_size is a stage-1 option "
+                "(stage 2's teacher is the student itself)."
+            )
+        elif scale != 1.0:
+            message = (
+                "trainer_config.distillation: set teacher_crop_size or "
+                "teacher_input_scale, not both."
+            )
+        else:
+            return
+        logger.error(message)
+        raise ValueError(message)
+
+    def __attrs_post_init__(self):
+        """Stage 1 needs a teacher."""
+        if self.stage == 1 and not self.teacher:
+            message = "trainer_config.distillation: stage 1 needs a `teacher`."
+            logger.error(message)
+            raise ValueError(message)
+
+
+@define
+class CoordinateLossesConfig:
+    """Coordinate losses through a frozen linear keypoint autoencoder (experimental).
+
+    For ``centered_instance`` models only. A soft-argmax (integral regression, Sun
+    et al. 2018) turns each predicted confidence map into differentiable
+    coordinates in crop pixels, and one of two terms goes through a frozen
+    affine-combining autoencoder (Sárándi, Hermans and Leibe 2023): ``W_enc``
+    (``L x J``) maps ``J`` keypoint channels to ``L`` latent points and ``W_dec``
+    (``J x L``) maps them back. Set exactly one of the two weights:
+
+    * ``consistency``: the head predicts the ``J`` channels as usual (the
+      confidence-map loss is unchanged) and ``consistency * |P - W_dec W_enc P|_1``
+      is added, ``P`` being the soft-argmax coordinates. The head's part names
+      must be the autoencoder's channel names (any order).
+    * ``decoded``: the head predicts the ``L`` latent points (its channels become
+      ``latent_00``, ``latent_01``, ...) and the whole loss is
+      ``decoded * |W_dec Q - Y|_1`` over the channels each sample labels, ``Q``
+      being the soft-argmax latent points and ``Y`` the labelled coordinates
+      (weighted by the per-node weights). The saved model is a plain
+      centered-instance model that predicts the latent points; decode them with
+      ``W_dec``. No confidence-map loss is computed, so the latent maps' height
+      is arbitrary: predict with a very low ``peak_threshold`` (e.g. ``-1e9``).
+      Post-training evaluation is turned off for this term.
+
+    Off unless set; runs without it save nothing new in ``training_config.yaml``.
+
+    Attributes:
+        autoencoder: (str) Path to the ``.npz`` file with ``W_enc`` (``L x J``),
+            ``W_dec`` (``J x L``), ``names`` (the ``J`` channel names) and,
+            optionally, ``latent_partner`` (the left/right partner index of each
+            latent point, itself for a centre point). Rows of both matrices must
+            sum to 1 (affine combinations), so the terms do not depend on where the
+            crop sits in the frame. Required.
+        consistency: (float) Weight of the consistency term. *Default*: ``0.0``.
+        decoded: (float) Weight of the decoded-coordinate term. *Default*: ``0.0``.
+        soft_argmax_beta: (float) Inverse temperature of the soft-argmax: the
+            coordinates are the expectation over ``softmax(beta * map)``. Over a
+            whole map trained towards Gaussians of height 1 the flat background
+            needs a large value (``20``); too large a value narrows the peak below
+            a grid cell and rounds the estimate towards the grid. *Default*:
+            ``20.0``.
+        soft_argmax_window: (int) Run the soft-argmax only over the grid cells
+            within this many cells of each map's maximum (``None``: the whole map,
+            as in Sun et al. 2018). A window of about ``3 * sigma`` cells (the
+            head's ``sigma`` is in grid cells) with ``soft_argmax_beta: 10``
+            locates Gaussian peaks to about 0.2 cells even on noisy maps.
+            *Default*: ``None``.
+        data_head: (dict) Filled in by training for the ``decoded`` term: the head
+            settings the data loader uses (``part_names`` of the labelled channels
+            and the anchor settings), since the saved head describes the latent
+            points. Leave unset. *Default*: ``None``.
+    """
+
+    autoencoder: Optional[str] = None
+    consistency: float = field(default=0.0, validator=validators.ge(0))
+    decoded: float = field(default=0.0, validator=validators.ge(0))
+    soft_argmax_beta: float = field(default=20.0, validator=validators.gt(0))
+    soft_argmax_window: Optional[int] = field(
+        default=None, validator=validators.optional(validators.ge(1))
+    )
+    data_head: Optional[Dict[str, Any]] = None
+
+    def __attrs_post_init__(self):
+        """Require the autoencoder and exactly one term."""
+        message = None
+        if not self.autoencoder:
+            message = "trainer_config.coordinate_losses needs `autoencoder` (.npz)."
+        elif (self.consistency > 0) == (self.decoded > 0):
+            message = (
+                "trainer_config.coordinate_losses: set exactly one of `consistency` "
+                "and `decoded` above 0 (the consistency term needs the head to "
+                "predict the autoencoder's channels, the decoded term its latent "
+                "points)."
+            )
+        if message is not None:
+            logger.error(message)
+            raise ValueError(message)
+
+
+@define
 class TrainerConfig:
     """Configuration for trainer.
 
@@ -378,7 +1042,8 @@ class TrainerConfig:
         trainer_strategy: (str) Training strategy, one of ["auto", "ddp", "fsdp", "ddp_find_unused_parameters_false", "ddp_find_unused_parameters_true", ...]. This supports any training strategy that is supported by `lightning.Trainer`. *Default*: `"auto"`.
         enable_progress_bar: (bool) When True, enables printing the logs during training. *Default*: `True`.
         min_train_steps_per_epoch: (int) Minimum number of iterations in a single epoch. (Useful if model is trained with very few data points). Refer limit_train_batches parameter of Torch Trainer. For ``embedding``, one iteration is a P x K batch (``objective.sampler``), not ``train_data_loader.batch_size`` samples. *Default*: `200`.
-        train_steps_per_epoch: (int) Number of minibatches (steps) to train for in an epoch. If set to `None`, this is set to the number of batches in the training data (for ``embedding``, the number of P x K batches that covers it once) or `min_train_steps_per_epoch`, whichever is largest. *Default*: `None`. **Note**: In a multi-gpu training setup, the effective steps during training would be the `trainer_steps_per_epoch` / `trainer_devices`.
+        train_steps_per_epoch: (int) Number of minibatches (steps) to train for in an epoch. If set to `None`, this is set to the number of batches in the training data (for ``embedding``, the number of P x K batches that covers it once) or `min_train_steps_per_epoch`, whichever is largest. *Default*: `None`. **Note**: With multiple devices this counts batches summed over ALL devices (so an epoch stays one pass over the data): each device runs `train_steps_per_epoch / trainer_devices` optimizer steps per epoch. `min_train_steps_per_epoch` is counted the same way.
+        balanced_sampler: (BalancedSamplerConfig) Per-file batch composition for `crop_pipeline="warp"`, `bbox_*` and (experimental) `bottomup` / `centroid` / `single_instance` training (`counts` or `weights` per training file, or per-sample `weights`). *Default*: `None` (plain shuffling).
         visualize_preds_during_training: (bool) If set to `True`, sample predictions (keypoints + confidence maps) are saved to `viz` folder in the ckpt dir and in wandb table. *Default*: `False`.
         keep_viz: (bool) If set to `True`, the `viz` folder will be kept after training. If `False`, the `viz` folder will be deleted after training. Only applies when `visualize_preds_during_training` is `True`. *Default*: `False`.
         viz_img_format: (str) Image format for the visualization figures saved to the local `viz` folder, one of `"png"` or `"jpg"`. `"jpg"` produces much smaller files, which helps when training a battery of models on the same dataset (#644). Only applies when `visualize_preds_during_training` is `True`. *Default*: `"png"`.
@@ -389,12 +1054,33 @@ class TrainerConfig:
         ckpt_dir: (str) Directory path where the `<run_name>` folder is created. **Default**: `"."` (the working dir)
         run_name: (str) Name of the current run. The ckpts will be created in `<ckpt_dir>/<run_name>`. If `None`, a run name is generated with `<timestamp>_<head_name>`. *Default*: `None`.
         resume_ckpt_path: (str) Path to `.ckpt` file from which training is resumed. *Default*: `None`.
+        reseed_on_resume: (bool) When training resumes from `resume_ckpt_path`, seed `random`, numpy and torch with `seed + current_epoch` before the first resumed epoch. Without it a resumed run is seeded with `seed` again, so on one device (without `balanced_sampler`) its first epoch repeats the original run's first epoch: the same order and the same augmentation draws. Off by default, so a resumed run trains as in earlier releases. *Default*: `False`.
         wandb: (Only if use_wandb is True, else skip this)
         optimizer_name: (str) Optimizer to be used. One of ["Adam", "AdamW"]. *Default*: `"Adam"`.
         optimizer: create an optimizer configuration
         lr_scheduler: create an lr_scheduler configuration
         early_stopping: create an early_stopping configuration
+        ema: Weight EMA configuration (``EMAConfig``); off by default.
+        freeze_schedule: Freeze part of the model for the first steps
+            (``FreezeScheduleConfig``); off by default.
+        distillation: Teacher -> student / head self-distillation
+            (``DistillationConfig``); off by default.
+        coordinate_losses: Experimental coordinate losses through a frozen linear
+            keypoint autoencoder for ``centered_instance`` models
+            (``CoordinateLossesConfig``); off by default, and left out of the
+            saved ``training_config.yaml`` when unset.
         zmq: Zmq config with publish and controller port addresses.
+        precision: (str) Lightning training precision: `"32"` (full fp32), `"bf16-mixed"` (bf16 autocast, fp32 weights/optimizer; recommended on Ampere+ GPUs), or `"16-mixed"` (fp16 autocast with a gradient scaler). *Default*: `"32"`.
+        float32_matmul_precision: (str) Passed to `torch.set_float32_matmul_precision` for the duration of `fit` on CUDA, and restored afterwards. `"high"` lets fp32 matmuls use TF32 tensor cores (~1.4-1.6x faster ViT training on Ampere+; ~10 mantissa bits for matmul inputs, fp32 accumulation); `"highest"` forces strict fp32 matmuls; `None` leaves the process setting untouched (PyTorch's default is `"highest"`). cuDNN convolutions already use TF32 by default (`torch.backends.cudnn.allow_tf32`) and are not affected. Has no effect under `bf16-mixed`/`16-mixed` autocast regions, only on ops that stay fp32. *Default*: `None`.
+        compile: (bool or str) `torch.compile` the model (backbone + heads) for training and validation; `true` = `"default"` mode, or one of `"reduce-overhead"`, `"max-autotune"`, `"max-autotune-no-cudagraphs"`. Compiles in place, so checkpoint keys are unchanged. The first steps are slow while compiling. *Default*: `False`.
+        gradient_clip_val: (float) Clip gradients at this value (see `gradient_clip_algorithm`). `None` disables clipping. *Default*: `None`.
+        gradient_clip_algorithm: (str) `"norm"` (global L2 norm) or `"value"`. *Default*: `"norm"`.
+        accumulate_grad_batches: (int) Accumulate gradients over this many batches per optimizer step (effective batch = `batch_size x num_devices x accumulate_grad_batches`). *Default*: `1`.
+        log_every_n_steps: (int) How often step-level metrics (e.g. `loss`) are sent to the loggers (wandb). Each logged step forces a host-device sync, so large-batch runs should use ~50. *Default*: `1`.
+        max_steps: (int) Total optimizer-step budget. Training stops at `max_steps` or `max_epochs`, whichever comes first (set `max_epochs: -1` to train by steps only; epoch-based LR schedulers then need their own `max_epochs`). `None` = no step limit. *Default*: `None`.
+        val_check_interval: (int or float) Run validation every N training batches (int, counted across epoch boundaries, so it may exceed `train_steps_per_epoch`) or every fraction of an epoch (float in `(0, 1]`). With an int, validation no longer runs at every epoch end, and early-stopping `patience` counts validation runs. `None` = once per epoch. *Default*: `None`.
+        throughput_log_every_n_steps: (int) Window (in training batches) for the `ThroughputMonitor` callback, which logs train-only samples/s, iteration time, data-wait time and fraction, GPU idle fraction, peak GPU memory and the LR of every param group under `perf/*`. `0`/`None` disables it. *Default*: `50`.
+        confmap_fg_bg_diagnostics: (bool) Log the confmap foreground/background MSE split (`{train,val}/confmap_loss_{fg,bg}`, `confmap_fg_frac`). `None` = only for `centroid` models. *Default*: `None`.
     """
 
     train_data_loader: TrainDataLoaderConfig = field(factory=TrainDataLoaderConfig)
@@ -411,6 +1097,7 @@ class TrainerConfig:
     enable_progress_bar: bool = True
     min_train_steps_per_epoch: int = 200
     train_steps_per_epoch: Optional[int] = None
+    balanced_sampler: Optional[BalancedSamplerConfig] = None
     visualize_preds_during_training: bool = False
     keep_viz: bool = False
     viz_img_format: str = "png"
@@ -421,6 +1108,7 @@ class TrainerConfig:
     ckpt_dir: Optional[str] = "."
     run_name: Optional[str] = None
     resume_ckpt_path: Optional[str] = None
+    reseed_on_resume: bool = False
     wandb: WandBConfig = field(factory=WandBConfig)
     optimizer_name: str = field(
         default="Adam",
@@ -429,11 +1117,86 @@ class TrainerConfig:
     optimizer: OptimizerConfig = field(factory=OptimizerConfig)
     lr_scheduler: Optional[LRSchedulerConfig] = field(factory=LRSchedulerConfig)
     early_stopping: EarlyStoppingConfig = field(factory=EarlyStoppingConfig)
+    ema: EMAConfig = field(factory=EMAConfig)
+    freeze_schedule: Optional[FreezeScheduleConfig] = None
+    distillation: Optional[DistillationConfig] = None
+    coordinate_losses: Optional[CoordinateLossesConfig] = None
     online_hard_keypoint_mining: Optional[HardKeypointMiningConfig] = field(
         factory=HardKeypointMiningConfig
     )
     zmq: Optional[ZMQConfig] = field(factory=ZMQConfig)  # Required for SLEAP GUI
     eval: EvalConfig = field(factory=EvalConfig)  # Epoch-end evaluation config
+    precision: Any = field(
+        default="32",
+        validator=lambda inst, attr, val: TrainerConfig.validate_precision(val),
+    )
+    float32_matmul_precision: Optional[str] = field(
+        default=None,
+        validator=validators.optional(validators.in_(["highest", "high", "medium"])),
+    )
+    compile: Any = field(
+        default=False,
+        validator=lambda inst, attr, val: TrainerConfig.validate_compile(val),
+    )
+    gradient_clip_val: Optional[float] = field(
+        default=None, validator=validators.optional(validators.gt(0))
+    )
+    gradient_clip_algorithm: str = field(
+        default="norm", validator=validators.in_(["norm", "value"])
+    )
+    accumulate_grad_batches: int = field(default=1, validator=validators.ge(1))
+    log_every_n_steps: int = field(default=1, validator=validators.ge(1))
+    max_steps: Optional[int] = field(
+        default=None, validator=validators.optional(validators.ge(1))
+    )
+    val_check_interval: Optional[Any] = field(
+        default=None,
+        validator=lambda inst, attr, val: TrainerConfig.validate_val_check_interval(
+            val
+        ),
+    )
+    throughput_log_every_n_steps: Optional[int] = field(
+        default=50, validator=validators.optional(validators.ge(0))
+    )
+    confmap_fg_bg_diagnostics: Optional[bool] = None
+
+    @staticmethod
+    def validate_precision(value):
+        """Validate the Lightning training precision."""
+        if str(value) in TRAINER_PRECISIONS:
+            return True
+        message = (
+            f"precision must be one of {sorted(TRAINER_PRECISIONS)}, got {value!r}."
+        )
+        logger.error(message)
+        raise ValueError(message)
+
+    @staticmethod
+    def validate_val_check_interval(value):
+        """Validate `val_check_interval` (int >= 1 batches, or a float in (0, 1])."""
+        if value is None:
+            return True
+        if isinstance(value, int) and not isinstance(value, bool) and value >= 1:
+            return True
+        if isinstance(value, float) and 0.0 < value <= 1.0:
+            return True
+        message = (
+            "val_check_interval must be an int >= 1 (training batches) or a float "
+            f"in (0, 1] (fraction of an epoch), got {value!r}."
+        )
+        logger.error(message)
+        raise ValueError(message)
+
+    @staticmethod
+    def validate_compile(value):
+        """Validate the `compile` option (bool or a `torch.compile` mode)."""
+        if isinstance(value, bool) or value is None or value in COMPILE_MODES:
+            return True
+        message = (
+            f"compile must be a bool or one of {list(COMPILE_MODES)}, got {value!r}."
+        )
+        logger.error(message)
+        raise ValueError(message)
 
     @staticmethod
     def validate_optimizer_name(value):

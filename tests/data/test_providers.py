@@ -707,3 +707,100 @@ def test_labels_reader_frames_out_of_range_warns(minimal_instance):
     assert len(messages) == 1
     assert "out of range" in messages[0]
     assert "[5, 6]" in messages[0]
+
+
+def test_clear_legacy_hidden_points_delegates_to_sleap_io():
+    """Only labels from a pre-3.0 file are cleaned, by sleap-io's own method."""
+    from types import SimpleNamespace
+
+    from sleap_nn.data.providers import (
+        clear_legacy_hidden_points,
+        has_legacy_hidden_points,
+    )
+
+    calls = []
+
+    def stub(source_format_id, method=True):
+        out = SimpleNamespace(source_format_id=source_format_id)
+        if method:
+            out.clean_legacy_points = lambda: calls.append(out) or 3
+        return out
+
+    old = stub(1.4)
+    assert has_legacy_hidden_points(old)
+    assert clear_legacy_hidden_points(old) == 3 and calls == [old]
+    for labels in (stub(3.0), stub(None), stub(1.4, method=False), None):
+        calls.clear()
+        assert clear_legacy_hidden_points(labels) == 0 and not calls
+    assert not has_legacy_hidden_points(stub(3.0))
+    assert not has_legacy_hidden_points(SimpleNamespace())  # sleap-io without it
+
+
+@pytest.mark.skipif(
+    not hasattr(sio.Labels, "clean_legacy_points"),
+    reason="this sleap-io clears old files' hidden points on load",
+)
+def test_clear_legacy_hidden_points_real_old_file(minimal_instance, tmp_path):
+    """An old-layout file read with its points as stored: hidden points with stale
+    coordinates become absent, so an all-hidden instance is empty again."""
+    from sleap_nn.data.providers import clear_legacy_hidden_points, instance_points
+
+    labels = sio.load_slp(minimal_instance)
+    inst0, inst1 = labels[0].instances[:2]
+    inst1.points["visible"][:] = False
+    inst0.points["visible"][0] = False
+    path = tmp_path / "old.slp"
+    sio.save_slp(labels, path, legacy_format=True, embed=False)
+    old = sio.load_slp(path)
+    inst0, inst1 = old[0].instances[:2]
+    assert not inst1.is_empty  # stale coordinates read as occluded estimates
+    assert clear_legacy_hidden_points(old) == 3
+    assert inst1.is_empty
+    assert np.isnan(instance_points(inst0, supervise_occluded=True)[0]).all()
+    assert np.isfinite(instance_points(inst0, supervise_occluded=True)[1]).all()
+
+
+def test_model_trainer_clears_legacy_hidden_points_before_splitting(monkeypatch):
+    """The trainer applies the clean-up to every loaded file before anything else.
+
+    The stand-in stops the method after the last file, so nothing that depends on
+    the model type or the config runs.
+    """
+    from sleap_nn.training import model_trainer as mt
+
+    seen = []
+    files = [object(), object(), object()]
+
+    class Stop(Exception):
+        pass
+
+    def clean(labels):
+        seen.append(labels)
+        if len(seen) == len(files):
+            raise Stop
+
+    monkeypatch.setattr(mt, "clear_legacy_hidden_points", clean)
+    trainer = mt.ModelTrainer.__new__(mt.ModelTrainer)
+    with pytest.raises(Stop):
+        trainer._setup_train_val_labels(files[:2], files[2:])
+    assert seen == files
+
+
+def test_evaluation_clears_legacy_hidden_points(
+    monkeypatch, minimal_instance, tmp_path
+):
+    """Ground truth read by evaluation gets the same clean-up as training."""
+    from sleap_nn import evaluation
+
+    seen = []
+    monkeypatch.setattr(
+        evaluation, "clear_legacy_hidden_points", lambda lb: seen.append(lb) or 0
+    )
+    gt = sio.load_slp(minimal_instance)
+    pred = tmp_path / "pred.slp"
+    sio.save_slp(gt, pred)
+    try:
+        evaluation.run_evaluation(gt, str(pred))
+    except Exception:
+        pass  # only the clean-up of the ground truth matters here
+    assert seen and seen[0] is gt

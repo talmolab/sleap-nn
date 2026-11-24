@@ -136,3 +136,95 @@ def test_apply_sizematcher_warns_once_per_size(caplog, minimal_instance):
         apply_sizematcher(ex["image"], 100, 480)
     matches = [r for r in caplog.records if "100x480" in r.message]
     assert len(matches) == 1
+
+
+def test_apply_sizematcher_warns_once_per_target(caplog):
+    """Frames of many sizes fitted to one target warn once per direction."""
+    resizing._SIZEMATCHER_WARNED_KEYS.clear()
+    caplog.clear()
+    for h, w in [(300, 400), (310, 420), (500, 640), (90, 100), (80, 120)]:
+        apply_sizematcher(torch.zeros(1, 3, h, w), 256, 256)
+    warned = [r for r in caplog.records if "256x256" in r.message]
+    assert len(warned) == 2
+    assert any("downscaled" in r.message for r in warned)
+    assert any("upscaled" in r.message for r in warned)
+
+
+def test_apply_sizematcher_warn_false(caplog):
+    """``warn=False`` resizes without the size-mismatch warning."""
+    resizing._SIZEMATCHER_WARNED_KEYS.clear()
+    caplog.clear()
+    image, _ = apply_sizematcher(torch.zeros(1, 3, 300, 400), 256, 256, warn=False)
+    assert image.shape[-2:] == (256, 256)
+    assert not [r for r in caplog.records if "256x256" in r.message]
+
+
+def test_apply_sizematcher_warn_info(caplog):
+    """``warn="info"`` (prediction) logs one info line per target size, no warning."""
+    resizing._SIZEMATCHER_WARNED_KEYS.clear()
+    resizing._INFERENCE_RESIZE_NOTED.clear()
+    caplog.clear()
+    for hw in ((300, 400), (300, 400), (120, 90), (500, 500)):
+        image, _ = apply_sizematcher(torch.zeros(1, 3, *hw), 256, 256, warn="info")
+    assert image.shape[-2:] == (256, 256)
+    noted = [r for r in caplog.records if "256x256" in r.message]
+    assert len(noted) == 1
+    assert noted[0].levelname == "INFO"
+    assert "300x400" in noted[0].message and "slower" not in noted[0].message
+    # Same-size frames are not noted.
+    resizing._INFERENCE_RESIZE_NOTED.clear()
+    caplog.clear()
+    apply_sizematcher(torch.zeros(1, 3, 256, 256), 256, 256, warn="info")
+    assert not caplog.records
+
+
+def test_prediction_layers_resize_with_info(monkeypatch):
+    """The inference layers fit frames with ``warn="info"``, never the warning."""
+    from sleap_nn.data import resizing as resizing_mod
+    from sleap_nn.inference.layers.single_instance import SingleInstanceLayer
+    from sleap_nn.inference.layers.configs import PreprocessConfig
+    from sleap_nn.inference.layers.topdown import TopDownLayer
+
+    seen = []
+    real = resizing_mod.apply_sizematcher
+
+    def spy(*args, **kwargs):
+        seen.append(kwargs.get("warn", True))
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(resizing_mod, "apply_sizematcher", spy)
+
+    layer = SingleInstanceLayer.__new__(SingleInstanceLayer)
+    layer.preprocess_config = PreprocessConfig(max_height=64, max_width=64)
+    layer._apply_full_preprocess(torch.zeros(2, 1, 100, 80))
+
+    centroid = SingleInstanceLayer.__new__(SingleInstanceLayer)
+    centroid.preprocess_config = PreprocessConfig(max_height=64, max_width=64)
+    topdown = TopDownLayer.__new__(TopDownLayer)
+    topdown.crop_max_hw = None
+    topdown.centroid_layer = centroid
+    topdown._sizematch_like_centroid_layer(torch.zeros(2, 1, 100, 80))
+
+    assert seen == ["info"] * 4
+
+
+def test_apply_sizematcher_without_upscale():
+    """`upscale=False` pads a smaller frame and still shrinks a larger one."""
+    img = torch.arange(2 * 20 * 30, dtype=torch.float32).reshape(1, 2, 20, 30)
+    out, s = apply_sizematcher(img, 40, 50, upscale=False)
+    assert s == 1.0 and out.shape[-2:] == (40, 50)
+    assert torch.equal(out[..., :20, :30], img)
+    assert out[..., 20:, :].abs().sum() == 0 and out[..., :, 30:].abs().sum() == 0
+    # Larger on one axis: shrunk to fit, then padded on the other.
+    out, s = apply_sizematcher(img, 10, 50, upscale=False)
+    assert s == 0.5 and out.shape[-2:] == (10, 50)
+    assert out[..., :, 15:].abs().sum() == 0
+    # The default still enlarges.
+    out, s = apply_sizematcher(img, 40, 50)
+    assert s == pytest.approx(5 / 3)
+    # The size warning only when a frame is resized.
+    resizing._SIZEMATCHER_WARNED_KEYS.clear()
+    apply_sizematcher(img, 40, 50, upscale=False)
+    assert not resizing._SIZEMATCHER_WARNED_KEYS
+    apply_sizematcher(img, 10, 50, upscale=False)
+    assert resizing._SIZEMATCHER_WARNED_KEYS

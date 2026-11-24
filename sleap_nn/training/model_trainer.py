@@ -11,6 +11,7 @@ import sleap_io as sio
 import sleap_nn
 import time
 import math
+import warnings
 import lightning as L
 import wandb
 import yaml
@@ -37,6 +38,7 @@ from sleap_nn.data.instance_cropping import (
     BBOX_CROP_MODEL_TYPES,
     BBoxCropSpec,
     bbox_crop_window_sides,
+    crop_hw,
     count_clipped_instances,
     find_instance_crop_size,
     find_max_instance_bbox_size,
@@ -48,6 +50,9 @@ from sleap_nn.data.instance_centroids import (
     degrade_anchor_if_unresolved,
 )
 from sleap_nn.data.providers import get_max_height_width
+from sleap_nn.data.node_weights import carry_labeled_nodes
+from sleap_nn.data.providers import clear_legacy_hidden_points
+from sleap_nn.data import skeleton_pool
 from sleap_nn.data.utils import embedding_detections
 from sleap_nn.data.custom_datasets import (
     EMBEDDING_MIN_MASK_AREA,
@@ -65,11 +70,16 @@ from sleap_nn.data.bboxes import (
     add_bboxes_to_labels,
     auto_anchor_sizes,
     bbox_head_leaf,
+    bbox_model_skeletons,
     bbox_size_stats,
     frame_user_bboxes,
     labels_bbox_categories,
 )
-from sleap_nn.config.model_config import BBOX_MODEL_TYPES, ssd_level_strides
+from sleap_nn.config.model_config import (
+    BBOX_MODEL_TYPES,
+    config_to_save,
+    ssd_level_strides,
+)
 from sleap_nn.evaluation import BBOX_EVAL_LOG_KEYS
 from loguru import logger
 from sleap_nn.config.utils import (
@@ -93,7 +103,18 @@ from sleap_nn.config_generator.architecture_estimates import (
     compute_suggested_tile_overlap,
 )
 from sleap_nn.training.utils import get_gpu_memory
-from sleap_nn.config.training_job_config import verify_training_cfg
+from sleap_nn.config.training_job_config import (
+    config_without_unused_keys,
+    verify_training_cfg,
+)
+from sleap_nn.config.trainer_config import fixed_length_lr_schedule
+from sleap_nn.training.optim import migrate_encoder_lr_options
+from sleap_nn.training.distillation import attach_distillation
+from sleap_nn.training.coordinate_losses import (
+    check_not_saved_decoded_config,
+    label_node_names,
+    setup_coordinate_losses,
+)
 from sleap_nn.training.callbacks import (
     ProgressReporterZMQ,
     TrainingControllerZMQ,
@@ -104,10 +125,17 @@ from sleap_nn.training.callbacks import (
     SegmentationEvaluationCallback,
     BBoxEvaluationCallback,
     TilingEpochCallback,
+    AugmentationStageCallback,
+    BalancedSamplerResume,
+    ResumeReseed,
+    EncoderFreezeSchedule,
     EmbeddingEvaluationCallback,
     EvalCadenceEarlyStopping,
     LastEpochCheckpoint,
     UnifiedVizCallback,
+    ThroughputMonitor,
+    WandBGalleryCallback,
+    WeightEMA,
 )
 from sleap_nn import RANK
 from sleap_nn.legacy_models import get_keras_first_layer_channels
@@ -117,6 +145,67 @@ from sleap_nn.legacy_models import get_keras_first_layer_channels
 _SPARSE_LABEL_THRESHOLD = 20
 
 MEMORY_BUFFER = 0.2  # Default memory buffer for caching
+
+# DDP's reducer compares gradient and bucket-view strides exactly, while autograd's
+# layout contract ignores size-1 dims. A 1x1 conv fed channels_last activations (any
+# ViT token map, `tokens.transpose(1, 2).reshape(...)`) gets a weight gradient with
+# strides like (C, 1, C, C) next to its (C, 1, 1, 1) bucket view: the same bytes, so
+# nothing is slow, but it warns on every rank. Only that case is silenced: a 1x1
+# weight whose two leading strides match.
+_DDP_SIZE_ONE_STRIDE_WARNING = (
+    r"(?s)Grad strides do not match bucket view strides\..*"
+    r"grad\.sizes\(\) = \[(\d+), (\d+), 1, 1\], "
+    r"strides\(\) = \[(\d+), (\d+), \d+, \d+\]\s*"
+    r"bucket_view\.sizes\(\) = \[\1, \2, 1, 1\], "
+    r"strides\(\) = \[\3, \4, \d+, \d+\]"
+)
+
+
+def _ignore_size_one_ddp_stride_warning() -> None:
+    """Silence DDP's grad-stride warning for 1x1 conv weights (same memory layout)."""
+    warnings.filterwarnings(
+        "ignore", message=_DDP_SIZE_ONE_STRIDE_WARNING, category=UserWarning
+    )
+
+
+def _init_process_group_before_fit(trainer: L.Trainer) -> bool:
+    """Start the process group before ``fit()`` when every rank runs the setup.
+
+    Lightning starts the process group inside ``fit()``, so collectives during the
+    trainer setup (``strategy.barrier()``, the dataset cache-fill syncs) are no-ops
+    until then. Under Lightning's own launcher (``trainer_devices > 1`` from one
+    process) that is safe: ``fit()`` spawns the other ranks, which re-run the setup
+    only after rank 0 has finished it (disk cache included), and those ranks must not
+    start a pre-fit collective because rank 0 is already inside ``fit()``. Under an
+    external launcher (torchrun, SLURM ``srun``, ...) every rank runs the setup at the
+    same time, so the group is started here; ``fit()`` then finds it running.
+
+    Args:
+        trainer: The ``lightning.Trainer`` about to be set up.
+
+    Returns:
+        Whether the process group was started.
+    """
+    from lightning.fabric.plugins.environments import LightningEnvironment
+
+    strategy = trainer.strategy
+    env = getattr(strategy, "cluster_environment", None)
+    if (
+        trainer.world_size <= 1
+        or env is None
+        or not env.creates_processes_externally
+        or isinstance(env, LightningEnvironment)
+        or not hasattr(strategy, "setup_distributed")
+        or (torch.distributed.is_available() and torch.distributed.is_initialized())
+    ):
+        return False
+    strategy.setup_environment()
+    logger.info(
+        f"Started the process group before fit (rank {trainer.global_rank} of "
+        f"{trainer.world_size}, {type(env).__name__})."
+    )
+    return True
+
 
 # Model types that crop around an instance centroid, and so need a crop size.
 CROPPING_MODEL_TYPES = (
@@ -531,6 +620,16 @@ class ModelTrainer:
 
         return mk("train"), mk("val")
 
+    def _uses_warp_pipeline(self) -> bool:
+        """Whether training uses ``preprocessing.crop_pipeline="warp"``."""
+        return (
+            self.model_type == "centered_instance"
+            and OmegaConf.select(
+                self.config, "data_config.preprocessing.crop_pipeline", default=None
+            )
+            == "warp"
+        )
+
     def _setup_train_val_labels(
         self,
         labels: Optional[List[sio.Labels]] = None,
@@ -538,9 +637,20 @@ class ModelTrainer:
     ):
         """Create train and val labels objects. (Initialize `self.train_labels` and `self.val_labels`)."""
         logger.info(f"Creating train-val split...")
+        # Old-layout files: hidden points' stored coordinates are stale, not
+        # occluded estimates; cleared before anything reads points.
+        for lb in list(labels or []) + list(val_labels or []):
+            clear_legacy_hidden_points(lb)
         total_train_lfs = 0
         total_val_lfs = 0
-        self.skeletons = labels[0].skeletons
+        # Bounding-box detectors train on boxes only and never read keypoints, so
+        # their files may carry any skeletons (COCO-17, a union skeleton, none):
+        # the model has no skeleton, whatever order the files are listed in (a
+        # `bbox_detr` with keypoints: the skeleton of its `part_names`).
+        if self.model_type in BBOX_MODEL_TYPES:
+            self.skeletons = bbox_model_skeletons(self.config, self.model_type, labels)
+        else:
+            self.skeletons = labels[0].skeletons
 
         # Mask-only labels: derive the centroid annotations a centroid model needs
         # from the segmentation masks. Must run BEFORE splitting and counting —
@@ -558,12 +668,30 @@ class ModelTrainer:
             self.config, "data_config.user_instances_only", default=True
         )
 
-        # check if all `.slp` files have the same skeleton structure (if multiple slp
-        # file paths are provided). Node ORDER must match too: points are read in
-        # each file's own node order, so the same names in a different order would
-        # silently train each channel on a different node.
-        # Mask-only labels (e.g. instance segmentation) may carry no skeleton.
-        if self.skeletons:
+        merge = skeleton_pool.merge_skeletons_enabled(self.config, self.model_type)
+        if self._uses_warp_pipeline() or merge:
+            # The warp pipeline matches nodes by name across files, so files may
+            # carry different skeletons (COCO-17, AIC-14, a union skeleton): the
+            # model's skeleton is its `part_names` (default: every train file's
+            # nodes, first seen first) with every edge/symmetry the files have.
+            # `merge_skeletons` (experimental) does the same for the frame models
+            # and maps each file's instances onto that skeleton by node name.
+            names = skeleton_pool.pool_node_names(self.config, self.model_type, labels)
+            edges = OmegaConf.select(
+                self.config,
+                "model_config.head_configs.bottomup.pafs.edges",
+                default=None,
+            )
+            self.skeletons = [skeleton_pool.pool_skeleton(labels, names, edges)]
+            if merge:
+                labels, val_labels = skeleton_pool.map_labels_lists(
+                    labels, val_labels, self.skeletons[0]
+                )
+        # check if all `.slp` file shave same skeleton structure (if multiple slp file paths are provided)
+        # Mask-only labels (e.g. instance segmentation) may carry no skeleton, and
+        # bounding-box models match keypoint nodes by name (see above), so neither
+        # is checked.
+        elif self.skeletons and self.model_type not in BBOX_MODEL_TYPES:
             skeleton = self.skeletons[0]
             for split, label_list in (("training", labels), ("validation", val_labels)):
                 for index, label in enumerate(label_list or []):
@@ -618,6 +746,10 @@ class ModelTrainer:
             self.train_labels, self.val_labels = split_labels_list_train_val(
                 labels, split_cfg
             )
+            for source, train_split, val_split in zip(
+                labels, self.train_labels, self.val_labels
+            ):
+                carry_labeled_nodes(source, train_split, val_split)
             total_train_lfs = self._count_labeled_frames(
                 self.train_labels, user_instances_only
             )
@@ -686,6 +818,9 @@ class ModelTrainer:
                     train_split, val_split = label.make_training_splits(
                         n_train=1 - val_fraction, n_val=val_fraction, seed=seed
                     )
+                # sleap-io's splits drop `provenance`, which would silently turn
+                # the file's per-node loss mask off.
+                carry_labeled_nodes(label, train_split, val_split)
                 self.train_labels.append(train_split)
                 self.val_labels.append(val_split)
                 total_train_lfs += len(train_split)
@@ -754,7 +889,162 @@ class ModelTrainer:
         padding = OmegaConf.select(self.config, "data_config.bbox_padding", default=0.0)
         for label_list in label_lists:
             for labels in label_list or []:
-                add_bboxes_to_labels(labels, source=source, padding=padding)
+                add_bboxes_to_labels(
+                    labels,
+                    source=source,
+                    padding=padding,
+                    ignore_category=OmegaConf.select(
+                        self.config, "data_config.ignore_box_category"
+                    ),
+                )
+
+    # Metric-name segments a val file's display name may not take: they would
+    # collide with the pooled (`eval/val/*`) and macro (`*/macro/*`) keys.
+    _RESERVED_VAL_NAMES = ("val", "macro")
+
+    def _val_file_names(self) -> Optional[List[str]]:
+        """One display name per val labels file, or ``None`` with a single file.
+
+        ``data_config.val_names`` when set (one per file, unique); otherwise each
+        file's stem (``.slp`` / ``.pkg`` stripped) from ``val_labels_path`` (or
+        ``train_labels_path`` when the val files are split from the training
+        files), falling back to the labels' ``provenance["filename"]`` and then to
+        ``val<i>``. Default names that repeat or are reserved get a ``-<i>``
+        suffix. Names become metric keys (``val/<name>/loss``,
+        ``eval/<name>/*``), so they may not contain ``/``.
+
+        Raises:
+            ValueError: If ``val_names`` has the wrong length, repeats a name, uses
+                a reserved name (``val``, ``macro``) or contains ``/``.
+        """
+        n = len(self.val_labels)
+        if n <= 1:
+            return None
+        names = OmegaConf.select(self.config, "data_config.val_names", default=None)
+        if names is not None:
+            names = [str(x) for x in names]
+            if len(names) != n:
+                raise ValueError(
+                    f"data_config.val_names has {len(names)} names for {n} "
+                    "validation labels files."
+                )
+            bad = [x for x in names if "/" in x or x in self._RESERVED_VAL_NAMES]
+            if bad or len(set(names)) != n:
+                raise ValueError(
+                    f"data_config.val_names must be unique, without '/', and not "
+                    f"{list(self._RESERVED_VAL_NAMES)}; got {names}."
+                )
+            return names
+
+        def _paths(key):
+            paths = OmegaConf.select(self.config, key, default=None)
+            if isinstance(paths, str):
+                paths = [paths]
+            return list(paths) if paths is not None and len(paths) == n else None
+
+        paths = _paths("data_config.val_labels_path") or _paths(
+            "data_config.train_labels_path"
+        )
+        names = []
+        for i, labels in enumerate(self.val_labels):
+            path = paths[i] if paths else None
+            if path is None:
+                path = (getattr(labels, "provenance", None) or {}).get("filename")
+            if path is None:
+                names.append(f"val{i}")
+                continue
+            stem = Path(str(path)).name
+            for ext in (".slp", ".pkg"):
+                if stem.endswith(ext):
+                    stem = stem[: -len(ext)]
+            names.append(stem.replace("/", "_") or f"val{i}")
+        out = []
+        for i, name in enumerate(names):
+            if names.count(name) > 1 or name in self._RESERVED_VAL_NAMES:
+                name = f"{name}-{i}"
+            out.append(name)
+        if out != names:
+            logger.warning(
+                f"Validation file names repeat or are reserved; using {out}. Set "
+                "data_config.val_names to name them."
+            )
+        return out
+
+    def _check_per_file_monitor(self, monitor: str) -> None:
+        """Fail fast on a per-file/macro checkpoint monitor that is never logged.
+
+        ``val/macro/loss`` and ``val/<name>/loss`` need several val files and the
+        warp centered-instance pipeline (whose batches carry ``labels_idx``);
+        ``eval/macro/*`` and ``eval/<name>/*`` need several val files and
+        ``trainer_config.eval.enabled``.
+        """
+        parts = monitor.split("/")
+        if len(parts) < 3 or parts[0] not in ("val", "eval") or parts[1] == "val":
+            return
+        names = self._val_file_names() or []
+        if parts[1] != "macro" and parts[1] not in names:
+            return
+        where = f"model_ckpt.monitor={monitor!r}"
+        if not names:
+            raise ValueError(f"{where} needs several validation files.")
+        if parts[0] == "val" and not self._uses_warp_pipeline():
+            raise ValueError(
+                f"{where}: per-file validation loss is only logged by "
+                "centered_instance with preprocessing.crop_pipeline='warp'."
+            )
+        if parts[0] == "eval" and not self.config.trainer_config.eval.enabled:
+            raise ValueError(f"{where} needs trainer_config.eval.enabled=true.")
+
+    def _val_files(self) -> Optional[List["ValFile"]]:
+        """Per-file epoch-end evaluation specs (:class:`ValFile`), or ``None``.
+
+        Each file is scored on the model nodes its skeleton has, or on
+        ``trainer_config.eval.file_nodes[<name>]`` (a node list or a name prefix).
+
+        Raises:
+            ValueError: If ``eval.file_nodes`` names an unknown file or a node the
+                file is not scored on.
+        """
+        from sleap_nn.training.callbacks import ValFile, select_nodes
+
+        names = self._val_file_names()
+        if names is None:
+            return None
+        model_nodes = label_node_names(self.config, self.skeletons)
+        file_nodes = OmegaConf.select(
+            self.config, "trainer_config.eval.file_nodes", default=None
+        )
+        file_nodes = (
+            OmegaConf.to_container(file_nodes)
+            if OmegaConf.is_config(file_nodes)
+            else dict(file_nodes or {})
+        )
+        unknown = sorted(set(file_nodes) - set(names))
+        if unknown:
+            raise ValueError(
+                f"trainer_config.eval.file_nodes names unknown validation files "
+                f"{unknown}; the files are {names}."
+            )
+        files = []
+        for name, labels in zip(names, self.val_labels):
+            own = skeleton_pool.own_node_set(labels, self.config)
+            nodes = [n for n in model_nodes if n in own]
+            spec = file_nodes.get(name)
+            if spec is not None:
+                try:
+                    nodes = select_nodes(nodes, spec)
+                except ValueError as e:
+                    raise ValueError(
+                        f"trainer_config.eval.file_nodes[{name!r}]: {e}"
+                    ) from None
+            if not nodes:
+                raise ValueError(
+                    f"Validation file {name!r} has no model node to score."
+                )
+            files.append(
+                ValFile(name=name, videos=list(labels.videos), node_names=nodes)
+            )
+        return files
 
     # Box metrics a `bbox_*` model can select checkpoints on (all higher-is-better).
     _BBOX_SELECT_METRICS = ("bbox_mAP", "bbox_AP50", "bbox_AP75", "bbox_AR", "bbox_f1")
@@ -809,7 +1099,8 @@ class ModelTrainer:
         leaf = bbox_head_leaf(self.model_type, head_configs)
         if leaf.categories is None:
             leaf.categories = labels_bbox_categories(
-                self.train_labels + self.val_labels
+                self.train_labels + self.val_labels,
+                OmegaConf.select(self.config, "data_config.ignore_box_category"),
             )
             logger.info(f"Bounding-box categories: {list(leaf.categories)}")
         if self.model_type == "bbox_ssd" and leaf.anchor_sizes is None:
@@ -1031,8 +1322,10 @@ class ModelTrainer:
         max_height = self.config.data_config.preprocessing.max_height
         max_width = self.config.data_config.preprocessing.max_width
 
-        # Pass 1: resolve the size-matcher target.
-        if max_height is None or max_width is None:
+        # Pass 1: resolve the size-matcher target. The warp pipeline crops every
+        # frame at its native size (no size matcher), so it leaves max_hw unset and
+        # box sizes / `crop_bbox_min_size` stay in native frame pixels.
+        if (max_height is None or max_width is None) and not self._uses_warp_pipeline():
             max_h, max_w = 0, 0
             for train_label in self.train_labels:
                 current_max_h, current_max_w = get_max_height_width(train_label)
@@ -1194,7 +1487,7 @@ class ModelTrainer:
             preprocessing.crop_size = max(
                 stride, int(math.ceil(float(median) / stride) * stride)
             )
-        crop_size = int(preprocessing.crop_size)
+        crop_size = min(crop_hw(preprocessing.crop_size))  # short side if [h, w]
         min_size = float(preprocessing.crop_bbox_min_size)
         logger.info(
             f"Box-scaled crops ({spec.aspect}, padding {spec.padding:g} of the longest "
@@ -2094,9 +2387,43 @@ class ModelTrainer:
             )
             self.config.trainer_config.trainer_accelerator = "auto"
 
+    def _setup_schedule_defaults(self):
+        """Resolve the early-stopping and plateau defaults against the LR schedule.
+
+        Early stopping is on under every schedule unless the config turns it off
+        (``None`` is read as on). A fixed-length schedule
+        (`FIXED_LENGTH_LR_SCHEDULES`) is planned around the run length, so early
+        stopping on with one gets a warning that it can end the run first. The
+        resolved value is written into the config, so the saved
+        ``training_config.yaml`` shows what ran. The default
+        ``reduce_lr_on_plateau`` section is left in the config, as in v0.3.5: the
+        scheduler is chosen by priority (``LightningModel.configure_optimizers``),
+        so a fixed-length schedule runs and the plateau section is not used.
+        """
+        trainer_config = self.config.trainer_config
+        fixed = fixed_length_lr_schedule(trainer_config.lr_scheduler)
+        es = trainer_config.early_stopping
+        if es.stop_training_on_plateau is None:
+            es.stop_training_on_plateau = True
+        if es.stop_training_on_plateau and fixed is not None:
+            # A plateau stop can cut the decay short.
+            logger.warning(
+                f"lr_scheduler.{fixed} runs a fixed-length schedule but "
+                "early_stopping.stop_training_on_plateau is true (patience="
+                f"{es.patience}); training may stop before the schedule ends. Set "
+                "early_stopping.stop_training_on_plateau: false to run the whole "
+                "schedule."
+            )
+
     def setup_config(self):
         """Compute config parameters."""
         logger.info("Setting up config...")
+        check_not_saved_decoded_config(self.config)
+
+        # Early stopping / plateau defaults follow the LR schedule; the encoder
+        # LR knobs move from the backbone config to `trainer_config.optimizer`.
+        self._setup_schedule_defaults()
+        self.config = migrate_encoder_lr_options(self.config)
 
         # Normalize empty strings to None for optional wandb fields
         if self.config.trainer_config.wandb.prv_runid == "":
@@ -2231,6 +2558,11 @@ class ModelTrainer:
         # verify input_channels in model_config based on input image and pretrained model weights
         self._verify_model_input_channels()
 
+        # Experimental `trainer_config.coordinate_losses` (drops the key when unset).
+        self.skeletons = setup_coordinate_losses(
+            self.config, self.skeletons, self._initial_config
+        )
+
     def _setup_model_ckpt_dir(self):
         """Create the model ckpt folder and save ground truth labels."""
         ckpt_path = (
@@ -2284,6 +2616,7 @@ class ModelTrainer:
                     if test_path.endswith(".slp") or test_path.endswith(".pkg.slp"):
                         try:
                             test_labels = sio.load_slp(test_path)
+                            clear_legacy_hidden_points(test_labels)
                             # Same GT boxes as training/eval derive (no-op for
                             # non-bbox models), or the bbox filter drops every
                             # frame of a pose/mask test file.
@@ -2303,17 +2636,152 @@ class ModelTrainer:
                                 f"Could not save test ground truth for {test_path}: {e}"
                             )
 
+    def _viz_file_nodes(self):
+        """Per-file channel indices for the training viz of a multi-skeleton head.
+
+        Returns:
+            ``(train_file_nodes, val_file_nodes, val_file_names)``: per training and
+            per validation labels file the model channels of its nodes (a val
+            file's :class:`~sleap_nn.training.callbacks.ValFile` nodes, so
+            ``trainer_config.eval.file_nodes`` applies), and the val files' names;
+            ``(None, None, None)`` when every file has every model node or the
+            model has no skeleton (box detectors).
+        """
+        if not self.skeletons:
+            return None, None, None
+        model_nodes = label_node_names(self.config, self.skeletons)
+
+        def own_nodes(labels_list):
+            out = []
+            for labels in labels_list:
+                own = skeleton_pool.own_node_set(labels, self.config)
+                out.append([i for i, n in enumerate(model_nodes) if n in own])
+            return out
+
+        train = own_nodes(self.train_labels)
+        files = self._val_files()
+        if files is not None:
+            val = [[model_nodes.index(n) for n in f.node_names] for f in files]
+            names = [f.name for f in files]
+        else:
+            val, names = own_nodes(self.val_labels), None
+        if all(len(idx) == len(model_nodes) for idx in train + val):
+            return None, None, None
+        return train, val, names
+
+    def _gallery_callback(self) -> Optional["WandBGalleryCallback"]:
+        """The W&B prediction gallery, or ``None`` when it is off or unsupported.
+
+        On when ``trainer_config.use_wandb`` and ``trainer_config.wandb.gallery``
+        (default ``True``) are both on, for box detectors (``bbox_*``),
+        ``centered_instance`` and bottom-up models.
+        """
+        cfg = self.config.trainer_config
+        if not cfg.use_wandb or not OmegaConf.select(
+            self.config, "trainer_config.wandb.gallery", default=True
+        ):
+            return None
+        from sleap_nn.training import gallery
+
+        if self.model_type in BBOX_MODEL_TYPES:
+            kind = "bbox"
+        elif self.model_type == "centered_instance":
+            kind = "keypoints"
+        elif self.model_type in ("bottomup", "multi_class_bottomup"):
+            kind = "instances"
+        else:
+            logger.info(
+                f"W&B gallery: not available for {self.model_type!r} models; skipped."
+            )
+            return None
+
+        def stems(paths, n, prefix):
+            paths = list(paths or [])
+            out = []
+            for i in range(n):
+                if i < len(paths) and paths[i]:
+                    name = Path(str(paths[i])).name
+                    for ext in (".slp", ".pkg"):
+                        name = name[: -len(ext)] if name.endswith(ext) else name
+                    out.append(name)
+                else:
+                    out.append(f"{prefix}{i}")
+            return out
+
+        n_val, n_train = len(self.val_labels), len(self.train_labels)
+        val_names = OmegaConf.select(self.config, "data_config.val_names", default=None)
+        if val_names is not None and len(val_names) == n_val:
+            val_names = [str(x) for x in val_names]
+        else:
+            fallback = self._val_file_names() or stems(
+                OmegaConf.select(
+                    self.config, "data_config.val_labels_path", default=None
+                ),
+                n_val,
+                "val",
+            )
+            val_names = gallery.file_display_names(self.val_labels, fallback)
+        train_names = gallery.file_display_names(
+            self.train_labels,
+            stems(
+                OmegaConf.select(
+                    self.config, "data_config.train_labels_path", default=None
+                ),
+                n_train,
+                "train",
+            ),
+        )
+        labs = OmegaConf.select(self.config, "trainer_config.wandb.gallery_labs")
+        labs = OmegaConf.to_container(labs) if OmegaConf.is_config(labs) else labs
+
+        kwargs = {}
+        if kind in ("keypoints", "instances") and self.skeletons:
+            model_nodes = label_node_names(self.config, self.skeletons)
+            train_nodes, val_nodes, _ = self._viz_file_nodes()
+            kwargs = dict(
+                train_file_nodes=train_nodes,
+                val_file_nodes=val_nodes,
+                train_edges=[
+                    gallery.file_edges(lab.skeletons, model_nodes)
+                    for lab in self.train_labels
+                ],
+                val_edges=[
+                    gallery.file_edges(lab.skeletons, model_nodes)
+                    for lab in self.val_labels
+                ],
+            )
+        return WandBGalleryCallback(
+            kind=kind,
+            val_names=val_names,
+            train_names=train_names,
+            val_labs=gallery.file_labs(self.val_labels, val_names, labs),
+            train_labs=gallery.file_labs(self.train_labels, train_names, labs),
+            size=OmegaConf.select(
+                self.config, "trainer_config.wandb.gallery_size", default=64
+            ),
+            max_logs=OmegaConf.select(
+                self.config, "trainer_config.wandb.gallery_max_logs", default=50
+            ),
+            **kwargs,
+        )
+
     def _setup_viz_datasets(self):
         """Setup dataloaders."""
         data_viz_config = self.config.copy()
         data_viz_config.data_config.data_pipeline_fw = "torch_dataset"
 
-        return get_train_val_datasets(
+        datasets = get_train_val_datasets(
             train_labels=self.train_labels,
             val_labels=self.val_labels,
             config=data_viz_config,
             rank=-1,
         )
+        if self._uses_warp_pipeline():
+            # Warp training samples leave out the crop geometry (a throughput
+            # saving); the visualization's inference layer needs it.
+            for dataset in datasets:
+                dataset.return_geometry = True
+        return datasets
 
     def _setup_datasets(self):
         """Setup dataloaders."""
@@ -2392,11 +2860,21 @@ class ModelTrainer:
             if self.config.data_config.cache_img_path is None:
                 self.config.data_config.cache_img_path = base_cache_img_path
 
+        teacher_crop_size = OmegaConf.select(
+            self.config, "trainer_config.distillation.teacher_crop_size", default=None
+        )
         return get_train_val_datasets(
             train_labels=self.train_labels,
             val_labels=self.val_labels,
             config=self.config,
             rank=self.trainer.global_rank,
+            # Distillation's dual-resolution crop: the training loader only (not
+            # the visualization datasets).
+            teacher_crop_size=(
+                OmegaConf.to_container(teacher_crop_size)
+                if OmegaConf.is_config(teacher_crop_size)
+                else teacher_crop_size
+            ),
         )
 
     def _setup_loggers_callbacks(self, viz_train_dataset, viz_val_dataset):
@@ -2459,6 +2937,27 @@ class ModelTrainer:
             ckpt_monitor, ckpt_mode = "val/loss", "min"
             ckpt_every_n_epochs = 1
 
+        # Config-driven monitor/mode (main #690/#692) wins when the user set it away
+        # from the "val/loss" schema default (e.g. a seg quality metric). Left at the
+        # default, fall back to the model-type-aware default computed above
+        # (embedding -> retrieval metric, else val/loss) since contrastive objectives
+        # are not well-selected by val/loss. ModelCheckpoint and EarlyStopping both
+        # use the result, so "best" and "stop" agree.
+        user_monitor = self.config.trainer_config.model_ckpt.monitor != "val/loss"
+        if user_monitor:
+            ckpt_monitor = self.config.trainer_config.model_ckpt.monitor
+            ckpt_mode = self.config.trainer_config.model_ckpt.mode
+            self._check_per_file_monitor(ckpt_monitor)
+        if ckpt_monitor == "val/loss" and OmegaConf.select(
+            self.config, "data_config.val_negative_frames", default=False
+        ):
+            logger.warning(
+                "data_config.val_negative_frames is on and checkpoints and early "
+                "stopping follow val/loss, which batches of negative frames inflate "
+                "(as does reduce_lr_on_plateau). Prefer trainer_config.eval.enabled "
+                "with a box metric (eval/val/bbox_*)."
+            )
+
         if self.config.trainer_config.save_ckpt:
             ckpt_dirpath = (
                 Path(self.config.trainer_config.ckpt_dir)
@@ -2472,29 +2971,12 @@ class ModelTrainer:
                 save_last=False,
                 dirpath=ckpt_dirpath,
                 filename="best",
-                # Config-driven monitor/mode (main #690/#692) wins when the user set
-                # it away from the "val/loss" schema default (e.g. a seg quality
-                # metric). Left at the default, fall back to the model-type-aware
-                # default computed above (embedding -> retrieval metric, else val/loss)
-                # since contrastive objectives are not well-selected by val/loss.
-                monitor=(
-                    self.config.trainer_config.model_ckpt.monitor
-                    if self.config.trainer_config.model_ckpt.monitor != "val/loss"
-                    else ckpt_monitor
-                ),
-                mode=(
-                    self.config.trainer_config.model_ckpt.mode
-                    if self.config.trainer_config.model_ckpt.monitor != "val/loss"
-                    else ckpt_mode
-                ),
+                monitor=ckpt_monitor,
+                mode=ckpt_mode,
                 # Only meaningful (and only non-1) when the monitored metric is the
                 # eval-gated embedding one; an explicitly configured monitor keeps
                 # the every-epoch default.
-                every_n_epochs=(
-                    1
-                    if self.config.trainer_config.model_ckpt.monitor != "val/loss"
-                    else ckpt_every_n_epochs
-                ),
+                every_n_epochs=1 if user_monitor else ckpt_every_n_epochs,
             )
             callbacks.append(checkpoint_callback)
             if self.config.trainer_config.model_ckpt.save_last:
@@ -2748,6 +3230,23 @@ class ModelTrainer:
                             "eval/val/visibility_recall",
                         ]
                     )
+            # Several val files: per-file and macro columns (every macro eval
+            # metric; per file the loss, mOKS, OKS mAP and mean distance).
+            val_names = self._val_file_names()
+            if val_names is not None and self._uses_warp_pipeline():
+                csv_log_keys.extend(
+                    [f"val/{name}/loss" for name in val_names] + ["val/macro/loss"]
+                )
+            if val_names is not None and "eval/val/mOKS" in csv_log_keys:
+                pooled = [k for k in csv_log_keys if k.startswith("eval/val/")]
+                csv_log_keys.extend(
+                    [k.replace("eval/val/", "eval/macro/", 1) for k in pooled]
+                    + [
+                        f"eval/{name}/{metric}"
+                        for name in val_names
+                        for metric in ("mOKS", "oks_voc_mAP", "distance/avg")
+                    ]
+                )
             csv_logger = CSVLoggerCallback(
                 filepath=Path(self.config.trainer_config.ckpt_dir)
                 / self.config.trainer_config.run_name
@@ -2756,6 +3255,21 @@ class ModelTrainer:
             )
             callbacks.append(csv_logger)
 
+        ema_cfg = OmegaConf.select(self.config, "trainer_config.ema", default=None)
+        if ema_cfg is not None and ema_cfg.enabled:
+            # Swaps the EMA weights in for validation, so every metric the
+            # checkpointer / early stopping / LR plateau select on is the EMA
+            # model's, and writes them as the checkpoints' `state_dict`.
+            callbacks.append(
+                WeightEMA(decay=ema_cfg.decay, warmup_steps=ema_cfg.warmup_steps)
+            )
+            logger.info(
+                f"Weight EMA on (decay={ema_cfg.decay}, warmup_steps="
+                f"{ema_cfg.warmup_steps}); validation and checkpoints use EMA weights."
+            )
+
+        if self.config.trainer_config.early_stopping.stop_training_on_plateau is None:
+            self._setup_schedule_defaults()
         if self.config.trainer_config.early_stopping.stop_training_on_plateau:
             # early stopping callback
             es_kwargs = dict(
@@ -2765,20 +3279,23 @@ class ModelTrainer:
                 min_delta=self.config.trainer_config.early_stopping.min_delta,
                 patience=self.config.trainer_config.early_stopping.patience,
             )
-            if self.model_type == "embedding" or ckpt_monitor.startswith(
-                "eval/val/bbox_"
-            ):
+            if self.model_type == "embedding" or ckpt_monitor.startswith("eval/"):
                 # The verification metrics (auc/eer) can be NaN on a degenerate val
                 # set/shard; don't let that abort the run — pose/seg models keep the
-                # strict defaults. Box metrics likewise exist on eval epochs only.
+                # strict defaults on `val/*`. Every `eval/*` metric exists on eval
+                # epochs only (NaN in between, from the CSV logger's reset).
                 es_kwargs["strict"] = False
                 es_kwargs["check_finite"] = False
-                # The retrieval metric is measured every `eval.frequency` epochs and
-                # only carried forward in between; check (and count patience) on
-                # eval epochs only, the same cadence the checkpointer selects on.
+                # The eval metric is measured every `eval.frequency` epochs; check
+                # (and count patience) on eval epochs only.
                 callbacks.append(
                     EvalCadenceEarlyStopping(
-                        eval_frequency=ckpt_every_n_epochs, **es_kwargs
+                        eval_frequency=int(
+                            OmegaConf.select(
+                                self.config, "trainer_config.eval.frequency", default=1
+                            )
+                        ),
+                        **es_kwargs,
                     )
                 )
             else:
@@ -2901,8 +3418,19 @@ class ModelTrainer:
                         "trainer_config.viz_img_format",
                         default="png",
                     ),
+                    **dict(
+                        zip(
+                            ("train_file_nodes", "val_file_nodes", "val_file_names"),
+                            self._viz_file_nodes(),
+                        )
+                    ),
                 )
             )
+
+        # W&B prediction gallery: on by default while W&B logging is on.
+        gallery_callback = self._gallery_callback()
+        if gallery_callback is not None:
+            callbacks.append(gallery_callback)
 
         # Add custom progress bar with better metric formatting
         if self.config.trainer_config.enable_progress_bar:
@@ -2939,6 +3467,13 @@ class ModelTrainer:
                 callbacks.append(
                     BBoxEvaluationCallback(
                         eval_frequency=self.config.trainer_config.eval.frequency,
+                        cover_metrics=bool(
+                            OmegaConf.select(
+                                self.config,
+                                "trainer_config.eval.bbox_cover_metrics",
+                                default=False,
+                            )
+                        ),
                     )
                 )
             elif self.model_type in (
@@ -2969,6 +3504,21 @@ class ModelTrainer:
                         eval_frequency=self.config.trainer_config.eval.frequency,
                         oks_stddev=self.config.trainer_config.eval.oks_stddev,
                         oks_scale=self.config.trainer_config.eval.oks_scale,
+                        # Several val files: each file's own videos and nodes.
+                        val_files=self._val_files(),
+                        norm_scale=OmegaConf.select(
+                            self.config, "trainer_config.eval.norm_scale", default=None
+                        ),
+                        norm_missing_error=OmegaConf.select(
+                            self.config,
+                            "trainer_config.eval.norm_missing_error",
+                            default=1.0,
+                        ),
+                        norm_pad_frac=OmegaConf.select(
+                            self.config,
+                            "trainer_config.eval.norm_pad_frac",
+                            default=0.0,
+                        ),
                     )
                 )
 
@@ -2978,6 +3528,67 @@ class ModelTrainer:
         )
         if tiling is not None and tiling.enabled:
             callbacks.append(TilingEpochCallback())
+
+        # Stage-2 augmentation switch (`augmentation_config.stage2`, warp only).
+        stage2 = OmegaConf.select(
+            self.config, "data_config.augmentation_config.stage2", default=None
+        )
+        if stage2 is not None and self.config.data_config.use_augmentations_train:
+            if not self._uses_warp_pipeline():
+                raise ValueError(
+                    "augmentation_config.stage2 is only implemented for "
+                    "centered_instance with preprocessing.crop_pipeline='warp'."
+                )
+            callbacks.append(
+                AugmentationStageCallback(
+                    start_epoch=stage2.get("start_epoch"),
+                    start_step=stage2.get("start_step"),
+                )
+            )
+
+        # Train-only speed / dataloader-stall / memory / LR logging (`perf/*`).
+        throughput_every = OmegaConf.select(
+            self.config, "trainer_config.throughput_log_every_n_steps", default=50
+        )
+        if throughput_every:
+            callbacks.append(ThroughputMonitor(log_every_n_steps=throughput_every))
+        if (
+            OmegaConf.select(
+                self.config, "trainer_config.balanced_sampler", default=None
+            )
+            is not None
+        ):
+            # Lightning restores the sampler's position only from a mid-epoch
+            # checkpoint; this covers `last.ckpt` / `best.ckpt` too.
+            callbacks.append(BalancedSamplerResume())
+        resume_seed = OmegaConf.select(self.config, "trainer_config.seed", default=None)
+        if (
+            OmegaConf.select(
+                self.config, "trainer_config.reseed_on_resume", default=False
+            )
+            and OmegaConf.select(
+                self.config, "trainer_config.resume_ckpt_path", default=None
+            )
+            is not None
+            and resume_seed is not None
+        ):
+            # Opt-in: a resumed run is seeded again with `seed`, so without this
+            # its first epoch replays the original run's first epoch.
+            callbacks.append(ResumeReseed(resume_seed))
+        freeze_cfg = OmegaConf.select(
+            self.config, "trainer_config.freeze_schedule", default=None
+        )
+        if freeze_cfg is not None:
+            callbacks.append(
+                EncoderFreezeSchedule(
+                    targets=(
+                        list(freeze_cfg.targets)
+                        if freeze_cfg.get("targets") is not None
+                        else None
+                    ),
+                    unfreeze_at_step=freeze_cfg.get("unfreeze_at_step", None),
+                )
+            )
 
         return loggers, callbacks
 
@@ -3000,6 +3611,132 @@ class ModelTrainer:
                 (val_cache_img_path).as_posix(),
                 ignore_errors=True,
             )
+
+    def _get_trainer_speed_kwargs(self) -> dict:
+        """`lightning.Trainer` kwargs for precision, clipping, accumulation, cadence.
+
+        Every key is read with a default so configs that predate these options
+        (and raw configs that skipped schema merging) keep today's behaviour.
+        """
+        tc = self.config.trainer_config
+
+        def sel(key, default):
+            return OmegaConf.select(tc, key, default=default)
+
+        precision = str(sel("precision", "32"))
+        kwargs = dict(
+            precision=precision,
+            log_every_n_steps=int(sel("log_every_n_steps", 1)),
+            accumulate_grad_batches=int(sel("accumulate_grad_batches", 1)),
+        )
+        clip = sel("gradient_clip_val", None)
+        if clip is not None:
+            kwargs["gradient_clip_val"] = float(clip)
+            kwargs["gradient_clip_algorithm"] = sel("gradient_clip_algorithm", "norm")
+        max_steps = sel("max_steps", None)
+        if max_steps is not None:
+            kwargs["max_steps"] = int(max_steps)
+        val_check_interval = sel("val_check_interval", None)
+        if val_check_interval is not None:
+            kwargs["val_check_interval"] = val_check_interval
+            if isinstance(val_check_interval, int):
+                # An int counts training batches across epoch boundaries (our
+                # "epochs" are just `train_steps_per_epoch` batches of an infinite
+                # loader), so it may exceed the epoch length. Lightning only
+                # allows that with `check_val_every_n_epoch=None`.
+                kwargs["check_val_every_n_epoch"] = None
+        logger.info(
+            "Trainer speed settings: "
+            + ", ".join(f"{k}={v}" for k, v in kwargs.items())
+        )
+        return kwargs
+
+    def _set_float32_matmul_precision(self) -> Optional[str]:
+        """Apply `trainer_config.float32_matmul_precision` on CUDA.
+
+        Returns:
+            The previous process-wide setting (to restore after training), or
+            `None` if nothing was changed.
+        """
+        value = OmegaConf.select(
+            self.config, "trainer_config.float32_matmul_precision", default=None
+        )
+        if value is None or not torch.cuda.is_available():
+            return None
+        if (
+            self.trainer is not None
+            and self.trainer.strategy.root_device.type != "cuda"
+        ):
+            return None
+        prev = torch.get_float32_matmul_precision()
+        torch.set_float32_matmul_precision(value)
+        logger.info(f"torch.set_float32_matmul_precision('{value}') (was '{prev}').")
+        return prev
+
+    def _setup_distillation(self):
+        """Attach ``trainer_config.distillation`` to the lightning model, if set.
+
+        Every rank runs this, so under DDP each loads its own frozen teacher (it
+        is not a submodule, so DDP neither wraps nor syncs it).
+        """
+        cfg = OmegaConf.select(self.config, "trainer_config.distillation", default=None)
+        if cfg is None:
+            return
+        stage = int(cfg.get("stage", 1))
+        if stage == 2:
+            if OmegaConf.select(
+                self.config, "trainer_config.freeze_schedule", default=None
+            ):
+                raise ValueError(
+                    "trainer_config.distillation stage 2 freezes everything outside "
+                    "`trainable` itself; remove trainer_config.freeze_schedule."
+                )
+            if not cfg.get("teacher") and OmegaConf.select(
+                self.config, "trainer_config.resume_ckpt_path", default=None
+            ):
+                raise ValueError(
+                    "Resuming distillation stage 2 needs `distillation.teacher` (the "
+                    "stage-1 model): the resumed weights are not the teacher."
+                )
+        attach_distillation(
+            self.lightning_model,
+            cfg,
+            student_crop_size=OmegaConf.select(
+                self.config, "data_config.preprocessing.crop_size", default=None
+            ),
+        )
+
+    def _maybe_compile_model(self):
+        """`torch.compile` the network in place if `trainer_config.compile` is set.
+
+        `nn.Module.compile` keeps the parameter names (no `_orig_mod.` prefix), so
+        checkpoints stay loadable by uncompiled models. Only the network forward is
+        compiled; losses and logging stay eager.
+        """
+        mode = OmegaConf.select(self.config, "trainer_config.compile", default=False)
+        if mode is None or mode is False:
+            return
+        mode = "default" if mode is True else str(mode)
+        logger.info(f"Compiling the model with torch.compile(mode='{mode}')...")
+        sizes = getattr(self.lightning_model, "multi_scale_sizes", None)
+        if not sizes:
+            self.lightning_model.model.compile(mode=mode)
+            return
+        # Per-batch multi-scale (`bbox_detr`): one static graph per size. Dynamic
+        # shapes hit a PyTorch assert in the backward of the antialiased bicubic
+        # position-embedding resize (torch 2.9), and past Dynamo's recompile limit
+        # (default 8) the remaining sizes would silently run eager. Each size
+        # compiles once, plus the eval-mode (validation) graphs.
+        import torch._dynamo
+
+        dynamo_config = torch._dynamo.config
+        name = (
+            "recompile_limit"
+            if hasattr(dynamo_config, "recompile_limit")
+            else "cache_size_limit"
+        )
+        setattr(dynamo_config, name, max(getattr(dynamo_config, name), len(sizes) + 8))
+        self.lightning_model.model.compile(mode=mode, dynamic=False)
 
     def train(self, dry_run: bool = False):
         """Train the lightning model.
@@ -3125,7 +3862,11 @@ class ModelTrainer:
             def first_frames(labels_list, n):
                 subsets = []
                 for labels in labels_list:
-                    inds = [i for i, lf in enumerate(labels) if lf.has_user_instances]
+                    # Frames with a training target for this model type: boxes for
+                    # the box detectors, whose files can hold no pose instance.
+                    inds = [
+                        i for i, lf in enumerate(labels) if self._is_training_frame(lf)
+                    ]
                     subsets.append(
                         labels.extract(
                             (inds or list(range(len(labels))))[:n], copy=False
@@ -3255,7 +3996,19 @@ class ModelTrainer:
         # inject a DistributedSampler into a custom batch_sampler (it raises), so disable
         # replacement for embedding; every other model type passes an explicit
         # DistributedSampler under DDP, so the default (True) is correct for them.
-        use_distributed_sampler = self.model_type != "embedding"
+        # The balanced per-file batch sampler (`crop_pipeline="warp"`, `bbox_*`,
+        # the frame models) also draws its own per-rank stream.
+        use_distributed_sampler = self.model_type != "embedding" and not (
+            (
+                self._uses_warp_pipeline()
+                or self.model_type.startswith("bbox_")
+                or self.model_type in skeleton_pool.MERGE_MODEL_TYPES
+            )
+            and OmegaConf.select(
+                self.config, "trainer_config.balanced_sampler", default=None
+            )
+            is not None
+        )
 
         self.trainer = L.Trainer(
             callbacks=callbacks,
@@ -3267,12 +4020,16 @@ class ModelTrainer:
             enable_progress_bar=self.config.trainer_config.enable_progress_bar,
             strategy=strategy,
             profiler=profiler,
-            log_every_n_steps=1,
             use_distributed_sampler=use_distributed_sampler,
+            **self._get_trainer_speed_kwargs(),
             # One train batch + one val batch, then stop.
             fast_dev_run=1 if dry_run else False,
         )
 
+        # The process group normally starts inside `fit()`, so the barriers below
+        # (and the dataset's own cache-fill syncs) would be no-ops. Start it now when
+        # the launcher runs every rank through this setup at once (torchrun / SLURM).
+        _init_process_group_before_fit(self.trainer)
         self.trainer.strategy.barrier()
 
         # setup datasets. Steps per epoch come from the full datasets; on a dry run
@@ -3333,6 +4090,16 @@ class ModelTrainer:
             train_steps_per_epoch = min_train_steps_per_epoch
         self.config.trainer_config.train_steps_per_epoch = train_steps_per_epoch
         logger.info(f"Final train_steps_per_epoch={train_steps_per_epoch}")
+        if self.trainer.num_devices > 1:
+            # `train_steps_per_epoch` counts batches summed over ALL devices (an epoch
+            # stays one pass over the data); each device runs its share as optimizer
+            # steps (same rounding as `get_train_val_dataloaders`).
+            logger.info(
+                f"{train_steps_per_epoch} batches/epoch over "
+                f"{self.trainer.num_devices} devices = "
+                f"{max(1, round(train_steps_per_epoch / self.trainer.num_devices))} "
+                "optimizer steps/epoch per device"
+            )
 
         # VAL: always full-coverage (every grid tile visited once), NOT decoupled.
         val_steps_per_epoch = get_steps_per_epoch(
@@ -3349,11 +4116,18 @@ class ModelTrainer:
         self.lightning_model = LightningModel.get_lightning_model_from_config(
             config=self.config,
         )
+        # Several val files: per-file val loss (`val/<name>/loss`, batches with
+        # `labels_idx`) and `val/macro/loss`.
+        self.lightning_model.val_file_names = self._val_file_names()
         logger.info(f"Backbone model: {self.lightning_model.model.backbone}")
         logger.info(f"Head model: {self.lightning_model.model.head_layers}")
         total_params = sum(p.numel() for p in self.lightning_model.parameters())
         logger.info(f"Total model parameters: {total_params:,}")
         self.config.model_config.total_params = total_params
+        # After the param count (the projector is training-only), before compile
+        # (the teacher stays eager) and before the optimizer is built.
+        self._setup_distillation()
+        self._maybe_compile_model()
 
         # setup dataloaders
         # need to set up dataloaders after Trainer is initialized (for ddp). DistributedSampler depends on the rank
@@ -3373,10 +4147,20 @@ class ModelTrainer:
         if dry_run:
             # The run's two config files, written where the real run writes them.
             OmegaConf.save(
-                self._initial_config, (dry_run_dir / "initial_config.yaml").as_posix()
+                config_to_save(
+                    skeleton_pool.config_for_saving(
+                        config_without_unused_keys(self._initial_config)
+                    )
+                ),
+                (dry_run_dir / "initial_config.yaml").as_posix(),
             )
             OmegaConf.save(
-                self.config, (dry_run_dir / "training_config.yaml").as_posix()
+                config_to_save(
+                    skeleton_pool.config_for_saving(
+                        config_without_unused_keys(self.config)
+                    )
+                ),
+                (dry_run_dir / "training_config.yaml").as_posix(),
             )
 
         # save config only in rank 0 process
@@ -3391,7 +4175,11 @@ class ModelTrainer:
             self.config.sleap_nn_version = sleap_nn.__version__
 
             OmegaConf.save(
-                self._initial_config,
+                config_to_save(
+                    skeleton_pool.config_for_saving(
+                        config_without_unused_keys(self._initial_config)
+                    )
+                ),
                 (Path(ckpt_path) / "initial_config.yaml").as_posix(),
             )
 
@@ -3435,7 +4223,11 @@ class ModelTrainer:
                 )
 
             OmegaConf.save(
-                self.config,
+                config_to_save(
+                    skeleton_pool.config_for_saving(
+                        config_without_unused_keys(self.config)
+                    )
+                ),
                 (
                     Path(self.config.trainer_config.ckpt_dir)
                     / self.config.trainer_config.run_name
@@ -3460,11 +4252,15 @@ class ModelTrainer:
         # Flag to track if training was interrupted (not completed normally)
         training_interrupted = False
 
+        # TF32 matmuls/convs for the duration of training (restored afterwards).
+        prev_matmul_precision = self._set_float32_matmul_precision()
+
         try:
             logger.info(
                 f"Finished trainer set up. [{time.time() - start_setup_time:.1f}s]"
             )
             logger.info(f"Starting training loop...")
+            _ignore_size_one_ddp_stride_warning()
             start_train_time = time.time()
             self.trainer.fit(
                 self.lightning_model,
@@ -3478,6 +4274,8 @@ class ModelTrainer:
             training_interrupted = True
 
         finally:
+            if prev_matmul_precision is not None:
+                torch.set_float32_matmul_precision(prev_matmul_precision)
             logger.info(
                 f"Finished training loop. [{(time.time() - start_train_time) / 60:.1f} min]"
             )

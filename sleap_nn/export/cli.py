@@ -36,8 +36,38 @@ CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"]}
     show_default=True,
 )
 @click.option("--opset-version", type=int, default=17, show_default=True)
+@click.option(
+    "--input-dtype",
+    type=click.Choice(["auto", "uint8", "float32"]),
+    default="auto",
+    show_default=True,
+    help="Dtype of the graph's image input, for box detectors and --network-only "
+    "exports (the host prepares their inputs). 'float32' receives the checkpoint "
+    "path's own frame / crop, so exported and checkpoint predictions match up to "
+    "the runtime's numerics; 'uint8' receives it rounded (a resized frame then "
+    "differs by up to one grey level, which can move a bbox_detr's boxes slightly). "
+    "'auto': float32 for bbox_detr, uint8 for every other model type.",
+)
+@click.option(
+    "--network-only",
+    is_flag=True,
+    default=False,
+    help="centered_instance only: export the network alone (crop in, raw "
+    "confidence maps out; no peak finding baked in). `sleap-nn predict` then "
+    "loads the directory in place of the checkpoint (e.g. `-m <detector export> "
+    "-m <this>`, or `--part_model <this>`), with the checkpoint path's own crops "
+    "(fixed or box-scaled) and peak finding. Box detectors always export this way.",
+)
 @click.option("--max-instances", type=int, default=20, show_default=True)
 @click.option("--max-batch-size", type=int, default=8, show_default=True)
+@click.option(
+    "--opt-batch-size",
+    type=int,
+    default=None,
+    help="TensorRT: the batch size the engine's kernels are tuned for (its "
+    "optimization profile's 'opt' shape; at most --max-batch-size). Default: 1, as "
+    "before. A throughput engine (large batches) runs faster tuned for its batch.",
+)
 @click.option("--input-scale", type=float, default=None)
 @click.option("--input-height", type=int, default=None)
 @click.option("--input-width", type=int, default=None)
@@ -49,17 +79,57 @@ CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"]}
 @click.option("--device", type=str, default="cpu", show_default=True)
 @click.option(
     "--precision",
-    type=click.Choice(["fp32", "fp16", "tf32"], case_sensitive=False),
+    type=click.Choice(["fp32", "fp16", "tf32", "bf16"], case_sensitive=False),
     default="fp16",
     show_default=True,
-    help="TensorRT precision mode.",
+    help="TensorRT precision mode. 'fp16' keeps a plain-ViT backbone's attention "
+    "logits in fp32 by default (see --fp32-attention-logits). 'bf16' needs a GPU with "
+    "compute capability >= 8.0 and keeps fp32's range where fp16 overflows; in graphs "
+    "that compute coordinates (box detectors, peaks found in the graph) every layer "
+    "outside the backbone is kept in fp32. TensorRT 11 builds fp16 / bf16 strongly "
+    "typed (Cast nodes in the graph; see --strongly-typed). Reduced precision still "
+    "moves outputs: check accuracy on your data against fp32.",
+)
+@click.option(
+    "--strongly-typed",
+    is_flag=True,
+    default=False,
+    help="Experimental (as is the TensorRT 11 path it mirrors; may change without a "
+    "deprecation period). "
+    "TensorRT 10: build a strongly typed engine, with fp16 / bf16 carried by "
+    "Cast nodes in the graph instead of builder flags. TensorRT 11 builds this way "
+    "always (it removed the flags); the option lets TensorRT 10 build the same "
+    "engines. Default off.",
+)
+@click.option(
+    "--force-precision",
+    is_flag=True,
+    default=False,
+    help="Build fp16 / bf16 even for a model family whose reduced-precision engines do "
+    "not reproduce its fp32 graph (multi-class bottom-up). Without it such a family is "
+    "built fp32 with a warning (TensorRT 10 and 11).",
+)
+@click.option(
+    "--fp32-attention-logits/--no-fp32-attention-logits",
+    default=None,
+    help="Experimental (may change or be removed without a deprecation period). "
+    "With --precision fp16: keep each attention block's logits product (Q.K^T, "
+    "found by structure) in fp32, so TensorRT accumulates it in fp32; everything else "
+    "is the usual fp16 rewrite (in graphs with coordinates, fp16 only inside the "
+    "backbone). The build is strongly typed (on TensorRT 10 as with --strongly-typed). "
+    "Default: on for models with a plain-ViT backbone (whose plain fp16 engines are "
+    "wrong), except below TensorRT 10.13 or on a GPU without fast fp16; off otherwise. "
+    "--no-fp32-attention-logits builds plain fp16.",
 )
 @click.option(
     "--peak-threshold",
     type=float,
     default=0.2,
     show_default=True,
-    help="Minimum confidence threshold for peak detection (baked into ONNX graph).",
+    help="Minimum confidence for a peak. Pose and centroid models: baked into the "
+    "exported graph (--network-only graphs find no peaks: the host's peak finding "
+    "uses its own threshold). Box detectors (bbox_*): the score threshold, stored in "
+    "export_metadata.json and applied on the host when the export is run.",
 )
 @click.option(
     "--workspace-size-gb",
@@ -68,13 +138,43 @@ CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"]}
     help="TensorRT builder workspace size in GB. Uses exporter default if unset.",
 )
 @click.option("--verify/--no-verify", default=True, show_default=True)
+@click.option(
+    "--nodes",
+    "nodes",
+    type=str,
+    multiple=True,
+    default=(),
+    help=(
+        "Export only these confmap nodes (single_instance / centered_instance): "
+        "repeat or comma-separate. The head is sliced to their channels."
+    ),
+)
+@click.option(
+    "--node-prefix",
+    "--node_prefix",
+    "node_prefix",
+    type=str,
+    default=None,
+    help="Export only the nodes whose name starts with this prefix.",
+)
+@click.option(
+    "--strip-prefix/--no-strip-prefix",
+    "--strip_prefix",
+    "strip_prefix",
+    default=False,
+    show_default=True,
+    help="Write the --node-prefix nodes under their names without the prefix.",
+)
 def export(
     model_paths: tuple[Path, ...],
     output: Optional[Path],
     fmt: str,
     opset_version: int,
+    input_dtype: str,
+    network_only: bool,
     max_instances: int,
     max_batch_size: int,
+    opt_batch_size: Optional[int],
     input_scale: Optional[float],
     input_height: Optional[int],
     input_width: Optional[int],
@@ -85,14 +185,21 @@ def export(
     dist_penalty_weight: float,
     device: str,
     precision: str,
+    strongly_typed: bool,
+    force_precision: bool,
+    fp32_attention_logits: Optional[bool],
     peak_threshold: float,
     workspace_size_gb: Optional[float],
     verify: bool,
+    nodes: tuple = (),
+    node_prefix: Optional[str] = None,
+    strip_prefix: bool = False,
 ) -> None:
     """Export trained models to ONNX/TensorRT formats."""
     import torch
 
     from sleap_nn.export.exporters import export_to_onnx, export_to_tensorrt
+    from sleap_nn.export.exporters.tensorrt_exporter import BACKBONE_SCOPE
     from sleap_nn.export.exporters.onnx_exporter import has_rope
     from sleap_nn.export.metadata import (
         build_base_metadata,
@@ -140,6 +247,49 @@ def export(
     )
 
     fmt = fmt.lower()
+    if opt_batch_size is not None and fmt == "onnx":
+        click.echo(
+            "Note: --opt-batch-size only shapes TensorRT engines; it is ignored for "
+            "--format onnx (recorded in the export metadata)."
+        )
+    if opt_batch_size is not None and not 1 <= opt_batch_size <= max_batch_size:
+        raise click.ClickException(
+            f"--opt-batch-size {opt_batch_size} must be between 1 and "
+            f"--max-batch-size ({max_batch_size})."
+        )
+
+    if fp32_attention_logits:
+        if fmt not in ("tensorrt", "both"):
+            raise click.ClickException(
+                "--fp32-attention-logits shapes TensorRT engines: use --format "
+                "tensorrt or both."
+            )
+        if precision.lower() != "fp16":
+            raise click.ClickException(
+                f"--fp32-attention-logits applies to --precision fp16, not "
+                f"{precision}: bf16 already accumulates in fp32, and fp32 / tf32 keep "
+                "everything in fp32."
+            )
+        try:
+            import tensorrt as _trt
+        except ImportError as e:
+            raise click.ClickException(
+                f"--fp32-attention-logits builds TensorRT engines: TensorRT is not "
+                f"installed ({e})."
+            )
+        del _trt  # TensorRT 10 builds the recipe strongly typed (see the exporter)
+    # None (not given): the exporter applies the recipe to plain-ViT backbones.
+    fp32_islands = {True: "attention_logits", False: None, None: "auto"}[
+        fp32_attention_logits
+    ]
+    # Unless plain fp16 is asked for, the fp16 warnings below wait for the build: they
+    # are dropped only if the rewrite kept logits products and left no softmax
+    # unmatched.
+    defer_fp16_warnings = fp32_attention_logits is not False and fmt in (
+        "tensorrt",
+        "both",
+    )
+    deferred: list = []
 
     trt_workspace_kwargs = (
         {"workspace_size": int(workspace_size_gb * (1 << 30))}
@@ -156,6 +306,12 @@ def export(
         warn_on_tiled_export(cfg)
     model_types = [resolve_model_type(cfg) for cfg in cfgs]
     backbone_types = [resolve_backbone_type(cfg) for cfg in cfgs]
+    # Checkpoints load with their own (unfiltered) configs; `cfgs` describe the
+    # exported network, i.e. after the node filter.
+    load_cfgs = list(cfgs)
+    node_idx = _resolve_export_node_filter(
+        cfgs, model_types, nodes, node_prefix, strip_prefix
+    )
 
     # A standalone centroid model is exported from a SINGLE directory; passing two
     # centroid dirs is almost always a mistake (the user likely meant centroid +
@@ -169,7 +325,9 @@ def export(
             "Pass one centroid directory for a standalone centroid export."
         )
 
-    if len(model_paths) >= 2 and {"bbox_centernet", "bbox_ssd"} & set(model_types):
+    if len(model_paths) >= 2 and {"bbox_centernet", "bbox_ssd", "bbox_detr"} & set(
+        model_types
+    ):
         raise click.ClickException(
             "A bounding-box detector + top-down model pair cannot be exported as one "
             "bundle yet. Export each directory on its own (the detector exports its "
@@ -177,6 +335,14 @@ def export(
             "crops), or run the pair from its checkpoints with `sleap-nn predict "
             "--model_paths <bbox_dir> --model_paths <centered_instance_dir>`."
         )
+    for cfg, model_type in zip(cfgs, model_types):
+        if model_type == "bbox_detr" and _has_detr_keypoints(cfg):
+            raise click.ClickException(
+                "This bbox_detr model predicts keypoints (the experimental "
+                "head_configs.bbox_detr.detr.keypoints branch), which export to "
+                "ONNX/TensorRT does not support yet. Run it from its checkpoint "
+                "with `sleap-nn predict -m <model_dir>`."
+            )
 
     from sleap_nn.data.instance_cropping import BBoxCropSpec
 
@@ -197,6 +363,20 @@ def export(
             "training_config (data_config.preprocessing.crop_*)."
         )
 
+    if (input_dtype not in ("auto", "uint8") or network_only) and len(model_paths) > 1:
+        raise click.ClickException(
+            "--input-dtype float32 and --network-only export one model directory "
+            "at a time (run `sleap-nn predict` with one -m per exported stage)."
+        )
+
+    for c, mt, bt in zip(cfgs, model_types, backbone_types):  # bundles too
+        if defer_fp16_warnings:
+            deferred.append(
+                lambda c=c, mt=mt, bt=bt: _warn_fp16_vit_pose(c, mt, bt, fmt, precision)
+            )
+        else:
+            _warn_fp16_vit_pose(c, mt, bt, fmt, precision)
+
     if len(model_paths) == 1:
         model_path = model_paths[0]
         cfg = cfgs[0]
@@ -213,6 +393,7 @@ def export(
             "embedding",
             "bbox_centernet",
             "bbox_ssd",
+            "bbox_detr",
         ):
             raise click.ClickException(
                 f"Model type '{model_type}' is not supported for export yet."
@@ -225,10 +406,11 @@ def export(
         lightning_model = _load_lightning_model(
             model_type=model_type,
             backbone_type=backbone_type,
-            cfg=cfg,
+            cfg=load_cfgs[0],
             ckpt_path=ckpt_path,
             device=device,
         )
+        _slice_export_head(lightning_model.model, model_type, node_idx.get(0))
 
         torch_model = lightning_model.model
         torch_model.eval()
@@ -267,6 +449,15 @@ def export(
             )
             output_names = ["centroids", "centroid_vals", "instance_valid"]
             metadata_max_instances = max_instances
+            node_names = resolve_node_names(cfg, model_type)
+            edge_inds = resolve_edge_inds(cfg, node_names)
+        elif model_type == "centered_instance" and network_only:
+            from sleap_nn.export.wrappers.network import NetworkONNXWrapper
+
+            wrapper = NetworkONNXWrapper(
+                torch_model, head_names=["CenteredInstanceConfmapsHead"]
+            )
+            output_names = ["CenteredInstanceConfmapsHead"]
             node_names = resolve_node_names(cfg, model_type)
             edge_inds = resolve_edge_inds(cfg, node_names)
         elif model_type == "centered_instance":
@@ -396,7 +587,7 @@ def export(
                     "parity, or train/export a burn_in=False model for a faithful "
                     "single-input ONNX embedder."
                 )
-        elif model_type in ("bbox_centernet", "bbox_ssd"):
+        elif model_type in ("bbox_centernet", "bbox_ssd", "bbox_detr"):
             # Detectors export the network only (decoder-ready head outputs);
             # `ExportedBBoxLayer` decodes with the same BBoxDecoder as the
             # checkpoint path, rebuilt from the copied training config.
@@ -416,6 +607,13 @@ def export(
             metadata_n_classes = len(metadata_class_names)
             metadata_max_instances = max_instances
             metadata_max_hw = resolve_max_hw(cfg)
+            if input_height is not None or input_width is not None:
+                # The graph is traced at --input-height / --input-width (below):
+                # the host must fit frames to that size, not the training size.
+                metadata_max_hw = (
+                    input_height if input_height is not None else metadata_max_hw[0],
+                    input_width if input_width is not None else metadata_max_hw[1],
+                )
         else:
             raise click.ClickException(
                 f"Model type '{model_type}' is not supported for export yet."
@@ -449,8 +647,11 @@ def export(
             # These wrappers take crops: trace at the crop size, the only size the
             # model sees -- and the size a RoPE backbone's static-H/W export fixes.
             input_shape = (input_shape[0], input_shape[1], *resolved_crop_size)
-        if model_type in ("bbox_centernet", "bbox_ssd"):
-            # Trace on a model-input-sized frame (scaled, stride-padded).
+        if model_type in ("bbox_centernet", "bbox_ssd", "bbox_detr"):
+            # Trace on a model-input-sized frame (scaled, stride-padded). A
+            # `bbox_detr` model's frames are letterboxed / squashed to
+            # max_height x max_width on the host first, so that is the size here;
+            # a RoPE encoder (DINOv3) exports at exactly that size (static H/W).
             max_stride = int(
                 cfg.model_config.backbone_config[backbone_type]["max_stride"]
             )
@@ -459,18 +660,86 @@ def export(
             w = math.ceil(w * resolved_scale / max_stride) * max_stride
             input_shape = (1, c, h, w)
         model_out_path = export_dir / "model.onnx"
+        is_detector = model_type in ("bbox_centernet", "bbox_ssd", "bbox_detr")
+        if input_dtype == "auto":
+            # A new export type, so its default may match checkpoint inference;
+            # every other type keeps the uint8 input it always had.
+            input_dtype = "float32" if model_type == "bbox_detr" else "uint8"
+        if network_only and model_type != "centered_instance":
+            raise click.ClickException(
+                "--network-only applies to centered_instance models (box detectors "
+                "always export their network only)."
+            )
+        if input_dtype != "uint8" and not (is_detector or network_only):
+            raise click.ClickException(
+                "--input-dtype float32 applies to box detectors and --network-only "
+                "exports only (their inputs are prepared on the host); other models "
+                "take uint8."
+            )
+        graph_dtype = torch.float32 if input_dtype == "float32" else torch.uint8
+        if (
+            model_type == "bbox_detr"
+            and fmt in ("tensorrt", "both")
+            and precision.lower() == "fp16"
+        ):
+            _detr_note = lambda: click.echo(  # noqa: E731
+                "Warning: a bbox_detr detector can lose boxes in fp16 (its activations "
+                "can overflow fp16's range); export with --precision bf16 or fp32 "
+                "unless fp16 is checked on your data."
+            )
+            if defer_fp16_warnings:
+                deferred.append(_detr_note)
+            else:
+                _detr_note()
+        if network_only:
+            # The host scales each crop by preprocessing.scale and pads it to the
+            # backbone's max_stride before the network: trace (and profile) at that
+            # size, the only one the graph will see.
+            if any(
+                v is not None
+                for v in (input_scale, crop_size, input_height, input_width)
+            ):
+                raise click.ClickException(
+                    "--network-only exports the network at the size the checkpoint "
+                    "pipeline feeds it (the trained crop size x the trained scale, "
+                    "padded to the backbone's stride): --input-scale, --crop-size, "
+                    "--input-height and --input-width do not apply."
+                )
+            if resolved_crop_size is None:
+                raise click.ClickException(
+                    "--network-only needs the model's crop size "
+                    "(data_config.preprocessing.crop_size)."
+                )
+            ns = int(cfg.model_config.backbone_config[backbone_type]["max_stride"])
+            nh, nw = _network_only_hw(resolved_crop_size, resolved_scale, ns)
+            input_shape = (input_shape[0], input_shape[1], nh, nw)
 
         export_to_onnx(
             wrapper,
             model_out_path,
             input_shape=input_shape,
-            input_dtype=torch.uint8,
+            input_dtype=graph_dtype,
             opset_version=opset_version,
             output_names=output_names,
+            # A bbox_detr graph's two-stage proposals and decoder grid are fixed at
+            # trace time, and the host always fits frames to max_height x max_width:
+            # a static height / width is the only correct graph.
+            static_hw=True if model_type == "bbox_detr" else None,
             verify=verify,
         )
 
-        training_config_path = _copy_training_config(model_path, export_dir, None)
+        cfg_out = cfg if node_idx else None
+        if is_detector and (input_height is not None or input_width is not None):
+            # The predictors size frames from the copied training config: it must
+            # carry the size the graph was traced at, as the metadata does.
+            import copy
+
+            cfg_out = copy.deepcopy(cfg)
+            cfg_out.data_config.preprocessing.max_height = metadata_max_hw[0]
+            cfg_out.data_config.preprocessing.max_width = metadata_max_hw[1]
+        training_config_path = _copy_training_config(
+            model_path, export_dir, None, cfg=cfg_out
+        )
         if training_config_path is not None:
             training_config_hash = hash_file(training_config_path)
             training_config_text = training_config_path.read_text()
@@ -498,7 +767,7 @@ def export(
             precision="fp32",
             training_config_hash=training_config_hash,
             training_config_embedded=training_config_text is not None,
-            input_dtype="uint8",
+            input_dtype=input_dtype,
             normalization=metadata_normalization,
             n_classes=metadata_n_classes,
             class_names=metadata_class_names,
@@ -516,6 +785,16 @@ def export(
         )
 
         metadata.save(export_dir / "export_metadata.json")
+        if network_only:
+            _mark_network_only(export_dir / "export_metadata.json", output_names)
+        if opt_batch_size is not None:
+            _record_build(
+                export_dir / "export_metadata.json",
+                {
+                    "opt_batch_size": opt_batch_size,
+                    "opt_batch_size_applies_to": "tensorrt",
+                },
+            )
 
         if training_config_text is not None:
             try:
@@ -530,13 +809,19 @@ def export(
 
             # For centered_instance, single_instance, and embedding models, use the
             # crop size for TensorRT shape profiles since inference uses cropped inputs
-            if model_type in ("centered_instance", "single_instance", "embedding"):
+            if network_only:
+                # Exactly the size the host sends (traced above).
+                trt_input_shape = input_shape
+                trt_min_shape = (1, C, H, W)
+                trt_opt_shape = (opt_batch_size or 1, C, H, W)
+                trt_max_shape = (max_batch_size, C, H, W)
+            elif model_type in ("centered_instance", "single_instance", "embedding"):
                 if resolved_crop_size is not None:
                     crop_h, crop_w = resolved_crop_size
                     trt_input_shape = (1, C, crop_h, crop_w)
                     # Use crop size for min/opt, allow flexibility for max
                     trt_min_shape = (1, C, crop_h, crop_w)
-                    trt_opt_shape = (1, C, crop_h, crop_w)
+                    trt_opt_shape = (opt_batch_size or 1, C, crop_h, crop_w)
                     trt_max_shape = (max_batch_size, C, crop_h * 2, crop_w * 2)
                 else:
                     trt_input_shape = input_shape
@@ -549,18 +834,35 @@ def export(
                 trt_opt_shape = None
                 trt_max_shape = (max_batch_size, C, H * 2, W * 2)
 
-            export_to_tensorrt(
-                wrapper,
-                trt_out_path,
-                input_shape=trt_input_shape,
-                input_dtype=torch.uint8,
-                precision=precision,
-                min_shape=trt_min_shape,
-                opt_shape=trt_opt_shape,
-                max_shape=trt_max_shape,
-                **trt_workspace_kwargs,
-                verbose=True,
-            )
+            if opt_batch_size is not None and trt_opt_shape is None:
+                trt_opt_shape = (opt_batch_size,) + tuple(trt_input_shape[1:])
+            # Graphs that compute coordinates keep every layer outside the backbone
+            # in fp32 under bf16; feature-map graphs (network-only confmaps,
+            # embeddings) keep only their transposed convolutions in fp32.
+            coords_in_graph = not network_only and model_type != "embedding"
+            build_info = {}
+            try:
+                export_to_tensorrt(
+                    wrapper,
+                    trt_out_path,
+                    input_shape=trt_input_shape,
+                    input_dtype=graph_dtype,
+                    precision=precision,
+                    min_shape=trt_min_shape,
+                    opt_shape=trt_opt_shape,
+                    max_shape=trt_max_shape,
+                    **trt_workspace_kwargs,
+                    verbose=True,
+                    _bf16_fp32_outside=BACKBONE_SCOPE if coords_in_graph else None,
+                    _build_info=build_info,
+                    strongly_typed=strongly_typed,
+                    force_precision=force_precision,
+                    fp32_islands=fp32_islands,
+                )
+            except BaseException:
+                # A failed build still prints the warnings held back above.
+                _emit_deferred_warnings(deferred, {})
+                raise
             # Update metadata for TensorRT
             trt_metadata = build_base_metadata(
                 export_format="tensorrt",
@@ -582,7 +884,7 @@ def export(
                 precision=precision,
                 training_config_hash=training_config_hash,
                 training_config_embedded=training_config_text is not None,
-                input_dtype="uint8",
+                input_dtype=input_dtype,
                 normalization=metadata_normalization,
                 n_classes=metadata_n_classes,
                 class_names=metadata_class_names,
@@ -599,6 +901,10 @@ def export(
                 max_width=metadata_max_hw[1],
             )
             trt_metadata.save(export_dir / "model.trt.metadata.json")
+            if network_only:
+                _mark_network_only(export_dir / "model.trt.metadata.json", output_names)
+            _record_build(export_dir / "model.trt.metadata.json", build_info)
+            _emit_deferred_warnings(deferred, build_info)
         return
 
     if len(model_paths) == 2 and set(model_types) == {
@@ -632,10 +938,13 @@ def export(
         instance_model = _load_lightning_model(
             model_type="centered_instance",
             backbone_type=instance_backbone,
-            cfg=instance_cfg,
+            cfg=load_cfgs[instance_idx],
             ckpt_path=instance_ckpt,
             device=device,
         ).model
+        _slice_export_head(
+            instance_model, "centered_instance", node_idx.get(instance_idx)
+        )
 
         centroid_model.eval()
         instance_model.eval()
@@ -712,7 +1021,10 @@ def export(
 
         centroid_cfg_path = _copy_training_config(centroid_path, export_dir, "centroid")
         instance_cfg_path = _copy_training_config(
-            instance_path, export_dir, "centered_instance"
+            instance_path,
+            export_dir,
+            "centered_instance",
+            cfg=instance_cfg if node_idx else None,
         )
         config_payload = {}
         config_hashes = []
@@ -768,18 +1080,34 @@ def export(
         if fmt in ("tensorrt", "both"):
             trt_out_path = export_dir / "model.trt"
             B, C, H, W = input_shape
-            export_to_tensorrt(
-                wrapper,
-                trt_out_path,
-                input_shape=input_shape,
-                input_dtype=torch.uint8,
-                precision=precision,
-                max_shape=(max_batch_size, C, H * 2, W * 2),
-                **trt_workspace_kwargs,
-                verbose=True,
-                # As for the ONNX graph: only the centroid model sees the frame.
-                static_hw=has_rope(centroid_model),
-            )
+            build_info = {}
+            try:
+                export_to_tensorrt(
+                    wrapper,
+                    trt_out_path,
+                    input_shape=input_shape,
+                    input_dtype=torch.uint8,
+                    precision=precision,
+                    max_shape=(max_batch_size, C, H * 2, W * 2),
+                    opt_shape=(
+                        (opt_batch_size, C, H, W)
+                        if opt_batch_size is not None
+                        else None
+                    ),
+                    **trt_workspace_kwargs,
+                    verbose=True,
+                    # As for the ONNX graph: only the centroid model sees the frame.
+                    static_hw=has_rope(centroid_model),
+                    _bf16_fp32_outside=BACKBONE_SCOPE,
+                    _build_info=build_info,
+                    strongly_typed=strongly_typed,
+                    force_precision=force_precision,
+                    fp32_islands=fp32_islands,
+                )
+            except BaseException:
+                # A failed build still prints the warnings held back above.
+                _emit_deferred_warnings(deferred, {})
+                raise
             # Update metadata for TensorRT
             trt_metadata = build_base_metadata(
                 export_format="tensorrt",
@@ -811,6 +1139,8 @@ def export(
                 centroid_method=resolve_centroid_method(centroid_cfg, "centroid"),
             )
             trt_metadata.save(export_dir / "model.trt.metadata.json")
+            _record_build(export_dir / "model.trt.metadata.json", build_info)
+            _emit_deferred_warnings(deferred, build_info)
         return
 
     # Combined multiclass top-down export (centroid + multi_class_topdown)
@@ -980,18 +1310,34 @@ def export(
         if fmt in ("tensorrt", "both"):
             trt_out_path = export_dir / "model.trt"
             B, C, H, W = input_shape
-            export_to_tensorrt(
-                wrapper,
-                trt_out_path,
-                input_shape=input_shape,
-                input_dtype=torch.uint8,
-                precision=precision,
-                max_shape=(max_batch_size, C, H * 2, W * 2),
-                **trt_workspace_kwargs,
-                verbose=True,
-                # As for the ONNX graph: only the centroid model sees the frame.
-                static_hw=has_rope(centroid_model),
-            )
+            build_info = {}
+            try:
+                export_to_tensorrt(
+                    wrapper,
+                    trt_out_path,
+                    input_shape=input_shape,
+                    input_dtype=torch.uint8,
+                    precision=precision,
+                    max_shape=(max_batch_size, C, H * 2, W * 2),
+                    opt_shape=(
+                        (opt_batch_size, C, H, W)
+                        if opt_batch_size is not None
+                        else None
+                    ),
+                    **trt_workspace_kwargs,
+                    verbose=True,
+                    # As for the ONNX graph: only the centroid model sees the frame.
+                    static_hw=has_rope(centroid_model),
+                    _bf16_fp32_outside=BACKBONE_SCOPE,
+                    _build_info=build_info,
+                    strongly_typed=strongly_typed,
+                    force_precision=force_precision,
+                    fp32_islands=fp32_islands,
+                )
+            except BaseException:
+                # A failed build still prints the warnings held back above.
+                _emit_deferred_warnings(deferred, {})
+                raise
             trt_metadata = build_base_metadata(
                 export_format="tensorrt",
                 model_type="multi_class_topdown_combined",
@@ -1024,6 +1370,8 @@ def export(
                 centroid_method=resolve_centroid_method(centroid_cfg, "centroid"),
             )
             trt_metadata.save(export_dir / "model.trt.metadata.json")
+            _record_build(export_dir / "model.trt.metadata.json", build_info)
+            _emit_deferred_warnings(deferred, build_info)
         return
 
     raise click.ClickException(
@@ -1033,21 +1381,193 @@ def export(
     )
 
 
+def _emit_deferred_warnings(deferred: list, build_info: dict) -> None:
+    """Print the fp16 warnings held back while fp32 attention logits may apply.
+
+    They are dropped only when the rewrite kept logits products in fp32, left no
+    softmax without one and found none inside control-flow bodies (``fp32_islands``
+    in the build info); otherwise (a failed build included) they are printed as they
+    would be without the option. They are dropped too when the engine was not built
+    in fp16 (a family built fp32, or no fast fp16).
+    """
+    built = build_info.get("precision_built")
+    if built is not None and built != "fp16":
+        return
+    rec = build_info.get("fp32_islands") or {}
+    if (
+        rec.get("applied")
+        and not rec.get("softmax_unmatched")
+        and not rec.get("softmax_in_subgraphs")
+    ):
+        return
+    for warn in deferred:
+        warn()
+
+
+def _record_build(path: Path, info: dict) -> None:
+    """Write what the engine build actually did into its metadata file.
+
+    ``precision_built`` replaces ``precision`` (an fp16 request on a GPU without fast
+    fp16 builds fp32); other keys (``bf16_scope``, ``bf16_fp32_layers``,
+    ``opt_batch_size`` ...) are added. Nothing is written for an empty ``info``.
+    """
+    import json
+
+    if not info:
+        return
+    data = json.loads(path.read_text())
+    info = dict(info)
+    if "precision_built" in info:
+        data["precision"] = info.pop("precision_built")
+    data.update(info)
+    path.write_text(json.dumps(data, indent=2, sort_keys=True))
+
+
+def _mark_network_only(path: Path, output_names) -> None:
+    """Record a ``--network-only`` export in its metadata file.
+
+    The keys are added to the JSON only for such exports (not as
+    ``ExportMetadata`` fields), so every other export's metadata is unchanged.
+    """
+    import json
+
+    data = json.loads(path.read_text())
+    data["network_only"] = True
+    data["output_names"] = list(output_names)
+    path.write_text(json.dumps(data, indent=2, sort_keys=True))
+
+
+def _network_only_hw(crop_hw, scale: float, stride: int) -> tuple:
+    """The crop size the host sends a network-only graph.
+
+    The host resizes a crop to ``int(crop x scale)`` pixels per side
+    (:func:`~sleap_nn.data.resizing.resize_image`) and pads that up to the
+    backbone's stride (:func:`~sleap_nn.data.resizing.apply_pad_to_stride`).
+    """
+    return tuple(math.ceil(int(c * scale) / stride) * stride for c in crop_hw)
+
+
+def _warn_fp16_vit_pose(cfg, model_type, backbone_type, fmt, precision) -> None:
+    """Warn on an fp16 TensorRT export of a keypoint model with a ViT backbone.
+
+    Measured on two DINOv3 ViT-B keypoint models (21 and 4 points) only: 17-44% of their
+    keypoints within 0.5 px of fp32 in plain fp16 engines on TensorRT 10 and 11; bf16
+    kept ~96% / ~89% and fp32 100%. Other ViTs (DINOv2 ...) are not
+    tested. By default the fp16 build keeps the attention logits in fp32, and the
+    warning is held back and dropped when that worked (``_emit_deferred_warnings``).
+    """
+    if fmt not in ("tensorrt", "both") or str(precision).lower() != "fp16":
+        return
+    if model_type in ("bbox_centernet", "bbox_ssd", "bbox_detr"):
+        return  # box detectors have their own note (TensorRT precision guide)
+    try:
+        bb = cfg.model_config.backbone_config[backbone_type]
+        name = str(bb.get("model_name") or "") if backbone_type == "pretrained" else ""
+    except (AttributeError, KeyError, TypeError):
+        return
+    if "vit" not in name.lower():
+        return
+    click.echo(
+        f"Warning: {model_type} model with a ViT backbone ({name}), built in fp16 "
+        "without fp32 attention logits: plain fp16 TensorRT engines of two DINOv3 "
+        "ViT-B keypoint models kept only 17-44% of keypoints within 0.5 px of fp32 "
+        "(TensorRT 10 and 11; other ViTs not tested). Export with fp32 attention logits (the fp16 "
+        "default for plain-ViT backbones on TensorRT >= 10.13), --precision bf16 (a GPU "
+        "with compute capability >= 8.0) or fp32, unless plain fp16 is checked on your "
+        "data."
+    )
+
+
+def _has_detr_keypoints(cfg) -> bool:
+    """Whether a ``bbox_detr`` config uses the experimental keypoint branch."""
+    from omegaconf import OmegaConf
+
+    from sleap_nn.architectures.detr.model import detr_keypoints_config
+
+    detr = OmegaConf.select(cfg, "model_config.head_configs.bbox_detr.detr")
+    return detr_keypoints_config(detr) is not None
+
+
 def _copy_training_config(
-    model_path: Path, export_dir: Path, label: Optional[str]
+    model_path: Path, export_dir: Path, label: Optional[str], cfg=None
 ) -> Optional[Path]:
+    """Copy a model's training config into the export dir.
+
+    With ``cfg`` (a node-filtered config, :func:`_resolve_export_node_filter`),
+    that config is written as YAML instead of copying the file.
+    """
     training_config_path = _training_config_path(model_path)
     if training_config_path is None:
         return None
 
+    suffix = ".yaml" if cfg is not None else training_config_path.suffix
     if label:
-        dest_name = f"training_config_{label}{training_config_path.suffix}"
+        dest_name = f"training_config_{label}{suffix}"
     else:
-        dest_name = training_config_path.name
+        dest_name = f"training_config{suffix}"
 
     dest_path = export_dir / dest_name
-    shutil.copy(training_config_path, dest_path)
+    if cfg is not None:
+        from omegaconf import OmegaConf
+
+        OmegaConf.save(cfg, dest_path)
+    else:
+        shutil.copy(training_config_path, dest_path)
     return dest_path
+
+
+def _resolve_export_node_filter(
+    cfgs: list, model_types: list, nodes: tuple, node_prefix, strip_prefix: bool
+) -> dict:
+    """Apply ``--nodes`` / ``--node-prefix`` to the configs being exported.
+
+    Replaces the target model's entry of ``cfgs`` with its node-filtered config
+    (:func:`~sleap_nn.inference.node_filter.filter_training_config`) and returns
+    ``{model index: confmap channel indices}`` to slice its head with (empty
+    without a filter). The target is a lone ``single_instance`` /
+    ``centered_instance`` model or the centered-instance model of a
+    centroid + centered_instance bundle.
+    """
+    from sleap_nn.inference.node_filter import filter_training_config
+
+    names = [n.strip() for arg in nodes for n in arg.split(",") if n.strip()]
+    if names and node_prefix is not None:
+        raise click.ClickException("Pass --nodes or --node-prefix, not both.")
+    node_filter = names or node_prefix
+    if not node_filter:
+        if strip_prefix:
+            raise click.ClickException("--strip-prefix needs --node-prefix.")
+        return {}
+    if strip_prefix and node_prefix is None:
+        raise click.ClickException("--strip-prefix needs --node-prefix.")
+    targets = [
+        i
+        for i, mt in enumerate(model_types)
+        if mt in ("single_instance", "centered_instance")
+    ]
+    if len(targets) != 1:
+        raise click.ClickException(
+            "--nodes/--node-prefix apply to a single_instance or centered_instance "
+            f"model (alone or with its centroid model); got {model_types}."
+        )
+    i = targets[0]
+    try:
+        cfgs[i], idx = filter_training_config(
+            cfgs[i], model_types[i], node_filter, strip_prefix=strip_prefix or None
+        )
+    except ValueError as e:
+        raise click.ClickException(str(e)) from None
+    logger.info(f"Node filter: exporting {len(idx)} confmap channels.")
+    return {i: idx}
+
+
+def _slice_export_head(model, model_type: str, idx) -> None:
+    """Slice a loaded model's confmap head to the node filter's channels."""
+    if idx is None:
+        return
+    from sleap_nn.inference.node_filter import NODE_FILTER_HEADS, slice_head_conv
+
+    slice_head_conv(model, NODE_FILTER_HEADS[model_type], idx)
 
 
 def _training_config_path(model_path: Path) -> Optional[Path]:
@@ -1070,6 +1590,7 @@ def _load_lightning_model(
 ):
     from sleap_nn.training.lightning_modules import (
         BBoxCenterNetLightningModule,
+        BBoxDetrLightningModule,
         BBoxSSDLightningModule,
         BottomUpLightningModule,
         BottomUpMultiClassLightningModule,
@@ -1090,6 +1611,7 @@ def _load_lightning_model(
         "embedding": EmbeddingLightningModule,
         "bbox_centernet": BBoxCenterNetLightningModule,
         "bbox_ssd": BBoxSSDLightningModule,
+        "bbox_detr": BBoxDetrLightningModule,
     }.get(model_type)
 
     if lightning_cls is None:
@@ -1101,8 +1623,10 @@ def _load_lightning_model(
         backbone_type=backbone_type,
         backbone_config=cfg.model_config.backbone_config,
         head_configs=cfg.model_config.head_configs,
-        pretrained_backbone_weights=cfg.model_config.pretrained_backbone_weights,
-        pretrained_head_weights=cfg.model_config.pretrained_head_weights,
+        # The checkpoint holds the trained weights: no initial weights to load
+        # (as the inference loaders do).
+        pretrained_backbone_weights=None,
+        pretrained_head_weights=None,
         init_weights=cfg.model_config.init_weights,
         lr_scheduler=cfg.trainer_config.lr_scheduler,
         online_mining=cfg.trainer_config.online_hard_keypoint_mining.online_mining,

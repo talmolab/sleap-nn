@@ -5,13 +5,18 @@ returns the decoder-ready head dict) and decodes its outputs with the model's
 :class:`~sleap_nn.inference.bbox.BBoxDecoder` into ``Outputs.pred_bboxes`` /
 ``pred_bbox_scores`` / ``pred_bbox_classes`` in original-image pixels, which
 ``Outputs.to_labels`` packages as ``sio.PredictedBoundingBox`` on
-``LabeledFrame.bboxes``.
+``LabeledFrame.bboxes``. A ``bbox_detr`` with the experimental keypoint branch also
+fills ``pred_keypoints`` / ``pred_peak_values`` / ``instance_scores``, one instance
+per box slot, which ``to_labels`` packages as predicted instances linked to their
+boxes.
 """
 
 from __future__ import annotations
 
 from typing import List, Optional, Tuple
 
+import attrs
+import numpy as np
 import torch
 
 from sleap_nn.inference.bbox import BBoxDecoder, clip_boxes_to_frame
@@ -61,6 +66,46 @@ class BBoxLayer(InferenceLayer):
         """Ordered class names (``Outputs.pred_bbox_classes`` indexes into it)."""
         return self.decoder.categories
 
+    def predict(
+        self,
+        image,
+        frame_scales: Optional[np.ndarray | torch.Tensor] = None,
+        frame_sizes: Optional[np.ndarray | torch.Tensor] = None,
+    ) -> Outputs:
+        """Detect boxes on a batch of frames.
+
+        Args:
+            image: Batch of frames.
+            frame_scales: Optional ``(B, 2)`` ``(x, y)`` scale from each original
+                frame to ``image``, for frames the provider already fitted to the
+                model input (``Batch.frame_scales``, ``LabelsProvider(fit=...)``).
+                The size matcher then has nothing left to do, and the boxes are
+                mapped back with these scales instead.
+            frame_sizes: ``(B, 2)`` original ``(height, width)`` of each frame,
+                required with ``frame_scales``; the boxes are clipped to them.
+
+        Returns:
+            The decoded ``Outputs`` (see :meth:`postprocess`).
+        """
+        x, info = self.preprocess(image)
+        if frame_scales is not None:
+            if frame_sizes is None:
+                raise ValueError("frame_scales needs frame_sizes.")
+            if not torch.all(info.eff_scale == 1.0):
+                raise ValueError(
+                    "frame_scales was given, but the frames are not at the model "
+                    f"input size ({self.preprocess_config.max_height}x"
+                    f"{self.preprocess_config.max_width}), so the size matcher "
+                    "resized them again."
+                )
+            info = attrs.evolve(
+                info,
+                eff_scale=torch.as_tensor(frame_scales, dtype=torch.float32),
+                original_sizes=torch.as_tensor(frame_sizes),
+            )
+        raw = self.backend(x)
+        return self.postprocess(raw, info)
+
     def postprocess(self, raw_out: dict, info: PreprocInfo) -> Outputs:
         """Decode the head outputs into boxes in original-image pixels.
 
@@ -71,23 +116,75 @@ class BBoxLayer(InferenceLayer):
         Returns:
             ``Outputs`` with ``pred_bboxes (B, K, 4)`` xyxy, ``pred_bbox_scores
             (B, K)`` and ``pred_bbox_classes (B, K)`` (NaN / ``-1`` padded, sorted
-            by descending score).
+            by descending score). With keypoints (experimental ``bbox_detr``
+            branch), also ``pred_keypoints (B, K, N, 2)``, ``pred_peak_values
+            (B, K, N)`` (visibility probabilities) and ``instance_scores (B, K)``
+            (the box scores), slot for slot with the boxes.
         """
-        boxes, scores, classes = self.decoder(
-            raw_out,
-            img_hw=tuple(info.processed_size),
-            score_threshold=self.postprocess_config.peak_threshold,
-            max_detections=self.postprocess_config.max_instances,
-        )
+        points = point_scores = None
+        if getattr(self.decoder, "num_keypoints", 0) and "pred_keypoints" in raw_out:
+            boxes, scores, classes, points, point_scores = (
+                self.decoder.decode_keypoints(
+                    raw_out,
+                    img_hw=tuple(info.processed_size),
+                    score_threshold=self.postprocess_config.peak_threshold,
+                    max_detections=self.postprocess_config.max_instances,
+                )
+            )
+        else:
+            boxes, scores, classes = self.decoder(
+                raw_out,
+                img_hw=tuple(info.processed_size),
+                score_threshold=self.postprocess_config.peak_threshold,
+                max_detections=self.postprocess_config.max_instances,
+            )
         # Coord ladder on the two corners: model input -> original image.
         corners = boxes.reshape(boxes.shape[0], -1, 2)
         corners = undo_input_scale(corners, info.input_scale)
         corners = undo_eff_scale(corners, info.eff_scale)
         boxes = corners.reshape(boxes.shape)
-        boxes, scores, classes = clip_boxes_to_frame(
-            boxes, scores, classes, info.original_size
+        frame_hw = (
+            info.original_size if info.original_sizes is None else info.original_sizes
+        )
+        boxes, scores, classes = clip_boxes_to_frame(boxes, scores, classes, frame_hw)
+        if points is not None:
+            return self._with_keypoints(
+                boxes, scores, classes, points, point_scores, info, frame_hw
+            )
+        return Outputs(
+            pred_bboxes=boxes.detach(),
+            pred_bbox_scores=scores.detach(),
+            pred_bbox_classes=classes.detach(),
+            preprocess_info=info,
+        )
+
+    def _with_keypoints(
+        self, boxes, scores, classes, points, point_scores, info, frame_hw
+    ) -> Outputs:
+        """``Outputs`` of a keypoint ``bbox_detr``: points mapped to the frame.
+
+        Points take the boxes' coordinate ladder back to the original frame; points
+        off the frame, and every point of a slot whose box was dropped, are NaN.
+        """
+        b, k, n = points.shape[:3]
+        points = undo_input_scale(points.reshape(b, k * n, 2), info.input_scale)
+        points = undo_eff_scale(points, info.eff_scale).reshape(b, k, n, 2)
+        if isinstance(frame_hw, torch.Tensor):
+            hw = frame_hw.to(device=points.device, dtype=points.dtype)
+            h, w = hw[:, 0, None, None], hw[:, 1, None, None]
+        else:
+            h, w = float(frame_hw[0]), float(frame_hw[1])
+        x, y = points[..., 0], points[..., 1]
+        on = (x >= -0.5) & (x <= w - 0.5) & (y >= -0.5) & (y <= h - 0.5)
+        on = on & torch.isfinite(scores)[..., None]
+        points = points.masked_fill(~on[..., None], float("nan"))
+        point_scores = point_scores.masked_fill(
+            ~torch.isfinite(scores)[..., None], float("nan")
         )
         return Outputs(
+            pred_keypoints=points.detach(),
+            pred_peak_values=point_scores.detach(),
+            instance_scores=scores.detach(),
             pred_bboxes=boxes.detach(),
             pred_bbox_scores=scores.detach(),
             pred_bbox_classes=classes.detach(),
@@ -105,13 +202,35 @@ class ExportedBBoxLayer(BBoxLayer):
     ``input_scale`` resize, stride padding; a resize traced into the graph would be
     frozen to the trace input's size) and the same ``postprocess`` (decoder, coord
     ladder, clipping) -- so exported and native boxes match by construction. Only
-    the frames handed to the backend differ: rounded to uint8 and without the
-    ``n_samples`` axis, as the graph expects.
+    the frames handed to the backend differ: without the ``n_samples`` axis and,
+    for a graph with a ``uint8`` input (the default), resized in float and rounded
+    to uint8, where the checkpoint path resizes the frame in its own dtype. That
+    one-grey-level difference can move a set-prediction detector's boxes slightly
+    (its query selection is a top-k over near-tied proposals). A graph exported
+    with ``sleap-nn export --input-dtype float32`` receives the checkpoint path's
+    own canvas (as float), so its boxes match checkpoint inference up to the
+    runtime's numerics.
+
+    Args:
+        input_dtype: The graph's input dtype, ``"uint8"`` (default) or
+            ``"float32"`` (``export_metadata.json``'s ``input_dtype``).
+        Other args: As for :class:`BBoxLayer`.
     """
 
+    def __init__(self, *args, input_dtype: str = "uint8", **kwargs) -> None:
+        """Store the graph's input dtype; everything else as :class:`BBoxLayer`."""
+        if input_dtype not in ("uint8", "float32"):
+            raise ValueError(
+                f"input_dtype must be 'uint8' or 'float32', got {input_dtype!r}."
+            )
+        super().__init__(*args, **kwargs)
+        self.input_dtype = input_dtype
+
     def preprocess(self, image):
-        """Native preprocessing, emitted as the graph's ``(B, C, H, W)`` uint8 input."""
-        x = self._to_4d_tensor(image).float()
+        """Native preprocessing, emitted as the graph's ``(B, C, H, W)`` input."""
+        x = self._to_4d_tensor(image)
+        if self.input_dtype == "uint8":
+            x = x.float()
         x, eff_scale, orig_hw = self._apply_full_preprocess(
             x, max_stride=self.max_stride, unsqueeze_n_samples=False
         )
@@ -122,6 +241,9 @@ class ExportedBBoxLayer(BBoxLayer):
             input_scale=self.preprocess_config.scale,
             output_stride=self.output_stride,
         )
+        if self.input_dtype == "float32":
+            # The checkpoint path's own canvas (resized in the frame's dtype).
+            return x.float(), info
         return x.round().clamp(0, 255).to(torch.uint8), info
 
 
@@ -143,6 +265,12 @@ class BBoxStageLayer(BBoxLayer):
     visible keypoints, padded by ``gt_bbox_padding`` pixels, as the centered-instance
     model's training boxes were), the box analog of the GT-centroid fallback.
 
+    With ``use_given_boxes=True`` no detector runs either: each frame's boxes and
+    scores are handed to ``predict`` (``Batch.frame_boxes``, e.g. the
+    ``PredictedBoundingBox``es of an input ``.slp`` or a COCO detection file --
+    ``sleap-nn predict --boxes``). Boxes scoring below ``box_score_threshold``
+    are dropped; the rest seed one crop each, as a detector's would.
+
     Args:
         backend: The detector's backend (with ``use_gt_boxes``, any backend; it is
             never called).
@@ -152,6 +280,9 @@ class BBoxStageLayer(BBoxLayer):
         max_stride: Backbone max stride.
         use_gt_boxes: Read boxes from ground-truth instances instead.
         gt_bbox_padding: Pixels added on every side of ground-truth boxes.
+        use_given_boxes: Take each frame's boxes as given to ``predict``.
+        box_score_threshold: With ``use_given_boxes``, drop boxes scoring below
+            this.
         preprocess_config / postprocess_config: As for :class:`BBoxLayer`.
     """
 
@@ -163,10 +294,14 @@ class BBoxStageLayer(BBoxLayer):
         max_stride: int = 1,
         use_gt_boxes: bool = False,
         gt_bbox_padding: float = 0.0,
+        use_given_boxes: bool = False,
+        box_score_threshold: float = 0.0,
         preprocess_config: Optional[PreprocessConfig] = None,
         postprocess_config: Optional[PostprocessConfig] = None,
     ) -> None:
-        """Store the detector (or the GT-box fallback) and its configs."""
+        """Store the detector (or the GT/given-box source) and its configs."""
+        if use_gt_boxes and use_given_boxes:
+            raise ValueError("use_gt_boxes and use_given_boxes are exclusive.")
         super().__init__(
             backend=backend,
             decoder=decoder,
@@ -177,6 +312,8 @@ class BBoxStageLayer(BBoxLayer):
         )
         self.use_gt_boxes = use_gt_boxes
         self.gt_bbox_padding = float(gt_bbox_padding)
+        self.use_given_boxes = use_given_boxes
+        self.box_score_threshold = float(box_score_threshold)
 
     @property
     def use_gt_centroids(self) -> bool:
@@ -185,7 +322,7 @@ class BBoxStageLayer(BBoxLayer):
 
     @property
     def categories(self) -> List[str]:
-        """Detector class names (``[]`` for the GT-box fallback)."""
+        """Detector class names (``[]`` without a detector)."""
         return self.decoder.categories if self.decoder is not None else []
 
     def predict(
@@ -193,8 +330,9 @@ class BBoxStageLayer(BBoxLayer):
         image,
         instances: Optional[torch.Tensor] = None,
         boxes: Optional[torch.Tensor] = None,
+        box_scores: Optional[torch.Tensor] = None,
     ) -> Outputs:
-        """Detect boxes (or read GT boxes) and report their centers as centroids.
+        """Detect boxes (or read GT/given boxes) and report their centers.
 
         Args:
             image: Full frames, as for :meth:`BBoxLayer.predict`.
@@ -203,7 +341,10 @@ class BBoxStageLayer(BBoxLayer):
             boxes: ``(B, I, 4)`` GT boxes aligned with ``instances`` (NaN for
                 padding), e.g. ``Batch.instance_boxes``. With ``use_gt_boxes``
                 they are used as given; without them boxes are derived from the
-                keypoints.
+                keypoints. With ``use_given_boxes``: ``(B, K, 4)`` xyxy boxes of
+                each frame (``Batch.frame_boxes``), required.
+            box_scores: ``(B, K)`` scores of the given boxes (all ``1`` when
+                ``None``); ``use_given_boxes`` only.
 
         Returns:
             ``Outputs`` with ``pred_centroids (B, K, 2)``, ``pred_centroid_values
@@ -211,7 +352,9 @@ class BBoxStageLayer(BBoxLayer):
             ``pred_bbox_classes (B, K)`` in original-image pixels; empty slots are
             NaN (class ``-1``).
         """
-        if self.use_gt_boxes:
+        if self.use_given_boxes:
+            boxes, scores, classes = self._given_boxes(image, boxes, box_scores)
+        elif self.use_gt_boxes:
             if instances is None:
                 raise ValueError(
                     "BBoxStageLayer(use_gt_boxes=True) requires `instances`."
@@ -244,6 +387,34 @@ class BBoxStageLayer(BBoxLayer):
             pred_bbox_scores=scores,
             pred_bbox_classes=classes,
         )
+
+    def _given_boxes(
+        self,
+        image,
+        boxes: Optional[torch.Tensor],
+        box_scores: Optional[torch.Tensor],
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Validate the given boxes and drop those below the score threshold."""
+        n_frames = self._to_4d_tensor(image).shape[0]
+        if boxes is None:
+            # A frame batch with no box source at all: no detections.
+            boxes = torch.full((n_frames, 1, 4), float("nan"))
+        boxes = torch.as_tensor(boxes).float()
+        if boxes.ndim != 3 or boxes.shape[0] != n_frames or boxes.shape[-1] != 4:
+            raise ValueError(
+                f"Given boxes must be (B={n_frames}, K, 4) xyxy; got "
+                f"{tuple(boxes.shape)}."
+            )
+        if box_scores is None:
+            scores = torch.ones(boxes.shape[:2], device=boxes.device)
+        else:
+            scores = torch.as_tensor(box_scores).float().to(boxes.device)
+        valid = torch.isfinite(boxes).all(dim=-1) & torch.isfinite(scores)
+        valid &= scores >= self.box_score_threshold
+        boxes = boxes.masked_fill(~valid[..., None], float("nan"))
+        scores = scores.masked_fill(~valid, float("nan"))
+        classes = torch.zeros(valid.shape, dtype=torch.long, device=boxes.device)
+        return boxes, scores, classes.masked_fill(~valid, -1)
 
 
 def gt_boxes_from_instances(

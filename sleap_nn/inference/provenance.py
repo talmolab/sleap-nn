@@ -358,3 +358,87 @@ def merge_provenance(
         if key not in result or overwrite:
             result[key] = value
     return result
+
+
+def _describe_exported_runtimes(root: Any, max_depth: int = 6) -> list:
+    """List the exported graphs a predictor runs, with runtime and precision.
+
+    Private: the result is written as ``provenance["exported_models"]``. Walks
+    ``root`` (a predictor's layer) for ONNX Runtime / TensorRT backends:
+    exported models loaded directly and network-only exports standing in for
+    checkpoints. Each entry: ``file``, ``runtime`` and, for a TensorRT engine, the
+    ``precision``, ``typing`` and ``tensorrt_version`` its metadata records.
+
+    Args:
+        root: The object to search (e.g. ``Predictor.layer``).
+        max_depth: How deep to follow attributes.
+
+    Returns:
+        One dict per backend found (empty when everything runs in PyTorch).
+    """
+    import json
+    from pathlib import Path
+
+    import torch
+
+    from sleap_nn.inference.layers.backends.onnx_backend import ONNXBackend
+    from sleap_nn.inference.layers.backends.tensorrt_backend import TensorRTBackend
+
+    found: list = []
+    seen: set = set()
+
+    def visit(o: Any, depth: int) -> None:
+        if o is None or depth > max_depth or id(o) in seen:
+            return
+        if isinstance(o, (str, bytes, int, float, bool, torch.Tensor, Path)):
+            return
+        seen.add(id(o))
+        if isinstance(o, TensorRTBackend):
+            entry = {"file": str(o.engine_path), "runtime": "tensorrt"}
+            meta = Path(str(o.engine_path) + ".metadata.json")
+            if meta.exists():
+                try:
+                    data = json.loads(meta.read_text())
+                except (OSError, ValueError):
+                    data = {}
+                for k in ("precision", "typing", "tensorrt_version", "bf16_scope"):
+                    if data.get(k) is not None:
+                        entry[k] = data[k]
+            found.append(entry)
+            return
+        if isinstance(o, ONNXBackend):
+            found.append({"file": str(o.model_path), "runtime": "onnx"})
+            return
+        if isinstance(o, dict):
+            children = list(o.values())
+        elif isinstance(o, (list, tuple, set)):
+            children = list(o)
+        elif isinstance(o, torch.nn.Module):
+            children = list(o._modules.values()) + [
+                v for k, v in vars(o).items() if not k.startswith("_")
+            ]
+        else:
+            children = list(getattr(o, "__dict__", {}).values())
+            for name in getattr(type(o), "__slots__", ()):
+                children.append(getattr(o, name, None))
+        for c in children:
+            visit(c, depth + 1)
+
+    visit(root, 0)
+    return found
+
+
+def _add_part_exports(provenance: dict, part_exported: list) -> None:
+    """Add a part stage's exported graphs to ``provenance["exported_models"]``.
+
+    Each is tagged ``stage: "part"``, so the top-level list names every exported
+    graph that ran (the part stage's own provenance keeps its list as well).
+    """
+    if not part_exported:
+        return
+    entries = list(provenance.get("exported_models") or [])
+    files = {e.get("file") for e in entries}
+    for e in part_exported:
+        if e.get("file") not in files:
+            entries.append(dict(e, stage="part"))
+    provenance["exported_models"] = entries

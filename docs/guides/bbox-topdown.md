@@ -18,6 +18,11 @@ comes with a `sio.PredictedBoundingBox` on `LabeledFrame.bboxes`, linked to it
 (`box.instance`). The same works for `multi_class_topdown` and (with fixed crops)
 `centered_instance_segmentation` models.
 
+Boxes can also come from outside sleap-nn: `sleap-nn predict -m models/centered_instance
+-i labels.slp --boxes {dets.json | boxes.slp | gt}` seeds the crop model from a COCO
+detection file, the predicted boxes in a `.slp`, or the GT boxes (see
+[COCO-Style Evaluation](coco-evaluation.md#top-down-inference-from-given-boxes)).
+
 To generate both configs from your labels:
 
 ```bash
@@ -27,7 +32,9 @@ sleap-nn train config_bbox_centernet.yaml
 sleap-nn train config_centered_instance.yaml
 ```
 
-(`topdown_bbox_ssd` uses the SSD-style detector.) The two configs share
+(`topdown_bbox_ssd` uses the SSD-style detector, `topdown_bbox_detr` the DETR
+detector of the [DETR box detector guide](bbox-detr.md), which keeps touching
+animals apart.) The two configs share
 `bbox_source` / `bbox_padding`, as they must (below). The TUI (`sleap-nn config
 labels.slp`) offers the same pair.
 
@@ -77,7 +84,21 @@ model_config:
   tight box of its visible keypoints). Train both models with the same two values.
   For a box-scaled model, `sleap-nn predict` warns when they differ (a
   `bbox_source` of `auto` on either side is not compared, since it is resolved per
-  labels file).
+  labels file). A different `bbox_padding` can be deliberate, for example a detector
+  trained on padded boxes so that it does not cut off thin extremities. `bbox_padding`
+  is added on every side of boxes derived from keypoints or masks (never to
+  user-drawn boxes), so where both models derive their boxes, each side of a
+  detector box differs from the training boxes by twice the difference, and the
+  crop window (which adds `crop_bbox_padding` of the longest side on every side)
+  grows or shrinks with it. The animal then fills its crop less (or more) than in
+  training; on small animals this is a large change of scale. The warning states the
+  difference and can be ignored when it is intended; to remove it, train both models
+  with the same value.
+- **Frames of another size than the model's input.** At prediction time frames are
+  fitted to the model's `max_height` / `max_width` (those of its training config,
+  unless `sleap-nn predict --max_height` / `--max_width` override them) and the
+  predictions are mapped back; the log notes this once per input size of the model.
+  It is expected. Overriding those values changes the scale the model sees.
 - **`crop_size` sets resolution, not coverage.** Every box is resized to the crop, so
   the crop no longer has to hold the largest animal. Left unset it is the median
   padded box side (rounded up to the backbone's max stride), so a typical animal
@@ -111,6 +132,14 @@ crop. Keypoints are mapped into and out of the crop by the same affine transform
 frame is size-matched to the centered-instance model's own `max_height`/`max_width`
 before cropping.
 
+When the centered-instance model runs on a CUDA GPU (and does not resize its crops,
+i.e. `scale: 1.0` and no `max_height`/`max_width`), the size-matched frame is moved to
+that GPU before cropping, so crops are cut there instead of on the CPU (57x faster
+cropping, ~1.9x faster box-seeded top-down inference on COCO val). Fixed-window crops
+are bit-identical either way. Box-scaled crops come from CUDA's `grid_sample`, which
+rounds a rare pixel (~0.1%) to the neighboring gray level, so keypoints can move by
+hundredths of a pixel (COCO AP unchanged).
+
 ## Evaluation
 
 - `sleap-nn eval` scores the pose predictions as for any top-down model.
@@ -125,7 +154,9 @@ before cropping.
 - A centroid model cannot feed a box-scaled model (it has no boxes); that pairing is
   refused.
 - One first stage per pipeline: a centroid model and a detector together are refused.
-- `sleap-nn export` exports each model on its own; a combined detector + top-down
-  bundle is not supported yet.
+- `sleap-nn export` exports each model on its own (no single-graph detector +
+  top-down bundle); export the centered-instance model `--network-only` and run the
+  export directories with `sleap-nn predict -m <detector export> -m <pose export>`
+  (see [Export](export.md#detector-box-scaled-top-down-part-stage-network-only-exports)).
 - The legacy `sleap-nn track` pipeline does not run detectors; use
   `sleap-nn predict --tracking`.

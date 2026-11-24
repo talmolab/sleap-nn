@@ -33,7 +33,11 @@ import json
 from sleap_nn.config.data_config import DataConfig
 from sleap_nn.config.data_config import data_mapper
 from sleap_nn.config.model_config import ModelConfig
-from sleap_nn.config.model_config import drop_removed_embedding_keys, model_mapper
+from sleap_nn.config.model_config import (
+    drop_removed_embedding_keys,
+    model_mapper,
+    normalize_anchor_part,
+)
 from sleap_nn.config.trainer_config import TrainerConfig
 from sleap_nn.config.trainer_config import trainer_mapper
 from sleap_nn.config.utils import get_output_strides_from_heads
@@ -112,6 +116,39 @@ class TrainingJobConfig:
         return config_omegaconf
 
 
+#: Experimental keys left out of a saved config while they hold their default, as
+#: ``(parent path, key, default)``: a config that does not use them saves the same
+#: ``training_config.yaml`` / ``initial_config.yaml`` as before they existed, so
+#: releases without them can still read it.
+UNSAVED_DEFAULT_KEYS = (
+    ("data_config", "val_negative_frames", False),
+    ("data_config", "ignore_box_category", None),
+    ("data_config", "ignore_box_min_cover", 0.5),
+    ("trainer_config.balanced_sampler", "frame_weight_key", None),
+)
+
+
+def config_without_unused_keys(config: DictConfig) -> DictConfig:
+    """``config`` without the :data:`UNSAVED_DEFAULT_KEYS` that hold their default.
+
+    For writing a config to disk. Returns ``config`` itself when there is nothing
+    to leave out; otherwise a plain (unstructured) copy.
+    """
+    drop = [
+        (parent, key)
+        for parent, key, default in UNSAVED_DEFAULT_KEYS
+        if (node := OmegaConf.select(config, parent, default=None)) is not None
+        and key in node
+        and node[key] == default
+    ]
+    if not drop:
+        return config
+    out = OmegaConf.create(OmegaConf.to_container(config, resolve=False))
+    for parent, key in drop:
+        del OmegaConf.select(out, parent)[key]
+    return out
+
+
 def verify_training_cfg(cfg: DictConfig) -> DictConfig:
     """Get sleap-nn training config from a DictConfig object.
 
@@ -128,6 +165,14 @@ def verify_training_cfg(cfg: DictConfig) -> DictConfig:
     schema = OmegaConf.structured(TrainingJobConfig())
     config = OmegaConf.merge(schema, cfg)
     OmegaConf.to_container(config, resolve=True, throw_on_missing=True)
+
+    # The centroid `anchor_part` is typed `Any` (it may be a list, experimental),
+    # so the merge no longer turns a scalar into a string; do it here, as before.
+    centroid = OmegaConf.select(
+        config, "model_config.head_configs.centroid.confmaps", default=None
+    )
+    if centroid is not None and centroid.get("anchor_part") is not None:
+        centroid.anchor_part = normalize_anchor_part(centroid.anchor_part)
 
     # Verify configs with @oneof class is valid
     _ = OmegaConf.to_object(config)

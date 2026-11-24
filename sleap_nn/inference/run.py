@@ -27,10 +27,21 @@ Usage::
 
 from __future__ import annotations
 
+import inspect
 import os
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, List, Optional, Sequence, Union
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Callable,
+    Dict,
+    List,
+    Optional,
+    Sequence,
+    Tuple,
+    Union,
+)
 
 import sleap_io as sio
 from loguru import logger
@@ -329,6 +340,11 @@ def save_predictions(
     embed: Union[str, bool] = "false",
     restore_source_videos: bool = False,
     save_embedding_vectors: Optional[bool] = None,
+    slp_version: Optional[str] = None,
+    image_format: Optional[str] = None,
+    image_quality: Optional[int] = None,
+    compression: Optional[str] = None,
+    unlabeled_as: Optional[str] = None,
 ) -> List[Path]:
     """Save predicted ``Labels`` to disk in the requested format(s).
 
@@ -360,6 +376,25 @@ def save_predictions(
             silently dropped every vector when retracking an embedded ``.slp``
             (``predict -i embedded.slp -t --features embeddings`` produced an
             output that could not be retracked again). ``True``/``False`` force it.
+        slp_version: File layout of the ``.slp`` output: ``"v2"`` (the SLP 2.x
+            layout that older sleap-io and SLEAP releases read), ``"v3"`` (SLP
+            3.0) or ``"auto"`` (sleap-io 0.10's default: writes the 2.x layout
+            when the content fits, else SLP 3.0 with a warning). ``None`` (the
+            default) passes nothing, so sleap-io's default applies.
+        image_format: Format of embedded frames: ``"png"``, ``"jpg"`` /
+            ``"jpeg"`` or ``"hdf5"`` (raw pixels). Applies only when frames are
+            embedded (``embed``); otherwise it warns and has no effect. ``None``
+            (the default): sleap-io's default.
+        image_quality: JPEG quality (0-100) with ``image_format="jpg"`` or PNG
+            compression level (0-9) with ``image_format="png"``, for re-encoded
+            embedded frames. ``None`` (the default): the encoder's default.
+        compression: ``"gzip"`` or ``"lzf"`` compression of the ``.slp`` table
+            columns (smaller files, slower reads). ``None`` (the default):
+            sleap-io's default (uncompressed).
+        unlabeled_as: What a ``"v2"`` save does with points that are not labeled,
+            which that layout cannot store: ``"error"`` (refuse to write) or
+            ``"absent"`` (write them as hidden points, with a warning). ``None``
+            (the default): sleap-io's default (``"error"``).
 
     Returns:
         The list of analysis HDF5 paths written (empty unless ``"analysis_h5"``
@@ -367,10 +402,37 @@ def save_predictions(
 
     Raises:
         ValueError: If any requested format is not ``"slp"`` or ``"analysis_h5"``,
-            or if the ``.slp`` output would overwrite a video's frame source (e.g.
-            ``output_path`` is the input ``.pkg.slp``).
+            if the ``.slp`` output would overwrite a video's frame source (e.g.
+            ``output_path`` is the input ``.pkg.slp``), or if a save option is
+            invalid or not supported by the installed sleap-io.
     """
+    from sleap_nn.inference.save_options import (
+        explain_unlabeled_points,
+        slp_save_kwargs,
+        unused_options_message,
+        validate_save_options,
+    )
+
     formats = _normalize_output_formats(output_format)
+    save_options = dict(
+        slp_version=slp_version,
+        image_format=image_format,
+        image_quality=image_quality,
+        compression=compression,
+        unlabeled_as=unlabeled_as,
+    )
+    validate_save_options(**save_options)
+    set_options = [k for k, v in save_options.items() if v is not None]
+    if "slp" not in formats and set_options:
+        import warnings
+
+        warnings.warn(
+            unused_options_message(
+                set_options, "only to .slp output", "no .slp is written here"
+            ),
+            UserWarning,
+            stacklevel=2,
+        )
 
     if "slp" in formats:
         _refuse_overwriting_frame_source(labels, output_path)
@@ -381,12 +443,16 @@ def save_predictions(
             from sleap_nn.inference.tracking import _labels_have_embeddings
 
             save_embedding_vectors = _labels_have_embeddings(labels)
-        labels.save(
-            Path(output_path).as_posix(),
-            embed=_resolve_embed(embed, labels),
-            restore_original_videos=restore_source_videos,
-            save_embedding_vectors=save_embedding_vectors,
-        )
+        embed_frames = _resolve_embed(embed, labels)
+        extra = slp_save_kwargs(**save_options, embeds_frames=bool(embed_frames))
+        with explain_unlabeled_points():
+            labels.save(
+                Path(output_path).as_posix(),
+                embed=embed_frames,
+                restore_original_videos=restore_source_videos,
+                save_embedding_vectors=save_embedding_vectors,
+                **extra,
+            )
         logger.info(f"Predictions output path: {output_path}")
         logger.info(f"Saved file at: {datetime.now()}")
 
@@ -396,318 +462,153 @@ def save_predictions(
     return h5_paths
 
 
-def predict(
-    source: Any,
-    *,
-    model_paths: Optional[List[str]] = None,
-    export_dir: Optional[str] = None,
-    # Construction-time (model/device)
-    device: str = "auto",
-    batch_size: int = 4,
-    runtime: str = "auto",
-    backbone_ckpt_path: Optional[str] = None,
-    head_ckpt_path: Optional[str] = None,
-    preprocess_config: Optional[Any] = None,
-    anchor_part: Optional[str] = None,
-    paf_workers: int = 0,
-    centroid_only: bool = False,
-    emit_centroid: str = "instance",
-    # Bottom-up PAF grouping knobs (construction-time; plain bottom-up only)
-    max_edge_length_ratio: float = 0.25,
-    dist_penalty_weight: float = 1.0,
-    n_points: int = 10,
-    min_instance_peaks: float = 0,
-    min_line_scores: float = 0.25,
-    # Bottom-up segmentation knobs (construction-time; segmentation only)
-    fg_threshold: float = 0.5,
-    min_mask_area: int = 0,
-    center_nms_kernel: int = 3,
-    mask_cleanup: bool = False,
-    mask_cleanup_radius: int = 0,
-    distance_gate_alpha: Optional[float] = None,
-    merge_fragments: bool = False,
-    merge_method: str = "greedy",
-    merge_thresholds: tuple = (0.85, 0.6, 0.4),
-    merge_w_valley: float = 1.0,
-    merge_w_offset: float = 0.25,
-    merge_dilate: int = 1,
-    full_res_masks: bool = False,
-    mask_output: str = "mask",
-    polygon_epsilon: float = 0.01,
-    # Bounding-box detector knob (construction-time; bbox_* models only)
-    bbox_nms_iou: Optional[float] = None,
-    # Copy each uint8 batch to the GPU before preprocessing (CUDA, checkpoints only)
-    upload_batches: bool = False,
-    # Weight layout of every model ("channels_last": faster convs on NVIDIA GPUs)
-    memory_format: str = "contiguous",
-    # SAM prompted-mask producer (explicit, no default; PLAN L2). When set, masks
-    # are produced from the existing poses in ``source`` (no trained seg model).
-    mask_backend: Optional[str] = None,
-    sam_checkpoint: Optional[str] = None,
-    sam_model_type: str = "vit_h",
-    sam3_model_id: str = "facebook/sam3",
-    sam_prompt_mode: str = "pose",
-    sam_anchor_ind: Optional[int] = None,
-    sam_disjointify_masks: bool = False,
-    overlay_path: Optional[str] = None,
-    # Prediction-time (can vary per call)
-    frames: Optional[List[int]] = None,
-    peak_threshold: Optional[float] = None,
-    centroid_threshold: Optional[float] = None,
-    keypoint_threshold: Optional[float] = None,
-    max_instances: Optional[int] = None,
-    integral_refinement: Optional[str] = "keep",
-    integral_patch_size: Optional[int] = None,
-    return_confmaps: bool = False,
-    return_crops: bool = False,
-    return_pafs: bool = False,
-    return_paf_graph: bool = False,
-    return_class_maps: bool = False,
-    return_class_vectors: bool = False,
-    # Filtering
-    filter_config: Optional["FilterConfig"] = None,
-    # Tracking
-    tracker_config: Optional["TrackerConfig"] = None,
-    # Output
-    output_path: Optional[str] = None,
-    output_format: Union[str, Sequence[str]] = "slp",
-    embed: Union[str, bool] = "false",
-    restore_source_videos: bool = False,
-    save_embedding_vectors: Optional[bool] = None,
-    clean_empty_frames: bool = False,
-    progress_callback: Optional[Callable[[int, int], None]] = None,
-    tracking_progress_callback: Optional[Callable[[int, int], None]] = None,
-) -> sio.Labels:
-    """Build a predictor, run inference, return Labels.
+def _attach_box_source(
+    source: Any, boxes: str, score_threshold: float = 0.0
+) -> Tuple[Any, str]:
+    """Resolve ``predict(boxes=...)``: ``(source, "gt" | "given")``.
 
-    Exactly one of ``model_paths`` or ``export_dir`` must be provided.
+    For a detection file or boxes ``.slp``, the boxes are attached to the source
+    labels as ``PredictedBoundingBox``es (a ``.slp`` path is loaded; a
+    ``sio.Labels`` is copied; a ``LabelsProvider``'s labels are used in place),
+    and that labels source is returned.
+    """
+    from sleap_nn.evaluation_coco import (
+        attach_coco_detections,
+        transfer_predicted_boxes,
+    )
+    from sleap_nn.inference.providers import LabelsProvider
 
-    Args:
-        source: Video path, ``sio.Video``, ``sio.Labels``, or a Provider.
-        model_paths: Trained model directories — or a path to a model's
-            ``best.ckpt`` or ``training_config.{yaml,json}`` file, which resolves
-            to its directory (#575). One for single-instance / bottom-up, two for
-            top-down.
-        export_dir: Path to an exported ONNX/TRT directory (alternative
-            to ``model_paths``).
-        device: ``"auto"``, ``"cpu"``, ``"cuda"``, ``"mps"``, etc.
-        batch_size: Frames per batch.
-        runtime: Runtime for an exported model: ``"auto"`` (prefer TensorRT,
-            fall back to ONNX), ``"onnx"``, or ``"tensorrt"``. Ignored when
-            ``model_paths`` is given (checkpoints).
-        backbone_ckpt_path: Optional backbone weight override.
-        head_ckpt_path: Optional head weight override.
-        preprocess_config: Optional OmegaConf preprocessing overrides.
-        anchor_part: Override centroid anchor node name.
-        paf_workers: CPU worker processes for bottom-up PAF grouping.
-        centroid_only: Force centroid-only output even when a
-            centered-instance model is among ``model_paths``.
-        emit_centroid: Centroid-only output representation: ``"instance"``
-            (default; single-node ``PredictedInstance``, frontend-compatible),
-            ``"centroid"`` (``sio.PredictedCentroid``), or ``"both"``.
-        max_edge_length_ratio: Bottom-up PAF max edge length ratio.
-        dist_penalty_weight: Bottom-up PAF distance penalty weight.
-        n_points: Bottom-up PAF line integration sample count.
-        min_instance_peaks: Bottom-up min peaks for a valid instance.
-        min_line_scores: Bottom-up per-edge match threshold. (These five
-            apply only to plain bottom-up models.)
-        fg_threshold: Foreground probability threshold for binarizing the
-            segmentation map (bottom-up segmentation only).
-        min_mask_area: Minimum predicted-mask area in original-image pixels;
-            smaller masks are dropped to suppress over-segmentation. ``0``
-            disables it (bottom-up segmentation only).
-        center_nms_kernel: Odd window size for center-peak NMS; larger merges
-            nearby duplicate centers (bottom-up segmentation only).
-        mask_cleanup: Keep-largest-CC + hole-fill per mask (bottom-up
-            segmentation only).
-        mask_cleanup_radius: Morphological open->close radius (output-stride
-            pixels) applied during ``mask_cleanup``; ``0`` keeps keep-largest +
-            fill only (bottom-up segmentation only).
-        distance_gate_alpha: Adaptive distance-gate strength; ``None`` (default)
-            keeps the byte-for-byte argmin grouping. When set, foreground pixels
-            whose offset-predicted center exceeds ``alpha*sqrt(area/pi)`` from
-            their assigned center are dropped (bottom-up segmentation only).
-        merge_fragments: Enable the RAG fragment-merge that re-fuses
-            over-segmented animal halves while keeping touching distinct animals
-            apart; ``False`` (default) is byte-for-byte today (bottom-up
-            segmentation only).
-        merge_method: ``"greedy"`` (default) or ``"multicut"`` agglomeration;
-            inert when ``merge_fragments=False`` (bottom-up segmentation only).
-        merge_thresholds: Greedy-merge decreasing affinity thresholds (default
-            ``(0.85, 0.6, 0.4)``); inert when off (bottom-up segmentation only).
-        merge_w_valley: Center-valley merge-term weight (default ``1.0``); inert
-            when off (bottom-up segmentation only).
-        merge_w_offset: Offset-agreement merge-term weight (default ``0.25``);
-            inert when off (bottom-up segmentation only).
-        merge_dilate: Merge contact-test dilation iterations (default ``1``);
-            inert when off (bottom-up segmentation only).
-        full_res_masks: Encode masks at full original resolution instead of the
-            output-stride grid (default ``False``: stride encoding is ~stride^2
-            smaller and lossless at model resolution; bottom-up segmentation only).
-        mask_output: Mask output representation — ``"mask"`` (default),
-            ``"polygon"`` (``sio.PredictedROI`` only), or ``"both"`` (bottom-up
-            segmentation only).
-        polygon_epsilon: Douglas-Peucker tolerance (fraction of perimeter) for
-            ``mask_output`` polygon/both (bottom-up segmentation only).
-        bbox_nms_iou: Class-wise IoU-NMS threshold for bounding-box detectors
-            (``None``: the style default, 0.45 for SSD / off for CenterNet; ``1.0``
-            disables it). ``peak_threshold`` is their score threshold and
-            ``max_instances`` their per-frame detection cap.
-        upload_batches: Copy each ``uint8`` batch to the GPU before
-            preprocessing when ``device`` is CUDA, so resizing and cropping run
-            there (faster; results differ slightly from the default ``False``).
-            Trained checkpoints only; ignored, with a warning, for an exported
-            model directory.
-        memory_format: Weight layout of every model: ``"contiguous"`` (default)
-            or ``"channels_last"`` (faster cuDNN convolutions on NVIDIA GPUs;
-            no change on AMD ROCm). Trained checkpoints only; ignored, with a
-            warning, for an exported model directory.
-        mask_backend: **Explicit** SAM mask backend (PLAN L2): ``"sam"`` (SAM1) /
-            ``"sam3"`` (PR-B). When set, ``source`` is treated as a pose ``.slp``
-            and masks are predicted from its existing instances (no trained seg
-            model, so ``model_paths`` / ``export_dir`` are not required). ``None``
-            (the default) leaves the model-driven path untouched.
-        sam_checkpoint: SAM1 checkpoint path (required for ``mask_backend="sam"``).
-        sam_model_type: SAM1 model registry key.
-        sam3_model_id: Hugging Face model id for the gated SAM3 path
-            (``mask_backend="sam3"``); defaults to ``"facebook/sam3"``.
-        sam_prompt_mode: ``"pose"`` / ``"centroid"`` / ``"box"`` (PLAN §2.2).
-        sam_anchor_ind: Centroid anchor node index for ``sam_prompt_mode="centroid"``.
-        sam_disjointify_masks: Make per-frame masks disjoint when >=2 instances.
-        overlay_path: Optional review-overlay PNG path (PLAN L4; SAM path only).
-        frames: Frame indices to predict. ``None`` = all.
-        peak_threshold: Override peak threshold for all stages.
-        centroid_threshold: Override centroid-stage threshold (top-down).
-        keypoint_threshold: Override centered-instance threshold (top-down).
-        max_instances: Cap on instances per frame.
-        integral_refinement: ``"integral"``, ``"local"``, or ``"none"`` / ``None``
-            (no refinement). The default, ``"keep"``, keeps the model's
-            refinement (``"integral"``).
-        integral_patch_size: Refinement patch size.
-        return_confmaps: Keep confidence maps on Outputs.
-        return_crops: Keep per-instance crops on Outputs (top-down).
-        return_pafs: Keep part-affinity fields on Outputs (bottom-up).
-        return_paf_graph: Keep the PAF graph on Outputs (bottom-up).
-        return_class_maps: Keep class maps on Outputs (multi-class bottom-up).
-        return_class_vectors: Keep class vectors on Outputs (multi-class top-down).
-        filter_config: Post-inference :class:`FilterConfig`.
-        tracker_config: :class:`TrackerConfig` for tracking.
-        output_path: If set, save the Labels to this path.
-        output_format: Format to save the Labels in when ``output_path`` is set.
-            One of ``"slp"`` (the default), ``"analysis_h5"`` (a SLEAP Analysis
-            HDF5 file, one ``.analysis.h5`` per video), or ``"both"``. Analysis
-            HDF5 paths are derived from ``output_path``.
-        embed: Image-embedding policy for a ``.slp`` output, one of ``"false"``
-            (the default; never embed, backreference source media — today's
-            behavior), ``"true"`` (embed images into a self-contained
-            ``.pkg.slp``-style file), or ``"auto"`` (embed iff the input was
-            itself an embedded ``.pkg.slp``). Only applies to ``.slp`` output.
-        restore_source_videos: On a non-embedding ``.slp`` save, ``False`` (the
-            default) keeps references to the input ``.pkg.slp`` file(s) — the
-            pixels are already there, and the pre-embedding source video is
-            often unavailable. ``True`` instead restores references to the
-            original pre-embedding source video files, when recorded.
-            Ignored when embedding.
-        save_embedding_vectors: Whether to persist appearance (re-ID) vectors on
-            the saved detections. ``None`` (the default) preserves them iff any
-            detection carries one; see :func:`save_predictions`.
-        clean_empty_frames: Drop frames with no instances.
-        progress_callback: ``(processed_frames, total_frames)`` callback
-            invoked after each batch (counts are in frames).
-        tracking_progress_callback: ``(processed_frames, total_frames)``
-            callback per frame during tracking.
+    if boxes == "gt":
+        return source, "gt"
+    suffix = Path(str(boxes)).suffix.lower()
+    if suffix not in (".json", ".slp"):
+        raise ValueError(
+            f"boxes must be 'gt', a COCO detection .json or a .slp; got {boxes!r}."
+        )
+    if isinstance(source, (str, Path)) and str(source).endswith(".slp"):
+        source_path = Path(str(source))
+        source = sio.load_slp(str(source))
+    elif isinstance(source, sio.Labels):
+        source_path = None
+        source = source.copy()
+    elif isinstance(source, LabelsProvider):
+        source_path = (
+            Path(source.labels) if isinstance(source.labels, (str, Path)) else None
+        )
+    else:
+        raise ValueError(
+            "boxes from a file need a .slp / sio.Labels source (the boxes are "
+            f"attached to its frames); got {type(source).__name__}."
+        )
+    labels = source._sio_labels if isinstance(source, LabelsProvider) else source
+    if suffix == ".json":
+        counts = attach_coco_detections(labels, boxes, score_threshold=score_threshold)
+        logger.info(
+            f"Attached {counts['n_boxes']} detections from {boxes} to "
+            f"{counts['n_frames']} frames ({counts['n_unmatched']} on images not "
+            "in the source)."
+        )
+    elif source_path is None or Path(boxes).resolve() != source_path.resolve():
+        counts = transfer_predicted_boxes(
+            labels, sio.load_slp(str(boxes)), score_threshold=score_threshold
+        )
+        logger.info(
+            f"Copied {counts['n_boxes']} boxes from {boxes} to {counts['n_frames']} "
+            f"frames ({counts['n_new_frames']} added; {counts['n_unmatched']} on "
+            "unmatched videos)."
+        )
+    return source, "given"
 
-    Returns:
-        ``sio.Labels`` with predicted instances.
 
-    Raises:
-        ValueError: If neither ``model_paths`` nor ``export_dir`` is given,
-            or if both are given, or if the ``.slp`` output would overwrite a file
-            the input reads its frames from (e.g. ``output_path`` is the input
-            ``.pkg.slp``) -- checked before any model is loaded.
+def _part_stage_precision(precision: str, device: Any) -> str:
+    """``precision`` for the part model, built after the pose predictor.
+
+    Off CUDA ``precision`` does nothing and the pose predictor's build has
+    logged that; the part model is then built at ``"32"`` (the same fp32 forward)
+    so the warning is not logged a second time.
     """
     import torch
 
+    if precision != "32" and torch.device(device).type != "cuda":
+        return "32"
+    return precision
+
+
+def _build_predictor(
+    *,
+    device,
+    batch_size,
+    paf_workers,
+    precision,
+    export_dir,
+    filter_config,
+    tracker_config,
+    model_paths,
+    backbone_ckpt_path,
+    head_ckpt_path,
+    preprocess_config,
+    anchor_part,
+    peak_threshold,
+    max_instances,
+    centroid_only,
+    emit_centroid,
+    max_edge_length_ratio,
+    dist_penalty_weight,
+    n_points,
+    min_instance_peaks,
+    min_line_scores,
+    fg_threshold,
+    min_mask_area,
+    center_nms_kernel,
+    mask_cleanup,
+    mask_cleanup_radius,
+    distance_gate_alpha,
+    bbox_nms_iou,
+    merge_fragments,
+    merge_method,
+    merge_thresholds,
+    merge_w_valley,
+    merge_w_offset,
+    merge_dilate,
+    full_res_masks,
+    mask_output,
+    polygon_epsilon,
+    flip_test,
+    runtime,
+    box_mode,
+    box_score_threshold,
+    node_filter,
+    strip_prefix,
+    part_model_paths,
+    part_streaming,
+    part_crop_rule,
+    part_node_filter,
+    part_strip_prefix,
+    part_peak_threshold,
+    part_prefix,
+    upload_batches=False,
+    memory_format="contiguous",
+):
+    """Build the predictor (and the streaming part stage) the way :func:`predict` does.
+
+    Shared by :func:`predict` and :func:`open_stream`, so both run the same pipeline.
+    Returns ``(predictor, part_stream)``; ``part_stream`` is ``None`` unless the part
+    stage streams.
+    """
     from sleap_nn.inference.predictor import Predictor
 
-    # Before any model load or inference (SAM included): `save_predictions` makes
-    # the same check, but only once the whole pass has run.
-    _refuse_overwriting_source_before_inference(source, output_path, output_format)
-
-    if device == "auto":
-        device = (
-            "cuda"
-            if torch.cuda.is_available()
-            else "mps" if torch.backends.mps.is_available() else "cpu"
-        )
-
-    # SAM prompted-mask producer (PLAN L2/L8): masks come from the existing poses
-    # in ``source`` — there is no trained seg model, so this short-circuits the
-    # model-driven path entirely. ``mask_backend`` is explicit / required to opt
-    # in; ``None`` (the default) leaves everything below unchanged.
-    if mask_backend is not None:
-        if model_paths or export_dir:
-            raise ValueError(
-                "mask_backend produces masks from the poses in `source` and does "
-                "not use a trained seg model; do not also pass model_paths / "
-                "export_dir."
-            )
-        from sleap_nn.inference.sam import run_sam_segmentation
-
-        # Segmentation masks only serialize to ``.slp``: the SLEAP Analysis HDF5
-        # format stores poses/tracks, not ``PredictedSegmentationMask``, so it
-        # would silently drop the masks (the actual output). Reject it up front
-        # rather than write a mask-less ``.h5``.
-        if output_path is not None and any(
-            f != "slp" for f in _normalize_output_formats(output_format)
-        ):
-            raise ValueError(
-                f"mask_backend output only supports output_format='slp' (got "
-                f"{output_format!r}); the SLEAP Analysis HDF5 format stores "
-                "poses/tracks, not segmentation masks."
-            )
-        # Save handling lives in ``run_sam_segmentation``, which mirrors the
-        # regular prediction path: by default it backreferences the source media
-        # via provenance and does not re-embed images (small output; see its
-        # docs). The ``embed`` / ``restore_source_videos`` controls are forwarded.
-        labels = run_sam_segmentation(
-            source,
-            mask_backend,
-            prompt_mode=sam_prompt_mode,
-            sam_checkpoint=sam_checkpoint,
-            sam_model_type=sam_model_type,
-            sam3_model_id=sam3_model_id,
-            device=device,
-            anchor_ind=sam_anchor_ind,
-            disjointify_masks=sam_disjointify_masks,
-            output_path=output_path,
-            overlay_path=overlay_path,
-            frames=frames,
-            clean_empty_frames=clean_empty_frames,
-            embed=embed,
-            restore_source_videos=restore_source_videos,
-        )
-        return labels
-
-    if model_paths and export_dir:
-        raise ValueError("Provide model_paths or export_dir, not both.")
-    if not model_paths and not export_dir:
-        raise ValueError("Either model_paths or export_dir is required.")
-
-    if tracker_config is not None and emit_centroid != "instance":
-        raise ValueError(
-            "Tracking is incompatible with emit_centroid="
-            f"{emit_centroid!r}: tracking operates on sio.PredictedInstance "
-            "objects, but this mode emits sio.PredictedCentroid objects. Use "
-            "emit_centroid='instance' (the default) for tracking."
-        )
-
-    # Build predictor
     build_kwargs: dict = {
         "device": device,
         "batch_size": batch_size,
         "paf_workers": paf_workers,
     }
+    if precision != "32":
+        if export_dir:
+            raise ValueError(
+                "precision is not available for exported (ONNX/TensorRT) models; "
+                "export them at the precision you want instead."
+            )
+        build_kwargs["precision"] = precision
     if filter_config is not None:
         build_kwargs["filter_config"] = filter_config
     if tracker_config is not None:
@@ -783,10 +684,37 @@ def predict(
         build_kwargs["full_res_masks"] = full_res_masks
         build_kwargs["mask_output"] = mask_output
         build_kwargs["polygon_epsilon"] = polygon_epsilon
+        build_kwargs["flip_test"] = flip_test
+        if runtime != "auto":
+            # Network-only export directories among model_paths (`--network-only`
+            # or box detector exports) run on this runtime.
+            build_kwargs["export_runtime"] = runtime
+        if box_mode is not None:
+            build_kwargs["boxes"] = box_mode
+            build_kwargs["box_score_threshold"] = box_score_threshold
+        if node_filter is not None:
+            build_kwargs["node_filter"] = node_filter
+            build_kwargs["strip_prefix"] = strip_prefix
         build_kwargs["upload_batches"] = upload_batches
         build_kwargs["memory_format"] = memory_format
         predictor = Predictor.from_model_paths(model_paths, **build_kwargs)
     else:
+        if node_filter is not None:
+            raise ValueError(
+                "node_filter is not available for exported (ONNX/TensorRT) models; "
+                "export the filtered model (`sleap-nn export --nodes/--node_prefix`) "
+                "or run the checkpoint directory."
+            )
+        if flip_test:
+            raise ValueError(
+                "flip_test is not available for exported (ONNX/TensorRT) models, "
+                "whose peak finding is baked into the graph; run the checkpoint "
+                "directory instead."
+            )
+        if box_mode is not None:
+            raise ValueError(
+                "boxes is not supported for exported models; use the checkpoint."
+            )
         # Exported ONNX/TRT models bake most post-processing into the graph at
         # export time; only these construction-time knobs still apply.
         build_kwargs["runtime"] = runtime
@@ -797,15 +725,532 @@ def predict(
             build_kwargs["max_instances"] = max_instances
         if upload_batches:
             logger.warning(
-                "upload_batches is ignored for an exported model directory; "
-                "it applies to trained checkpoints only."
+                "upload_batches is ignored for the exported model directory "
+                "(it applies to trained checkpoints and to network-only exports "
+                "passed as model paths; a --part_model checkpoint still uses it)."
             )
         if memory_format != "contiguous":
             logger.warning(
                 f"memory_format={memory_format!r} is ignored for an exported "
                 "model directory; it applies to trained checkpoints only."
             )
+        if _is_box_detector_export(export_dir):
+            # A lone exported box detector decodes on the host, like the same
+            # export next to a pose model: the score and NMS thresholds apply.
+            if peak_threshold is not None:
+                build_kwargs["peak_conf_threshold"] = peak_threshold
+            if bbox_nms_iou is not None:
+                build_kwargs["bbox_nms_iou"] = bbox_nms_iou
         predictor = Predictor.from_export_dir(export_dir, **build_kwargs)
+
+    part_stream = None
+    if part_model_paths and part_streaming:
+        from sleap_nn.inference.keypoint_crops import build_streaming_part_stage
+
+        part_stream, merged = build_streaming_part_stage(
+            predictor.skeleton,
+            part_model_paths,
+            part_crop_rule,
+            device=device,
+            batch_size=batch_size,
+            precision=_part_stage_precision(precision, device),
+            node_filter=part_node_filter,
+            strip_prefix=part_strip_prefix,
+            peak_threshold=part_peak_threshold,
+            part_prefix=part_prefix,
+            export_runtime=runtime,
+            memory_format=memory_format,
+        )
+        predictor.part_stage = part_stream
+        predictor.skeleton = merged
+    return predictor, part_stream
+
+
+def predict(
+    source: Any,
+    *,
+    model_paths: Optional[List[str]] = None,
+    export_dir: Optional[str] = None,
+    # Construction-time (model/device)
+    device: str = "auto",
+    batch_size: int = 4,
+    precision: str = "32",
+    runtime: str = "auto",
+    backbone_ckpt_path: Optional[str] = None,
+    head_ckpt_path: Optional[str] = None,
+    preprocess_config: Optional[Any] = None,
+    anchor_part: Optional[str] = None,
+    paf_workers: int = 0,
+    centroid_only: bool = False,
+    emit_centroid: str = "instance",
+    # Bottom-up PAF grouping knobs (construction-time; plain bottom-up only)
+    max_edge_length_ratio: float = 0.25,
+    dist_penalty_weight: float = 1.0,
+    n_points: int = 10,
+    min_instance_peaks: float = 0,
+    min_line_scores: float = 0.25,
+    # Bottom-up segmentation knobs (construction-time; segmentation only)
+    fg_threshold: float = 0.5,
+    min_mask_area: int = 0,
+    center_nms_kernel: int = 3,
+    mask_cleanup: bool = False,
+    mask_cleanup_radius: int = 0,
+    distance_gate_alpha: Optional[float] = None,
+    merge_fragments: bool = False,
+    merge_method: str = "greedy",
+    merge_thresholds: tuple = (0.85, 0.6, 0.4),
+    merge_w_valley: float = 1.0,
+    merge_w_offset: float = 0.25,
+    merge_dilate: int = 1,
+    full_res_masks: bool = False,
+    mask_output: str = "mask",
+    polygon_epsilon: float = 0.01,
+    # Bounding-box detector knob (construction-time; bbox_* models only)
+    bbox_nms_iou: Optional[float] = None,
+    # Copy each uint8 batch to the GPU before preprocessing (CUDA; not export_dir)
+    upload_batches: bool = False,
+    # Weight layout of every model ("channels_last": faster convs on NVIDIA GPUs)
+    memory_format: str = "contiguous",
+    # Flip-test (construction-time; centered_instance top-down models only)
+    flip_test: bool = False,
+    # Deprecated alias of upload_batches (kept so existing scripts keep running)
+    frames_on_gpu: bool = False,
+    # Top-down stage 1 from given boxes (construction-time; crop models only)
+    boxes: Optional[str] = None,
+    box_score_threshold: float = 0.0,
+    # Node filter (construction-time; single_instance / centered_instance only)
+    node_filter: Optional[Union[str, List[str]]] = None,
+    strip_prefix: Optional[Union[bool, str]] = None,
+    # Part stage: crops from the predicted keypoints (off unless part_model_paths)
+    part_streaming: bool = False,
+    part_model_paths: Optional[List[str]] = None,
+    part_crop_rule: Optional[Any] = None,
+    part_node_filter: Optional[Union[str, List[str]]] = None,
+    part_strip_prefix: Optional[Union[bool, str]] = None,
+    part_peak_threshold: Optional[float] = None,
+    part_prefix: Optional[str] = None,
+    # SAM prompted-mask producer (explicit, no default; PLAN L2). When set, masks
+    # are produced from the existing poses in ``source`` (no trained seg model).
+    mask_backend: Optional[str] = None,
+    sam_checkpoint: Optional[str] = None,
+    sam_model_type: str = "vit_h",
+    sam3_model_id: str = "facebook/sam3",
+    sam_prompt_mode: str = "pose",
+    sam_anchor_ind: Optional[int] = None,
+    sam_disjointify_masks: bool = False,
+    overlay_path: Optional[str] = None,
+    # Prediction-time (can vary per call)
+    frames: Optional[List[int]] = None,
+    peak_threshold: Optional[float] = None,
+    centroid_threshold: Optional[float] = None,
+    keypoint_threshold: Optional[float] = None,
+    max_instances: Optional[int] = None,
+    integral_refinement: Optional[str] = None,
+    integral_patch_size: Optional[int] = None,
+    return_confmaps: bool = False,
+    return_crops: bool = False,
+    return_pafs: bool = False,
+    return_paf_graph: bool = False,
+    return_class_maps: bool = False,
+    return_class_vectors: bool = False,
+    # Filtering
+    filter_config: Optional["FilterConfig"] = None,
+    # Tracking
+    tracker_config: Optional["TrackerConfig"] = None,
+    # Output
+    output_path: Optional[str] = None,
+    output_format: Union[str, Sequence[str]] = "slp",
+    embed: Union[str, bool] = "false",
+    restore_source_videos: bool = False,
+    save_embedding_vectors: Optional[bool] = None,
+    slp_version: Optional[str] = None,
+    image_format: Optional[str] = None,
+    image_quality: Optional[int] = None,
+    compression: Optional[str] = None,
+    unlabeled_as: Optional[str] = None,
+    clean_empty_frames: bool = False,
+    progress_callback: Optional[Callable[[int, int], None]] = None,
+    tracking_progress_callback: Optional[Callable[[int, int], None]] = None,
+) -> sio.Labels:
+    """Build a predictor, run inference, return Labels.
+
+    Exactly one of ``model_paths`` or ``export_dir`` must be provided.
+
+    Args:
+        source: Video path, ``sio.Video``, ``sio.Labels``, or a Provider.
+        model_paths: Trained model directories — or a path to a model's
+            ``best.ckpt`` or ``training_config.{yaml,json}`` file, which resolves
+            to its directory (#575). One for single-instance / bottom-up, two for
+            top-down.
+        export_dir: Path to an exported ONNX/TRT directory (alternative
+            to ``model_paths``).
+        device: ``"auto"``, ``"cpu"``, ``"cuda"``, ``"mps"``, etc.
+        batch_size: Frames per batch.
+        precision: ``"32"`` (strict fp32, the default), ``"bf16"`` or ``"fp16"``:
+            run the model forward under ``torch.autocast`` with that dtype
+            (CUDA only; on another device it has no effect and a warning is
+            logged). Results differ slightly from fp32. Checkpoint models only;
+            exported models keep the precision they were exported with
+            (``export_dir`` raises, a network-only export among ``model_paths``
+            is left as exported, with a warning). ``"bf16-encoder"`` /
+            ``"fp16-encoder"`` (experimental) run only each model's encoder
+            under autocast and everything after it in fp32.
+        runtime: Runtime for an exported model: ``"auto"`` (prefer TensorRT,
+            fall back to ONNX), ``"onnx"``, or ``"tensorrt"``. Ignored when
+            ``model_paths`` is given (checkpoints).
+        backbone_ckpt_path: Optional backbone weight override.
+        head_ckpt_path: Optional head weight override.
+        preprocess_config: Optional OmegaConf preprocessing overrides.
+        anchor_part: Override centroid anchor node name.
+        paf_workers: CPU worker processes for bottom-up PAF grouping.
+        centroid_only: Force centroid-only output even when a
+            centered-instance model is among ``model_paths``.
+        emit_centroid: Centroid-only output representation: ``"instance"``
+            (default; single-node ``PredictedInstance``, frontend-compatible),
+            ``"centroid"`` (``sio.PredictedCentroid``), or ``"both"``.
+        max_edge_length_ratio: Bottom-up PAF max edge length ratio.
+        dist_penalty_weight: Bottom-up PAF distance penalty weight.
+        n_points: Bottom-up PAF line integration sample count.
+        min_instance_peaks: Bottom-up min peaks for a valid instance.
+        min_line_scores: Bottom-up per-edge match threshold. (These five
+            apply only to plain bottom-up models.)
+        fg_threshold: Foreground probability threshold for binarizing the
+            segmentation map (bottom-up segmentation only).
+        min_mask_area: Minimum predicted-mask area in original-image pixels;
+            smaller masks are dropped to suppress over-segmentation. ``0``
+            disables it (bottom-up segmentation only).
+        center_nms_kernel: Odd window size for center-peak NMS; larger merges
+            nearby duplicate centers (bottom-up segmentation only).
+        mask_cleanup: Keep-largest-CC + hole-fill per mask (bottom-up
+            segmentation only).
+        mask_cleanup_radius: Morphological open->close radius (output-stride
+            pixels) applied during ``mask_cleanup``; ``0`` keeps keep-largest +
+            fill only (bottom-up segmentation only).
+        distance_gate_alpha: Adaptive distance-gate strength; ``None`` (default)
+            keeps the byte-for-byte argmin grouping. When set, foreground pixels
+            whose offset-predicted center exceeds ``alpha*sqrt(area/pi)`` from
+            their assigned center are dropped (bottom-up segmentation only).
+        merge_fragments: Enable the RAG fragment-merge that re-fuses
+            over-segmented animal halves while keeping touching distinct animals
+            apart; ``False`` (default) is byte-for-byte today (bottom-up
+            segmentation only).
+        merge_method: ``"greedy"`` (default) or ``"multicut"`` agglomeration;
+            inert when ``merge_fragments=False`` (bottom-up segmentation only).
+        merge_thresholds: Greedy-merge decreasing affinity thresholds (default
+            ``(0.85, 0.6, 0.4)``); inert when off (bottom-up segmentation only).
+        merge_w_valley: Center-valley merge-term weight (default ``1.0``); inert
+            when off (bottom-up segmentation only).
+        merge_w_offset: Offset-agreement merge-term weight (default ``0.25``);
+            inert when off (bottom-up segmentation only).
+        merge_dilate: Merge contact-test dilation iterations (default ``1``);
+            inert when off (bottom-up segmentation only).
+        full_res_masks: Encode masks at full original resolution instead of the
+            output-stride grid (default ``False``: stride encoding is ~stride^2
+            smaller and lossless at model resolution; bottom-up segmentation only).
+        mask_output: Mask output representation — ``"mask"`` (default),
+            ``"polygon"`` (``sio.PredictedROI`` only), or ``"both"`` (bottom-up
+            segmentation only).
+        polygon_epsilon: Douglas-Peucker tolerance (fraction of perimeter) for
+            ``mask_output`` polygon/both (bottom-up segmentation only).
+        bbox_nms_iou: Class-wise IoU-NMS threshold for bounding-box detectors
+            (``None``: the style default, 0.45 for SSD / off for CenterNet; ``1.0``
+            disables it). ``peak_threshold`` is their score threshold and
+            ``max_instances`` their per-frame detection cap.
+        upload_batches: Copy each ``uint8`` batch of frames to the GPU before
+            preprocessing when ``device`` is CUDA, so the resize / letterbox, the
+            crops' frame-size match and the cropping run there instead of on the
+            CPU (off by default). Every pipeline built from ``model_paths``
+            (checkpoints and network-only export folders); with
+            ``part_streaming`` the part stage cuts its crops from the same GPU
+            copy. Results are not bit-identical to the CPU resize: a uint8
+            resize on the GPU rounds some pixels one grey level differently,
+            which can move a box near the score threshold. Without a CUDA model
+            the frames stay on the CPU, with a warning. Ignored, with a warning,
+            for an exported model directory (``export_dir``).
+        memory_format: Weight layout of every model: ``"contiguous"`` (default)
+            or ``"channels_last"`` (faster cuDNN convolutions on NVIDIA GPUs;
+            no change on AMD ROCm). Trained checkpoints only; ignored, with a
+            warning, for an exported model directory.
+        flip_test: Top-down ``centered_instance`` models only: also run the
+            centered-instance model on the mirrored crops and average the
+            confmaps (symmetric nodes swapped) before peak finding. Not
+            available for exported models (``export_dir``).
+        frames_on_gpu: Deprecated alias of ``upload_batches`` (``True`` turns it
+            on, with a warning); will be removed in a later release.
+        boxes: Seed a top-down crop model's stage 1 from boxes instead of a
+            centroid model or detector (pass only the crop model). ``"gt"``: the
+            GT boxes of the ``.slp`` / ``sio.Labels`` source (score 1). A path to
+            a COCO detection results ``.json`` (``[{"image_id", "bbox", "score",
+            "category_id"}]``, matched to frames by image id; see
+            :func:`~sleap_nn.evaluation_coco.attach_coco_detections`) or to a
+            ``.slp`` whose frames carry ``PredictedBoundingBox``es (e.g. a
+            ``bbox_*`` detector's output, or the source itself): one crop per box,
+            scored by the box. A ``sio.Labels`` source is copied first, so the
+            boxes are not attached to the caller's object.
+        box_score_threshold: Drop given boxes scoring below this.
+        node_filter: ``single_instance`` / ``centered_instance`` checkpoints only:
+            predict only these nodes, a list of names or a string prefix. The
+            confmap head is sliced to their channels (see
+            :mod:`sleap_nn.inference.node_filter`). Not available for exported
+            models (export them filtered instead).
+        strip_prefix: Rename the kept nodes: ``True`` strips the ``node_filter``
+            prefix, a string strips that prefix.
+        part_streaming: Experimental (may change or be removed without a
+            deprecation period). Run the part stage on each batch right after the
+            pose stage, on the frames already in memory, with a running crop floor
+            instead of the whole-video floor
+            (:class:`~sleap_nn.inference.keypoint_crops.StreamingPartStage`). The
+            running floor is the median over the boxes so far *including the rest
+            of the current batch* (so results depend on ``batch_size``); the first
+            ``session_min_boxes`` boxes of the first video get no floor; and each
+            call (each ``frames`` chunk) starts a new floor. Tracking (with
+            ``tracker_config``) uses the pose nodes only, as without streaming.
+            Needs ``part_model_paths``. ``False`` (default): the part stage runs
+            after the whole video.
+        part_model_paths: A part model (a centered-instance crop model) to run
+            after the pose model, on square crops built from each predicted
+            instance's keypoints by ``part_crop_rule``
+            (:mod:`sleap_nn.inference.keypoint_crops`); its points are appended
+            to the instance they came from. ``None`` (default): no part stage.
+        part_crop_rule: A :class:`~sleap_nn.inference.keypoint_crops.KeypointCropRule`,
+            a dict of its fields, or a ``.json`` / ``.yaml`` file of them.
+        part_node_filter: Node filter of the part model's head.
+        part_strip_prefix: ``strip_prefix`` for ``part_node_filter``.
+        part_peak_threshold: Peak threshold of the part model (default: its own).
+        part_prefix: Prefix for the part nodes in the merged skeleton.
+        mask_backend: **Explicit** SAM mask backend (PLAN L2): ``"sam"`` (SAM1) /
+            ``"sam3"`` (PR-B). When set, ``source`` is treated as a pose ``.slp``
+            and masks are predicted from its existing instances (no trained seg
+            model, so ``model_paths`` / ``export_dir`` are not required). ``None``
+            (the default) leaves the model-driven path untouched.
+        sam_checkpoint: SAM1 checkpoint path (required for ``mask_backend="sam"``).
+        sam_model_type: SAM1 model registry key.
+        sam3_model_id: Hugging Face model id for the gated SAM3 path
+            (``mask_backend="sam3"``); defaults to ``"facebook/sam3"``.
+        sam_prompt_mode: ``"pose"`` / ``"centroid"`` / ``"box"`` (PLAN §2.2).
+        sam_anchor_ind: Centroid anchor node index for ``sam_prompt_mode="centroid"``.
+        sam_disjointify_masks: Make per-frame masks disjoint when >=2 instances.
+        overlay_path: Optional review-overlay PNG path (PLAN L4; SAM path only).
+        frames: Frame indices to predict. ``None`` = all.
+        peak_threshold: Override peak threshold for all stages.
+        centroid_threshold: Override centroid-stage threshold (top-down).
+        keypoint_threshold: Override centered-instance threshold (top-down).
+        max_instances: Cap on instances per frame.
+        integral_refinement: Override the sub-pixel peak refinement:
+            ``"auto"`` (DARK for the top-down keypoint stage, integral regression
+            elsewhere; the construction-time default), ``"dark"``,
+            ``"integral"``, ``"local"`` or ``"none"``. ``None`` keeps the
+            default. Exported models do no sub-pixel refinement.
+        integral_patch_size: Refinement patch size.
+        return_confmaps: Keep confidence maps on Outputs.
+        return_crops: Keep per-instance crops on Outputs (top-down).
+        return_pafs: Keep part-affinity fields on Outputs (bottom-up).
+        return_paf_graph: Keep the PAF graph on Outputs (bottom-up).
+        return_class_maps: Keep class maps on Outputs (multi-class bottom-up).
+        return_class_vectors: Keep class vectors on Outputs (multi-class top-down).
+        filter_config: Post-inference :class:`FilterConfig`.
+        tracker_config: :class:`TrackerConfig` for tracking.
+        output_path: If set, save the Labels to this path.
+        output_format: Format to save the Labels in when ``output_path`` is set.
+            One of ``"slp"`` (the default), ``"analysis_h5"`` (a SLEAP Analysis
+            HDF5 file, one ``.analysis.h5`` per video), or ``"both"``. Analysis
+            HDF5 paths are derived from ``output_path``.
+        embed: Image-embedding policy for a ``.slp`` output, one of ``"false"``
+            (the default; never embed, backreference source media — today's
+            behavior), ``"true"`` (embed images into a self-contained
+            ``.pkg.slp``-style file), or ``"auto"`` (embed iff the input was
+            itself an embedded ``.pkg.slp``). Only applies to ``.slp`` output.
+        restore_source_videos: On a non-embedding ``.slp`` save, ``False`` (the
+            default) keeps references to the input ``.pkg.slp`` file(s) — the
+            pixels are already there, and the pre-embedding source video is
+            often unavailable. ``True`` instead restores references to the
+            original pre-embedding source video files, when recorded.
+            Ignored when embedding.
+        save_embedding_vectors: Whether to persist appearance (re-ID) vectors on
+            the saved detections. ``None`` (the default) preserves them iff any
+            detection carries one; see :func:`save_predictions`.
+        slp_version: File layout of a ``.slp`` output: ``"v2"`` (SLP 2.x, read
+            by older sleap-io and SLEAP releases), ``"v3"`` (SLP 3.0) or
+            ``"auto"``. ``None`` (the default): sleap-io's default. See
+            :func:`save_predictions` for this and the next four options.
+        image_format: Format of embedded frames (``"png"``, ``"jpg"`` /
+            ``"jpeg"``, ``"hdf5"``); only applies with ``embed``.
+        image_quality: JPEG quality (0-100) or PNG compression level (0-9) of
+            re-encoded embedded frames.
+        compression: ``"gzip"`` or ``"lzf"`` compression of the table columns.
+        unlabeled_as: ``"error"`` or ``"absent"``: what a ``"v2"`` save does
+            with points that are not labeled.
+        clean_empty_frames: Drop frames with no instances.
+        progress_callback: ``(processed_frames, total_frames)`` callback
+            invoked after each batch (counts are in frames).
+        tracking_progress_callback: ``(processed_frames, total_frames)``
+            callback per frame during tracking.
+
+    Returns:
+        ``sio.Labels`` with predicted instances.
+
+    Raises:
+        ValueError: If neither ``model_paths`` nor ``export_dir`` is given,
+            or if both are given, or if the ``.slp`` output would overwrite a file
+            the input reads its frames from (e.g. ``output_path`` is the input
+            ``.pkg.slp``) -- checked before any model is loaded -- or if a save
+            option is invalid or not supported by the installed sleap-io.
+    """
+    import torch
+
+    from sleap_nn.inference.save_options import slp_save_kwargs
+
+    # Before any model load or inference (SAM included): `save_predictions` makes
+    # the same check, but only once the whole pass has run.
+    _refuse_overwriting_source_before_inference(source, output_path, output_format)
+    save_options = dict(
+        slp_version=slp_version,
+        image_format=image_format,
+        image_quality=image_quality,
+        compression=compression,
+        unlabeled_as=unlabeled_as,
+    )
+    # Invalid or unsupported save options fail here, not after the whole pass.
+    slp_save_kwargs(**save_options)
+
+    if device == "auto":
+        device = (
+            "cuda"
+            if torch.cuda.is_available()
+            else "mps" if torch.backends.mps.is_available() else "cpu"
+        )
+
+    # SAM prompted-mask producer (PLAN L2/L8): masks come from the existing poses
+    # in ``source`` — there is no trained seg model, so this short-circuits the
+    # model-driven path entirely. ``mask_backend`` is explicit / required to opt
+    # in; ``None`` (the default) leaves everything below unchanged.
+    if mask_backend is not None:
+        if model_paths or export_dir:
+            raise ValueError(
+                "mask_backend produces masks from the poses in `source` and does "
+                "not use a trained seg model; do not also pass model_paths / "
+                "export_dir."
+            )
+        from sleap_nn.inference.sam import run_sam_segmentation
+
+        # Segmentation masks only serialize to ``.slp``: the SLEAP Analysis HDF5
+        # format stores poses/tracks, not ``PredictedSegmentationMask``, so it
+        # would silently drop the masks (the actual output). Reject it up front
+        # rather than write a mask-less ``.h5``.
+        if output_path is not None and any(
+            f != "slp" for f in _normalize_output_formats(output_format)
+        ):
+            raise ValueError(
+                f"mask_backend output only supports output_format='slp' (got "
+                f"{output_format!r}); the SLEAP Analysis HDF5 format stores "
+                "poses/tracks, not segmentation masks."
+            )
+        # Save handling lives in ``run_sam_segmentation``, which mirrors the
+        # regular prediction path: by default it backreferences the source media
+        # via provenance and does not re-embed images (small output; see its
+        # docs). The ``embed`` / ``restore_source_videos`` controls are forwarded.
+        labels = run_sam_segmentation(
+            source,
+            mask_backend,
+            prompt_mode=sam_prompt_mode,
+            sam_checkpoint=sam_checkpoint,
+            sam_model_type=sam_model_type,
+            sam3_model_id=sam3_model_id,
+            device=device,
+            anchor_ind=sam_anchor_ind,
+            disjointify_masks=sam_disjointify_masks,
+            output_path=output_path,
+            overlay_path=overlay_path,
+            frames=frames,
+            clean_empty_frames=clean_empty_frames,
+            embed=embed,
+            restore_source_videos=restore_source_videos,
+            **save_options,
+        )
+        return labels
+
+    if model_paths and export_dir:
+        raise ValueError("Provide model_paths or export_dir, not both.")
+    if part_model_paths and (export_dir or part_crop_rule is None):
+        raise ValueError(
+            "part_model_paths needs checkpoint (or network-only exported) "
+            "model_paths for the pose stage and a part_crop_rule."
+        )
+    if part_streaming and not part_model_paths:
+        raise ValueError("part_streaming needs part_model_paths.")
+    if not model_paths and not export_dir:
+        raise ValueError("Either model_paths or export_dir is required.")
+
+    box_mode = None
+    if boxes is not None:
+        source, box_mode = _attach_box_source(source, boxes, box_score_threshold)
+
+    if tracker_config is not None and emit_centroid != "instance":
+        raise ValueError(
+            "Tracking is incompatible with emit_centroid="
+            f"{emit_centroid!r}: tracking operates on sio.PredictedInstance "
+            "objects, but this mode emits sio.PredictedCentroid objects. Use "
+            "emit_centroid='instance' (the default) for tracking."
+        )
+
+    # Build predictor (``frames_on_gpu`` is the old name of ``upload_batches``)
+    from sleap_nn.inference.predictor import _resolve_upload_batches
+
+    upload_batches = _resolve_upload_batches(upload_batches, frames_on_gpu)
+    predictor, part_stream = _build_predictor(
+        device=device,
+        batch_size=batch_size,
+        paf_workers=paf_workers,
+        precision=precision,
+        export_dir=export_dir,
+        filter_config=filter_config,
+        tracker_config=tracker_config,
+        model_paths=model_paths,
+        backbone_ckpt_path=backbone_ckpt_path,
+        head_ckpt_path=head_ckpt_path,
+        preprocess_config=preprocess_config,
+        anchor_part=anchor_part,
+        peak_threshold=peak_threshold,
+        max_instances=max_instances,
+        centroid_only=centroid_only,
+        emit_centroid=emit_centroid,
+        max_edge_length_ratio=max_edge_length_ratio,
+        dist_penalty_weight=dist_penalty_weight,
+        n_points=n_points,
+        min_instance_peaks=min_instance_peaks,
+        min_line_scores=min_line_scores,
+        fg_threshold=fg_threshold,
+        min_mask_area=min_mask_area,
+        center_nms_kernel=center_nms_kernel,
+        mask_cleanup=mask_cleanup,
+        mask_cleanup_radius=mask_cleanup_radius,
+        distance_gate_alpha=distance_gate_alpha,
+        bbox_nms_iou=bbox_nms_iou,
+        merge_fragments=merge_fragments,
+        merge_method=merge_method,
+        merge_thresholds=merge_thresholds,
+        merge_w_valley=merge_w_valley,
+        merge_w_offset=merge_w_offset,
+        merge_dilate=merge_dilate,
+        full_res_masks=full_res_masks,
+        mask_output=mask_output,
+        polygon_epsilon=polygon_epsilon,
+        flip_test=flip_test,
+        runtime=runtime,
+        box_mode=box_mode,
+        box_score_threshold=box_score_threshold,
+        node_filter=node_filter,
+        strip_prefix=strip_prefix,
+        part_model_paths=part_model_paths,
+        part_streaming=part_streaming,
+        part_crop_rule=part_crop_rule,
+        part_node_filter=part_node_filter,
+        part_strip_prefix=part_strip_prefix,
+        part_peak_threshold=part_peak_threshold,
+        part_prefix=part_prefix,
+        upload_batches=upload_batches,
+        memory_format=memory_format,
+    )
 
     # Run inference with prediction-time overrides
     labels = predictor.predict(
@@ -829,6 +1274,48 @@ def predict(
         return_class_vectors=return_class_vectors,
     )
 
+    if part_stream is not None:
+        # The keys two passes write (run_part_stage), plus streaming=True; the floors
+        # are the running floors at the end of each video (no key without a floor).
+        labels.provenance["part_stage"] = dict(
+            rule=part_stream.rule.to_dict(),
+            part_prefix=part_prefix,
+            part_provenance=part_stream.part_predictor._build_inference_provenance(
+                source=source,
+                start_time=None,
+                end_time=None,
+                n_frames=len(labels.labeled_frames),
+                inference_params={
+                    "peak_threshold": part_peak_threshold,
+                    "batch_size": batch_size,
+                    **part_stream.part_predictor._preprocess_provenance_params(),
+                },
+            ),
+            streaming=True,
+        )
+        if part_stream.rule.session_floor is not None:  # no key without, as two passes
+            labels.provenance["part_stage"]["session_floors"] = {
+                int(k): round(float(v), 3) for k, v in part_stream.last_floors.items()
+            }
+    elif part_model_paths:
+        from sleap_nn.inference.keypoint_crops import run_part_stage
+
+        labels = run_part_stage(
+            labels,
+            part_model_paths,
+            part_crop_rule,
+            device=device,
+            batch_size=batch_size,
+            precision=_part_stage_precision(precision, device),
+            node_filter=part_node_filter,
+            strip_prefix=part_strip_prefix,
+            peak_threshold=part_peak_threshold,
+            part_prefix=part_prefix,
+            export_runtime=runtime,
+            memory_format=memory_format,
+            upload_batches=upload_batches,
+        )
+
     if output_path is not None:
         save_predictions(
             labels,
@@ -837,6 +1324,190 @@ def predict(
             embed=embed,
             restore_source_videos=restore_source_videos,
             save_embedding_vectors=save_embedding_vectors,
+            **save_options,
         )
 
     return labels
+
+
+def _predict_defaults() -> Dict[str, Any]:
+    """``predict``'s keyword defaults (the one place they are written)."""
+    return {
+        k: p.default
+        for k, p in inspect.signature(predict).parameters.items()
+        if p.default is not inspect.Parameter.empty
+    }
+
+
+def open_stream(
+    model_paths: List[str],
+    *,
+    device: str = "auto",
+    precision: str = "32",
+    runtime: str = "auto",
+    preprocess_config: Optional[Any] = None,
+    anchor_part: Optional[str] = None,
+    bbox_nms_iou: Optional[float] = None,
+    flip_test: bool = False,
+    upload_batches: bool = False,
+    frames_on_gpu: bool = False,
+    node_filter: Optional[Union[str, List[str]]] = None,
+    strip_prefix: Optional[Union[bool, str]] = None,
+    filter_config: Optional[Any] = None,
+    part_model_paths: Optional[List[str]] = None,
+    part_crop_rule: Optional[Any] = None,
+    part_node_filter: Optional[Union[str, List[str]]] = None,
+    part_strip_prefix: Optional[Union[bool, str]] = None,
+    part_peak_threshold: Optional[float] = None,
+    part_prefix: Optional[str] = None,
+    peak_threshold: Optional[float] = None,
+    centroid_threshold: Optional[float] = None,
+    keypoint_threshold: Optional[float] = None,
+    max_instances: Optional[int] = None,
+    integral_refinement: Optional[str] = None,
+    integral_patch_size: Optional[int] = None,
+    frame_shape: Optional[Tuple[int, ...]] = None,
+    channel_order: str = "rgb",
+    keep: bool = False,
+):
+    """Open a frame-in, pose-out stream (:class:`~sleap_nn.inference.stream.PoseStream`).
+
+    Beta: the interface may still change in a minor release.
+
+    Builds the same pipeline as :func:`predict` with the same model arguments
+    (checkpoints, or network-only export folders as ``model_paths`` with
+    ``runtime``), at batch size 1, with the part stage streaming
+    (``part_streaming=True``). Arguments not listed here take :func:`predict`'s
+    defaults. Per-frame options (``peak_threshold``, ``centroid_threshold``,
+    ``keypoint_threshold``, ``max_instances``, the refinement, ``filter_config``) mean
+    what they mean for :func:`predict`. The models must end in keypoints
+    (single-instance, bottom-up, or a top-down pair); others raise ``ValueError``.
+
+    Args:
+        model_paths: Model directories (checkpoints, or network-only export folders
+            run with ``runtime``), as for :func:`predict`.
+        device: As for :func:`predict` (``"auto"``: CUDA, then MPS, then CPU).
+        precision: As for :func:`predict` (``"32"``, ``"bf16"``, ``"fp16"``).
+        runtime: Runtime of network-only export folders, as for :func:`predict`
+            (the part model's too).
+        preprocess_config: As for :func:`predict`.
+        anchor_part: As for :func:`predict`.
+        bbox_nms_iou: As for :func:`predict` (box detectors).
+        flip_test: As for :func:`predict`.
+        upload_batches: As for :func:`predict`: each pushed frame is copied to the
+            GPU before the first stage (a tensor frame is moved there); the pose
+            and part models read that one copy.
+        frames_on_gpu: Deprecated alias of ``upload_batches`` (``True`` turns it
+            on, with a warning); will be removed in a later release.
+        node_filter: As for :func:`predict`.
+        strip_prefix: As for :func:`predict`.
+        filter_config: As for :func:`predict` (applied to every frame).
+        part_model_paths: The part model, as for :func:`predict`; its stage always
+            streams (running crop floor kept by the stream).
+        part_crop_rule: As for :func:`predict` (needed with ``part_model_paths``).
+        part_node_filter: As for :func:`predict`.
+        part_strip_prefix: As for :func:`predict`.
+        part_peak_threshold: As for :func:`predict`.
+        part_prefix: As for :func:`predict`.
+        peak_threshold: As for :func:`predict` (per frame).
+        centroid_threshold: As for :func:`predict` (per frame).
+        keypoint_threshold: As for :func:`predict` (per frame).
+        max_instances: As for :func:`predict`: the cap on instances per frame.
+        integral_refinement: As for :func:`predict`.
+        integral_patch_size: As for :func:`predict`.
+        frame_shape: ``(H, W)`` or ``(H, W, C)`` of the frames to come: when given,
+            a warm-up runs before the stream is returned (every network on dummy data). Without
+            it there is no warm-up, and the first frames pay the networks'
+            first-call costs.
+        channel_order: ``"rgb"`` (default, as sleap-io readers give) or ``"bgr"``
+            (as OpenCV gives): colour frames in BGR are swapped to RGB.
+        keep: Keep every frame's outputs (on the CPU) for :meth:`PoseStream.labels`
+            / :meth:`PoseStream.save`; memory grows with every frame pushed.
+
+    Returns:
+        A :class:`~sleap_nn.inference.stream.PoseStream`.
+
+    Example::
+
+        from sleap_nn.inference.run import open_stream
+
+        with open_stream(["models/detector", "models/pose"], channel_order="bgr",
+                         frame_shape=(1024, 1280, 3)) as stream:
+            for frame in camera:                      # uint8 H x W x C frames
+                poses = stream.push(frame)            # this frame's instances
+                print(len(poses), poses.points.shape, stream.last_latency_ms)
+    """
+    import torch
+
+    from sleap_nn.inference.predictor import _resolve_upload_batches
+    from sleap_nn.inference.stream import PoseStream
+
+    if part_model_paths and part_crop_rule is None:
+        raise ValueError("part_model_paths needs a part_crop_rule.")
+    if device == "auto":
+        device = (
+            "cuda"
+            if torch.cuda.is_available()
+            else "mps" if torch.backends.mps.is_available() else "cpu"
+        )
+    defaults = _predict_defaults()
+    build = {
+        name: defaults[name]
+        for name in inspect.signature(_build_predictor).parameters
+        if name in defaults
+    }
+    build.update(
+        device=device,
+        batch_size=1,
+        paf_workers=0,
+        precision=precision,
+        export_dir=None,
+        filter_config=filter_config,
+        tracker_config=None,
+        model_paths=list(model_paths),
+        preprocess_config=preprocess_config,
+        anchor_part=anchor_part,
+        peak_threshold=peak_threshold,
+        max_instances=max_instances,
+        bbox_nms_iou=bbox_nms_iou,
+        flip_test=flip_test,
+        upload_batches=_resolve_upload_batches(upload_batches, frames_on_gpu),
+        runtime=runtime,
+        box_mode=None,
+        node_filter=node_filter,
+        strip_prefix=strip_prefix,
+        part_model_paths=part_model_paths,
+        part_streaming=True,
+        part_crop_rule=part_crop_rule,
+        part_node_filter=part_node_filter,
+        part_strip_prefix=part_strip_prefix,
+        part_peak_threshold=part_peak_threshold,
+        part_prefix=part_prefix,
+    )
+    predictor, _ = _build_predictor(**build)
+    layer = predictor._scoped_postprocess_layer(
+        peak_threshold=peak_threshold,
+        centroid_threshold=centroid_threshold,
+        keypoint_threshold=keypoint_threshold,
+        max_instances=max_instances,
+        integral_refinement=integral_refinement,
+        integral_patch_size=integral_patch_size,
+    )
+    stream = PoseStream(predictor, layer, channel_order=channel_order, keep=keep)
+    if frame_shape is not None:
+        stream._warmup(frame_shape)
+    return stream
+
+
+def _is_box_detector_export(export_dir) -> bool:
+    """Whether ``export_dir`` holds an exported box detector (decoded on the host)."""
+    import json
+    from pathlib import Path
+
+    from sleap_nn.inference.exported_network import _NETWORK_ONLY_TYPES
+
+    meta = Path(export_dir) / "export_metadata.json"
+    try:
+        return json.loads(meta.read_text()).get("model_type") in _NETWORK_ONLY_TYPES
+    except (OSError, ValueError):
+        return False

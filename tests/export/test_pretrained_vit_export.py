@@ -65,7 +65,7 @@ def _tiny_vit_dir(tmp_path, kind):
     return path.as_posix()
 
 
-def _caseC_model(model_dir):
+def _caseC_model(model_dir, **kw):
     backbone_config = OmegaConf.create(
         dict(
             source="hf",
@@ -79,6 +79,7 @@ def _caseC_model(model_dir):
             # Explicit stats: a bare config dir ships no image processor.
             image_mean=[0.485, 0.456, 0.406],
             image_std=[0.229, 0.224, 0.225],
+            **kw,
         )
     )
     heads = OmegaConf.create(
@@ -95,12 +96,15 @@ def _caseC_model(model_dir):
     return model
 
 
+@pytest.mark.parametrize("vit_decoder", ["unet", "classic", "simple"])
 @pytest.mark.parametrize("kind", ["dinov2_with_registers", "clip"])
-def test_caseC_vit_onnx_export_parity(tmp_path, kind):
-    """Exported Case C graph == PyTorch at a new batch size and input size."""
+def test_caseC_vit_onnx_export_parity(tmp_path, kind, vit_decoder):
+    """Exported Case C graph == PyTorch at a new batch size and input size, for the
+    pyramid neck + UNet decoder and both ViTPose-style direct decoders."""
     import onnxruntime as ort
 
-    model = _caseC_model(_tiny_vit_dir(tmp_path, kind))
+    model = _caseC_model(_tiny_vit_dir(tmp_path, kind), vit_decoder=vit_decoder)
+    assert model.backbone.direct_decoder == (vit_decoder != "unet")
     wrapper = _ConfmapsWrapper(model).eval()
     onnx_path = export_to_onnx(
         wrapper,
@@ -246,3 +250,35 @@ def test_explicit_static_hw_does_not_blame_rope(tmp_path):
         logger.remove(handler)
     text = "".join(messages)
     assert "static_hw=True" in text and "rotary" not in text
+
+
+@pytest.mark.parametrize("kind", ["dinov2_with_registers", "clip"])
+def test_plain_vit_backbones_get_fp32_attention_logits_by_default(tmp_path, kind):
+    """A real plain-ViT model is recognized, so its fp16 TensorRT default keeps the
+    attention logits in fp32."""
+    from sleap_nn.export.exporters.tensorrt_exporter import has_plain_vit
+
+    model = _caseC_model(_tiny_vit_dir(tmp_path, kind))
+    assert has_plain_vit(_ConfmapsWrapper(model))
+
+
+def test_single_stride_cnn_is_not_a_plain_vit(tmp_path):
+    """An HF CNN without stage_names (RegNet) counts as isotropic when built; it either
+    fails to build (no patch size) or, having no attention, is not a plain ViT."""
+    from sleap_nn.architectures.pretrained import PretrainedBackbone
+    from sleap_nn.export.exporters.tensorrt_exporter import has_plain_vit
+
+    config = transformers.RegNetConfig(
+        embedding_size=8, hidden_sizes=[8, 16], depths=[1, 1], groups_width=8
+    )
+    path = tmp_path / "regnet"
+    config.save_pretrained(path)
+    try:
+        model = _caseC_model(path.as_posix())
+    except Exception as e:  # noqa: BLE001
+        # Today such an encoder does not build at all (it has no patch size).
+        assert "patch size" in str(e)
+        return
+    backbones = [m for m in model.modules() if isinstance(m, PretrainedBackbone)]
+    assert backbones
+    assert not has_plain_vit(model)

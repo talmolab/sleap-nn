@@ -4,19 +4,20 @@ import math
 import os
 import sys
 from pathlib import Path
-from typing import Optional, Union
+from typing import Optional, Tuple, Union
 
 from loguru import logger
 from omegaconf import DictConfig, OmegaConf
 
-#: Upper bound on the worker count picked by ``num_workers: "auto"``.
+#: Upper bound on the per-process worker count picked by ``num_workers: "auto"``.
 #:
-#: Dataloading here is dominated by decode + cache lookup rather than heavy CPU
-#: transforms, so returns flatten quickly, and with in-memory caching each extra
-#: worker adds a copy-on-write share of the image cache (see
-#: :func:`sleap_nn.data.utils.check_cache_memory`, which warns from 4 workers up).
-#: Capping at 4 keeps "auto" safe on a 64-core node rather than optimal on one.
-MAX_AUTO_NUM_WORKERS = 4
+#: Large-batch training (e.g. 128-1024 crops/step with affine augmentation and
+#: confmap rendering on a fast GPU) needs ~1-2k samples/s per GPU from the
+#: workers, which 4 workers cannot sustain. With in-memory caching each extra
+#: worker still adds a copy-on-write share of the image cache, but that is now
+#: bounded separately by available RAM (see :func:`resolve_auto_num_workers`),
+#: so the CPU cap only guards against oversubscribing huge nodes.
+MAX_AUTO_NUM_WORKERS = 16
 
 
 def resolve_model_dir(model_path: Union[str, Path]) -> str:
@@ -182,12 +183,24 @@ def check_output_strides(config: OmegaConf) -> OmegaConf:
             ] = max_stride
     elif backbone_type == "pretrained":
         _set_pretrained_decoder_mode(config, model_type)
+    resize_mode = OmegaConf.select(
+        config, "data_config.preprocessing.resize_mode", default="letterbox"
+    )
+    if resize_mode == "squash" and model_type != "bbox_detr":
+        message = (
+            "data_config.preprocessing.resize_mode='squash' is only supported for "
+            f"bbox_detr models, not {model_type}."
+        )
+        logger.error(message)
+        raise ValueError(message)
     return config
 
 
 def _has_pretrained_backbone_weights(config: OmegaConf, backbone_type: str) -> bool:
     """Whether training starts the backbone from pretrained (not random) weights."""
     if OmegaConf.select(config, "model_config.pretrained_backbone_weights") is not None:
+        return True
+    if OmegaConf.select(config, "model_config.init_from.path", default=None):
         return True
     backbone_cfg = config.model_config.backbone_config[backbone_type]
     if backbone_type == "pretrained":
@@ -314,6 +327,9 @@ def _set_pretrained_encoder_mode(config: OmegaConf) -> None:
 def _set_pretrained_decoder_mode(config: OmegaConf, model_type: str) -> None:
     """Record `mode: decoder` for a `pretrained` backbone under a spatial head.
 
+    A ``bbox_detr`` model records ``mode: tokens`` instead (its backbone is the
+    tapped token maps).
+
     ``mode: auto`` means "decoder" whenever the model has a spatial head (for a
     plain ViT, the feature-pyramid neck), which the backbone would otherwise work
     out from the heads at construction. Writing it here makes the saved training
@@ -324,7 +340,20 @@ def _set_pretrained_decoder_mode(config: OmegaConf, model_type: str) -> None:
         model_type: The model type (its heads decide).
     """
     pretrained_cfg = config.model_config.backbone_config.pretrained
-    if OmegaConf.select(pretrained_cfg, "mode", default="auto") != "auto":
+    mode = OmegaConf.select(pretrained_cfg, "mode", default="auto")
+    if model_type == "bbox_detr":
+        # The DETR projector reads the tapped token maps themselves.
+        if mode not in ("auto", "tokens"):
+            message = (
+                f"model_config.backbone_config.pretrained.mode={mode!r} is not valid "
+                "for bbox_detr, whose backbone returns the tapped token maps; use "
+                "mode='tokens' (or 'auto', which resolves to it)."
+            )
+            logger.error(message)
+            raise ValueError(message)
+        pretrained_cfg.mode = "tokens"
+        return
+    if mode != "auto":
         return
     heads = config.model_config.head_configs[model_type] or {}
     if any(
@@ -424,15 +453,18 @@ def resolve_auto_num_workers(
     val_labels: Optional[list] = None,
     memory_buffer: float = 0.2,
     log: bool = True,
+    num_local_processes: int = 1,
 ) -> int:
     """Pick a dataloader worker count for ``num_workers: "auto"``.
 
     Workers are bounded by two independent limits, and ``auto`` takes the
     smaller:
 
-    **CPU.** One core is left for the main/training process and the result is
-    capped at :data:`MAX_AUTO_NUM_WORKERS`, since dataloading here is dominated
-    by decode and cache lookup rather than heavy CPU transforms.
+    **CPU.** The usable cores are split evenly across the training processes
+    on this node (one per GPU under DDP); within each share one core is left
+    for the training process itself and the result is capped at
+    :data:`MAX_AUTO_NUM_WORKERS`. E.g. 128 cores / 4 GPUs -> 31 -> 16 workers
+    per GPU; 8 cores / 1 GPU -> 7 workers.
 
     **Memory.** Under ``torch_dataset_cache_img_memory`` every worker adds a
     share of the image cache (see
@@ -446,10 +478,14 @@ def resolve_auto_num_workers(
 
     Two cases short-circuit:
 
-    - ``torch_dataset`` (streaming) always resolves to ``0``: it reads frames
+    - ``torch_dataset`` (streaming) resolves to ``0``: it reads frames
       through the video backend inside the dataset, and those backends (e.g.
       open ``h5py`` handles) cannot be pickled to worker processes. This is the
-      constraint documented on ``data_config.data_pipeline_fw``.
+      constraint documented on ``data_config.data_pipeline_fw``. The exception
+      is labels whose videos are all image sequences (one file per frame, e.g.
+      COCO-style datasets converted to ``.slp``): there is no open handle to
+      pickle, each worker decodes its own files, and streaming with workers is
+      both the fastest and the lowest-memory pipeline, so the CPU bound applies.
     - If the cache does not fit even at zero workers, the run will fall back to
       disk caching anyway, where workers are cheap — so the CPU bound applies
       rather than a pointless ``0``.
@@ -468,14 +504,19 @@ def resolve_auto_num_workers(
             Set ``False`` when resolving speculatively (e.g. to suggest a count
             to a user who did not ask for ``"auto"``), so the log does not claim
             an ``"auto"`` that was never requested.
+        num_local_processes: Training processes sharing this node's CPUs (the
+            number of local GPUs under DDP).
 
     Returns:
-        The resolved worker count.
+        The resolved worker count (per training process).
     """
-    if data_pipeline_fw == "torch_dataset":
+    if data_pipeline_fw == "torch_dataset" and not _all_image_sequences(
+        train_labels, val_labels
+    ):
         return 0
 
-    cpu_bound = max(0, min(MAX_AUTO_NUM_WORKERS, usable_cpu_count() - 1))
+    cpus_per_process = usable_cpu_count() // max(1, int(num_local_processes))
+    cpu_bound = max(0, min(MAX_AUTO_NUM_WORKERS, cpus_per_process - 1))
 
     if (
         data_pipeline_fw != "torch_dataset_cache_img_memory"
@@ -528,6 +569,37 @@ def resolve_auto_num_workers(
             f"{sys.platform}."
         )
     return resolved
+
+
+def _all_image_sequences(*labels_lists) -> bool:
+    """True if every video in the given labels is an image sequence (file list)."""
+    videos = [
+        video
+        for labels_list in labels_lists
+        for labels in (labels_list or [])
+        for video in getattr(labels, "videos", None) or []
+    ]
+    return bool(videos) and all(isinstance(v.filename, list) for v in videos)
+
+
+def _num_local_processes(config: OmegaConf) -> int:
+    """Training processes this config will run on one node (1 per device)."""
+    indices = OmegaConf.select(
+        config, "trainer_config.trainer_device_indices", default=None
+    )
+    if indices:
+        return len(indices)
+    devices = OmegaConf.select(config, "trainer_config.trainer_devices", default=None)
+    if isinstance(devices, int) and devices > 0:
+        return devices
+    accelerator = OmegaConf.select(
+        config, "trainer_config.trainer_accelerator", default="auto"
+    )
+    if accelerator in ("auto", "gpu", "cuda"):
+        import torch
+
+        return max(1, torch.cuda.device_count())
+    return 1
 
 
 def check_num_workers(
@@ -585,6 +657,7 @@ def check_num_workers(
                 train_labels=train_labels,
                 val_labels=val_labels,
                 memory_buffer=memory_buffer,
+                num_local_processes=_num_local_processes(config),
                 # Only narrate the memory bound if someone actually asked for
                 # `auto`; otherwise this call is speculative, for the hint below.
                 log=bool(requested_auto),
@@ -840,6 +913,38 @@ def check_tiling_parity(
         logger.error(message)
         raise ValueError(message)
     return config
+
+
+def parse_hw(value, allow_int: bool = True) -> Optional[Tuple[int, int]]:
+    """``(height, width)`` of a crop size given as an int or ``[height, width]``.
+
+    Strict: every value must be a positive whole number (``384`` or ``384.0``;
+    not ``383.5``, ``True`` or ``"384"``).
+
+    Args:
+        value: The configured size.
+        allow_int: Accept a single int (a square size).
+
+    Returns:
+        The pair, or ``None`` if ``value`` is not a valid size.
+    """
+
+    def whole(v):
+        return (
+            isinstance(v, (int, float))
+            and not isinstance(v, bool)
+            and v > 0
+            and float(v).is_integer()
+        )
+
+    if allow_int and whole(value):
+        return int(value), int(value)
+    if isinstance(value, (str, bytes)) or not hasattr(value, "__len__"):
+        return None
+    hw = list(value)
+    if len(hw) != 2 or not all(whole(v) for v in hw):
+        return None
+    return int(hw[0]), int(hw[1])
 
 
 def oneof(attrs_cls, must_be_set: bool = False):

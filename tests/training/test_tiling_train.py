@@ -191,3 +191,25 @@ def test_multi_instance_warning_fires(minimal_instance):
 
     assert ds.max_instances > 1
     assert any("more than one" in m for m in messages)
+
+
+def test_tiling_warns_node_weights_unsupported(config, tmp_path, minimal_instance):
+    """Tiled datasets emit no node_weights; partial labels warn instead."""
+    cfg = _tiled_config(config, tmp_path, "tiling_node_weights")
+    labels = _single_instance_labels(minimal_instance)
+    labels.provenance["labeled_nodes"] = ["A"]
+    trainer = ModelTrainer.get_model_trainer_from_config(
+        cfg, train_labels=[labels], val_labels=[labels]
+    )
+    messages = []
+    handler_id = logger.add(lambda m: messages.append(str(m)), level="WARNING")
+    try:
+        train_ds, _ = get_train_val_datasets(
+            train_labels=trainer.train_labels,
+            val_labels=trainer.val_labels,
+            config=trainer.config,
+        )
+    finally:
+        logger.remove(handler_id)
+    assert any("per-node loss weights" in m for m in messages)
+    assert "node_weights" not in train_ds[0]

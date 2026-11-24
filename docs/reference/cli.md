@@ -23,6 +23,8 @@ Complete command-line interface documentation.
 | [`sleap-nn eval-tracking`](#sleap-nn-eval-tracking) | Evaluate identity persistence of tracked predictions |
 | [`sleap-nn export`](#sleap-nn-export) | Export to ONNX/TensorRT |
 | [`sleap-nn config`](#sleap-nn-config) | Generate training configs (experimental) |
+| [`sleap-nn import-rfdetr`](#sleap-nn-import-rfdetr) | Import an RF-DETR checkpoint as a `bbox_detr` model |
+| [`sleap-nn detect-boxes`](#sleap-nn-detect-boxes) | Write detector boxes into training labels (detector-box crops) |
 | [`sleap-nn info`](#sleap-nn-info) | Inspect trained models |
 | [`sleap-nn system`](#sleap-nn-system) | System diagnostics |
 
@@ -149,6 +151,11 @@ URL's file name.
 | `--embed` | Embed images in the `.slp`: `true` (self-contained `.pkg.slp`-style file), `auto` (only if the input was an embedded `.pkg.slp`), `false` (reference the source media) | `auto`, `true`, `false` | `false` |
 | `--restore_source_videos` | When a `.pkg.slp` input is not re-embedded, reference the original source videos instead of the `.pkg.slp` | Flag | `false` |
 | `--save_embeddings` | Write each detection's re-ID vector into the `.slp` (see [Embedding tracking](../guides/embedding-tracking.md)) | `none`, `slp` | `none` |
+| `--slp_version` | File layout of the `.slp`: `v2` (the SLP 2.x layout older sleap-io and SLEAP releases open), `v3` (SLP 3.0) or `auto`. `auto` (sleap-io 0.10's default) writes the 2.x layout when the content fits and SLP 3.0 with a warning when it needs format 3.0. See [Choosing the file layout and frame format](../guides/inference-guide.md#choosing-the-file-layout-and-frame-format) | `auto`, `v2`, `v3` | unset (as `auto`) |
+| `--image_format` | Format of embedded frames (with `--embed true` or `auto`). With `--embed false` it warns before any model loads and has no effect; `--stream-to-file` and the re-ID embedding route, which never embed frames, refuse it | `png`, `jpg`, `jpeg`, `hdf5` | sleap-io's default |
+| `--image_quality` | Quality of re-encoded embedded frames: JPEG quality with `--image_format jpg`, PNG compression level with `--image_format png`. Applies, warns or is refused as `--image_format` | `0`-`100` (jpg), `0`-`9` (png) | sleap-io's default |
+| `--compression` | Compress the `.slp` tables (smaller file, slower reads) | `gzip`, `lzf` | sleap-io's default (none) |
+| `--unlabeled_as` | With `--slp_version v2`: what to do with points that are not labeled, which that layout cannot store: `error` refuses to write, `absent` writes them as hidden points (with a warning) | `error`, `absent` | sleap-io's default (`error`) |
 | `--stream-to-file` | Stream predictions to this `.slp` path, dropping heavy tensors per batch (lower memory). Not combinable with `--tracking` or exported models | `PATH` | None |
 | `--write-interval` | With `--stream-to-file`: frames buffered between conversions | `INT` | `500` |
 | `--gui` | Print JSON progress lines (for the SLEAP GUI) instead of a progress bar | Flag | `false` |
@@ -171,8 +178,12 @@ Unset values come from the model's training config.
 
 | Option | Applies to | Description | Values | Default |
 |--------|-----------|-------------|--------|---------|
-| `--integral_refinement` | Keypoint models | Sub-pixel peak refinement | `integral`, `local`, `none` | `integral` |
-| `--integral_patch_size` | Keypoint models | Patch size for integral refinement | `INT` | `5` |
+| `--integral_refinement` | Keypoint models | Sub-pixel peak refinement. `auto` = `dark` for top-down keypoints, `integral` otherwise. `dark`/`local` need one peak per channel: the centroid stage keeps `integral`, bottom-up rejects them | `auto`, `dark`, `integral`, `local`, `none` | `auto` |
+| `--integral_patch_size` | Keypoint models | Patch size for `integral` refinement | `INT` | `5` |
+| `--flip_test` | Top-down | Top-down `centered_instance` only: average the confidence maps of the crops and their mirror (left/right nodes swapped from the skeleton symmetries) | Flag | `false` |
+| `--nodes` | Keypoint models | `single_instance` / `centered_instance` only: predict only these nodes (repeat or comma-separate). The confmap head is sliced to their channels | `TEXT` | all nodes |
+| `--node_prefix` | Keypoint models | Like `--nodes`, for every node whose name starts with the prefix (e.g. `lab_a/`) | `TEXT` | `None` |
+| `--strip_prefix` | Keypoint models | Write the `--node_prefix` nodes without the prefix | Flag | `false` |
 | `--centroid_peak_threshold` | Top-down | Peak threshold for the centroid stage only | `FLOAT` | `--peak_threshold` |
 | `--centroid_only` | Top-down | Output centroids only, from a centroid + centered-instance pair (a lone centroid model is detected automatically). See [Centroid-only](../guides/centroid-only-inference.md) | Flag | `false` |
 | `--centroid_output` | Centroid-only | `instance` (single-node instance), `centroid` (`sio.PredictedCentroid`), or `both` | `instance`, `centroid`, `both` | `instance` |
@@ -182,6 +193,19 @@ Unset values come from the model's training config.
 | `--min_instance_peaks` | Bottom-up | Drop instances with fewer peaks than this | `FLOAT` | `0` |
 | `--min_line_scores` | Bottom-up | Minimum line score (−1 to 1) to connect two peaks | `FLOAT` | `0.25` |
 | `--bbox_nms_iou` | Box detectors | Class-wise IoU-NMS threshold; `1.0` disables. See [Bounding boxes](../guides/bbox-detection.md) | `FLOAT` | `0.45` (SSD), off (CenterNet) |
+| `--boxes` | Top-down | Seed a top-down crop model (pass it alone) from boxes instead of a centroid model or detector: `gt`, a COCO detection results `.json`, or a `.slp` whose frames carry `PredictedBoundingBox`es (a `bbox_*` detector's output, or the input itself). Needs a `.slp` input. Without `--rescore`, a pose instance's score is its box's score (1 with `gt`); `--rescore` multiplies it by the mean keypoint score. See [COCO-Style Evaluation](../guides/coco-evaluation.md) | `gt`, `PATH` | None (off) |
+| `--box_score_threshold` | Top-down | With `--boxes <file>`: drop boxes scoring below this | `FLOAT` | `0` |
+| `--part_model` | Part stage | A part model (centered-instance crop model) run after the pose model on square crops built from each predicted instance's keypoints by `--part_crop_rule`; its points are appended to that instance. See [Part stage](../guides/part-stage.md) | `PATH` | None (no part stage) |
+| `--part_crop_rule` | Part stage | A `.json` / `.yaml` crop rule for `--part_model`: `center`, `reference`, `reference_fallback`, `scale`, `fallback`, `fallback_scale`, `min_half_side`, and the per-video floor `session_floor` / `session_min_boxes` (see [The crop rule](../guides/part-stage.md#the-crop-rule)) | `PATH` | None |
+| `--part_node_prefix` | Part stage | Predict only the part model's nodes with this name prefix | `STR` | None |
+| `--part_peak_threshold` | Part stage | Peak threshold of `--part_model` | `FLOAT` | The model's own |
+| `--part_prefix` | Part stage | Prefix for the part nodes in the merged skeleton | `STR` | None |
+| `--part_streaming` | Part stage | **Experimental.** Run `--part_model` on each batch right after the pose stage (no second read of the frames), with a running crop floor instead of the whole-video floor; with `session_floor`, results depend on `--batch_size` (see [Streaming part stage](../guides/part-stage.md#streaming-part-stage-part_streaming)) | Flag | `false` |
+
+Exported models do no sub-pixel refinement and refuse `--flip_test`. See
+[Sub-pixel refinement and flip-test](../guides/inference-guide.md#sub-pixel-refinement-and-flip-test).
+See [Predicting a subset of nodes](../guides/inference-guide.md#predicting-a-subset-of-nodes)
+for `--nodes` / `--node_prefix`.
 
 Segmentation models (see [Running Inference](../guides/inference-guide.md#bottom-up-segmentation),
 [Semantic segmentation](../guides/semantic-segmentation.md)):
@@ -217,6 +241,11 @@ SAM-prompted masks from existing poses (no trained segmentation model; see
 | `--sam_disjointify_masks` | Make a frame's masks non-overlapping | Flag | `false` |
 | `--overlay_path` | Write a review overlay PNG | `PATH` | None |
 
+On a `.slp` without `--video_index`, `--frames` is ignored when one of the four
+annotation filters above is given, and always with `--stream-to-file` (the command
+says so). With `--video_index N` they combine: `--frames` are frame indices of
+video `N`, and the filters keep those of them that match.
+
 ### Filtering
 
 | Option | Description | Values | Default |
@@ -229,9 +258,13 @@ SAM-prompted masks from existing poses (no trained segmentation model; see
 | `--filter_overlapping_method` | Overlap measure | `iou`, `oks` | `iou` |
 | `--filter_overlapping_threshold` | Similarity above which the lower-scoring instance is dropped | `FLOAT` (0.0-1.0) | `0.8` |
 | `--filter_min_centroid_distance` | Centroid-only de-duplication radius in pixels (use instead of `--filter_overlapping` for centroids) | `FLOAT` | `0` (off) |
+| `--rescore` / `--no-rescore` | Instance score = stage-1 score (box score / centroid value) × mean of keypoint scores above `--rescore_threshold` (the COCO/mmpose protocol for `--boxes` runs) | Flag | off, also with `--boxes` |
+| `--rescore_threshold` | Keypoint-score threshold for `--rescore` | `FLOAT` | `0.2` |
+| `--oks_nms` | Drop an instance whose OKS with a higher-scoring instance in the frame exceeds this (mmpose `oks_nms`, per-node sigmas, mean crop-window area) | `FLOAT` | `0` (off) |
+| `--oks_sigmas` | Per-node sigmas for `--oks_nms` | `coco`, `crowdpose`, `ochuman`, `FLOAT` or a comma list | by node name |
 
 !!! note "Processing order"
-    `--max_instances` (forward pass) → node count filter → confidence filter → overlap filter → centroid-distance filter → tracking. In track-only mode the `--filter_*` options are accepted but **not** applied; the existing predictions are tracked as they are. See [Post-Processing Filters](../guides/post-processing-filters.md).
+    `--max_instances` (forward pass) → rescoring (`--rescore`) → node count filter → confidence filter → OKS-NMS (`--oks_nms`) → overlap filter → centroid-distance filter → tracking. In track-only mode the `--filter_*` options are accepted but **not** applied; the existing predictions are tracked as they are. See [Post-Processing Filters](../guides/post-processing-filters.md).
 
 ### Tracking
 
@@ -309,16 +342,21 @@ runtime instead of loading a trained checkpoint.
 On an exported model, the peak threshold and refinement, preprocessing
 overrides, checkpoint paths, `--anchor_part`, `--centroid_only`, the PAF options
 `--max_edge_length_ratio` / `--dist_penalty_weight` / `--n_points`, and the
-segmentation and box options were baked in at export time or do not exist there:
-they are ignored without a warning. `--max_instances`, `--min_instance_peaks`,
+segmentation options and `--bbox_nms_iou` were baked in at export time or do not
+exist there: they are ignored without a warning. `--boxes`, `--nodes` / `--node_prefix` and
+`--flip_test` stop with an error on an exported model directory;
+`--upload_batches` and `--memory_format` are ignored with a warning (both work
+for network-only export folders passed as `--model_paths`). `--max_instances`, `--min_instance_peaks`,
 `--min_line_scores`, `--centroid_output`, `--paf-workers`, the filters and tracking
-still apply. See [Running exported models](../guides/inference-guide.md#running-exported-models-onnxtensorrt).
+still apply. `--precision bf16` / `fp16` is refused: an exported model keeps the
+precision it was exported with. See [Running exported models](../guides/inference-guide.md#running-exported-models-onnxtensorrt).
 
 | Option | Description | Values | Default |
 |--------|-------------|--------|---------|
-| `--runtime` | Exported-model runtime; `auto` prefers TensorRT and falls back to ONNX (ignored for checkpoints) | `auto`, `onnx`, `tensorrt` | `auto` |
-| `--upload_batches` | CUDA: copy each batch to the GPU before resizing/cropping (checkpoints only). See [Performance](../guides/inference-performance.md#batches-on-the-gpu-upload_batches) | Flag | `false` |
-| `--memory_format` | Model weight layout; `channels_last` is faster on NVIDIA GPUs (checkpoints only) | `contiguous`, `channels_last` | `contiguous` |
+| `--runtime` | Exported-model runtime; `auto` prefers TensorRT on a CUDA device and takes ONNX otherwise (ignored for checkpoints) | `auto`, `onnx`, `tensorrt` | `auto` |
+| `--upload_batches` | CUDA: copy each batch of frames to the GPU before preprocessing, so the resize / letterbox, the crops' frame-size match and the cropping run there instead of on the CPU. Every pipeline built from `--model_paths` (checkpoints and network-only export folders); with `--part_streaming` the part model cuts its crops from the same GPU copy. Results are not bit-identical to the CPU resize. Ignored, with a warning, for a single exported model directory. See [Performance](../guides/inference-performance.md#batches-on-the-gpu-upload_batches) | Flag | `false` |
+| `--memory_format` | Model weight layout of every checkpoint model, the part model included; `channels_last` is faster on NVIDIA GPUs (ignored, with a warning, for an exported model directory) | `contiguous`, `channels_last` | `contiguous` |
+| `--precision` | CUDA: `bf16` / `fp16` run every model's forward pass under `torch.autocast` (weights and outputs stay fp32); `32` is strict fp32. Results differ slightly from fp32. No effect on CPU / MPS, with a warning. Checkpoints only: refused when every model is exported (an exported model keeps the precision it was exported with). Experimental: `bf16-encoder` / `fp16-encoder` run only each model's encoder under autocast and the decoder and heads in fp32. See [Performance](../guides/inference-performance.md#reduced-precision-precision) | `32`, `bf16`, `fp16`, `bf16-encoder`, `fp16-encoder` | `32` |
 | `--paf-workers` | CPU worker processes for bottom-up PAF grouping (`0` = in-process). `--cpu-workers` is a deprecated alias | `INT` | `0` |
 
 ### Examples
@@ -368,11 +406,15 @@ grouping, filtering and classic-tracker options above, plus `--gui` and
 `--queue_maxsize` (size of the frame-buffer queue, default `32`). It does
 **not** support:
 
-- exported ONNX/TensorRT models (`--runtime`), `--upload_batches`, `--memory_format`, `--paf-workers`, `--stream-to-file`
+- exported ONNX/TensorRT models (`--runtime`), `--upload_batches`, `--memory_format`, `--precision`, `--paf-workers`, `--stream-to-file`
 - `--centroid_peak_threshold`, the `--peak-conf-threshold` alias (use `--peak_threshold`) and `--filter_min_centroid_distance`
 - centroid-only output, segmentation, box detectors and SAM masks
 - the modern MOT trackers (`--tracker` and its options), `--link_tracklets`, `--appearance_weight` / `--euclidean_scale`
 - `--output_format`, `--embed`, `--restore_source_videos`, `--save_embeddings`, remote inputs (`--headers`, `--stream-mode`)
+
+It does take the `.slp` save options `--slp_version`, `--compression` and
+`--unlabeled_as` (see [Output Options](#output-options)). It refuses
+`--image_format` and `--image_quality`, since `track` never embeds frames.
 
 The default output name is the same as `predict`'s (`video.mp4` →
 `video.predictions.slp`). Differences in behavior:
@@ -408,6 +450,10 @@ sleap-nn eval --ground_truth_path GT --predicted_path PRED [OPTIONS]
 | `--bbox_padding` | | Box mode: padding (px) on GT boxes derived from poses or masks | `FLOAT` | `0.0` |
 | `--user_labels_only` / `--no-user_labels_only` | | Only evaluate user-labeled | Flag | `True` |
 | `--count_unmatched_as_fp` / `--no-count_unmatched_as_fp` | | Count unmatched predictions as false positives in `oks_voc.*` | Flag | off |
+| `--coco` / `--no-coco` | | Also compute the `coco.*` metrics (saved under `metrics["coco_metrics"]`). See [COCO-Style Evaluation](../guides/coco-evaluation.md) | Flag | off |
+| `--oks_sigmas` | | Per-node sigmas: `coco`, `crowdpose`, `ochuman`, `provenance` (the GT file's `node_sigmas`), `auto`, one float, or a comma-separated list (one per node). Also replaces `--oks_stddev` in the legacy metrics | `STR` | by node name |
+| `--coco_protocol` | | Dataset protocol preset for `--coco`: `auto` (from the GT file's provenance `dataset`), `coco`, `ochuman`, `crowdpose`, or `none` | `auto`, `coco`, `ochuman`, `crowdpose`, `none` | `auto` |
+| `--coco_area_source` | | GT area for `--coco`: `meta`, `bbox` (0.53 × box), `keypoints`, `auto` (meta → bbox → keypoints) | `auto`, `meta`, `bbox`, `keypoints` | the protocol's |
 
 ### Example
 
@@ -465,10 +511,16 @@ sleap-nn export MODEL_PATH [MODEL_PATH_2] [-o OUTPUT_DIR] [OPTIONS]
 |--------|-------|-------------|--------|---------|
 | `--output` | `-o` | Output directory | `PATH` | `<model dir>/exported` (top-down: `<centroid dir>/exported_topdown`) |
 | `--format` | `-f` | Export format | `onnx`, `tensorrt`, `both` | `onnx` |
-| `--precision` | | TensorRT precision | `fp32`, `fp16`, `tf32` | `fp16` |
+| `--precision` | | TensorRT precision | `fp32`, `fp16`, `tf32`, `bf16` | `fp16` |
 | `--max-instances` | | Max instances per frame | `INT` | `20` |
 | `--max-batch-size` | | Max batch size | `INT` | `8` |
-| `--peak-threshold` | | Peak threshold baked into the ONNX graph | `FLOAT` | `0.2` |
+| `--opt-batch-size` | | TensorRT: batch the engine's kernels are tuned for (profile `opt`; for throughput, the batch you run); ignored for `--format onnx` (noted in the metadata). Unset, the engine is tuned for batch 1 | `INT` | unset |
+| `--strongly-typed` | | **Experimental.** TensorRT 10.x: build fp16 / bf16 strongly typed, with the precision in the graph, as TensorRT 11 always does (see [Precision](../guides/export.md#tensorrt-precision)) | Flag | `false` |
+| `--force-precision` | | Build fp16 / bf16 even for a family whose reduced-precision engines fail its fp32 graph (multi-class bottom-up; see [Precision](../guides/export.md#tensorrt-precision)) | Flag | `false` |
+| `--fp32-attention-logits` / `--no-fp32-attention-logits` | | **Experimental.** With `--precision fp16`, strongly typed: keep each attention block's logits product (Q.K^T) in fp32 (see [fp16 for ViT backbones](../guides/export.md#fp16-for-vit-backbones-fp32-attention-logits)) | Flag | on for plain-ViT backbones, off otherwise |
+| `--input-dtype` | | Box detectors and `--network-only` exports: dtype of the graph's image input (`float32` receives the checkpoint path's own input; `auto` = `float32` for `bbox_detr`, `uint8` otherwise) | `auto`, `uint8`, `float32` | `auto` |
+| `--network-only` | | `centered_instance` only: export the network alone (crop in, raw confidence maps out; no peak finding baked in), for `sleap-nn predict` to load in place of the checkpoint (see [network-only exports](../guides/export.md#detector-box-scaled-top-down-part-stage-network-only-exports)) | Flag | `false` |
+| `--peak-threshold` | | Peak threshold: baked into the graph for pose and centroid models; for box detectors the score threshold, stored in `export_metadata.json` and applied on the host | `FLOAT` | `0.2` |
 | `--device` | | Device used for export | `STR` | `cpu` |
 | `--verify` / `--no-verify` | | Validate the exported ONNX graph (`onnx.checker`) | Flag | `--verify` |
 | `--opset-version` | | ONNX opset | `INT` | `17` |
@@ -516,7 +568,8 @@ sleap-nn config SLP_PATH [OPTIONS]
 |--------|-------|-------------|--------|---------|
 | `--output` | `-o` | Output path for config file(s) | `PATH` | `<slp_name>_config.yaml` |
 | `--auto` | | Auto-generate without interactive TUI | Flag | `false` |
-| `--pipeline` | | Model pipeline type | `single_instance`, `bottomup`, `topdown`, `multi_class_bottomup`, `multi_class_topdown`, `centroid`, `bbox_centernet`, `bbox_ssd`, `topdown_bbox_centernet`, `topdown_bbox_ssd` | Auto-detected |
+| `--pipeline` | | Model pipeline type | `single_instance`, `bottomup`, `topdown`, `multi_class_bottomup`, `multi_class_topdown`, `centroid`, `bbox_centernet`, `bbox_ssd`, `bbox_detr`, `topdown_bbox_centernet`, `topdown_bbox_ssd`, `topdown_bbox_detr` | Auto-detected |
+| `--gpu_memory_gb` | | GPU memory of the training machine, or `auto` to read the first visible GPU. With it, multi-animal top-down data whose `bbox_detr` run fits is recommended `topdown_bbox_detr` (the TUI always reads the GPU) | `FLOAT`, `auto` | Not considered |
 | `--show-yaml` | | Print YAML to stdout instead of saving | Flag | `false` |
 
 ### Modes
@@ -552,6 +605,12 @@ sleap-nn config labels.slp --auto -o my_config.yaml
 # Auto-generate with overrides
 sleap-nn config labels.slp --auto --pipeline bottomup
 
+# DETR box detector + box-scaled centered-instance pair
+sleap-nn config labels.slp --auto --pipeline topdown_bbox_detr -o animals.yaml
+
+# Let the recommender consider this machine's GPU (may pick topdown_bbox_detr)
+sleap-nn config labels.slp --auto --gpu_memory_gb auto
+
 # Preview YAML without saving
 sleap-nn config labels.slp --auto --show-yaml
 ```
@@ -563,13 +622,112 @@ For **top-down** pipelines, two config files are generated:
 - `<name>_centroid.yaml` - Centroid model config
 - `<name>_centered_instance.yaml` - Centered instance model config
 
-The box-detector top-down pipelines (`topdown_bbox_centernet` / `topdown_bbox_ssd`)
-write `<name>_bbox_centernet.yaml` (or `<name>_bbox_ssd.yaml`) and a
-`<name>_centered_instance.yaml` with box-scaled crops.
+The box-detector top-down pipelines (`topdown_bbox_centernet` / `topdown_bbox_ssd` /
+`topdown_bbox_detr`) write `<name>_bbox_centernet.yaml` (or `<name>_bbox_ssd.yaml`,
+`<name>_bbox_detr.yaml`) and a `<name>_centered_instance.yaml` with box-scaled crops.
 
 For other pipelines, a single config file is generated.
 
 See the [Config Generator Guide](../guides/config-generator.md) for detailed usage.
+
+---
+
+## `sleap-nn import-rfdetr`
+
+Convert an RF-DETR detection checkpoint into a `bbox_detr` model directory
+(`training_config.yaml` + `best.ckpt`) that `predict` loads like a trained model
+and `init_from` can fine-tune. See the [DETR box detector guide](../guides/bbox-detr.md#import-rf-detr).
+
+```bash
+sleap-nn import-rfdetr MODEL -o OUTPUT_DIR [OPTIONS]
+```
+
+`MODEL` is a size, `nano`, `small`, `medium` or `large` (the Apache-2.0
+`Roboflow/rf-detr-*` checkpoints on the HF Hub), an HF Hub id, or a local directory
+with `config.json` and `model.safetensors`. The model keeps RF-DETR's 91 COCO-id
+classes and its square squash resize at the checkpoint's resolution. Needs
+`huggingface_hub` and `safetensors` (`sleap-nn[backbones]`).
+
+| Option | Short | Description | Values | Default |
+|--------|-------|-------------|--------|---------|
+| `--output` | `-o` | Model directory to write | `PATH` | Required |
+| `--revision` | | HF Hub revision of the checkpoint | `TEXT` | `None` |
+| `--overwrite` | | Replace an existing model in the directory | Flag | `false` |
+
+```bash
+sleap-nn import-rfdetr medium -o models/rfdetr-medium
+sleap-nn predict -m models/rfdetr-medium -i video.mp4
+```
+
+---
+
+## `sleap-nn detect-boxes`
+
+!!! warning "Experimental"
+    Training on detector-box crops (`sleap-nn detect-boxes`, then
+    `crop_bbox_source: detector`) may change or be removed without a deprecation
+    period. In the developers' test its gain over ground-truth-box crops was within
+    noise.
+
+Run a `bbox_*` detector over every labeled frame (or read existing detections),
+match the detections to each frame's ground-truth animals and write a copy of the
+labels with one `PredictedBoundingBox` per detection, linked to its matched
+instance. Train a centered-instance model on the result with
+`preprocessing.crop_bbox_source: detector` so its training crops look like
+inference crops ([Detector-box crops](../guides/warp-data-path.md#detector-box-crops)).
+
+```bash
+sleap-nn detect-boxes -i LABELS.slp (-m MODEL | --detections DETS.json | --detection_chunks DIR) [OPTIONS]
+```
+
+Matching: Hungarian on IoU per frame between detections scoring at least
+`--score_threshold` and the ground truth (non-crowd user boxes of `--category`,
+plus the keypoint extent of pose instances without a linked box); pairs with IoU
+above `--min_iou` are kept. Match statistics go into
+`provenance["detector_boxes"]` and `<output>.json`.
+
+| Option | Short | Description | Values | Default |
+|--------|-------|-------------|--------|---------|
+| `--data_path` | `-i` | Input labels | `PATH` | Required |
+| `--output_path` | `-o` | Output labels | `PATH` | `<input>.<tag>.slp` |
+| `--model_path` | `-m` | `bbox_*` model directory to run | `PATH` | `None` |
+| `--detections` | | COCO detection-results JSON, matched to frames by `file_name` or `image_id` | `PATH` | `None` |
+| `--detection_chunks` | | Directory of `chunk_*.npz` files from an earlier detector pass (with `--image_list`) | `PATH` | `None` |
+| `--image_list` | | Image list (one path per line) the chunks were made from | `PATH` | `None` |
+| `--detector_id` | | The boxes' `source` | `TEXT` | Model dir name, JSON stem or chunk model id |
+| `--tag` | | Output name tag | `TEXT` | `bboxdetr` (model), `dets` (otherwise) |
+| `--category` | | Ground-truth category, detector class and the new boxes' category. A single-class detector's class is used as this category | `TEXT` | `person` |
+| `--score_threshold` | | Detections scoring at least this are matched and stored | `FLOAT` | `0.3` |
+| `--min_iou` | | Matched pairs with IoU above this are kept | `FLOAT` | `0.1` |
+| `--json_category_id` | | COCO category id kept from `--detections` | `INT` | `1` |
+| `--device` | | Device for a model run | `auto`, `cuda`, `cpu`, ... | `auto` |
+| `--batch_size` | | Frames (or tiles) per forward pass | `INT` | `8` |
+| `--min_score` | | Detector score floor (what `--save_detections` keeps) | `FLOAT` | `0.01` |
+| `--max_detections` | | Detections per image (per tile and per merged frame) | `INT` | `300` |
+| `--tile_width` | | Detect in full-height tiles this wide (very wide frames, e.g. panoramas) | `INT` | Off |
+| `--tile_stride` | | Horizontal tile stride | `INT` | `390` |
+| `--tile_nms_iou` | | Tile merge: suppress boxes with IoU above this with a kept box | `FLOAT` | `0.6` |
+| `--tile_contain` | | Tile merge: suppress inner-edge boxes this much inside a kept box | `FLOAT` | `0.7` |
+| `--replace_predicted` | | Remove existing predicted boxes first (re-boxing a file) | Flag | `false` |
+| `--save_detections` | | Also write the raw detections as a COCO results JSON | `PATH` | `None` |
+| `--dry_run` | | Print match statistics only | Flag | `false` |
+| `--overwrite` | | Replace an existing output | Flag | `false` |
+| `--slp_version` | | File layout of the output: `v3` or `auto`, both SLP 3.0. `v2` is not offered: each box keeps its matching score as box metadata, which only SLP 3.0 stores | `auto`, `v3` | unset (SLP 3.0) |
+| `--compression` | | Compress the output's tables | `gzip`, `lzf` | sleap-io's default (none) |
+| `--image_format` | | Refused: the output embeds no frames | `png`, `jpg`, `jpeg`, `hdf5` | unset |
+| `--image_quality` | | Refused, as `--image_format` | `INT` | unset |
+| `--unlabeled_as` | | Only matters for a 2.x save, so it has no effect here | `error`, `absent` | sleap-io's default |
+
+```bash
+# A box detector over a pose project's labels (boxes named "animal")
+sleap-nn detect-boxes -i train.pkg.slp -m models/detector --category animal
+
+# Person detections already in a COCO results JSON
+sleap-nn detect-boxes -i coco_val2017.slp --detections dets.json
+
+# Panoramas in 640-px full-height tiles
+sleap-nn detect-boxes -i jrdb_train.slp -m models/person --tile_width 640
+```
 
 ---
 

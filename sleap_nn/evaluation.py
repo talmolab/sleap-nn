@@ -11,7 +11,8 @@ from loguru import logger
 import click
 from pathlib import Path
 
-from sleap_nn.data.instance_centroids import generate_centroids
+from sleap_nn.data.instance_centroids import generate_centroids, primary_anchor_part
+from sleap_nn.data.providers import clear_legacy_hidden_points
 
 
 def compute_gt_centroids(
@@ -547,6 +548,20 @@ def _video_key(video: Optional[sio.Video]) -> str:
     return str(video_path)
 
 
+def gt_points(instance: sio.Instance) -> np.ndarray:
+    """Return the ground-truth keypoints that are scored, ``(n_nodes, 2)``.
+
+    These are the instance's labeled points that have coordinates: visible points
+    and occluded estimates (labeled, not visible, with coordinates; sleap-io >=
+    0.10), as COCO's OKS scores ``v=1`` keypoints as well as ``v=2``. Unlabeled
+    nodes and hidden nodes without a location are NaN and not scored. These are
+    the points training supervises (``data_config.supervise_occluded``) and
+    centers crops on. Equal to ``instance.numpy()`` for files without occluded
+    estimates.
+    """
+    return instance.numpy(invisible_as_nan=False)
+
+
 def get_instances(labeled_frame: sio.LabeledFrame) -> List[MatchInstance]:
     """Get a list of instances of type MatchInstance from the Labeled Frame.
 
@@ -594,6 +609,52 @@ def _instances_from_user_centroids(frame: sio.LabeledFrame) -> List[sio.Instance
     ]
 
 
+def _video_file_name(video: sio.Video) -> str:
+    """A video's file name without its directory (first image of an image list)."""
+    filename = video.filename
+    if isinstance(filename, (list, tuple)):
+        filename = filename[0] if filename else ""
+    return Path(str(filename)).name
+
+
+def match_labels_videos(
+    labels_gt: sio.Labels, labels_pr: sio.Labels
+) -> "sio.model.matching.MatchResult":
+    """``labels_gt.match(labels_pr)``, without touching the file system when possible.
+
+    sleap-io's matcher stats the original-video paths of every candidate pair of
+    videos, which raises ``PermissionError`` on unreadable mounts (e.g. a
+    ``/root/...`` path recorded in an embedded package) and made every epoch-end
+    and post-training evaluation of such files fail. So:
+
+    * when every prediction video is one of the GT's own video objects (the
+      epoch-end evaluation builds both from the same videos), they are paired by
+      identity;
+    * when the matcher raises ``OSError`` and both list the same number of videos
+      with the same file names in the same order (``sleap-nn predict`` keeps its
+      input's video order), they are paired by index.
+
+    Otherwise the matcher's result (or error) is returned unchanged.
+    """
+    from sleap_io.model.matching import MatchResult
+
+    gt_ids = {id(v) for v in labels_gt.videos}
+    if labels_pr.videos and all(id(v) in gt_ids for v in labels_pr.videos):
+        return MatchResult(video_map={v: v for v in labels_pr.videos})
+    try:
+        return labels_gt.match(labels_pr)
+    except OSError as e:
+        names_gt = [_video_file_name(v) for v in labels_gt.videos]
+        names_pr = [_video_file_name(v) for v in labels_pr.videos]
+        if names_gt != names_pr:
+            raise
+        logger.warning(
+            f"Video matching failed on the file system ({e}); pairing the "
+            f"{len(names_gt)} videos by index (same file names, same order)."
+        )
+        return MatchResult(video_map=dict(zip(labels_pr.videos, labels_gt.videos)))
+
+
 def find_frame_pairs(
     labels_gt: sio.Labels,
     labels_pr: sio.Labels,
@@ -633,7 +694,7 @@ def find_frame_pairs(
     # Pairs". This is resolved by the pinned sleap-io (talmolab/sleap-io#473/#476),
     # whose AUTO matcher resolves effective shape through the source_video chain, so
     # the match here works with no workaround.
-    match_result = labels_gt.match(labels_pr)
+    match_result = match_labels_videos(labels_gt, labels_pr)
 
     frame_pairs = []
     # Iterate over matched video pairs (pred_video -> gt_video mapping)
@@ -938,7 +999,7 @@ def match_instances(
         points_pr = np.expand_dims(instance_pr.instance.numpy(), axis=0)
         points_gt = np.stack(
             [
-                available_instances_gt[idx].instance.numpy()
+                gt_points(available_instances_gt[idx].instance)
                 for idx in available_instances_gt_idxs
             ],
             axis=0,
@@ -1030,6 +1091,118 @@ def match_frame_pairs(
     return positive_pairs, false_negatives
 
 
+NORM_SCALES = ("bbox", "points")
+
+
+def _weighted_inverted_cdf(x: np.ndarray, w: np.ndarray, q: float) -> float:
+    """Weighted quantile with the inverted-CDF definition.
+
+    The smallest value whose cumulative weight reaches ``q`` of the total; for unit
+    weights this is ``np.percentile(x, 100 * q, method="inverted_cdf")``.
+    """
+    if x.size == 0 or not np.isfinite(w).any() or w.sum() <= 0:
+        return float("nan")
+    order = np.argsort(x, kind="mergesort")
+    cw = np.cumsum(w[order])
+    i = int(np.argmax(cw >= q * cw[-1] - 1e-9 * cw[-1]))
+    return float(x[order][i])
+
+
+def instance_scales(
+    positive_pairs: List[Tuple[Any, Any, Any]],
+    ground_truth_instances: Optional[sio.Labels] = None,
+    scale: str = "bbox",
+    pad_frac: float = 0.0,
+) -> np.ndarray:
+    """Per matched ground-truth instance, the length that point errors are divided by.
+
+    Args:
+        positive_pairs: Matched pairs ``(gt, pred, oks)`` (``MatchInstance`` wrappers).
+        ground_truth_instances: The ground-truth labels, searched for user bounding boxes
+            linked to each GT instance (``scale="bbox"``).
+        scale: ``"bbox"``: ``sqrt(width * height)`` of the user box linked to the GT
+            instance, else of the tight box of its labeled points (padded as below);
+            ``"points"``: the tight box of the GT instance's labeled points.
+        pad_frac: Padding of a points box on every side, as a fraction of its longest side.
+
+    Returns:
+        ``(n_pairs,)`` scales in pixels; NaN where a scale is undefined (no box and fewer than
+        two distinct labeled points).
+    """
+    if scale not in NORM_SCALES:
+        raise ValueError(f"scale must be one of {NORM_SCALES}; got {scale!r}.")
+    boxes = {}
+    if scale == "bbox" and ground_truth_instances is not None:
+        for lf in ground_truth_instances.labeled_frames:
+            for b in getattr(lf, "bboxes", None) or []:
+                inst = getattr(b, "instance", None)
+                if inst is not None and not getattr(b, "is_predicted", False):
+                    boxes[id(inst)] = b
+    out = np.full(len(positive_pairs), np.nan)
+    for k, (gt, _, _) in enumerate(positive_pairs):
+        b = boxes.get(id(gt.instance))
+        if b is not None:
+            out[k] = math.sqrt(max(float(b.width) * float(b.height), 0.0))
+            continue
+        pts = gt_points(gt.instance)
+        pts = pts[np.isfinite(pts).all(axis=-1)]
+        if len(pts) < 2:
+            continue
+        wh = pts.max(axis=0) - pts.min(axis=0)
+        wh = wh + 2.0 * pad_frac * wh.max()
+        area = float(wh[0] * wh[1])
+        out[k] = math.sqrt(area) if area > 0 else np.nan
+    return out
+
+
+def normalized_point_errors(
+    positive_pairs: List[Tuple[Any, Any, Any]],
+    scales: np.ndarray,
+    missing_error: float = 1.0,
+) -> Dict[str, np.ndarray]:
+    """Point errors of matched instances as a share of each instance's scale.
+
+    Every labeled point of a matched GT instance gives one error: the distance to the
+    predicted point divided by the instance's scale, or ``missing_error`` when the model
+    left that point unpredicted (so abstaining is not rewarded). Instances without a scale
+    are skipped.
+
+    Returns:
+        ``err`` (N,), ``found`` (N,) bool, ``pair`` (N,) index into ``positive_pairs``,
+        ``node`` (N,) node index, ``frame_key`` list of ``(video_path, frame_idx)`` per pair.
+    """
+    err, found, pair, node = [], [], [], []
+    for k, (gt, pr, _) in enumerate(positive_pairs):
+        if not np.isfinite(scales[k]) or scales[k] <= 0:
+            continue
+        g = gt_points(gt.instance)
+        p = pr.instance.numpy()
+        lab = np.isfinite(g).all(axis=-1)
+        ok = lab & np.isfinite(p).all(axis=-1)
+        d = np.where(
+            ok,
+            np.linalg.norm(np.where(ok[:, None], p - g, 0.0), axis=-1) / scales[k],
+            missing_error,
+        )
+        idx = np.nonzero(lab)[0]
+        err.append(d[idx])
+        found.append(ok[idx])
+        pair.append(np.full(len(idx), k))
+        node.append(idx)
+    cat = lambda xs, dt: (
+        np.concatenate(xs).astype(dt) if xs else np.zeros(0, dt)
+    )  # noqa: E731
+    return {
+        "err": cat(err, float),
+        "found": cat(found, bool),
+        "pair": cat(pair, np.int64),
+        "node": cat(node, np.int64),
+        "frame_key": [
+            (gt.video_path, int(gt.frame_idx)) for gt, _, _ in positive_pairs
+        ],
+    }
+
+
 def compute_dists(
     positive_pairs: List[Tuple[sio.Instance, sio.PredictedInstance, Any]],
 ) -> Dict[str, Union[np.ndarray, List[int], List[str]]]:
@@ -1049,7 +1222,7 @@ def compute_dists(
     frame_idxs = []
     video_paths = []
     for instance_gt, instance_pr, _ in positive_pairs:
-        points_gt = instance_gt.instance.numpy()
+        points_gt = gt_points(instance_gt.instance)
         points_pr = instance_pr.instance.numpy()
 
         dists.append(np.linalg.norm(points_pr - points_gt, axis=-1))
@@ -1081,7 +1254,7 @@ def _unmatched_prediction_scores(
     Predictions on frames absent from the GT are not scored.
     """
     matched = {id(pp[1].instance) for pp in positive_pairs}
-    match_result = labels_gt.match(labels_pr)
+    match_result = match_labels_videos(labels_gt, labels_pr)
     scores = []
     for video_pr, video_gt in match_result.video_map.items():
         if video_gt is None:
@@ -1147,8 +1320,22 @@ class Evaluator:
         centroid_fallback: Optional[str] = None,
         exclude_predicted_instance_masks: bool = False,
         count_unmatched_as_fp: bool = False,
+        norm_scale: Optional[str] = None,
+        norm_missing_error: float = 1.0,
+        norm_pad_frac: float = 0.0,
+        norm_bootstrap: int = 0,
+        norm_bootstrap_by: str = "frame",
     ):
         """Initialize the Evaluator class with ground-truth and predicted labels.
+
+        ``norm_scale`` (``match_method="oks"`` only; default ``None`` = off) adds
+        ``normalized_distance_metrics`` to :meth:`evaluate`: point errors as a share of each
+        GT instance's size (``"bbox"``: its linked user box, else the tight box of its
+        labeled points; ``"points"``: that tight box, padded by ``norm_pad_frac`` of its
+        longest side), with every labeled point the model left unpredicted counted as
+        ``norm_missing_error``, and ``norm_bootstrap`` percentile-bootstrap resamples of
+        frames or videos (``norm_bootstrap_by``) for 95% intervals. See
+        :meth:`normalized_distance_metrics`. With the default every output is unchanged.
 
         ``count_unmatched_as_fp`` (``match_method="oks"`` only) makes
         :meth:`voc_metrics` count every predicted instance that was not matched to a
@@ -1178,6 +1365,19 @@ class Evaluator:
         self.centroid_fallback = centroid_fallback
         self.exclude_predicted_instance_masks = exclude_predicted_instance_masks
         self.count_unmatched_as_fp = count_unmatched_as_fp
+        self.norm_scale = norm_scale
+        self.norm_missing_error = norm_missing_error
+        self.norm_pad_frac = norm_pad_frac
+        self.norm_bootstrap = norm_bootstrap
+        self.norm_bootstrap_by = norm_bootstrap_by
+        if norm_scale is not None and norm_scale not in NORM_SCALES:
+            raise ValueError(
+                f"norm_scale must be None or one of {NORM_SCALES}; got {norm_scale!r}."
+            )
+        if norm_bootstrap_by not in ("frame", "video"):
+            raise ValueError(
+                f"norm_bootstrap_by must be 'frame' or 'video'; got {norm_bootstrap_by!r}."
+            )
         # Scores of predicted instances never matched to GT (oks mode, only with
         # count_unmatched_as_fp).
         self.unmatched_pred_scores = np.array([])
@@ -1278,7 +1478,7 @@ class Evaluator:
             gt_centroids = np.array(
                 [
                     compute_gt_centroids(
-                        m.instance.numpy(),
+                        gt_points(m.instance),
                         None if gt_from_centroid_annotations else self.anchor_ind,
                         method=(
                             None
@@ -2084,6 +2284,84 @@ class Evaluator:
             "PCK@10": pck10,
         }
 
+    def normalized_distance_metrics(
+        self,
+        scale: Optional[str] = None,
+        missing_error: Optional[float] = None,
+        pad_frac: Optional[float] = None,
+        bootstrap: Optional[int] = None,
+        bootstrap_by: Optional[str] = None,
+        seed: int = 0,
+    ) -> Dict[str, Any]:
+        """Point error relative to instance size, with unpredicted points counted as failures.
+
+        For every labeled point of a matched GT instance: distance to the prediction divided
+        by the instance's scale (:func:`instance_scales`), or ``missing_error`` if the model
+        left the point unpredicted. Percentiles use the inverted-CDF definition (for an even
+        count the median is the lower middle value), so they are values that occur.
+        Arguments default to the constructor's ``norm_*`` settings (scale ``"bbox"`` if unset).
+
+        Returns:
+            ``p50``, ``p75``, ``p90``, ``p95``, ``p99`` over all labeled points (strict);
+            ``found_p50`` / ``found_p95`` over predicted points only; ``miss_rate`` (share of
+            labeled points left unpredicted); ``n_points``, ``n_instances``, ``scale``,
+            ``missing_error``; with ``bootstrap > 0``, ``ci`` = 95% percentile intervals of
+            ``p50``, ``p95`` and ``miss_rate`` over ``bootstrap`` resamples of frames
+            (``bootstrap_by="frame"``) or videos (``"video"``), and ``bootstrap_by``.
+        """
+        scale = scale or self.norm_scale or "bbox"
+        missing_error = (
+            self.norm_missing_error if missing_error is None else missing_error
+        )
+        pad_frac = self.norm_pad_frac if pad_frac is None else pad_frac
+        bootstrap = self.norm_bootstrap if bootstrap is None else bootstrap
+        bootstrap_by = bootstrap_by or self.norm_bootstrap_by
+        pairs = list(getattr(self, "positive_pairs", []) or [])
+        sc = instance_scales(pairs, self.ground_truth_instances, scale, pad_frac)
+        pe = normalized_point_errors(pairs, sc, missing_error)
+        err, found = pe["err"], pe["found"]
+        out: Dict[str, Any] = {
+            "scale": scale,
+            "missing_error": float(missing_error),
+            "n_points": int(err.size),
+            "n_instances": int(np.isfinite(sc).sum()),
+        }
+        ones = np.ones(err.size)
+        for q in (50, 75, 90, 95, 99):
+            out[f"p{q}"] = _weighted_inverted_cdf(err, ones, q / 100)
+        for q in (50, 95):
+            out[f"found_p{q}"] = _weighted_inverted_cdf(
+                err[found], ones[found], q / 100
+            )
+        out["miss_rate"] = float((~found).mean()) if err.size else float("nan")
+        if bootstrap and err.size:
+            keys = pe["frame_key"]
+            gkey = [k if bootstrap_by == "frame" else k[0] for k in keys]
+            uniq = {g: i for i, g in enumerate(dict.fromkeys(gkey))}
+            pair_group = np.array([uniq[g] for g in gkey], dtype=np.int64)
+            point_group = pair_group[pe["pair"]]
+            rng = np.random.default_rng(seed)
+            reps = {"p50": [], "p95": [], "miss_rate": []}
+            for _ in range(int(bootstrap)):
+                counts = np.bincount(
+                    rng.integers(0, len(uniq), len(uniq)), minlength=len(uniq)
+                )
+                w = counts[point_group].astype(float)
+                reps["p50"].append(_weighted_inverted_cdf(err, w, 0.5))
+                reps["p95"].append(_weighted_inverted_cdf(err, w, 0.95))
+                reps["miss_rate"].append(
+                    float((w * (~found)).sum() / w.sum())
+                    if w.sum() > 0
+                    else float("nan")
+                )
+            out["ci"] = {
+                k: [float(np.nanpercentile(v, 2.5)), float(np.nanpercentile(v, 97.5))]
+                for k, v in reps.items()
+            }
+            out["bootstrap"] = int(bootstrap)
+            out["bootstrap_by"] = bootstrap_by
+        return out
+
     def visibility_metrics(self):
         """Compute node visibility metrics for the matched pair of instances.
 
@@ -2096,7 +2374,7 @@ class Evaluator:
         vis_tn = 0
 
         for instance_gt, instance_pr, _ in self.positive_pairs:
-            missing_nodes_gt = np.isnan(instance_gt.instance.numpy()).any(axis=-1)
+            missing_nodes_gt = np.isnan(gt_points(instance_gt.instance)).any(axis=-1)
             missing_nodes_pr = np.isnan(instance_pr.instance.numpy()).any(axis=-1)
 
             vis_tn += ((missing_nodes_gt) & (missing_nodes_pr)).sum()
@@ -2160,6 +2438,8 @@ class Evaluator:
         metrics["distance_metrics"] = self.distance_metrics()
         metrics["pck_metrics"] = self.pck_metrics()
         metrics["visibility_metrics"] = self.visibility_metrics()
+        if self.norm_scale is not None:
+            metrics["normalized_distance_metrics"] = self.normalized_distance_metrics()
 
         return metrics
 
@@ -2279,6 +2559,9 @@ def _resolve_anchor_ind(
     ``anchor_part`` is present in the skeleton node names, else ``None`` (which
     drives the mean-of-visible-nodes fallback in :func:`compute_gt_centroids`).
     """
+    # A list of anchors (experimental, centroid models) places GT centroids on
+    # its first node.
+    anchor_part = primary_anchor_part(anchor_part)
     if anchor_part is None or skeleton is None:
         return None
     node_names = list(getattr(skeleton, "node_names", []) or [])
@@ -2456,21 +2739,185 @@ def _greedy_match_bboxes(
     return gt_idx, matched_iou
 
 
+def _box_area(b: np.ndarray) -> np.ndarray:
+    return np.clip(b[:, 2] - b[:, 0], 0, None) * np.clip(b[:, 3] - b[:, 1], 0, None)
+
+
+def _box_intersection(a: np.ndarray, b: np.ndarray) -> np.ndarray:
+    """Pairwise intersection area of ``(n, 4)`` and ``(m, 4)`` xyxy boxes -> ``(n, m)``."""
+    if a.shape[0] == 0 or b.shape[0] == 0:
+        return np.zeros((a.shape[0], b.shape[0]))
+    lt = np.maximum(a[:, None, :2], b[None, :, :2])
+    rb = np.minimum(a[:, None, 2:], b[None, :, 2:])
+    return np.prod(np.clip(rb - lt, 0, None), axis=-1)
+
+
+def _covers_ignore_region(
+    pred: np.ndarray,
+    gt: np.ndarray,
+    ignore: Any,
+    cover: float = 0.5,
+    cover_of: str = "ignore",
+) -> np.ndarray:
+    """Predictions to drop: covering an ignore region and matching no kept GT (IoU 0.5).
+
+    ``cover_of="ignore"``: the intersection is at least ``cover`` of the ignore
+    region's area. ``"detection"``: at least ``cover`` of the prediction's own area
+    (COCO's crowd rule; the ``bbox_detr`` ignore-box loss rule).
+    """
+    if cover_of not in ("ignore", "detection"):
+        raise ValueError(f"cover_of must be 'ignore' or 'detection', got {cover_of!r}.")
+    ign = np.asarray(ignore, dtype=np.float64).reshape(-1, 4)
+    if pred.shape[0] == 0 or ign.shape[0] == 0:
+        return np.zeros(pred.shape[0], dtype=bool)
+    area = _box_area(ign)[None] if cover_of == "ignore" else _box_area(pred)[:, None]
+    covers = (_box_intersection(pred, ign) / np.maximum(area, 1e-12)).max(
+        axis=1
+    ) >= cover
+    matches = (
+        bbox_iou_matrix(pred, gt).max(axis=1) >= 0.5
+        if gt.shape[0]
+        else np.zeros(pred.shape[0], dtype=bool)
+    )
+    return covers & ~matches
+
+
+BBOX_COVER_FPPF = (0.1, 0.25, 0.5)
+
+
+def compute_bbox_cover_metrics(
+    frames: List[Dict[str, np.ndarray]],
+    cover: float = 0.5,
+    false_per_frame: Tuple[float, ...] = BBOX_COVER_FPPF,
+    score_threshold: Optional[float] = 0.1,
+    ignore_cover: float = 0.5,
+    ignore_cover_of: str = "ignore",
+) -> Dict[str, Any]:
+    """Share of objects covered by a box at fixed false boxes per frame (class-agnostic).
+
+    A predicted box *covers* a GT box when it holds at least ``cover`` of the GT box's
+    area (intersection / GT area). Per frame, boxes are taken by descending score and
+    each goes to the free GT box it covers most; a box that covers no free GT box is a
+    false box (a second box on an already covered object is one). The assignment at any
+    score threshold is a prefix of the assignment of all boxes, so one pass gives the
+    whole curve of (covered share, false boxes per frame) over thresholds. Unlike
+    IoU-based recall, the cover rule does not penalise a box for being larger than a GT
+    box that is thin or partial (for example a box built from a few keypoints), and
+    reading the curve at fixed false boxes per frame does not depend on how a detector's
+    scores are calibrated. ``gt_ignore_bboxes`` are handled as in
+    :func:`compute_bbox_metrics`.
+
+    Args:
+        frames: Dicts with ``gt_bboxes``, ``pred_bboxes``, ``pred_scores`` (and optional
+            ``gt_ignore_bboxes``), as for :func:`compute_bbox_metrics`.
+        cover: Share of a GT box a prediction must hold to cover it.
+        false_per_frame: Budgets of false boxes per frame to read the curve at.
+        score_threshold: Also report the covered share and false boxes per frame at
+            this score threshold (``None`` to skip).
+        ignore_cover: As in :func:`compute_bbox_metrics`.
+        ignore_cover_of: As in :func:`compute_bbox_metrics`.
+
+    Returns:
+        ``bbox_cover_recall_at_{t}fppf`` per budget (the covered share at the lowest
+        threshold whose false boxes per frame stay within ``t``), ``bbox_cover_AP``
+        (101-point interpolated AP with the cover rule), ``bbox_cover_recall`` /
+        ``bbox_false_per_frame`` at ``score_threshold``, ``n_frames``, ``n_gt``.
+    """
+    scores, hits = [], []
+    n_gt = 0
+    for f in frames:
+        gt = np.asarray(f["gt_bboxes"], dtype=np.float64).reshape(-1, 4)
+        pb = np.asarray(f["pred_bboxes"], dtype=np.float64).reshape(-1, 4)
+        ps = np.asarray(f["pred_scores"], dtype=np.float64).reshape(-1)
+        keep = np.isfinite(ps) & np.isfinite(pb).all(axis=1)
+        pb, ps = pb[keep], ps[keep]
+        if f.get("gt_ignore_bboxes") is not None:
+            keep = ~_covers_ignore_region(
+                pb, gt, f["gt_ignore_bboxes"], ignore_cover, ignore_cover_of
+            )
+            pb, ps = pb[keep], ps[keep]
+        n_gt += len(gt)
+        hit = np.zeros(len(pb), dtype=bool)
+        if len(pb) and len(gt):
+            v = _box_intersection(pb, gt) / np.maximum(_box_area(gt), 1e-12)[None]
+            taken = np.zeros(len(gt), dtype=bool)
+            for i in np.argsort(-ps, kind="mergesort"):
+                cand = np.where(~taken & (v[i] >= cover))[0]
+                if cand.size:
+                    taken[cand[np.argmax(v[i, cand])]] = True
+                    hit[i] = True
+        scores.append(ps)
+        hits.append(hit)
+    n_frames = len(frames)
+    s = np.concatenate(scores) if scores else np.zeros(0)
+    h = np.concatenate(hits) if hits else np.zeros(0, dtype=bool)
+    order = np.argsort(-s, kind="mergesort")
+    s, h = s[order], h[order]
+    tp, fp = np.cumsum(h), np.cumsum(~h)
+    out: Dict[str, Any] = {"n_frames": n_frames, "n_gt": int(n_gt)}
+    rec = tp / n_gt if n_gt else np.full(len(s), np.nan)
+    fppf = fp / max(n_frames, 1)
+    for t in false_per_frame:
+        ok = np.nonzero(fppf <= t + 1e-12)[0]
+        out[f"bbox_cover_recall_at_{t}fppf"] = (
+            float(rec[ok[-1]]) if ok.size and n_gt else (0.0 if n_gt else float("nan"))
+        )
+    if n_gt and len(s):
+        prec = np.maximum.accumulate((tp / (tp + fp))[::-1])[::-1]
+        grid = np.linspace(0.0, 1.0, 101)
+        inds = np.searchsorted(rec, grid, side="left")
+        valid = inds < len(s)
+        p101 = np.zeros(101)
+        p101[valid] = prec[inds[valid]]
+        out["bbox_cover_AP"] = float(p101.mean())
+    else:
+        out["bbox_cover_AP"] = 0.0 if n_gt else float("nan")
+    if score_threshold is not None:
+        k = int(np.searchsorted(-s, -score_threshold, side="right"))
+        out["bbox_cover_recall"] = float(tp[k - 1] / n_gt) if (k and n_gt) else 0.0
+        out["bbox_false_per_frame"] = float(fp[k - 1] / max(n_frames, 1)) if k else 0.0
+    return out
+
+
+BBOX_COVER_LOG_KEYS = (
+    "bbox_cover_AP",
+    "bbox_cover_recall_at_0.1fppf",
+    "bbox_cover_recall_at_0.25fppf",
+    "bbox_cover_recall_at_0.5fppf",
+    "bbox_cover_recall",
+    "bbox_false_per_frame",
+)
+
+
 def compute_bbox_metrics(
     frames: List[Dict[str, np.ndarray]],
     num_classes: Optional[int] = None,
     iou_thresholds: np.ndarray = BBOX_IOU_THRESHOLDS,
     max_detections: int = 100,
+    ignore_cover: float = 0.5,
+    ignore_cover_of: str = "ignore",
 ) -> Dict[str, Any]:
     """COCO-style detection metrics over a set of frames.
 
     Args:
         frames: One dict per evaluated frame with ``gt_bboxes (n, 4)``,
             ``gt_classes (n,)``, ``pred_bboxes (m, 4)``, ``pred_scores (m,)`` and
-            ``pred_classes (m,)`` (xyxy, any consistent pixel space).
+            ``pred_classes (m,)`` (xyxy, any consistent pixel space). Optional
+            ``gt_ignore_bboxes (k, 4)``: ignore regions (COCO "crowd"-like; for example
+            instances with too few labeled points to define a box). A prediction that
+            covers an ignore region (intersection >= ``ignore_cover`` of the region's
+            area) is dropped unless it matches a kept GT box at IoU >= 0.5, so a box on
+            an ignored object is neither a hit nor a false positive. Ignore regions are
+            class-agnostic and never counted as GT. Frames without the key are scored
+            exactly as before.
         num_classes: Number of classes (inferred from the class ids if ``None``).
         iou_thresholds: IoU thresholds averaged by mAP / AR.
         max_detections: Highest-scoring detections kept per frame (COCO's 100).
+        ignore_cover: Share of an ignore region a prediction must cover to be dropped.
+        ignore_cover_of: What ``ignore_cover`` is a share of: ``"ignore"`` (default,
+            the ignore region's area) or ``"detection"`` (the prediction's own area:
+            COCO's crowd rule, and the rule of the experimental ``bbox_detr``
+            ignore-box loss, ``data_config.ignore_box_min_cover``).
 
     Returns:
         A dict with ``bbox_mAP`` (AP@[.5:.95]), ``bbox_AP50``, ``bbox_AP75``,
@@ -2504,6 +2951,11 @@ def compute_bbox_metrics(
         pr_c = np.asarray(f["pred_classes"], dtype=np.int64).reshape(-1)
         keep = np.isfinite(pr_s) & np.isfinite(pr_b).all(axis=1)
         pr_b, pr_s, pr_c = pr_b[keep], pr_s[keep], pr_c[keep]
+        if f.get("gt_ignore_bboxes") is not None:
+            keep = ~_covers_ignore_region(
+                pr_b, gt_b, f["gt_ignore_bboxes"], ignore_cover, ignore_cover_of
+            )
+            pr_b, pr_s, pr_c = pr_b[keep], pr_s[keep], pr_c[keep]
         order = np.argsort(-pr_s, kind="mergesort")[:max_detections]
         pr_b, pr_s, pr_c = pr_b[order], pr_s[order], pr_c[order]
         n_pred += len(pr_s)
@@ -2616,6 +3068,7 @@ def bbox_frame_pairs(
     labels_gt: sio.Labels,
     labels_pr: sio.Labels,
     class_agnostic: Optional[bool] = None,
+    ignore_box_category: Optional[str] = None,
 ) -> Tuple[List[Dict[str, np.ndarray]], List[str]]:
     """Build :func:`compute_bbox_metrics` frames from GT and predicted labels.
 
@@ -2633,6 +3086,10 @@ def bbox_frame_pairs(
             box to its one class whatever it is called, so an uncategorized GT
             (``"object"``, e.g. boxes derived from poses) and predictions named
             after the model's one class (``"mouse"``) are the same class.
+        ignore_box_category: Experimental. GT boxes of this category are not
+            objects: each frame gets them as ``gt_ignore_bboxes`` (see
+            :func:`compute_bbox_metrics`) and they never count as GT or decide
+            ``class_agnostic``. ``None`` (default): none.
 
     Returns:
         ``(frames, categories)``.
@@ -2640,7 +3097,7 @@ def bbox_frame_pairs(
     from sleap_nn.data.bboxes import bbox_category_name, frame_user_bboxes
 
     categories: List[str] = []
-    match_result = labels_gt.match(labels_pr)
+    match_result = match_labels_videos(labels_gt, labels_pr)
     # `sio.Video` defines `__len__` but not `__bool__`: a matched video whose
     # shape is unknown is falsy, so test against None explicitly.
     gt_to_pr = {
@@ -2651,7 +3108,7 @@ def bbox_frame_pairs(
     if class_agnostic is None:
         gt_names = {
             bbox_category_name(b) for lf in labels_gt for b in frame_user_bboxes(lf)
-        }
+        } - {ignore_box_category}
         pr_names = {
             bbox_category_name(b)
             for lf in labels_pr
@@ -2664,6 +3121,11 @@ def bbox_frame_pairs(
         gt_boxes = frame_user_bboxes(lf)
         if not gt_boxes:
             continue
+        ignore_boxes = [
+            b for b in gt_boxes if bbox_category_name(b) == ignore_box_category
+        ]
+        if ignore_boxes:
+            gt_boxes = [b for b in gt_boxes if not any(b is i for i in ignore_boxes)]
         pred_boxes = []
         video_pr = gt_to_pr.get(id(lf.video))
         if video_pr is not None:
@@ -2684,6 +3146,10 @@ def bbox_frame_pairs(
                 "pred_classes": pr_c,
             }
         )
+        if ignore_boxes:
+            frames[-1]["gt_ignore_bboxes"] = np.asarray(
+                [b.bounds for b in ignore_boxes], dtype=np.float64
+            ).reshape(-1, 4)
     if class_agnostic:
         categories = ["object"]
     return frames, categories
@@ -2696,8 +3162,14 @@ def _run_bbox_evaluation(
     bbox_source: str = "auto",
     bbox_padding: float = 0.0,
     class_agnostic: Optional[bool] = None,
+    ignore_box_category: Optional[str] = None,
+    ignore_box_min_cover: float = 0.5,
 ) -> Optional[Dict[str, Any]]:
-    """``run_evaluation(match_method="bbox")``: COCO box metrics of two label sets."""
+    """``run_evaluation(match_method="bbox")``: COCO box metrics of two label sets.
+
+    With ``ignore_box_category``, a detection is ignored when an ignore box holds
+    at least ``ignore_box_min_cover`` of its own area (the loss's rule).
+    """
     from sleap_nn.data.bboxes import add_bboxes_to_labels
 
     if not any(b.is_predicted for lf in labels_pr for b in lf.bboxes):
@@ -2708,15 +3180,27 @@ def _run_bbox_evaluation(
         return None
     # GT without boxes (e.g. the pose labels a detector was trained from with
     # `bbox_source: instances`) gets them derived exactly as training did.
-    resolved = add_bboxes_to_labels(labels_gt, source=bbox_source, padding=bbox_padding)
+    resolved = add_bboxes_to_labels(
+        labels_gt,
+        source=bbox_source,
+        padding=bbox_padding,
+        ignore_category=ignore_box_category,
+    )
     logger.info(f"  Ground-truth boxes from: {resolved}")
-    frames, categories = bbox_frame_pairs(labels_gt, labels_pr, class_agnostic)
+    frames, categories = bbox_frame_pairs(
+        labels_gt, labels_pr, class_agnostic, ignore_box_category
+    )
     if not frames:
         raise ValueError(
             "Empty Frame Pairs: no ground-truth frame with boxes matched the "
             "predictions' videos."
         )
-    metrics = compute_bbox_metrics(frames, num_classes=len(categories))
+    ignore_rule = (
+        {"ignore_cover": ignore_box_min_cover, "ignore_cover_of": "detection"}
+        if ignore_box_category is not None
+        else {}
+    )
+    metrics = compute_bbox_metrics(frames, num_classes=len(categories), **ignore_rule)
     metrics["categories"] = categories
     logger.info("Evaluation Results (bbox mode):")
     logger.info(f"  Frames: {metrics['n_frames']}, GT boxes: {metrics['n_gt']}")
@@ -2738,7 +3222,7 @@ def _run_bbox_evaluation(
 
 
 def run_evaluation(
-    ground_truth_path: str,
+    ground_truth_path: Union[str, sio.Labels],
     predicted_path: str,
     oks_stddev: float = 0.025,
     oks_scale: Optional[float] = None,
@@ -2751,12 +3235,24 @@ def run_evaluation(
     centroid_fallback: Optional[str] = None,
     bbox_source: str = "auto",
     bbox_padding: float = 0.0,
+    oks_sigmas: Optional[Any] = None,
+    coco_metrics: bool = False,
+    coco_protocol: Optional[str] = "auto",
+    coco_area_source: Optional[str] = None,
     count_unmatched_as_fp: bool = False,
+    norm_scale: Optional[str] = None,
+    norm_missing_error: float = 1.0,
+    norm_pad_frac: float = 0.0,
+    norm_bootstrap: int = 0,
+    norm_bootstrap_by: str = "frame",
+    ignore_box_category: Optional[str] = None,
+    ignore_box_min_cover: float = 0.5,
 ):
     """Evaluate SLEAP-NN model predictions against ground truth labels.
 
     Args:
-        ground_truth_path: Path to the ground-truth ``.slp`` file.
+        ground_truth_path: Path to the ground-truth ``.slp`` file, or the
+            ground-truth ``sio.Labels`` (e.g. a subset of a file's frames).
         predicted_path: Path to the predicted ``.slp`` file.
         oks_stddev: OKS standard deviation (OKS mode only).
         oks_scale: OKS scale override (OKS mode only).
@@ -2799,9 +3295,41 @@ def run_evaluation(
             ``data_config.bbox_source``).
         bbox_padding: ``"bbox"`` mode only: pixels of padding on GT boxes derived
             from poses/masks (pass the model's ``data_config.bbox_padding``).
+        ignore_box_category: ``"bbox"`` mode only, experimental: GT boxes of this
+            category are ignore regions, not objects (pass the model's
+            ``data_config.ignore_box_category``; see :func:`bbox_frame_pairs`). A
+            detection is ignored when one of them holds at least
+            ``ignore_box_min_cover`` of the detection's own area.
+        ignore_box_min_cover: ``"bbox"`` mode with ``ignore_box_category`` only
+            (pass the model's ``data_config.ignore_box_min_cover``).
+        oks_sigmas: Per-node OKS sigmas (OKS mode): a preset name (``"coco"``,
+            ``"crowdpose"``, ``"ochuman"``), ``"provenance"`` (the GT file's
+            ``provenance["node_sigmas"]``), ``"auto"`` (provenance, then COCO names,
+            then ``oks_stddev``), a list (one per node) or a ``{node: sigma}`` dict.
+            Overrides ``oks_stddev`` for the native metrics too. See
+            :func:`sleap_nn.evaluation_coco.resolve_node_sigmas`.
+        coco_metrics: Also report COCOeval-faithful keypoint AP/AR under
+            ``metrics["coco_metrics"]`` (``coco.AP``, ``coco.AP50``, ...); see
+            :func:`sleap_nn.evaluation_coco.coco_keypoint_metrics`. These are the
+            numbers to compare with papers; the native ``oks_voc`` metrics are
+            kept for back-compat.
+        coco_protocol: Dataset evaluation protocol for ``coco_metrics``:
+            ``"auto"`` (from the GT ``provenance["dataset"]``), ``"coco"``,
+            ``"ochuman"``, ``"crowdpose"``, or ``None`` (plain COCOeval rules).
+        coco_area_source: GT object area for ``coco_metrics`` (``auto``, ``meta``,
+            ``bbox``, ``keypoints``; ``None`` takes the protocol's); see
+            :func:`sleap_nn.evaluation_coco.labels_to_coco_images`.
         count_unmatched_as_fp: Count unmatched predictions as false positives in
-            the native ``oks_voc`` metrics (see :class:`Evaluator`). Off by
-            default, which keeps the numbers v0.3.5 reported.
+            the native ``oks_voc`` metrics (see :class:`Evaluator`).
+        norm_scale: Opt-in point error relative to instance size, with unpredicted
+            points counted as failures, under ``metrics["normalized_distance_metrics"]``
+            (OKS mode only): ``"bbox"`` or ``"points"`` (see
+            :meth:`Evaluator.normalized_distance_metrics`). ``None`` (default) is off.
+        norm_missing_error: Error of an unpredicted labeled point, in scale units.
+        norm_pad_frac: Padding of a points box on every side, as a fraction of its
+            longest side.
+        norm_bootstrap: Percentile-bootstrap resamples for 95% intervals (0 = none).
+        norm_bootstrap_by: Resampling unit, ``"frame"`` or ``"video"``.
 
     Returns:
         The metrics dict, or ``None`` if the predicted labels have zero
@@ -2811,7 +3339,12 @@ def run_evaluation(
         ``save_metrics`` file is written.
     """
     logger.info("Loading ground truth labels...")
-    ground_truth_instances = sio.load_slp(ground_truth_path)
+    ground_truth_instances = (
+        ground_truth_path
+        if isinstance(ground_truth_path, sio.Labels)
+        else sio.load_slp(ground_truth_path)
+    )
+    clear_legacy_hidden_points(ground_truth_instances)
     logger.info(
         f"  Ground truth: {len(ground_truth_instances.videos)} videos, "
         f"{len(ground_truth_instances.labeled_frames)} frames"
@@ -2838,6 +3371,8 @@ def run_evaluation(
             save_metrics=save_metrics,
             bbox_source=bbox_source,
             bbox_padding=bbox_padding,
+            ignore_box_category=ignore_box_category,
+            ignore_box_min_cover=ignore_box_min_cover,
         )
 
     # Detect a fully collapsed prediction set up front and skip the metric
@@ -2906,10 +3441,21 @@ def run_evaluation(
 
     logger.info("Matching videos and frames...")
     # Get match stats before creating evaluator
-    match_result = ground_truth_instances.match(predicted_instances)
+    match_result = match_labels_videos(ground_truth_instances, predicted_instances)
     logger.info(
         f"  Videos matched: {match_result.n_videos_matched}/{len(match_result.video_map)}"
     )
+
+    if oks_sigmas is not None and match_method == "oks" and gt_skeleton is not None:
+        from sleap_nn.evaluation_coco import resolve_node_sigmas
+
+        oks_stddev = resolve_node_sigmas(
+            gt_skeleton,
+            oks_sigmas,
+            provenance=ground_truth_instances.provenance,
+            default=oks_stddev,
+        )
+        logger.info(f"  Per-node OKS sigmas: {np.round(oks_stddev, 3).tolist()}")
 
     logger.info("Matching instances...")
     evaluator = Evaluator(
@@ -2925,6 +3471,11 @@ def run_evaluation(
         centroid_method=centroid_method,
         centroid_fallback=centroid_fallback,
         exclude_predicted_instance_masks=exclude_predicted_instance_masks,
+        norm_scale=norm_scale if match_method == "oks" else None,
+        norm_missing_error=norm_missing_error,
+        norm_pad_frac=norm_pad_frac,
+        norm_bootstrap=norm_bootstrap,
+        norm_bootstrap_by=norm_bootstrap_by,
     )
     logger.info(
         f"  Frame pairs: {len(evaluator.frame_pairs)}, "
@@ -3059,6 +3610,29 @@ def run_evaluation(
         f"  Visibility Precision: {metrics['visibility_metrics']['precision']:.4f}"
     )
     logger.info(f"  Visibility Recall: {metrics['visibility_metrics']['recall']:.4f}")
+
+    if coco_metrics:
+        from sleap_nn.evaluation_coco import coco_keypoint_metrics
+
+        coco = coco_keypoint_metrics(
+            ground_truth_instances,
+            predicted_instances,
+            # Resolved per-node sigmas if given, else provenance -> COCO names.
+            sigmas=None if np.isscalar(oks_stddev) else oks_stddev,
+            area_source=coco_area_source,
+            protocol=coco_protocol,
+        )
+        metrics["coco_metrics"] = coco
+        logger.info(
+            "  COCO keypoints: "
+            + " ".join(
+                f"{k[5:]}={coco[k]:.4f}"
+                for k in ["coco.AP", "coco.AP50", "coco.AP75", "coco.AP_M"]
+                + ["coco.AP_L", "coco.AR"]
+            )
+            + f" (n_gt={coco['coco.n_gt']}, ignore={coco['coco.n_gt_ignore']}, "
+            f"n_dt={coco['coco.n_dt']})"
+        )
 
     # Save metrics if path provided
     if save_metrics:
@@ -3764,7 +4338,7 @@ def _pose_similarity(gt: List[Any], pr: List[Any], stddev: float = 0.025) -> np.
     """
     if not gt or not pr:
         return np.zeros((len(gt), len(pr)))
-    pts_gt = np.stack([np.asarray(inst.numpy(), dtype=float)[:, :2] for inst in gt])
+    pts_gt = np.stack([np.asarray(gt_points(inst), dtype=float)[:, :2] for inst in gt])
     degenerate = compute_instance_area(pts_gt) < _DEGENERATE_AREA_EPS
     sim = np.zeros((len(gt), len(pr)))
     for j, inst in enumerate(pr):
@@ -5145,6 +5719,7 @@ def run_identity_evaluation(
 
     logger.info("Loading ground truth labels...")
     gt_labels = sio.load_slp(ground_truth_path)
+    clear_legacy_hidden_points(gt_labels)
     logger.info(
         f"  Ground truth: {len(gt_labels.videos)} videos, "
         f"{len(gt_labels.labeled_frames)} frames"

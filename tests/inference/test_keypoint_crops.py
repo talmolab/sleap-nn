@@ -1,0 +1,963 @@
+"""Part stage: crops built from an earlier stage's keypoints (keypoint_crops.py)."""
+
+import json
+
+import numpy as np
+import pytest
+import sleap_io as sio
+
+from sleap_nn.inference.keypoint_crops import (
+    KeypointCropRule,
+    instance_boxes,
+    keypoint_frame_box_fn,
+    merge_part_predictions,
+    run_part_stage,
+    session_floors,
+)
+
+
+def _resolved(rule, names):
+    return rule.resolve(names)
+
+
+# --------------------------------------------------------------------------- #
+# The rule
+# --------------------------------------------------------------------------- #
+def test_rule_box_center_and_reference():
+    """Square box on the center node, half side = scale x |center - ref mean|."""
+    rule = KeypointCropRule(center=["base"], reference=["l", "r"], scale=2.0)
+    names = ["nose", "l", "r", "base"]
+    pts = np.array([[0, 0], [8, -3], [8, 3], [10, 0]], float)
+    box, fb = rule.box(pts, _resolved(rule, names))
+    # Reference mean (8, 0) is 2 px from the center: half side 4.
+    np.testing.assert_allclose(box, [6, -4, 14, 4])
+    assert not fb
+
+
+def test_rule_reference_fallback_and_suffix_names():
+    """A missing reference node switches to reference_fallback; names match by suffix."""
+    rule = KeypointCropRule(
+        center=["TTI", "tail_base"],
+        reference=["Ear_L", "Ear_R"],
+        reference_fallback=["Nose"],
+        scale=1.0,
+    )
+    names = ["skel-1/Nose", "skel-1/Ear_L", "skel-1/Ear_R", "skel-1/TTI"]
+    pts = np.array([[0, 0], [np.nan, np.nan], [5, 5], [10, 0]], float)
+    box, fb = rule.box(pts, _resolved(rule, names))
+    np.testing.assert_allclose(box, [0, -10, 20, 10])
+    assert not fb
+    # The second center candidate is used when the first is not in the skeleton.
+    names2 = ["Nose", "Ear_L", "Ear_R", "tail_base"]
+    box2, _ = rule.box(pts, _resolved(rule, names2))
+    np.testing.assert_allclose(box2, box)
+
+
+def test_rule_fallbacks():
+    """No center: an extent box ('extent') or no box ('skip'); min_half_side floor."""
+    names = ["a", "b", "c"]
+    pts = np.array([[0, 0], [4, 2], [np.nan, np.nan]], float)
+    rule = KeypointCropRule(center=["c"], reference=["a"], fallback_scale=1.5)
+    box, fb = rule.box(pts, _resolved(rule, names))
+    # Extent 4 x 2 around (2, 1): half side 1.5 x 4 / 2 = 3.
+    np.testing.assert_allclose(box, [-1, -2, 5, 4])
+    assert fb
+    skip = KeypointCropRule(center=["c"], reference=["a"], fallback="skip")
+    assert skip.box(pts, _resolved(skip, names)) == (None, False)
+    tiny = KeypointCropRule(center=["a"], reference=["b"], scale=0.01, min_half_side=5)
+    box, _ = tiny.box(pts, _resolved(tiny, names))
+    np.testing.assert_allclose(box, [-5, -5, 5, 5])
+    nothing = np.full((3, 2), np.nan)
+    assert rule.box(nothing, _resolved(rule, names)) == (None, False)
+
+
+def test_rule_load_and_validation(tmp_path):
+    """Rules load from dicts, .json and .yaml files and reject bad fields."""
+    d = dict(center=["base"], reference=["l", "r"], scale=2.0)
+    assert KeypointCropRule.load(d) == KeypointCropRule(**d)
+    (tmp_path / "r.json").write_text(json.dumps(d))
+    (tmp_path / "r.yaml").write_text("center: [base]\nreference: [l, r]\nscale: 2.0\n")
+    assert KeypointCropRule.load(tmp_path / "r.json") == KeypointCropRule(**d)
+    assert KeypointCropRule.load(str(tmp_path / "r.yaml")) == KeypointCropRule(**d)
+    assert KeypointCropRule.load(KeypointCropRule(**d)).to_dict()["scale"] == 2.0
+    with pytest.raises(ValueError, match="Unknown"):
+        KeypointCropRule.from_dict(dict(center=["a"], size=3))
+    with pytest.raises(ValueError, match="fallback"):
+        KeypointCropRule(center=["a"], fallback="grow")
+    with pytest.raises(ValueError, match="center"):
+        KeypointCropRule(center=[])
+
+
+def _frame(skeleton, pts_list, scores=(0.9, 0.8)):
+    video = sio.Video(filename="fake.mp4")
+    insts = [
+        sio.PredictedInstance.from_numpy(
+            np.asarray(p, float),
+            skeleton=skeleton,
+            point_scores=np.ones(len(p)),
+            score=s,
+        )
+        for p, s in zip(pts_list, scores)
+    ]
+    return video, sio.LabeledFrame(video=video, frame_idx=3, instances=insts)
+
+
+def test_instance_boxes_and_frame_box_fn():
+    """One box per predicted instance, scored by it; user instances are skipped."""
+    sk = sio.Skeleton(["a", "b"])
+    _, lf = _frame(sk, [[[0, 0], [1, 0]], [[10, 10], [10, 12]]])
+    lf.instances.append(
+        sio.Instance.from_numpy(np.array([[5.0, 5], [6, 5]]), skeleton=sk)
+    )
+    rule = KeypointCropRule(center=["a"], reference=["b"], scale=1.0)
+    boxes, scores, insts = instance_boxes(lf, rule)
+    np.testing.assert_allclose(boxes, [[-1, -1, 1, 1], [8, 8, 12, 12]])
+    np.testing.assert_allclose(scores, [0.9, 0.8])
+    assert insts == lf.predicted_instances
+    b2, s2 = keypoint_frame_box_fn(rule)(lf)
+    np.testing.assert_allclose(b2, boxes)
+    np.testing.assert_allclose(s2, scores)
+
+
+# --------------------------------------------------------------------------- #
+# Merging
+# --------------------------------------------------------------------------- #
+def _part_labels(video, boxes, part_sk, which=(0, 1)):
+    frames_insts, bxs = [], []
+    for k in which:
+        p = sio.PredictedInstance.from_numpy(
+            np.array([[100.0 + k, 200.0]]),
+            skeleton=part_sk,
+            point_scores=np.array([0.5]),
+            score=0.7,
+        )
+        frames_insts.append(p)
+        bxs.append(sio.PredictedBoundingBox.from_xyxy(*boxes[k], score=0.7, instance=p))
+    lf = sio.LabeledFrame(video=video, frame_idx=3, instances=frames_insts, bboxes=bxs)
+    return sio.Labels([lf], videos=[video], skeletons=[part_sk])
+
+
+def test_merge_part_predictions():
+    """Part points are appended to the instance whose rule box made their crop."""
+    sk = sio.Skeleton(["a", "b"])
+    sk.add_edge("a", "b")
+    video, lf = _frame(sk, [[[0, 0], [1, 0]], [[10, 10], [10, 12]]])
+    base = sio.Labels([lf], videos=[video], skeletons=[sk])
+    rule = KeypointCropRule(center=["a"], reference=["b"], scale=1.0)
+    boxes, _, _ = instance_boxes(lf, rule)
+    part_sk = sio.Skeleton(["tip"])
+    # Part predictions in reverse box order: matching is by box, not by order.
+    part = _part_labels(video, boxes, part_sk, which=(1, 0))
+    merged, counts = merge_part_predictions(base, part, rule, part_prefix="tail/")
+    assert counts == dict(n_instances=2, n_merged=2, n_unmatched=0)
+    m = merged[0].instances
+    assert m[0].skeleton.node_names == ["a", "b", "tail/tip"]
+    assert len(m[0].skeleton.edges) == 1
+    np.testing.assert_allclose(m[0].numpy()[2], [100, 200])
+    np.testing.assert_allclose(m[1].numpy()[2], [101, 200])
+    np.testing.assert_allclose(m[1].numpy()[:2], [[10, 10], [10, 12]])
+    assert m[0].score == pytest.approx(0.9)
+    assert merged.provenance["part_stage"]["rule"]["center"] == ["a"]
+    # One part prediction missing: that instance gets NaN part points.
+    merged, counts = merge_part_predictions(
+        base, _part_labels(video, boxes, part_sk, which=(0,)), rule, part_prefix="t/"
+    )
+    assert counts["n_merged"] == 1
+    assert np.isnan(merged[0].instances[1].numpy()[2]).all()
+
+
+def test_merge_refuses_clashing_names():
+    """Part nodes named like body nodes need part_prefix."""
+    sk = sio.Skeleton(["a", "b"])
+    video, lf = _frame(sk, [[[0, 0], [1, 0]], [[10, 10], [10, 12]]])
+    base = sio.Labels([lf], videos=[video], skeletons=[sk])
+    rule = KeypointCropRule(center=["a"], reference=["b"], scale=1.0)
+    boxes, _, _ = instance_boxes(lf, rule)
+    part = _part_labels(video, boxes, sio.Skeleton(["a"]))
+    with pytest.raises(ValueError, match="part_prefix"):
+        merge_part_predictions(base, part, rule)
+
+
+# --------------------------------------------------------------------------- #
+# Session floor (off by default)
+# --------------------------------------------------------------------------- #
+def _session_labels(halves_per_video, sk):
+    """Labels with one frame per instance; instance half side h: a at (0, 0), b at (h, 0)."""
+    videos, frames = [], []
+    for v, halves in enumerate(halves_per_video):
+        video = sio.Video(filename=f"fake{v}.mp4")
+        videos.append(video)
+        for i, h in enumerate(halves):
+            inst = sio.PredictedInstance.from_numpy(
+                np.array([[0.0, 0.0], [h, 0.0]]),
+                skeleton=sk,
+                point_scores=np.ones(2),
+                score=0.9,
+            )
+            frames.append(sio.LabeledFrame(video=video, frame_idx=i, instances=[inst]))
+    return sio.Labels(frames, videos=videos, skeletons=[sk])
+
+
+def test_session_floor_off_by_default():
+    """No session_floor: no floors, and the boxes are those without the option."""
+    sk = sio.Skeleton(["a", "b"])
+    labels = _session_labels([[1, 2, 3, 10]], sk)
+    rule = KeypointCropRule(center=["a"], reference=["b"], scale=1.0)
+    assert rule.session_floor is None
+    assert session_floors(labels, rule) == {}
+    for lf in labels:
+        b0, _, _ = instance_boxes(lf, rule)
+        b1, _ = keypoint_frame_box_fn(rule, {})(lf)
+        np.testing.assert_array_equal(b0, b1)
+    assert rule.to_dict()["session_floor"] is None
+
+
+def test_session_floors_per_video_and_pooled():
+    """Floor = session_floor x the video's median half side; small videos use all boxes."""
+    sk = sio.Skeleton(["a", "b"])
+    big = [10.0] * 7 + [20.0] * 4  # 11 boxes, median 10
+    small = [40.0, 40.0]  # 2 boxes: the median over all 13 boxes (10) is used
+    labels = _session_labels([big, small], sk)
+    rule = KeypointCropRule(center=["a"], reference=["b"], scale=1.0, session_floor=0.8)
+    floors = session_floors(labels, rule)
+    v0, v1 = labels.videos
+    assert floors[v0] == pytest.approx(8.0)
+    assert floors[v1] == pytest.approx(8.0)
+    rule.session_min_boxes = 2
+    floors = session_floors(labels, rule)
+    assert floors[v1] == pytest.approx(32.0)  # own median 40 once 2 boxes suffice
+    # Empty labels: no floors.
+    assert session_floors(sio.Labels([], videos=[], skeletons=[sk]), rule) == {}
+
+
+def test_session_floor_enlarges_short_boxes_about_their_center():
+    """Only boxes below the floor grow, about the same center."""
+    sk = sio.Skeleton(["a", "b"])
+    labels = _session_labels([[2.0] + [10.0] * 10], sk)
+    rule = KeypointCropRule(center=["a"], reference=["b"], scale=1.0, session_floor=1.0)
+    floors = session_floors(labels, rule)
+    fn = keypoint_frame_box_fn(rule, floors)
+    short, _ = fn(labels[0])
+    np.testing.assert_allclose(short, [[-10, -10, 10, 10]])  # half side 2 -> 10
+    long_, _ = fn(labels[1])
+    np.testing.assert_allclose(long_, [[-10, -10, 10, 10]])  # already 10: unchanged
+    plain, _ = keypoint_frame_box_fn(rule)(labels[0])
+    np.testing.assert_allclose(plain, [[-2, -2, 2, 2]])
+
+
+def test_merge_part_predictions_with_session_floor():
+    """Merging finds the part instance through the floored box, without passing floors."""
+    sk = sio.Skeleton(["a", "b"])
+    labels = _session_labels([[2.0] + [10.0] * 10], sk)
+    rule = KeypointCropRule(center=["a"], reference=["b"], scale=1.0, session_floor=1.0)
+    video = labels.videos[0]
+    floors = session_floors(labels, rule)
+    boxes, _ = keypoint_frame_box_fn(rule, floors)(labels[0])
+    part_sk = sio.Skeleton(["tip"])
+    p = sio.PredictedInstance.from_numpy(
+        np.array([[7.0, 7.0]]), skeleton=part_sk, point_scores=np.ones(1), score=0.7
+    )
+    plf = sio.LabeledFrame(
+        video=video,
+        frame_idx=0,
+        instances=[p],
+        bboxes=[sio.PredictedBoundingBox.from_xyxy(*boxes[0], score=0.7, instance=p)],
+    )
+    part = sio.Labels([plf], videos=[video], skeletons=[part_sk])
+    merged, counts = merge_part_predictions(labels, part, rule, part_prefix="t/")
+    assert counts["n_merged"] == 1 and counts["n_unmatched"] == 0
+    np.testing.assert_allclose(merged[0].instances[0].numpy()[2], [7, 7])
+    assert merged.provenance["part_stage"]["session_floors"] == {0: 10.0}
+    assert merged.provenance["part_stage"]["rule"]["session_floor"] == 1.0
+    # The same part box against the unfloored rule matches nothing.
+    plain = KeypointCropRule(center=["a"], reference=["b"], scale=1.0)
+    _, counts = merge_part_predictions(labels, part, plain, part_prefix="t/")
+    assert counts["n_merged"] == 0 and counts["n_unmatched"] == 1
+
+
+def test_session_floor_validation(tmp_path):
+    """session_floor must be positive; it loads from files like the other fields."""
+    with pytest.raises(ValueError, match="session_floor"):
+        KeypointCropRule(center=["a"], session_floor=0.0)
+    with pytest.raises(ValueError, match="session_min_boxes"):
+        KeypointCropRule(center=["a"], session_min_boxes=0)
+    (tmp_path / "r.yaml").write_text(
+        "center: [a]\nreference: [b]\nsession_floor: 1.0\n"
+    )
+    assert KeypointCropRule.load(tmp_path / "r.yaml").session_floor == 1.0
+
+
+# --------------------------------------------------------------------------- #
+# End to end on the fixture models
+# --------------------------------------------------------------------------- #
+RULE = dict(center=["A"], reference=["B"], scale=2.0, min_half_side=8.0)
+# At most two animals a frame. With peak_threshold 0 and no centroid threshold every
+# local maximum of the centroid map is an animal, and the part stage then runs on a
+# crop per maximum (the slowest part tests on the mac CI job). What these tests check
+# (part points for every instance, stagewise = in-predict, the CLI) does not depend on
+# the count; each asserts that instances were found.
+FEW = dict(centroid_threshold=0.05, max_instances=2)
+
+
+def _base(minimal_instance, centroid, centered):
+    from sleap_nn.inference.run import predict
+
+    return predict(
+        str(minimal_instance),
+        model_paths=[str(centroid), str(centered)],
+        device="cpu",
+        peak_threshold=0.0,
+        **FEW,
+    )
+
+
+def test_run_part_stage_end_to_end(
+    minimal_instance,
+    minimal_instance_centroid_ckpt,
+    minimal_instance_centered_instance_ckpt,
+):
+    """Body -> keypoint crops -> part model -> merged instances, every instance."""
+    base = _base(
+        minimal_instance,
+        minimal_instance_centroid_ckpt,
+        minimal_instance_centered_instance_ckpt,
+    )
+    n = sum(len(lf.predicted_instances) for lf in base)
+    assert n > 0
+    merged = run_part_stage(
+        base,
+        [str(minimal_instance_centered_instance_ckpt)],
+        RULE,
+        device="cpu",
+        peak_threshold=0.0,
+        part_prefix="part/",
+    )
+    insts = [i for lf in merged for i in lf.predicted_instances]
+    assert len(insts) == n
+    assert insts[0].skeleton.node_names == ["A", "B", "part/A", "part/B"]
+    assert all(np.isfinite(i.numpy()[2:]).all() for i in insts)
+
+
+def test_run_part_stage_with_exported_part_model(
+    minimal_instance,
+    minimal_instance_centroid_ckpt,
+    minimal_instance_centered_instance_ckpt,
+    tmp_path,
+):
+    """A --network-only export runs as the part model with the checkpoint's crops."""
+    pytest.importorskip("onnxruntime")
+    from click.testing import CliRunner
+
+    from sleap_nn.export.cli import export
+
+    exported = tmp_path / "part"
+    result = CliRunner().invoke(
+        export,
+        [
+            str(minimal_instance_centered_instance_ckpt),
+            "-o",
+            str(exported),
+            "--network-only",
+            "--input-dtype",
+            "float32",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    base = _base(
+        minimal_instance,
+        minimal_instance_centroid_ckpt,
+        minimal_instance_centered_instance_ckpt,
+    )
+    kwargs = dict(device="cpu", peak_threshold=0.0, part_prefix="part/")
+    ref = run_part_stage(
+        base, [str(minimal_instance_centered_instance_ckpt)], RULE, **kwargs
+    )
+    exp = run_part_stage(base, [str(exported)], RULE, export_runtime="onnx", **kwargs)
+    a = np.stack([i.numpy() for lf in ref for i in lf.predicted_instances])
+    b = np.stack([i.numpy() for lf in exp for i in lf.predicted_instances])
+    np.testing.assert_allclose(b, a, atol=1e-3)
+
+
+def test_run_part_stage_with_session_floor(
+    minimal_instance,
+    minimal_instance_centroid_ckpt,
+    minimal_instance_centered_instance_ckpt,
+):
+    """With a session floor every instance still gets its part points."""
+    base = _base(
+        minimal_instance,
+        minimal_instance_centroid_ckpt,
+        minimal_instance_centered_instance_ckpt,
+    )
+    n = sum(len(lf.predicted_instances) for lf in base)
+    assert n > 0
+    rule = dict(RULE, session_floor=2.0)
+    merged = run_part_stage(
+        base,
+        [str(minimal_instance_centered_instance_ckpt)],
+        rule,
+        device="cpu",
+        peak_threshold=0.0,
+        part_prefix="part/",
+    )
+    insts = [i for lf in merged for i in lf.predicted_instances]
+    assert len(insts) == n
+    assert all(np.isfinite(i.numpy()[2:]).all() for i in insts)
+    assert merged.provenance["part_stage"]["session_floors"]
+
+
+def test_predict_with_part_model_matches_stagewise(
+    minimal_instance,
+    minimal_instance_centroid_ckpt,
+    minimal_instance_centered_instance_ckpt,
+    tmp_path,
+):
+    """predict(part_model_paths=...) = the pose run, then run_part_stage."""
+    from sleap_nn.inference.run import predict
+
+    base = _base(
+        minimal_instance,
+        minimal_instance_centroid_ckpt,
+        minimal_instance_centered_instance_ckpt,
+    )
+    stagewise = run_part_stage(
+        base,
+        [str(minimal_instance_centered_instance_ckpt)],
+        RULE,
+        device="cpu",
+        peak_threshold=0.0,
+        part_prefix="part/",
+    )
+    out = tmp_path / "pred.slp"
+    ckpts = [
+        str(minimal_instance_centroid_ckpt),
+        str(minimal_instance_centered_instance_ckpt),
+    ]
+    labels = predict(
+        str(minimal_instance),
+        model_paths=ckpts,
+        device="cpu",
+        peak_threshold=0.0,
+        **FEW,
+        part_model_paths=[ckpts[1]],
+        part_crop_rule=RULE,
+        part_peak_threshold=0.0,
+        part_prefix="part/",
+        output_path=str(out),
+    )
+    a = np.stack([i.numpy() for lf in labels for i in lf.predicted_instances])
+    b = np.stack([i.numpy() for lf in stagewise for i in lf.predicted_instances])
+    assert len(a) >= 1  # compared on real instances
+    np.testing.assert_allclose(a, b, rtol=1e-5, atol=1e-4)
+    saved = sio.load_slp(str(out))
+    assert saved.skeletons[0].node_names == ["A", "B", "part/A", "part/B"]
+    with pytest.raises(ValueError, match="part_crop_rule"):
+        predict(
+            str(minimal_instance),
+            model_paths=ckpts,
+            device="cpu",
+            part_model_paths=[ckpts[1]],
+        )
+
+
+def test_predict_without_part_model_is_unchanged(
+    minimal_instance,
+    minimal_instance_centroid_ckpt,
+    minimal_instance_centered_instance_ckpt,
+):
+    """No part model: the same instances and skeleton as before the part stage existed."""
+    base = _base(
+        minimal_instance,
+        minimal_instance_centroid_ckpt,
+        minimal_instance_centered_instance_ckpt,
+    )
+    assert base.skeletons[0].node_names == ["A", "B"]
+    assert "part_stage" not in base.provenance
+
+
+def test_cli_part_model(
+    minimal_instance,
+    minimal_instance_centroid_ckpt,
+    minimal_instance_centered_instance_ckpt,
+    tmp_path,
+):
+    """sleap-nn predict --part_model/--part_crop_rule writes merged instances."""
+    from click.testing import CliRunner
+
+    from sleap_nn.cli import cli
+
+    rule = tmp_path / "rule.json"
+    rule.write_text(json.dumps(RULE))
+    out = tmp_path / "pred.slp"
+    common = [
+        "predict",
+        "-i",
+        str(minimal_instance),
+        "-m",
+        str(minimal_instance_centroid_ckpt),
+        "-m",
+        str(minimal_instance_centered_instance_ckpt),
+        "--device",
+        "cpu",
+        "--peak_threshold",
+        "0.0",
+        "--centroid_peak_threshold",
+        "0.05",
+        "--max_instances",
+        "2",
+        "-o",
+        str(out),
+    ]
+    res = CliRunner().invoke(
+        cli,
+        common
+        + [
+            "--part_model",
+            str(minimal_instance_centered_instance_ckpt),
+            "--part_crop_rule",
+            str(rule),
+            "--part_peak_threshold",
+            "0.0",
+            "--part_prefix",
+            "part/",
+        ],
+    )
+    assert res.exit_code == 0, res.output
+    assert len(sio.load_slp(str(out)).labeled_frames[0].predicted_instances) >= 1
+    assert sio.load_slp(str(out)).skeletons[0].node_names == [
+        "A",
+        "B",
+        "part/A",
+        "part/B",
+    ]
+    res = CliRunner().invoke(
+        cli, common + ["--part_model", str(minimal_instance_centered_instance_ckpt)]
+    )
+    assert res.exit_code != 0 and "--part_crop_rule" in res.output
+
+
+def test_part_streaming_matches_two_pass_without_floor(
+    minimal_instance,
+    minimal_instance_centroid_ckpt,
+    minimal_instance_centered_instance_ckpt,
+):
+    """part_streaming: the part points of the two-pass run when no floor applies."""
+    from sleap_nn.inference.run import predict
+
+    ckpts = [
+        str(minimal_instance_centroid_ckpt),
+        str(minimal_instance_centered_instance_ckpt),
+    ]
+    kw = dict(
+        model_paths=ckpts,
+        device="cpu",
+        peak_threshold=0.0,
+        # At most two animals a frame: with no centroid threshold every local
+        # maximum is an animal and each predict runs the part model on a crop per
+        # maximum (~40 s on mac). The comparison does not depend on the count.
+        centroid_threshold=0.05,
+        max_instances=2,
+        part_model_paths=[ckpts[1]],
+        part_crop_rule=RULE,
+        part_peak_threshold=0.0,
+        part_prefix="part/",
+    )
+    two_pass = predict(str(minimal_instance), **kw)
+    streamed = predict(str(minimal_instance), part_streaming=True, **kw)
+    a = np.stack([i.numpy() for lf in two_pass for i in lf.predicted_instances])
+    b = np.stack([i.numpy() for lf in streamed for i in lf.predicted_instances])
+    assert len(a) >= 1  # compared on real part points
+    np.testing.assert_allclose(a, b, rtol=1e-5, atol=1e-4)
+    assert streamed.skeletons[0].node_names == ["A", "B", "part/A", "part/B"]
+    prov = streamed.provenance["part_stage"]
+    assert prov["streaming"] is True and prov["rule"]["center"] == ["A"]
+    # With a session floor the running floor is used; every instance gets points.
+    streamed = predict(
+        str(minimal_instance),
+        part_streaming=True,
+        **dict(kw, part_crop_rule=dict(RULE, session_floor=2.0, session_min_boxes=1)),
+    )
+    assert all(
+        np.isfinite(i.numpy()[2:]).all()
+        for lf in streamed
+        for i in lf.predicted_instances
+    )
+    assert streamed.provenance["part_stage"]["session_floors"]  # running, at the end
+
+
+def test_cli_part_streaming_needs_part_model(minimal_instance, tmp_path):
+    import click
+
+    from sleap_nn.cli import cli
+
+    # standalone_mode=False raises the UsageError itself (the formatted CLI output
+    # wraps and colours the message differently per terminal).
+    with pytest.raises(click.UsageError, match="--part_streaming needs --part_model"):
+        cli.main(
+            args=[
+                "predict",
+                "-i",
+                str(minimal_instance),
+                "-m",
+                "x",
+                "--part_streaming",
+                "-o",
+                str(tmp_path / "p.slp"),
+            ],
+            standalone_mode=False,
+        )
+
+
+# --------------------------------------------------------------------------- #
+# The streaming stage's running floor
+# --------------------------------------------------------------------------- #
+@pytest.mark.parametrize("seed", [0, 1, 2])
+def test_running_median_equals_np_median(seed):
+    """After every value the running median is np.median of the history, exactly (odd and even counts)."""
+    from sleap_nn.inference.keypoint_crops import RunningMedian
+
+    rng = np.random.default_rng(seed)
+    kinds = [
+        rng.normal(30, 8, 600),
+        rng.integers(0, 6, 600).astype(float),  # many ties
+        np.round(rng.uniform(1, 100, 600), 1),
+        np.sort(rng.uniform(0, 1, 300)),
+        -np.sort(rng.uniform(0, 1, 300)),
+    ]
+    for vals in kinds:
+        rm, hist = RunningMedian(), []
+        assert np.isnan(rm.median()) and len(rm) == 0
+        for v in vals:
+            rm.add(v)
+            hist.append(float(v))
+            assert rm.median() == float(np.median(hist)), len(hist)
+        assert len(rm) == len(hist)
+        np.testing.assert_array_equal(np.sort(rm.values()), np.sort(hist))
+
+
+def test_running_median_nan_as_np_median():
+    """A NaN value makes the median NaN, as np.median does; it still counts."""
+    from sleap_nn.inference.keypoint_crops import RunningMedian
+
+    rm = RunningMedian()
+    for v in (3.0, 1.0, 2.0):
+        rm.add(v)
+    assert rm.median() == 2.0
+    rm.add(float("nan"))
+    assert np.isnan(rm.median()) and np.isnan(np.median([3.0, 1.0, 2.0, np.nan]))
+    assert len(rm) == 4 and rm.values().shape == (3,)
+
+
+def test_running_median_cost_stays_flat_at_500k():
+    """With 500k values in the history, a frame (3 values added, 3 medians read) stays cheap."""
+    import time
+    from array import array
+
+    from sleap_nn.inference.keypoint_crops import RunningMedian
+
+    rng = np.random.default_rng(0)
+    vals = np.sort(rng.normal(30, 8, 500_000))
+    rm = RunningMedian()
+    h = len(vals) // 2  # a sorted array is a valid heap: fill the two halves directly
+    rm._lo = array("d", (-vals[:h][::-1]).tolist())
+    rm._hi = array("d", vals[h:].tolist())
+    assert rm.median() == float(np.median(vals))
+    assert rm._lo.itemsize == 8  # 8 bytes per value
+    new = rng.normal(30, 8, 3000)
+    t0 = time.perf_counter()
+    for f in range(1000):
+        for v in new[3 * f : 3 * f + 3]:
+            rm.add(v)
+            rm.median()
+    per_frame_ms = 1e3 * (time.perf_counter() - t0) / 1000
+    assert per_frame_ms < 2.0, per_frame_ms
+    assert rm.median() == float(np.median(np.concatenate([vals, new])))
+
+
+def test_streaming_floor_is_median_of_history_over_frames_and_videos():
+    """Each frame's floor is session_floor x np.median of the half sides so far (two videos).
+
+    Per video once it has session_min_boxes boxes; of every video before that.
+    """
+    import torch
+
+    from sleap_nn.inference.keypoint_crops import StreamingPartStage
+    from sleap_nn.inference.outputs import Outputs
+
+    class _Part:  # stands in for the part model's layer
+        def predict(self, images, frame_boxes, frame_box_scores):
+            B, k = frame_boxes.shape[:2]
+            return Outputs(
+                pred_keypoints=torch.zeros(B, k, 1, 2),
+                pred_peak_values=torch.ones(B, k, 1),
+            )
+
+    rule = KeypointCropRule(
+        center=["a"],
+        reference=["b"],
+        scale=1.0,
+        session_floor=1.5,
+        session_min_boxes=10,
+    )
+    stage = StreamingPartStage(_Part(), rule, ["a", "b"])
+    resolved = rule.resolve(["a", "b"])
+    rng = np.random.default_rng(0)
+    hist = {0: [], 1: []}
+    checked = 0
+    for f in range(400):
+        v = (
+            0 if (f // 25) % 3 != 1 else 1
+        )  # video 1 starts at frame 25 (all-video fallback first)
+        k = rng.normal(100, 30, (1, 3, 2, 2)).astype(np.float32)
+        k[0, rng.integers(0, 3)] = np.nan  # one instance missing
+        out = stage(
+            torch.zeros(1, 1, 8, 8),
+            Outputs(pred_keypoints=torch.from_numpy(k)),
+            torch.tensor([v]),
+        )
+        assert out.pred_keypoints.shape == (1, 3, 3, 2)
+        for i in range(3):
+            if np.isnan(k[0, i]).all():
+                continue
+            box, _ = rule.box(k[0, i], resolved, 0.0)
+            if box is not None:
+                hist[v].append(float(box[2] - box[0]) / 2)
+        every = hist[0] + hist[1]
+        if len(hist[v]) >= 10:
+            want = 1.5 * float(np.median(hist[v]))
+        elif len(every) >= 10:
+            want = 1.5 * float(np.median(every))
+        else:
+            want = 0.0
+        if v in stage.last_floors:
+            assert stage.last_floors[v] == want, f
+            checked += 1
+    assert checked > 300
+    stage.reset()
+    assert stage.halves == {} and len(stage.every) == 0
+
+
+def test_streaming_part_stage_passes_the_runtime(monkeypatch):
+    """The part model of the streaming stage gets predict's runtime (it was dropped before)."""
+    from sleap_nn.inference import keypoint_crops as KC
+    from sleap_nn.inference.predictor import Predictor
+
+    seen = []
+
+    class _P:
+        skeleton = sio.Skeleton(["p"])
+
+        def _scoped_postprocess_layer(self, **kw):
+            return None
+
+    def fake(paths, **kw):
+        seen.append(kw)
+        return _P()
+
+    monkeypatch.setattr(Predictor, "from_model_paths", staticmethod(fake))
+    base = sio.Skeleton(["a", "b"])
+    rule = dict(center=["a"], reference=["b"])
+    KC.build_streaming_part_stage(base, ["x"], rule, export_runtime="onnx")
+    KC.build_streaming_part_stage(base, ["x"], rule)
+    assert seen[0]["export_runtime"] == "onnx" and "export_runtime" not in seen[1]
+
+
+def test_predict_passes_the_runtime_to_the_streaming_part_stage(
+    minimal_instance,
+    minimal_instance_centroid_ckpt,
+    minimal_instance_centered_instance_ckpt,
+    monkeypatch,
+):
+    """predict(..., part_streaming=True, runtime=...) hands the runtime to the part stage."""
+    from sleap_nn.inference import keypoint_crops as KC
+    from sleap_nn.inference.run import predict
+
+    class _Stop(Exception):
+        pass
+
+    def fake(*a, **kw):
+        raise _Stop(kw.get("export_runtime"))
+
+    monkeypatch.setattr(KC, "build_streaming_part_stage", fake)
+    ckpts = [
+        str(minimal_instance_centroid_ckpt),
+        str(minimal_instance_centered_instance_ckpt),
+    ]
+    with pytest.raises(_Stop, match="onnx"):
+        predict(
+            str(minimal_instance),
+            model_paths=ckpts,
+            device="cpu",
+            part_model_paths=[ckpts[1]],
+            part_crop_rule=RULE,
+            part_streaming=True,
+            runtime="onnx",
+        )
+
+
+def test_streaming_stage_cost_does_not_grow_with_history():
+    """The stage's own per-frame time with 300k half sides in the history stays near its time with none.
+
+    Catches a history rebuilt or scanned inside the stage (not only in RunningMedian).
+    """
+    import time
+    from array import array
+
+    import torch
+
+    from sleap_nn.inference.keypoint_crops import RunningMedian, StreamingPartStage
+    from sleap_nn.inference.outputs import Outputs
+
+    class _Part:
+        def predict(self, images, frame_boxes, frame_box_scores):
+            B, k = frame_boxes.shape[:2]
+            return Outputs(
+                pred_keypoints=torch.zeros(B, k, 1, 2),
+                pred_peak_values=torch.ones(B, k, 1),
+            )
+
+    rule = KeypointCropRule(
+        center=["a"],
+        reference=["b"],
+        scale=1.0,
+        session_floor=1.0,
+        session_min_boxes=10,
+    )
+    rng = np.random.default_rng(0)
+    frames = [
+        Outputs(
+            pred_keypoints=torch.from_numpy(
+                rng.normal(100, 30, (1, 3, 2, 2)).astype(np.float32)
+            )
+        )
+        for _ in range(300)
+    ]
+
+    def per_frame_ms(stage):
+        t0 = time.perf_counter()
+        for o in frames:
+            stage(torch.zeros(1, 1, 8, 8), o, torch.tensor([0]))
+        return 1e3 * (time.perf_counter() - t0) / len(frames)
+
+    def filled(n):
+        vals = np.sort(rng.normal(40, 10, n))
+        h = len(vals) // 2
+        m = RunningMedian()
+        m._lo = array("d", (-vals[:h][::-1]).tolist())
+        m._hi = array("d", vals[h:].tolist())
+        return m
+
+    small = StreamingPartStage(_Part(), rule, ["a", "b"])
+    per_frame_ms(small)  # warm
+    t_small = min(per_frame_ms(small) for _ in range(2))
+    big = StreamingPartStage(_Part(), rule, ["a", "b"])
+    big.halves[0], big.every = filled(300_000), filled(300_000)
+    t_big = min(per_frame_ms(big) for _ in range(2))
+    assert t_big < 2 * t_small + 1.0, (t_small, t_big)
+
+
+def test_running_median_remove_matches_np_median():
+    """Removing values (ties included) keeps the median equal to np.median of what is left."""
+    from sleap_nn.inference.keypoint_crops import RunningMedian
+
+    rng = np.random.default_rng(3)
+    vals = list(rng.integers(0, 20, 400).astype(float)) + list(rng.normal(5, 3, 400))
+    rm = RunningMedian()
+    for v in vals:
+        rm.add(v)
+    left = list(vals)
+    for k in rng.permutation(len(vals))[:700]:
+        x = vals[k]
+        rm.remove(x)
+        left.remove(x)
+        assert rm.median() == float(np.median(left))
+    with pytest.raises(ValueError):
+        rm.remove(1e9)
+    rm.add(float("nan"))
+    rm.remove(float("nan"))
+    assert len(rm) == len(left)
+
+
+def test_streaming_stage_failure_leaves_the_floor_as_it_was():
+    """A part model that raises inside the stage adds nothing to the floor history."""
+    import torch
+
+    from sleap_nn.inference.keypoint_crops import StreamingPartStage
+    from sleap_nn.inference.outputs import Outputs
+
+    class _Part:
+        fail = False
+
+        def predict(self, images, frame_boxes, frame_box_scores):
+            if self.fail:
+                raise RuntimeError("boom")
+            B, k = frame_boxes.shape[:2]
+            return Outputs(
+                pred_keypoints=torch.zeros(B, k, 1, 2),
+                pred_peak_values=torch.ones(B, k, 1),
+            )
+
+    rule = KeypointCropRule(
+        center=["a"], reference=["b"], scale=1.0, session_floor=1.0, session_min_boxes=2
+    )
+    part = _Part()
+    stage = StreamingPartStage(part, rule, ["a", "b"])
+    rng = np.random.default_rng(0)
+
+    def frame():
+        return Outputs(
+            pred_keypoints=torch.from_numpy(
+                rng.normal(100, 30, (1, 3, 2, 2)).astype(np.float32)
+            )
+        )
+
+    for _ in range(5):
+        stage(torch.zeros(1, 1, 8, 8), frame(), torch.tensor([0]))
+    before = (len(stage.halves[0]), stage.halves[0].median(), len(stage.every))
+    floors = dict(stage.last_floors)
+    part.fail = True
+    with pytest.raises(RuntimeError, match="boom"):
+        stage(torch.zeros(1, 1, 8, 8), frame(), torch.tensor([0]))
+    with pytest.raises(RuntimeError, match="boom"):  # a new video: removed again
+        stage(torch.zeros(1, 1, 8, 8), frame(), torch.tensor([1]))
+    assert (len(stage.halves[0]), stage.halves[0].median(), len(stage.every)) == before
+    assert 1 not in stage.halves and stage.last_floors == floors
+
+
+def test_streaming_stage_undo_last_and_forget_last():
+    """undo_last takes back the last successful call; after forget_last it does nothing."""
+    import torch
+
+    from sleap_nn.inference.keypoint_crops import StreamingPartStage
+    from sleap_nn.inference.outputs import Outputs
+
+    class _Part:
+        def predict(self, images, frame_boxes, frame_box_scores):
+            B, k = frame_boxes.shape[:2]
+            return Outputs(
+                pred_keypoints=torch.zeros(B, k, 1, 2),
+                pred_peak_values=torch.ones(B, k, 1),
+            )
+
+    rule = KeypointCropRule(
+        center=["a"], reference=["b"], scale=1.0, session_floor=1.0, session_min_boxes=2
+    )
+    stage = StreamingPartStage(_Part(), rule, ["a", "b"])
+    rng = np.random.default_rng(1)
+
+    def call():
+        k = rng.normal(100, 30, (1, 3, 2, 2)).astype(np.float32)
+        stage(torch.zeros(1, 1, 8, 8), Outputs(pred_keypoints=torch.from_numpy(k)))
+
+    for _ in range(4):
+        call()
+    state = (len(stage.every), stage.every.median(), dict(stage.last_floors))
+    call()
+    stage.undo_last()
+    assert (len(stage.every), stage.every.median(), dict(stage.last_floors)) == state
+    stage.undo_last()  # twice: nothing more
+    assert len(stage.every) == state[0]
+    call()
+    stage.forget_last()
+    stage.undo_last()
+    assert len(stage.every) == state[0] + 3

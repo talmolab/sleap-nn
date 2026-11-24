@@ -33,15 +33,104 @@ Warnings emitted on construction (verified by tests):
 from __future__ import annotations
 
 import warnings
-from typing import Any, Dict, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import attrs
 import torch
 import torch.nn as nn
 
+#: What a backend's ``autocast_dtype`` covers (``TorchBackend.autocast_scope``).
+AUTOCAST_SCOPES = ("all", "encoder")
+
+
+def supports_encoder_autocast(model: nn.Module) -> bool:
+    """Whether ``model`` holds sleap-nn models whose encoders take encoder autocast.
+
+    True when ``model`` holds at least one
+    :class:`~sleap_nn.architectures.model.Model` and each is a ``bbox_detr``
+    detector (its whole backbone is the encoder) or has a backbone that runs its
+    encoder through :func:`~sleap_nn.architectures.common.run_encoder`
+    (``supports_encoder_autocast``: UNet, including its stem; ConvNeXt; Swin;
+    ``pretrained`` timm and HuggingFace backbones).
+    """
+    from sleap_nn.architectures.model import Model
+
+    nets = [m for m in model.modules() if isinstance(m, Model)]
+    return bool(nets) and all(
+        net.model_type == "bbox_detr"
+        or bool(getattr(net.backbone, "supports_encoder_autocast", False))
+        for net in nets
+    )
+
+
+def autocast_forward(
+    model: nn.Module,
+    x: torch.Tensor,
+    dtype: torch.dtype,
+    scope: str = "all",
+    device_type: str = "cuda",
+) -> Any:
+    """``model(x)`` under ``torch.autocast(device_type, dtype)``, whole or encoder only.
+
+    Args:
+        model: The module to run.
+        x: Its input.
+        dtype: The autocast dtype (``torch.bfloat16`` or ``torch.float16``).
+        scope: ``"all"``: the whole forward runs under autocast. ``"encoder"``
+            (experimental): only the backbones' encoders do
+            (:func:`~sleap_nn.architectures.common.encoder_autocast`); their
+            outputs are cast to fp32, and every layer after them (decoder, heads,
+            a DETR detector's projector, transformer decoder and box head) runs in
+            fp32. The request belongs to the calling thread; another thread
+            running an encoder-only call at the same time raises (see
+            ``encoder_autocast``).
+        device_type: Autocast device type (``TorchBackend`` passes ``"cuda"``;
+            tests use ``"cpu"``, where bf16 autocast also works).
+
+    Returns:
+        The model's output, as autocast left it (``TorchBackend`` casts half
+        floats back to fp32).
+
+    Raises:
+        ValueError: If ``scope`` is ``"encoder"`` and ``model`` does not support it.
+        RuntimeError: If no encoder ran under the encoder scope.
+    """
+    from sleap_nn.architectures.common import encoder_autocast
+
+    if scope == "all":
+        with torch.autocast(device_type=device_type, dtype=dtype):
+            return model(x)
+    if scope != "encoder":
+        raise ValueError(f"scope must be one of {AUTOCAST_SCOPES}; got {scope!r}.")
+    if not supports_encoder_autocast(model):
+        raise ValueError(
+            "Encoder-only autocast needs sleap-nn models whose backbone supports it; "
+            f"{type(model).__name__} does not."
+        )
+    with encoder_autocast(device_type, dtype) as state:
+        out = model(x)
+    if not state["calls"]:
+        raise RuntimeError(
+            "Encoder-only autocast was asked for but no encoder ran under it."
+        )
+    return out
+
+
 # ──────────────────────────────────────────────────────────────────────────
 # TorchBackend
 # ──────────────────────────────────────────────────────────────────────────
+
+
+_SCOPE_COMPILE_ERROR = (
+    "autocast_scope='encoder' (precision '*-encoder') is not supported with "
+    "use_compile=True."
+)
+
+
+def _check_scope_compile(backend: "TorchBackend", attribute: Any, value: str) -> None:
+    """``autocast_scope="encoder"`` is not supported with ``use_compile``."""
+    if value != "all" and backend.use_compile:
+        raise ValueError(_SCOPE_COMPILE_ERROR)
 
 
 def _contiguous_strides(shape: torch.Size) -> Tuple[int, ...]:
@@ -69,6 +158,10 @@ def _on_set_compile(backend: "TorchBackend", attribute: Any, value: Any) -> Any:
     """
     use_compile = value if attribute.name == "use_compile" else backend.use_compile
     mode = value if attribute.name == "compile_mode" else backend.compile_mode
+    if use_compile and backend.autocast_scope != "all":
+        # `_check_scope_compile` runs only when the scope is set, and reads
+        # `backend.use_compile`, which still holds the old value here.
+        raise ValueError(_SCOPE_COMPILE_ERROR)
     if use_compile and backend.device == "mps":
         warnings.warn("torch.compile is unreliable on MPS; disabling.", stacklevel=3)
         use_compile = False
@@ -105,6 +198,18 @@ class TorchBackend:
             CUDA-only; counter-productive at batch < 4. Emits a drift warning.
         fuse_layers: Fold ``Conv2d → BatchNorm2d`` pairs in-place. Negligible
             speedup on the test UNets; opt-in.
+        autocast_dtype: Run the forward under ``torch.autocast`` with this
+            dtype (``torch.bfloat16`` or ``torch.float16``; CUDA only, outputs
+            cast back to fp32). Takes precedence over ``use_fp16``. Set by
+            ``Predictor.from_model_paths(precision=...)``, which warns when it
+            has no effect (off CUDA, exported models); the backend itself
+            emits no warning.
+        autocast_scope: Experimental. What ``autocast_dtype`` covers:
+            ``"all"`` (default, the whole forward) or ``"encoder"`` (only the
+            backbones' encoders, see :func:`autocast_forward`; every layer after
+            them runs in fp32 on fp32 inputs). Set by
+            ``Predictor.from_model_paths(precision="bf16-encoder")``. Not with
+            ``use_compile``.
         memory_format: ``"contiguous"`` (default, channels-first) or
             ``"channels_last"``: the memory layout of the model's weights.
             cuDNN's fast convolution kernels on NVIDIA GPUs want the
@@ -130,6 +235,11 @@ class TorchBackend:
     )
     use_fp16: bool = False
     fuse_layers: bool = False
+    autocast_dtype: Optional[torch.dtype] = None
+    autocast_scope: str = attrs.field(
+        default="all",
+        validator=[attrs.validators.in_(AUTOCAST_SCOPES), _check_scope_compile],
+    )
     warmup_iterations: int = 1
     memory_format: str = attrs.field(
         default="contiguous",
@@ -202,11 +312,13 @@ class TorchBackend:
         # ``.float()``, etc.) — a destructive ``model.half()`` would instead
         # raise an Input/weight dtype mismatch on those. Outputs are cast back
         # to fp32 below so downstream peak-finding sees fp32 confmaps.
-        use_autocast = self.use_fp16 and "cuda" in self.device
+        dtype = self._forward_autocast_dtype()
+        use_autocast = dtype is not None and "cuda" in self.device
         with torch.inference_mode():
             if use_autocast:
-                with torch.autocast(device_type="cuda", dtype=torch.float16):
-                    out = model(x)
+                out = autocast_forward(
+                    model, x, dtype, scope=self.autocast_scope, device_type="cuda"
+                )
             else:
                 out = model(x)
 
@@ -217,7 +329,7 @@ class TorchBackend:
                 return v
             if padded > n and v.ndim and v.shape[0] == padded:
                 v = v[:n]
-            if use_autocast and v.dtype == torch.float16:
+            if use_autocast and v.dtype in (torch.float16, torch.bfloat16):
                 v = v.float()
             return v
 
@@ -262,6 +374,12 @@ class TorchBackend:
     # ──────────────────────────────────────────────────────────────────
     # Internals
     # ──────────────────────────────────────────────────────────────────
+
+    def _forward_autocast_dtype(self) -> Optional[torch.dtype]:
+        """Autocast dtype of the forward: ``autocast_dtype``, else fp16 if ``use_fp16``."""
+        if self.autocast_dtype is not None:
+            return self.autocast_dtype
+        return torch.float16 if self.use_fp16 else None
 
     def _apply_memory_format(self, memory_format: str) -> None:
         """Convert the model's weights to ``memory_format`` (in place).

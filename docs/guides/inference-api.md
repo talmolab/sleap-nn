@@ -102,7 +102,8 @@ Selected keyword arguments (all keyword-only):
 | `device` | `"cpu"`, `"cuda"`, `"mps"`, `"cuda:N"` | `"cpu"` |
 | `batch_size` | Default batch size for auto-built providers | `4` |
 | `peak_threshold` | `float`, or `[centroid_thresh, keypoint_thresh]` for top-down | `0.2` |
-| `integral_refinement` | `"integral"`, `"local"`, or `"none"` / `None` | `"integral"` |
+| `integral_refinement` | `"auto"` (DARK for top-down keypoints, integral elsewhere), `"dark"`, `"integral"`, `"local"` or `"none"` | `"auto"` |
+| `flip_test` | Top-down `centered_instance` only: average confmaps with those of the mirrored crops | `False` |
 | `integral_patch_size` | Refinement patch size | `5` |
 | `max_instances` | Cap on instances per frame | `None` |
 | `return_confmaps` | Keep confidence maps on `Outputs` (single-instance / bottom-up; not top-down) | `False` |
@@ -110,8 +111,9 @@ Selected keyword arguments (all keyword-only):
 | `filter_config` | A `FilterConfig` | `None` |
 | `tracker_config` | A `TrackerConfig` | `None` |
 | `paf_workers` | CPU worker processes for bottom-up PAF grouping | `0` |
-| `upload_batches` | Copy each `uint8` batch to the model's GPU before preprocessing (CUDA) | `False` |
+| `upload_batches` | Copy each `uint8` batch to the model's GPU before preprocessing (CUDA; every pipeline, and a streamed part stage reads the same copy). Not bit-identical to the CPU resize | `False` |
 | `memory_format` | Weight layout of every model: `"contiguous"` or `"channels_last"` (NVIDIA) | `"contiguous"` |
+| `precision` | `"32"` (strict fp32), `"bf16"` or `"fp16"`: every model's forward under `torch.autocast` (CUDA; no effect elsewhere, with a warning) | `"32"` |
 | `centroid_only` | Force centroid-only output | `False` |
 
 The skeleton is resolved automatically from the training config, so
@@ -142,8 +144,7 @@ Common `predict` keyword arguments: `make_labels`, `frames`, `skeleton`,
 `videos`, `clean_empty_frames`, `progress_callback`, `peak_threshold`,
 `centroid_threshold`, `keypoint_threshold`, `max_instances`,
 `integral_refinement`, `integral_patch_size`, `return_confmaps`,
-`return_crops`. Each override defaults to keeping the predictor's setting;
-`integral_refinement=None` turns refinement off for that call.
+`return_crops`.
 
 !!! note "Per-stage thresholds (top-down)"
     For top-down models, `peak_threshold` sets *both* stages; use
@@ -532,6 +533,97 @@ the layer runs `preprocess → backend → postprocess` on whatever array you
 hand it. Note this bypasses the predictor's `FilterPipeline` and tracking;
 apply [`FilterPipeline`](#applying-filters-manually) / `apply_tracking`
 yourself if needed.
+
+### Frame in, pose out: `open_stream`
+
+!!! info "Beta"
+    `open_stream` and `PoseStream` are in beta: the interface may still change in a
+    minor release. The pipeline behind them is the one `predict` runs.
+
+`open_stream` builds the same pipeline as `predict` (same model arguments, filters
+and part stage) and returns a `PoseStream`: push one frame, get that frame's
+poses back. A camera loop is about ten lines:
+
+```python
+import cv2
+from sleap_nn.inference.run import open_stream
+
+cap = cv2.VideoCapture(0)
+ok, frame = cap.read()
+with open_stream(["models/detector", "models/pose"], channel_order="bgr",
+                 frame_shape=frame.shape) as stream:      # warm-up runs here
+    while ok:
+        poses = stream.push(frame)           # FramePoses for this frame
+        print(poses.frame_idx, len(poses), poses.points.shape, stream.last_latency_ms)
+        ok, frame = cap.read()
+```
+
+`FramePoses` holds numpy arrays for one frame: `points` `(instances, nodes, 2)`,
+`point_scores`, `instance_scores`, and for box detectors `boxes` `(instances, 4)` and
+`box_scores`; `node_names` names the nodes. A frame with no animal gives arrays with
+zero rows.
+
+- **Same result as `predict`.** Pushing a video's frames one by one gives the
+  points of `sleap-nn predict --batch_size 1 --part_streaming` (bit-identical
+  in the tests; the streaming [part stage](part-stage.md) is experimental). Per-frame options (`peak_threshold`, `centroid_threshold`,
+  `max_instances`, `filter_config`, ...) mean what they mean for `predict`;
+  arguments `open_stream` does not list take `predict`'s defaults.
+- **Models.** The models must end in keypoints: a single-instance or bottom-up
+  model, or a top-down pair (a centroid model or a box detector, with a
+  centered-instance model). Others (a lone detector or centroid model) raise at
+  open.
+- **Input.** `uint8` numpy arrays or tensors, `(H, W)` or `(H, W, C)` with `C` 1 or
+  3, in any memory layout. Colour frames are taken as RGB (what sleap-io gives);
+  pass `channel_order="bgr"` for OpenCV frames. Anything else raises. All frames
+  of a stream have one size: a different size raises until you call
+  `stream.reset()`, which also starts a new video (frame counter, the part stage's
+  running crop size). A `push` that raises leaves the stream as it was.
+- **Warm-up.** With `frame_shape=`, `open_stream` runs every network on dummy
+  data first (the first stage, then the pose and part models on 1-4 crops, fed
+  as a real frame feeds them: boxes on the device the first stage returns them
+  on, the frame on the card with `upload_batches`); without it there is no
+  warm-up and the first frames are slower. Even after it, the first real frame
+  with animals takes a little longer than the rest (about 1.5 ms more with
+  TensorRT engines and frames on the GPU), because some steps only run when
+  something is found. If that matters, push a few real frames and call
+  `stream.reset()` before going live. With `keep=True` those frames stay in
+  `stream.labels()` / `stream.save()` as a video of their own (the live frames
+  follow as the next one) and `stream.last_latency_ms` keeps its value until
+  the next push; open the stream with `keep=False` for priming, or drop the
+  first video from the labels. Setting the environment variable
+  `CUDA_MODULE_LOADING=EAGER` before importing torch removes about 0.6 ms of it,
+  but it applies to the whole process: on one card it added about 2.7 s to
+  start-up and 1.1 GB of card memory.
+- **No tracker.** Instances come in detection order; identities are not kept across
+  frames. Run a tracker on the results yourself.
+- **Keeping results.** `keep=True` keeps every frame's outputs (on the CPU) for
+  `stream.labels()` / `stream.save("out.slp")`, one video per `reset()`; memory
+  grows with every frame, so leave it off for long live runs.
+- **One caller.** A stream is meant for one thread pushing frames in order.
+
+#### Settings for low latency
+
+TensorRT bf16 export folders (`--network-only` for the centered-instance and
+part models) and frames copied to the GPU before the first stage
+(`upload_batches=True`: each pushed frame is uploaded once, and the pose and
+part models cut their crops from that copy; results are not bit-identical to
+the CPU resize):
+
+```bash
+sleap-nn export models/detector -o low_latency/detector --format tensorrt --precision bf16 --device cuda
+sleap-nn export models/pose -o low_latency/pose --network-only --input-dtype float32 --format tensorrt --precision bf16 --device cuda
+sleap-nn export models/tail -o low_latency/tail --network-only --input-dtype float32 --format tensorrt --precision bf16 --device cuda
+```
+
+```python
+stream = open_stream(["low_latency/detector", "low_latency/pose"], runtime="tensorrt",
+                     upload_batches=True, part_model_paths=["low_latency/tail"],
+                     part_crop_rule="tail_crop_rule.json", frame_shape=(1024, 1280, 3))
+```
+
+How long a `push` takes depends on the card, the CPU and the number of animals:
+time it on your machine with `stream.last_latency_ms` (from the `push` call to the
+results back as numpy arrays) before relying on it.
 
 ---
 

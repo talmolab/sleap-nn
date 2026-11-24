@@ -66,6 +66,167 @@ def _parse_int_list(ctx, param, value):
         )
 
 
+_SLP_VERSION_HELP = (
+    "File layout of the output .slp: 'v2' (the SLP 2.x layout that older "
+    "sleap-io and SLEAP releases can open), 'v3' (SLP 3.0) or 'auto'. With "
+    "'auto' (sleap-io 0.10's default), a file whose content fits the 2.x "
+    "layout is written in 2.x and a file that needs format 3.0 is written as "
+    "3.0 with a warning. Default: unset, which saves as 'auto' does."
+)
+
+# `detect-boxes` output keeps each box's matching score, which only SLP 3.0
+# stores, so it does not offer `v2` (the Python call refuses it too).
+_DETECT_BOXES_SLP_VERSION_HELP = (
+    "File layout of the output .slp: 'v3' or 'auto'. Both write SLP 3.0, which "
+    "keeps each box's matching score; the SLP 2.x layout cannot, so 'v2' is not "
+    "offered. Default: unset (SLP 3.0)."
+)
+
+# The save options that only shape embedded frames.
+_IMAGE_SAVE_OPTIONS = ("image_format", "image_quality")
+
+
+def _slp_save_option_list(
+    slp_versions=("auto", "v2", "v3"), slp_version_help: str = _SLP_VERSION_HELP
+) -> list:
+    """The ``.slp`` file-layout and frame-format options (all default to ``None``).
+
+    Shared by every command that writes a ``.slp``; ``None`` passes nothing to
+    sleap-io, so a command run without them saves exactly as before.
+    """
+    return [
+        click.option(
+            "--slp_version",
+            type=click.Choice(list(slp_versions), case_sensitive=False),
+            default=None,
+            help=slp_version_help,
+        ),
+        click.option(
+            "--image_format",
+            type=click.Choice(["png", "jpg", "jpeg", "hdf5"], case_sensitive=False),
+            default=None,
+            help="Format of frames embedded in the output .slp: 'png', 'jpg' "
+            "(or 'jpeg') or 'hdf5' (raw pixels). Only applies when frames are "
+            "embedded (predict's in-memory route with --embed true or auto); "
+            "with --embed false it warns and has no effect, and routes that never "
+            "embed frames (--stream-to-file, the re-ID embedding route, track, "
+            "detect-boxes) refuse it. Default: sleap-io's default.",
+        ),
+        click.option(
+            "--image_quality",
+            type=int,
+            default=None,
+            help="Quality of re-encoded embedded frames: JPEG quality 0-100 with "
+            "--image_format jpg, or PNG compression level 0-9 with --image_format "
+            "png. Applies where --image_format does. Default: sleap-io's default.",
+        ),
+        click.option(
+            "--compression",
+            type=click.Choice(["gzip", "lzf"], case_sensitive=False),
+            default=None,
+            help="Compress the tables of the output .slp ('gzip' or 'lzf') for a "
+            "smaller file that reads more slowly. Default: sleap-io's default "
+            "(uncompressed).",
+        ),
+        click.option(
+            "--unlabeled_as",
+            type=click.Choice(["error", "absent"], case_sensitive=False),
+            default=None,
+            help="What a --slp_version v2 save does with points that are not "
+            "labeled, which that layout cannot store: 'error' (refuse to write) or "
+            "'absent' (write them as hidden points, with a warning). Default: "
+            "sleap-io's default ('error').",
+        ),
+    ]
+
+
+def _slp_save_options(f):
+    """Add the ``.slp`` save options (see :func:`_slp_save_option_list`)."""
+    for d in reversed(_slp_save_option_list()):
+        f = d(f)
+    return f
+
+
+def _detect_boxes_save_options(f):
+    """The ``.slp`` save options for ``detect-boxes``: no ``--slp_version v2``."""
+    for d in reversed(
+        _slp_save_option_list(("auto", "v3"), _DETECT_BOXES_SLP_VERSION_HELP)
+    ):
+        f = d(f)
+    return f
+
+
+def _refuse_image_save_options(kwargs: dict, route: str, why: str) -> None:
+    """Refuse ``--image_format`` / ``--image_quality`` on a route that never embeds.
+
+    Args:
+        kwargs: The command's parameters.
+        route: The route, completing "... not supported <route>".
+        why: Why that route never embeds frames.
+
+    Raises:
+        click.UsageError: If either option is set.
+    """
+    given = [f"--{n}" for n in _IMAGE_SAVE_OPTIONS if kwargs.get(n) is not None]
+    if not given:
+        return
+    one = len(given) == 1
+    raise click.UsageError(
+        f"{' / '.join(given)} {'is' if one else 'are'} not supported {route}: "
+        f"{why}, and {'it only shapes' if one else 'they only shape'} embedded "
+        "frames."
+    )
+
+
+def _warn_unused_save_options_early(kwargs: dict) -> None:
+    """Warn, before any model loads, about save options this run cannot use.
+
+    With only ``--output_format analysis_h5`` no ``.slp`` is written, so every
+    set save option is unused; with ``--embed false`` no frames are embedded, so
+    ``--image_format`` / ``--image_quality`` are unused. The unused options are
+    then cleared from ``kwargs``, so the save does not warn a second time.
+    """
+    from sleap_nn.inference.save_options import (
+        SAVE_OPTION_NAMES,
+        unused_options_message,
+    )
+
+    formats = {str(f).lower() for f in (kwargs.get("output_format") or ("slp",))}
+    if "slp" not in formats:
+        unused = [n for n in SAVE_OPTION_NAMES if kwargs.get(n) is not None]
+        reason = "--output_format analysis_h5 writes no .slp"
+        applies_to = "only to .slp output"
+    elif str(kwargs.get("embed") or "false").lower() == "false":
+        unused = [n for n in _IMAGE_SAVE_OPTIONS if kwargs.get(n) is not None]
+        reason = "--embed is false, so no frames are embedded"
+        applies_to = "only to embedded frames"
+    else:
+        return
+    if unused:
+        logger.warning(
+            unused_options_message([f"--{n}" for n in unused], applies_to, reason)
+        )
+        for name in unused:
+            kwargs[name] = None
+
+
+def _set_slp_save_options(kwargs: dict) -> dict:
+    """The ``.slp`` save options set in ``kwargs``, validated (unset ones left out).
+
+    Raises:
+        click.UsageError: If an option is invalid or the installed sleap-io cannot
+            take it.
+    """
+    from sleap_nn.inference.save_options import save_options_from, slp_save_kwargs
+
+    opts = {k: v for k, v in save_options_from(kwargs).items() if v is not None}
+    try:
+        slp_save_kwargs(**opts)
+    except ValueError as e:
+        raise click.UsageError(str(e)) from e
+    return opts
+
+
 class _CommaFloatTuple(click.ParamType):
     """Click type parsing a comma-separated float list into a tuple.
 
@@ -235,6 +396,8 @@ def cli():
     track    - Run inference/tracking workflow (legacy pipeline)
     eval     - Run evaluation workflow
     system   - Display system information and GPU status
+    import-rfdetr - Import an RF-DETR checkpoint as a bbox_detr model
+    detect-boxes - Write detector boxes into training labels
     """
     pass
 
@@ -1166,7 +1329,7 @@ def train(
     "--integral_refinement",
     type=str,
     default="integral",
-    help="Sub-pixel peak refinement: 'integral' (integral regression), 'local' (quarter-pixel offset towards the higher neighbor) or 'none' (grid-aligned peaks). Default: 'integral'.",
+    help="If `None`, returns the grid-aligned peaks with no refinement. If `'integral'`, peaks will be refined with integral regression. Default: 'integral'.",
 )
 @click.option(
     "--tracking_window_size",
@@ -1331,6 +1494,7 @@ def train(
     default=0,
     help="IOU to use when culling instances *after* tracking. (default: 0)",
 )
+@_slp_save_options
 @click.option(
     "--gui",
     is_flag=True,
@@ -1387,6 +1551,17 @@ def track(**kwargs):
     kwargs.pop("sam_disjointify_masks", None)
     kwargs.pop("sam3_model_id", None)
     kwargs.pop("overlay_path", None)
+    # The .slp save options: only the ones set are passed on. `track` never
+    # embeds frames, so the frame-format options are refused before inference.
+    from sleap_nn.inference.save_options import SAVE_OPTION_NAMES
+
+    _refuse_image_save_options(
+        kwargs, "by `track`", "it never embeds frames in its output"
+    )
+    save_options = _set_slp_save_options(kwargs)
+    for name in SAVE_OPTION_NAMES:
+        kwargs.pop(name, None)
+    kwargs.update(save_options)
 
     return run_inference(**kwargs)
 
@@ -1435,6 +1610,14 @@ def _run_inference_impl(**kwargs):
         raise click.UsageError(
             "--write-interval is only meaningful together with --stream-to-file."
         )
+    if kwargs.pop("frames_on_gpu", False):
+        # The old name of --upload_batches: same effect on every route below.
+        logger.warning(
+            "--frames_on_gpu is now --upload_batches: the frames are uploaded "
+            "for every pipeline (see --upload_batches). --frames_on_gpu is a "
+            "deprecated alias and will be removed in a later release."
+        )
+        kwargs["upload_batches"] = True
 
     if "model_paths" in kwargs and kwargs["model_paths"]:
         kwargs["model_paths"] = list(kwargs["model_paths"])
@@ -1448,6 +1631,10 @@ def _run_inference_impl(**kwargs):
 
     # Tracker flags the selected tracker family would ignore, on every route.
     _check_tracker_flags(kwargs)
+    # `--precision` where no trained checkpoint would run under it, on every route.
+    _check_precision_flag(kwargs)
+    # The .slp save options, checked before any model loads.
+    _set_slp_save_options(kwargs)
 
     # ── Embedding (re-ID) path: persist appearance vectors into a .slp ──
     # An `embedding` model emits appearance vectors, not poses/masks, so it does not go
@@ -1577,6 +1764,13 @@ def _run_inference_impl(**kwargs):
             "Run without --stream-to-file, or use a trained checkpoint directory."
         )
 
+    if kwargs.get("boxes") is not None:
+        _check_box_seeding_flags(kwargs, stream_to_file)
+    if kwargs.get("part_model") is not None:
+        _check_part_stage_flags(kwargs, stream_to_file)
+    if kwargs.get("part_streaming") and kwargs.get("part_model") is None:
+        raise click.UsageError("--part_streaming needs --part_model.")
+
     # ── Stream-to-file path: new Predictor + IncrementalLabelsWriter ───
     if stream_to_file is not None:
         return _run_stream_to_file(
@@ -1587,6 +1781,135 @@ def _run_inference_impl(**kwargs):
         )
 
     return _run_in_memory_new_flow(kwargs, paf_workers=paf_workers)
+
+
+def _check_precision_flag(kwargs: dict) -> None:
+    """Refuse ``--precision bf16/fp16`` where no trained checkpoint would run under it.
+
+    The flag runs models loaded from trained checkpoints under ``torch.autocast``.
+    The routes that load none would accept it and do nothing, so they refuse it
+    before anything loads: SAM masks (``--mask_backend``), tracking-only runs, an
+    ``embedding`` (re-ID) model (built without it), and runs whose models are all
+    exported ONNX/TensorRT directories. With checkpoints and exported directories
+    mixed, the checkpoints run under it and ``Predictor.from_model_paths`` logs
+    which models keep their exported precision.
+    """
+    precision = kwargs.get("precision") or "32"
+    if precision == "32":
+        return
+    from pathlib import Path
+
+    flag = f"--precision {precision}"
+    if kwargs.get("mask_backend"):
+        raise click.UsageError(
+            f"{flag} is not supported with --mask_backend: the SAM mask path "
+            "loads no trained checkpoint to run under it."
+        )
+    mps = list(kwargs.get("model_paths") or [])
+    if not mps:
+        raise click.UsageError(
+            f"{flag} applies to the trained checkpoints in --model_paths, and "
+            "none were given (a tracking-only run loads no model)."
+        )
+    if _has_embedding_model(mps):
+        raise click.UsageError(
+            f"{flag} is not supported with an `embedding` (re-ID) model, which "
+            "runs in fp32. Run the detection models on their own with "
+            "--precision, then embed their output .slp."
+        )
+
+    def exported(m, alone: bool = False) -> bool:
+        # Among several -m (and for --part_model) the checkpoint loader loads
+        # best.ckpt when the directory holds one. A single -m directory with
+        # best.ckpt takes the exported route, except when its export is a
+        # network-only crop model: then the checkpoint runs.
+        from sleap_nn.inference.exported_network import _holds_network_export
+
+        if not _is_export_dir(m):
+            return False
+        if not (Path(m) / "best.ckpt").exists():
+            return True
+        return alone and not (_holds_network_export(m) and not _is_box_detector_dir(m))
+
+    runs_exported = [exported(m, alone=len(mps) == 1) for m in mps]
+    if kwargs.get("part_model") is not None:
+        runs_exported.append(exported(kwargs["part_model"]))
+    if all(runs_exported):
+        raise click.UsageError(
+            f"{flag} applies to trained checkpoints only: an exported "
+            "ONNX/TensorRT model keeps the precision it was exported with. Drop "
+            "--precision, re-export at the precision you want (see `sleap-nn "
+            "export --precision`), or pass the checkpoint directory."
+        )
+
+
+def _check_part_stage_flags(kwargs: dict, stream_to_file) -> None:
+    """Refuse ``--part_model`` combinations its route cannot honor, before loading."""
+    if stream_to_file is not None:
+        raise click.UsageError(
+            "--part_model is not supported with --stream-to-file; run without it."
+        )
+    if not kwargs.get("part_crop_rule"):
+        raise click.UsageError("--part_model needs --part_crop_rule.")
+    from pathlib import Path
+
+    from sleap_nn.inference.exported_network import _holds_network_export
+
+    mps = kwargs.get("model_paths") or []
+    # Directories loaded by the checkpoint loader (several -m, and the part model)
+    # load best.ckpt when they hold one: they count as checkpoint directories here.
+    # A single -m keeps its own route: a fused export directory goes to the
+    # exported route whatever else it holds (refused here), a network-only one to
+    # the checkpoint route (accepted: the loader runs best.ckpt if present).
+    loaded = set(mps if len(mps) > 1 else []) | {kwargs["part_model"]}
+
+    def refused(m):
+        if not _is_export_dir(m):
+            return False
+        if m in loaded and (Path(m) / "best.ckpt").exists():
+            return False
+        return not _holds_network_export(m)
+
+    if not mps or any(refused(m) for m in mps + [kwargs["part_model"]]):
+        raise click.UsageError(
+            "--part_model needs checkpoint pose models (-m) or network-only "
+            "exports (`sleap-nn export --network-only`), not fused exported "
+            "models."
+        )
+
+
+def _part_stage_kwargs(kwargs: dict) -> dict:
+    """``predict`` part-stage kwargs from the CLI flags (empty without --part_model)."""
+    if kwargs.get("part_model") is None:
+        return {}
+    prefix = kwargs.get("part_node_prefix")
+    return {
+        "part_model_paths": [kwargs["part_model"]],
+        "part_crop_rule": kwargs.get("part_crop_rule"),
+        "part_node_filter": prefix,
+        "part_strip_prefix": None,
+        "part_peak_threshold": kwargs.get("part_peak_threshold"),
+        "part_prefix": kwargs.get("part_prefix"),
+        "part_streaming": bool(kwargs.get("part_streaming")),
+    }
+
+
+def _check_box_seeding_flags(kwargs: dict, stream_to_file) -> None:
+    """Refuse ``--boxes`` combinations its route cannot honor, before loading."""
+    if stream_to_file is not None:
+        raise click.UsageError(
+            "--boxes is not supported with --stream-to-file; run without it."
+        )
+    if not kwargs.get("model_paths"):
+        raise click.UsageError("--boxes needs a top-down crop model (-m).")
+    _, src_suffix, _ = _resolve_data_path(kwargs.get("data_path") or "")
+    if src_suffix != ".slp":
+        raise click.UsageError(
+            "--boxes needs a .slp input: the boxes are read from (or attached to) "
+            "its frames."
+        )
+    if kwargs.get("video_index") is not None:
+        raise click.UsageError("--boxes is not supported with --video_index.")
 
 
 def _resolve_device(value: object) -> str:
@@ -1644,6 +1967,20 @@ def _build_filter_config(kwargs: dict) -> "object":
     min_mean_node_score = float(kwargs.get("filter_min_mean_node_score") or 0.0)
     min_instance_score = float(kwargs.get("filter_min_instance_score") or 0.0)
     min_centroid_distance = float(kwargs.get("filter_min_centroid_distance") or 0.0)
+    # Off unless asked for, with or without --boxes, as in the Python ``predict``.
+    rescore = bool(kwargs.get("rescore"))
+    threshold = kwargs.get("rescore_threshold")
+    if rescore:
+        rescore_threshold = 0.2 if threshold is None else float(threshold)
+    else:
+        rescore_threshold = None
+        if threshold is not None:
+            logger.warning(
+                "--rescore_threshold has no effect without --rescore (rescoring is "
+                "off by default, also with --boxes); pass --rescore to rescore."
+            )
+    oks_nms = float(kwargs.get("oks_nms") or 0.0)
+    oks_sigmas = parse_oks_sigmas(kwargs.get("oks_sigmas"))
     if not (
         overlapping
         or min_visible_nodes
@@ -1651,6 +1988,8 @@ def _build_filter_config(kwargs: dict) -> "object":
         or min_mean_node_score
         or min_instance_score
         or min_centroid_distance
+        or rescore_threshold is not None
+        or oks_nms
     ):
         return None
     return FilterConfig(
@@ -1664,6 +2003,9 @@ def _build_filter_config(kwargs: dict) -> "object":
         min_mean_node_score=min_mean_node_score,
         min_instance_score=min_instance_score,
         min_centroid_distance=min_centroid_distance,
+        rescore_keypoint_threshold=rescore_threshold,
+        oks_nms_threshold=oks_nms,
+        oks_sigmas=oks_sigmas,
     )
 
 
@@ -2355,6 +2697,11 @@ _EMBEDDING_ROUTE_HONORED_OPTIONS = frozenset(
         "save_embeddings",
         "tracking",
         "restore_source_videos",
+        # The .slp save options, forwarded to the embedding writer. (Not
+        # --image_format / --image_quality: this route never embeds frames.)
+        "slp_version",
+        "compression",
+        "unlabeled_as",
         # Read for remote `.slp` inputs / rejected with their own message earlier.
         "headers",
         "stream_mode",
@@ -2392,6 +2739,10 @@ _EMBEDDING_ROUTE_OPTION_REASONS = {
     "anchor_part": "crop centering comes from the trained config",
     "output_format": "the embedding route writes a .slp only",
     "embed": "the embedding route writes a .slp only",
+    "image_format": "the embedding route's .slp references the source video; "
+    "frames are not embedded",
+    "image_quality": "the embedding route's .slp references the source video; "
+    "frames are not embedded",
     "video_dataset": "the embedding route reads detections from a .slp, not a video",
     "peak_threshold": "the embedding route detects nothing; it embeds existing detections",
 }
@@ -2408,6 +2759,16 @@ _FUSED_OUTPUT_OPTIONS = {
     ),
     "embed": (
         lambda v: str(v or "false").lower() != "false",
+        "the embedding route's .slp references the source video; frames are not "
+        "embedded",
+    ),
+    "image_format": (
+        lambda v: v is not None,
+        "the embedding route's .slp references the source video; frames are not "
+        "embedded",
+    ),
+    "image_quality": (
+        lambda v: v is not None,
         "the embedding route's .slp references the source video; frames are not "
         "embedded",
     ),
@@ -2515,6 +2876,11 @@ def _run_embeddings(
         raise click.UsageError(
             "--data_path is required for --save_embeddings / --tracking on an "
             "embedding model."
+        )
+    if _node_filter_kwargs(kwargs):
+        raise click.UsageError(
+            "--nodes/--node_prefix are not supported with an embedding model; run "
+            "the pose model on its own with them."
         )
 
     model_paths = list(kwargs["model_paths"])
@@ -2652,6 +3018,7 @@ def _run_embeddings(
             tracker_config=tracker_config,
             restore_source_videos=bool(kwargs.get("restore_source_videos", False)),
             remote_kwargs=remote_kwargs or None,
+            **_set_slp_save_options(kwargs),
         )
     except EmbeddingInputError as e:
         raise click.UsageError(str(e)) from e
@@ -2663,19 +3030,48 @@ def _run_embeddings(
     return out
 
 
-def _is_export_dir(path: str) -> bool:
-    """True if ``path`` is a directory holding an exported ONNX/TRT model.
+def _is_crop_network_export(path: str) -> bool:
+    """A folder holding a ``--network-only`` crop-model export (not a box detector).
 
-    A single ``--model_paths`` entry that is a directory containing
-    ``model.onnx`` or ``model.trt`` is an exported model and routes to the
-    ONNX/TensorRT runtime instead of checkpoint loading. The exporter writes
-    these artifacts to a dedicated directory (never alongside ``best.ckpt``),
-    so this never misfires on a checkpoint directory.
+    It stands in for its checkpoint, so alone (or with ``--boxes``) it takes the
+    checkpoint route, where it fails or runs exactly as the checkpoint would. A
+    folder that also holds ``best.ckpt`` takes the same route, where the loader
+    loads the checkpoint: the exported-model route cannot run a network-only graph
+    (it returns raw confidence maps, not peaks).
+    """
+    from sleap_nn.inference.exported_network import _holds_network_export
+
+    return _holds_network_export(path) and not _is_box_detector_dir(path)
+
+
+def _is_box_detector_dir(path: str) -> bool:
+    """Whether ``path`` is an export directory holding a box detector."""
+    from sleap_nn.inference.run import _is_box_detector_export
+
+    return _is_box_detector_export(path)
+
+
+def _is_export_dir(path: str) -> bool:
+    """True if ``path`` is a directory written by ``sleap-nn export``.
+
+    That is a directory holding ``export_metadata.json`` and ``model.onnx`` or
+    ``model.trt``. A single ``--model_paths`` entry that is one routes to the
+    ONNX/TensorRT runtime instead of checkpoint loading (unless it holds a
+    network-only crop export, see :func:`_is_crop_network_export`). An export
+    can be written next to ``best.ckpt`` (``sleap-nn export -o`` the model
+    directory): alone, such a directory still takes the exported route; among
+    several model paths the loader loads its checkpoint. A graph file without
+    the metadata is not an export written by ``sleap-nn export``: the directory
+    is left to the checkpoint loader.
     """
     from pathlib import Path
 
     p = Path(path)
-    return p.is_dir() and ((p / "model.onnx").exists() or (p / "model.trt").exists())
+    return (
+        p.is_dir()
+        and (p / "export_metadata.json").exists()
+        and ((p / "model.onnx").exists() or (p / "model.trt").exists())
+    )
 
 
 # Remote URL schemes sleap-io 0.8.0 can load directly (fsspec for ``.slp``, PyAV
@@ -2856,6 +3252,35 @@ def _warn_ignored_slp_filters_for_non_slp_source(kwargs: dict, src_suffix: str) 
         )
 
 
+def _warn_frames_with_slp_filters(
+    kwargs: dict, src_suffix: str, stream: bool = False
+) -> None:
+    """Warn that ``--frames`` is ignored on a whole ``.slp`` where it is dropped.
+
+    Without ``--video_index`` the ``.slp`` filters build a frame list that
+    ``--frames`` is not applied to, and ``--stream-to-file`` reads a ``.slp``
+    without ``--frames`` even when no filter is given, so the range is dropped; it
+    used to be dropped without a word. With ``--video_index`` the two combine
+    (``--frames`` are that video's frame indices), so that route is not reported.
+    """
+    if src_suffix != ".slp" or kwargs.get("video_index") is not None:
+        return
+    if not kwargs.get("frames"):
+        return
+    filters = [f"--{flag}" for flag in _SLP_ONLY_FRAME_FILTER_FLAGS if kwargs.get(flag)]
+    if filters:
+        reason, runs = f"with {', '.join(filters)}", "every frame the filter selects"
+    elif stream:
+        reason, runs = "by --stream-to-file", "every labeled frame of the .slp"
+    else:
+        return
+    logger.warning(
+        f"--frames is ignored {reason} on a .slp without --video_index: {runs} is "
+        "predicted. Pass --video_index N to predict those frame indices of video N, "
+        "filtered by the .slp's annotations."
+    )
+
+
 def _refuse_overwriting_input_early(source, output_path, output_format) -> None:
     """Refuse, as a usage error, an ``.slp`` output over the input's frame source.
 
@@ -2868,6 +3293,30 @@ def _refuse_overwriting_input_early(source, output_path, output_format) -> None:
         _refuse_overwriting_source_before_inference(source, output_path, output_format)
     except ValueError as e:
         raise click.UsageError(str(e)) from e
+
+
+def _node_filter_kwargs(kwargs: dict) -> dict:
+    """``node_filter`` / ``strip_prefix`` predictor kwargs from the CLI flags.
+
+    Empty without ``--nodes`` / ``--node_prefix``.
+
+    Raises:
+        click.UsageError: For both flags at once, or ``--strip_prefix`` without
+            ``--node_prefix``.
+    """
+    names = [n.strip() for arg in kwargs.get("nodes") or () for n in arg.split(",")]
+    names = [n for n in names if n]
+    prefix = kwargs.get("node_prefix")
+    if names and prefix is not None:
+        raise click.UsageError("Pass --nodes or --node_prefix, not both.")
+    if kwargs.get("strip_prefix") and prefix is None:
+        raise click.UsageError("--strip_prefix needs --node_prefix.")
+    if not names and prefix is None:
+        return {}
+    return {
+        "node_filter": names or prefix,
+        "strip_prefix": True if kwargs.get("strip_prefix") else None,
+    }
 
 
 def _run_in_memory_new_flow(
@@ -2930,6 +3379,10 @@ def _run_in_memory_new_flow(
                 "subset frames, or pre-filter the .slp."
             )
 
+    # Save options this run cannot use: warn now, not after the whole pass.
+    if save_output:
+        _warn_unused_save_options_early(kwargs)
+
     # ── Tracking-only retrack: no model_paths, --tracking on a .slp ────
     if not kwargs.get("model_paths") and kwargs.get("tracking"):
         return _run_retrack_only(kwargs, Predictor)
@@ -2942,6 +3395,7 @@ def _run_in_memory_new_flow(
     # options (--headers/--stream-mode) are forwarded to the URL-aware loaders.
     source_str, src_suffix, src_is_url = _resolve_data_path(kwargs["data_path"])
     _warn_ignored_slp_filters_for_non_slp_source(kwargs, src_suffix)
+    _warn_frames_with_slp_filters(kwargs, src_suffix)
     remote_kwargs = _build_remote_kwargs(kwargs)
 
     # Build source: use a provider when CLI-specific filtering or
@@ -3043,11 +3497,18 @@ def _run_in_memory_new_flow(
     centroid_thresh = kwargs.get("centroid_peak_threshold") or peak_thresh
 
     # Auto-detect an exported ONNX/TRT model directory: a single --model_paths
-    # entry containing model.onnx/model.trt runs through the exported-model
-    # runtime. Multiple paths are always trained checkpoints (top-down).
+    # entry holding an export with its post-processing in the graph (or a box
+    # detector export) runs through the exported-model runtime. A network-only
+    # crop export takes the checkpoint route (with best.ckpt next to it, the
+    # checkpoint runs). Several paths always go through the checkpoint loader.
     _mps = kwargs["model_paths"]
     export_dir = (
-        _mps[0] if _mps and len(_mps) == 1 and _is_export_dir(_mps[0]) else None
+        _mps[0]
+        if _mps
+        and len(_mps) == 1
+        and _is_export_dir(_mps[0])
+        and not _is_crop_network_export(_mps[0])
+        else None
     )
 
     predict_kwargs: dict = {
@@ -3057,10 +3518,11 @@ def _run_in_memory_new_flow(
         "paf_workers": paf_workers,
         "upload_batches": bool(kwargs.get("upload_batches")),
         "memory_format": kwargs.get("memory_format") or "contiguous",
+        "precision": kwargs.get("precision") or "32",
         "peak_threshold": peak_thresh,
         "centroid_threshold": centroid_thresh,
         "keypoint_threshold": peak_thresh,
-        "integral_refinement": kwargs.get("integral_refinement", "integral"),
+        "integral_refinement": kwargs.get("integral_refinement", "auto"),
         "integral_patch_size": kwargs.get("integral_patch_size", 5),
         "max_instances": kwargs.get("max_instances"),
         "anchor_part": kwargs.get("anchor_part"),
@@ -3087,6 +3549,14 @@ def _run_in_memory_new_flow(
         # Bottom-up segmentation knobs (inert for non-segmentation models).
         "fg_threshold": kwargs.get("fg_threshold", 0.5),
         "bbox_nms_iou": kwargs.get("bbox_nms_iou"),
+        "flip_test": kwargs.get("flip_test", False),
+        # Every route: export directories among several --model_paths (network-only
+        # exports, box detectors) and a --part_model export run on this runtime.
+        "runtime": (kwargs.get("runtime") or "auto").lower(),
+        "boxes": kwargs.get("boxes"),
+        "box_score_threshold": kwargs.get("box_score_threshold") or 0.0,
+        **_node_filter_kwargs(kwargs),
+        **_part_stage_kwargs(kwargs),
         "min_mask_area": kwargs.get("min_mask_area", 0),
         "center_nms_kernel": kwargs.get("center_nms_kernel", 3),
         "mask_cleanup": kwargs.get("mask_cleanup", False),
@@ -3119,6 +3589,9 @@ def _run_in_memory_new_flow(
         )
         predict_kwargs["sam3_model_id"] = kwargs.get("sam3_model_id", "facebook/sam3")
         predict_kwargs["overlay_path"] = kwargs.get("overlay_path")
+
+    # The .slp save options: only the ones set are passed on.
+    predict_kwargs.update(_set_slp_save_options(kwargs))
 
     preprocess_config = _build_preprocess_config(kwargs)
     if preprocess_config is not None:
@@ -3158,6 +3631,18 @@ def _run_in_memory_new_flow(
         predict_kwargs["filter_config"] = filter_config
 
     if export_dir is not None:
+        if predict_kwargs.get("node_filter") is not None:
+            raise click.UsageError(
+                "--nodes/--node_prefix apply when the model is built from its "
+                "checkpoint; for an exported model, export it filtered "
+                "(`sleap-nn export --nodes/--node-prefix`)."
+            )
+        if kwargs.get("flip_test"):
+            raise click.UsageError(
+                "--flip_test is not supported for exported ONNX/TensorRT models "
+                "(their peak finding is baked into the graph). Use the trained "
+                "checkpoint directory instead."
+            )
         # Route to the exported ONNX/TRT runtime. Exported graphs bake peak
         # finding and refinement at export time, so the checkpoint-oriented
         # construction/prediction-time knobs are dropped (the baked values are
@@ -3168,6 +3653,19 @@ def _run_in_memory_new_flow(
         predict_kwargs["model_paths"] = None
         predict_kwargs["export_dir"] = export_dir
         predict_kwargs["runtime"] = (kwargs.get("runtime") or "auto").lower()
+        keep_threshold = False
+        _ctx = click.get_current_context(silent=True)
+        if _ctx is not None and "peak_threshold" in _ctx.params:
+            from click.core import ParameterSource
+
+            # A lone exported box detector decodes on the host: a --peak_threshold
+            # typed on the command line is its score threshold, as next to a pose
+            # model. The option always has a value (default 0.2), so only a typed
+            # one may replace the threshold stored at export. `--bbox_nms_iou`
+            # defaults to None and is forwarded whenever it is set.
+            keep_threshold = _ctx.get_parameter_source(
+                "peak_threshold"
+            ) == ParameterSource.COMMANDLINE and _is_box_detector_dir(export_dir)
         for _k in (
             "peak_threshold",
             "centroid_threshold",
@@ -3189,6 +3687,8 @@ def _run_in_memory_new_flow(
             "preprocess_config",
             "centroid_only",
         ):
+            if _k == "peak_threshold" and keep_threshold:
+                continue
             predict_kwargs.pop(_k, None)
 
     # `-o` naming a file the input reads its frames from (e.g. the input .pkg.slp)
@@ -3323,6 +3823,7 @@ def _run_retrack_only(kwargs: dict, predictor_cls) -> "object":
         embed=kwargs.get("embed") or "false",
         restore_source_videos=kwargs.get("restore_source_videos", False),
         save_embedding_vectors=kwargs.get("save_embedding_vectors"),
+        **_set_slp_save_options(kwargs),
     )
     return out
 
@@ -3559,6 +4060,12 @@ def _run_stream_to_file(
             "no embedding and .pkg.slp references preserved. Drop "
             "--stream-to-file to control embedding."
         )
+    _refuse_image_save_options(
+        kwargs,
+        "with --stream-to-file",
+        "the incremental writer never embeds frames (drop --stream-to-file and "
+        "pass --embed true to embed them)",
+    )
     if not kwargs.get("model_paths"):
         raise click.UsageError("--model_paths is required for --stream-to-file.")
     data_path = kwargs.get("data_path")
@@ -3568,6 +4075,7 @@ def _run_stream_to_file(
     # set for a non-`.slp` source -- same check as the in-memory flow.
     _early_source, _early_src_suffix, _ = _resolve_data_path(data_path)
     _warn_ignored_slp_filters_for_non_slp_source(kwargs, _early_src_suffix)
+    _warn_frames_with_slp_filters(kwargs, _early_src_suffix, stream=True)
     # Streaming over a file the input reads its frames from (e.g. the input
     # .pkg.slp) destroys those frames, and this path has no save-time check.
     _refuse_overwriting_input_early(_early_source, stream_to_file, "slp")
@@ -3580,7 +4088,7 @@ def _run_stream_to_file(
     factory_kwargs = {
         "device": _resolve_device(kwargs.get("device")),
         "peak_threshold": kwargs.get("peak_threshold", 0.2),
-        "integral_refinement": kwargs.get("integral_refinement", "integral"),
+        "integral_refinement": kwargs.get("integral_refinement", "auto"),
         "integral_patch_size": kwargs.get("integral_patch_size", 5),
         "batch_size": kwargs.get("batch_size", 4),
         "max_instances": kwargs.get("max_instances"),
@@ -3589,6 +4097,7 @@ def _run_stream_to_file(
         "paf_workers": paf_workers,
         "upload_batches": bool(kwargs.get("upload_batches")),
         "memory_format": kwargs.get("memory_format") or "contiguous",
+        "precision": kwargs.get("precision") or "32",
         # Bottom-up PAF grouping knobs (inert for non-bottom-up models). #583.
         "max_edge_length_ratio": kwargs.get("max_edge_length_ratio", 0.25),
         "dist_penalty_weight": kwargs.get("dist_penalty_weight", 1.0),
@@ -3598,6 +4107,8 @@ def _run_stream_to_file(
         # Bottom-up segmentation knobs (inert for non-segmentation models).
         "fg_threshold": kwargs.get("fg_threshold", 0.5),
         "bbox_nms_iou": kwargs.get("bbox_nms_iou"),
+        "flip_test": kwargs.get("flip_test", False),
+        **_node_filter_kwargs(kwargs),
         "min_mask_area": kwargs.get("min_mask_area", 0),
         "center_nms_kernel": kwargs.get("center_nms_kernel", 3),
         "mask_cleanup": kwargs.get("mask_cleanup", False),
@@ -3627,6 +4138,10 @@ def _run_stream_to_file(
     filter_config = _build_filter_config(kwargs)
     if filter_config is not None:
         factory_kwargs["filter_config"] = filter_config
+    runtime = (kwargs.get("runtime") or "auto").lower()
+    if runtime != "auto":
+        # Export directories among --model_paths run on this runtime.
+        factory_kwargs["export_runtime"] = runtime
 
     predictor = Predictor.from_model_paths(kwargs["model_paths"], **factory_kwargs)
 
@@ -3678,6 +4193,7 @@ def _run_stream_to_file(
             remote_kwargs=remote_kwargs or None,
         )
 
+    save_options = _set_slp_save_options(kwargs)
     if kwargs.get("gui"):
         return _run_guarded(
             lambda: predictor.predict_to_file(
@@ -3685,6 +4201,7 @@ def _run_stream_to_file(
                 path=str(stream_to_file),
                 write_interval=write_interval,
                 progress_callback=_gui_progress_callback(),
+                **save_options,
             ),
             gui=True,
         )
@@ -3698,6 +4215,7 @@ def _run_stream_to_file(
                 path=str(stream_to_file),
                 write_interval=write_interval,
                 progress_callback=cb,
+                **save_options,
             ),
             gui=False,
         )
@@ -3783,6 +4301,7 @@ def _common_inference_options(f):
             "original pre-embedding source video files, when recorded. "
             "Ignored when embedding.",
         ),
+        *_slp_save_option_list(),
         click.option(
             "--save_embeddings",
             "save_embeddings",
@@ -3818,11 +4337,16 @@ def _common_inference_options(f):
             is_flag=True,
             default=False,
             help="With a CUDA device, copy each batch of frames to the GPU before "
-            "preprocessing, so resizing and top-down cropping run on the GPU "
+            "preprocessing, so resizing (the detector's resize / letterbox, the "
+            "crops' frame-size match) and top-down cropping run on the GPU "
             "instead of the CPU (2.2x faster for a top-down pair on an A100). "
-            "The GPU resize rounds a few pixels differently (by 1 grey level), so "
-            "results differ slightly from a run without it. `predict` with "
-            "trained checkpoints only.",
+            "Works for every pipeline built from --model_paths (trained "
+            "checkpoints and network-only export folders); with --part_streaming "
+            "the part model cuts its crops from the same GPU copy. Results are "
+            "not bit-identical to the CPU resize: a uint8 resize on the GPU "
+            "rounds some pixels one grey level differently, which can move a box "
+            "near the score threshold. `predict` only; ignored, with a warning, "
+            "for a single exported model directory and without a CUDA device.",
         ),
         click.option(
             "--memory_format",
@@ -3835,12 +4359,39 @@ def _common_inference_options(f):
             "checkpoints only.",
         ),
         click.option(
+            "--precision",
+            type=click.Choice(
+                ["32", "fp32", "bf16", "fp16", "bf16-encoder", "fp16-encoder"],
+                case_sensitive=False,
+            ),
+            default="32",
+            show_default=True,
+            callback=lambda _ctx, _param, value: (
+                "32" if str(value).lower() in ("32", "fp32") else str(value).lower()
+            ),
+            help="Precision of the models' forward pass. `32` (or `fp32`) is "
+            "strict fp32. `bf16` and `fp16` run every model under torch.autocast "
+            "on a CUDA device (weights and outputs stay fp32): faster on "
+            "tensor-core GPUs (about 1.5x for UNet models at batch size 4 on an "
+            "A100), can be slower at batch size 1, and results differ slightly "
+            "from fp32. `bf16` is fast on Ampere or newer NVIDIA GPUs (older ones "
+            "emulate it slowly). No effect on CPU / MPS (a warning says so). "
+            "The output file records it (`autocast_precision`). `predict` "
+            "with trained checkpoints only: an exported model keeps the precision "
+            "it was exported with. Experimental: `bf16-encoder` / `fp16-encoder` "
+            "run only each model's encoder under autocast and every layer after it "
+            "(decoder, heads, a DETR detector's box head) in fp32.",
+        ),
+        click.option(
             "--runtime",
             type=click.Choice(["auto", "onnx", "tensorrt"], case_sensitive=False),
             default="auto",
-            help="Runtime for an exported ONNX/TensorRT model directory passed to "
-            "--model_paths. 'auto' prefers TensorRT, falls back to ONNX. Ignored "
-            "for trained checkpoints.",
+            help="Runtime for exported ONNX/TensorRT model directories passed to "
+            "--model_paths (and --part_model): a single exported model, or "
+            "network-only exports (`sleap-nn export --network-only`, box detector "
+            "exports) standing in for checkpoints in a multi-model pipeline. 'auto' "
+            "prefers TensorRT on a CUDA device and takes ONNX otherwise (or when there is "
+            "no engine). Ignored for trained checkpoints.",
         ),
         click.option(
             "--tracking",
@@ -3943,9 +4494,9 @@ def _common_inference_options(f):
             type=float,
             default=None,
             help="Class-wise IoU-NMS threshold for bounding-box detectors "
-            "(bbox_centernet / bbox_ssd). Default: 0.45 for SSD, off for "
-            "CenterNet; 1.0 disables it. --peak_threshold is the detection "
-            "score threshold and --max_instances the per-frame cap.",
+            "(bbox_centernet / bbox_ssd / bbox_detr). Default: 0.45 for SSD, off "
+            "for CenterNet and DETR; 1.0 disables it. --peak_threshold is the "
+            "detection score threshold and --max_instances the per-frame cap.",
         ),
         click.option(
             "--fg_threshold",
@@ -4238,7 +4789,196 @@ def _common_inference_options(f):
                 "single points."
             ),
         ),
-        click.option("--integral_refinement", type=str, default="integral"),
+        click.option(
+            "--integral_refinement",
+            # Mirrors sleap_nn.inference.ops.peaks.REFINEMENT_METHODS (not
+            # imported here to keep CLI startup torch-free).
+            type=click.Choice(
+                ["auto", "dark", "integral", "local", "none"], case_sensitive=False
+            ),
+            default="auto",
+            help=(
+                "Sub-pixel peak refinement. 'auto' (default): DARK for top-down "
+                "keypoints (centered_instance / multi_class_topdown, blurred with "
+                "the head's training sigma), integral regression for every other "
+                "model. 'dark' and 'local' (quarter-pixel offset) need one peak "
+                "per channel: the centroid stage uses 'integral' for them and "
+                "bottom-up models reject them. 'integral' restores the pre-0.4 "
+                "top-down decoding; 'none' returns grid-aligned peaks. Exported "
+                "(ONNX/TensorRT) models do no sub-pixel refinement."
+            ),
+        ),
+        click.option(
+            "--frames_on_gpu",
+            "--frames-on-gpu",
+            "frames_on_gpu",
+            is_flag=True,
+            default=False,
+            hidden=True,
+            help=(
+                "[DEPRECATED] Alias of --upload_batches (turns it on, with a "
+                "warning); will be removed in a later release."
+            ),
+        ),
+        click.option(
+            "--flip_test",
+            "--flip-test",
+            "flip_test",
+            is_flag=True,
+            default=False,
+            help=(
+                "Top-down centered_instance models only: also run the "
+                "centered-instance model on the horizontally mirrored crops and "
+                "average the two confidence maps (left/right nodes swapped using "
+                "the skeleton symmetries) before peak finding. Doubles the "
+                "centered-instance compute. Not available for exported models."
+            ),
+        ),
+        click.option(
+            "--nodes",
+            "nodes",
+            type=str,
+            multiple=True,
+            default=(),
+            help=(
+                "single_instance / centered_instance models only: predict only "
+                "these nodes (repeat the flag or comma-separate names). The "
+                "confmap head is sliced to their channels, so the other confmaps "
+                "are never computed; the output skeleton keeps their edges and "
+                "symmetries."
+            ),
+        ),
+        click.option(
+            "--node_prefix",
+            "--node-prefix",
+            "node_prefix",
+            type=str,
+            default=None,
+            help=(
+                "Like --nodes, selecting every node whose name starts with this "
+                "prefix (e.g. 'lab_a/' of a multi-dataset model)."
+            ),
+        ),
+        click.option(
+            "--strip_prefix",
+            "--strip-prefix",
+            "strip_prefix",
+            is_flag=True,
+            default=False,
+            help="Write the --node_prefix nodes under their names without it.",
+        ),
+        click.option(
+            "--boxes",
+            type=str,
+            default=None,
+            help=(
+                "Seed a top-down crop model (pass it alone) from boxes instead of "
+                "a centroid model or detector: 'gt' (the input .slp's GT boxes), a "
+                "COCO detection results .json (matched to frames by image id), or "
+                "a .slp whose frames carry predicted boxes (e.g. a bbox detector's "
+                "output, or the input itself). Needs a .slp input. Add --rescore "
+                "for the COCO/mmpose instance scores."
+            ),
+        ),
+        click.option(
+            "--box_score_threshold",
+            type=float,
+            default=0.0,
+            help="With --boxes <file>, drop boxes scoring below this. Default: 0.",
+        ),
+        click.option(
+            "--part_model",
+            "part_model",
+            type=str,
+            default=None,
+            help=(
+                "A part model (centered-instance crop model) run after the pose "
+                "model on square crops built from each predicted instance's "
+                "keypoints by --part_crop_rule; its points are appended to that "
+                "instance. Default: no part stage. See the docs page 'Part stage'."
+            ),
+        ),
+        click.option(
+            "--part_crop_rule",
+            type=str,
+            default=None,
+            help=(
+                "A .json / .yaml KeypointCropRule (center, reference, "
+                "reference_fallback, scale, fallback, fallback_scale, "
+                "min_half_side, session_floor, session_min_boxes) for "
+                "--part_model."
+            ),
+        ),
+        click.option(
+            "--part_node_prefix",
+            type=str,
+            default=None,
+            help="Predict only the part model's nodes with this name prefix.",
+        ),
+        click.option(
+            "--part_peak_threshold",
+            type=float,
+            default=None,
+            help="Peak threshold of --part_model. Default: the model's own.",
+        ),
+        click.option(
+            "--part_prefix",
+            type=str,
+            default=None,
+            help="Prefix for the part nodes in the merged skeleton.",
+        ),
+        click.option(
+            "--part_streaming",
+            is_flag=True,
+            default=False,
+            help=(
+                "Experimental (may change or be removed without a deprecation "
+                "period). "
+                "Run --part_model on each batch right after the pose stage (no second "
+                "read of the frames), with a running crop floor instead of the "
+                "whole-video floor. The running floor is the median over the boxes "
+                "so far including the rest of the current batch (results depend on "
+                "--batch_size); the first session_min_boxes boxes of a run get no "
+                "floor; each --frames chunk starts a new floor. Tracking uses the "
+                "pose nodes only, as without this flag."
+            ),
+        ),
+        click.option(
+            "--rescore/--no-rescore",
+            "rescore",
+            default=False,
+            help=(
+                "COCO/mmpose instance rescoring: score = stage-1 score (box score / "
+                "centroid value) x mean of keypoint scores above "
+                "--rescore_threshold. Default: off (also with --boxes)."
+            ),
+        ),
+        click.option(
+            "--rescore_threshold",
+            type=float,
+            default=None,
+            help="Keypoint-score threshold for --rescore. Default: 0.2 (mmpose).",
+        ),
+        click.option(
+            "--oks_nms",
+            type=float,
+            default=0.0,
+            help=(
+                "COCO OKS-NMS threshold (mmpose oks_nms): drop an instance whose "
+                "OKS with a higher-scoring one in its frame exceeds this. 0 "
+                "disables (default); top-down papers use 0.9 with detected boxes."
+            ),
+        ),
+        click.option(
+            "--oks_sigmas",
+            type=str,
+            default=None,
+            help=(
+                "Per-node sigmas for --oks_nms: 'coco', 'crowdpose', 'ochuman', a "
+                "float, or a comma-separated list (one per node). Default: by node "
+                "name (COCO-17 names get the COCO sigmas, others 0.025)."
+            ),
+        ),
         click.option("--tracking_window_size", type=int, default=5),
         click.option("--min_new_track_points", type=int, default=0),
         # Default None (not "fixed_window") so _build_tracker_config can tell
@@ -4597,20 +5337,73 @@ def infer(**kwargs):
     ),
 )
 @click.option(
+    "--oks_sigmas",
+    type=str,
+    default=None,
+    help=(
+        "Per-node OKS sigmas: a preset ('coco', 'crowdpose', 'ochuman'), "
+        "'provenance' (the GT file's provenance node_sigmas), 'auto', or a "
+        "comma-separated list (one per node). Overrides --oks_stddev."
+    ),
+)
+@click.option(
+    "--coco/--no-coco",
+    "coco_metrics",
+    default=False,
+    help="Also report COCOeval-faithful keypoint AP/AR (coco.AP, AP50, AP75, AR).",
+)
+@click.option(
+    "--coco_protocol",
+    type=click.Choice(["auto", "coco", "ochuman", "crowdpose", "none"]),
+    default="auto",
+    help=(
+        "Dataset evaluation protocol for --coco: 'auto' picks it from the GT "
+        "file's provenance dataset; 'none' applies plain COCOeval rules."
+    ),
+)
+@click.option(
+    "--coco_area_source",
+    type=click.Choice(["auto", "meta", "bbox", "keypoints"]),
+    default=None,
+    help=(
+        "GT object area for --coco: source segmentation area (meta), GT box "
+        "area * 0.53 (bbox), visible-keypoint box (keypoints), or auto (meta, "
+        "then bbox, then keypoints). Default: the protocol's."
+    ),
+)
+@click.option(
     "--count_unmatched_as_fp/--no-count_unmatched_as_fp",
     default=False,
     help=(
-        "Count unmatched predictions as false positives in the oks_voc metrics. "
-        "Default off, which keeps the numbers earlier versions reported (those "
-        "ignore unmatched predictions, so AP is overstated for models that "
-        "produce duplicate or spurious detections)."
+        "Count unmatched predictions as false positives in the legacy oks_voc "
+        "metrics (default off for back-compat; --coco always counts them)."
     ),
 )
 def eval(**kwargs):
     """Run evaluation workflow."""
     from sleap_nn.evaluation import run_evaluation
 
+    kwargs["oks_sigmas"] = parse_oks_sigmas(kwargs.get("oks_sigmas"))
+    if kwargs.get("coco_protocol") == "none":
+        kwargs["coco_protocol"] = None
     run_evaluation(**kwargs)
+
+
+def parse_oks_sigmas(value: Optional[str]):
+    """``--oks_sigmas``: a preset/keyword, one float, or comma-separated floats."""
+    if not value:
+        return None
+    if value in ("coco", "crowdpose", "ochuman", "provenance", "auto"):
+        return value
+    try:
+        floats = [float(x) for x in value.split(",")]
+    except ValueError:
+        raise click.BadParameter(
+            "expected 'coco', 'crowdpose', 'ochuman', 'provenance', 'auto', a "
+            f"float or comma-separated floats, got {value!r}",
+            param_hint="--oks_sigmas",
+        )
+    return floats[0] if len(floats) == 1 else floats
 
 
 @cli.command(context_settings=CONTEXT_SETTINGS)
@@ -4645,6 +5438,264 @@ def info(path):
     from sleap_nn.model_info import print_model_info
 
     print_model_info(path)
+
+
+@cli.command("import-rfdetr", context_settings=CONTEXT_SETTINGS)
+@click.argument("model", type=str)
+@click.option(
+    "--output",
+    "-o",
+    "output_dir",
+    type=str,
+    required=True,
+    help="Model directory to write (training_config.yaml + best.ckpt).",
+)
+@click.option(
+    "--revision", type=str, default=None, help="HF Hub revision of the checkpoint."
+)
+@click.option(
+    "--overwrite", is_flag=True, default=False, help="Replace an existing model."
+)
+def import_rfdetr(model, output_dir, revision, overwrite):
+    """Import an RF-DETR detection checkpoint as a bbox_detr model directory.
+
+    MODEL is a size (nano, small, medium, large: the Apache-licensed
+    Roboflow/rf-detr-* checkpoints on the HF Hub), an HF Hub id, or a local
+    directory with config.json and model.safetensors. The output directory loads
+    in `sleap-nn predict` like a trained bbox_detr model (91 COCO-id classes,
+    squash resize to the checkpoint's resolution). Needs huggingface_hub and
+    safetensors (sleap-nn[backbones]) to download.
+
+    Examples:
+        sleap-nn import-rfdetr medium -o models/rfdetr-medium
+
+        sleap-nn predict -m models/rfdetr-medium -i video.mp4
+    """
+    from sleap_nn.convert.rfdetr import import_rfdetr as run_import
+
+    try:
+        out = run_import(model, output_dir, revision=revision, overwrite=overwrite)
+    except (FileExistsError, ValueError) as e:
+        raise click.ClickException(str(e)) from e
+    click.echo(f"Wrote {out}")
+
+
+@cli.command("detect-boxes", context_settings=CONTEXT_SETTINGS)
+@click.option(
+    "--data_path", "-i", type=str, required=True, help="Input labels file (.slp)."
+)
+@click.option(
+    "--output_path",
+    "-o",
+    type=str,
+    default=None,
+    help="Output .slp (default: <input name>.<tag>.slp next to the input).",
+)
+@click.option(
+    "--model_path",
+    "-m",
+    type=str,
+    default=None,
+    help="bbox_* model directory to run over the labeled frames.",
+)
+@click.option(
+    "--detections",
+    type=str,
+    default=None,
+    help="COCO detection-results JSON, matched to frames by file_name or image_id.",
+)
+@click.option(
+    "--detection_chunks",
+    type=str,
+    default=None,
+    help="Directory of chunk_*.npz files written by a chunked detector pass.",
+)
+@click.option(
+    "--image_list",
+    type=str,
+    default=None,
+    help="Image list (one path per line) the --detection_chunks pass ran over.",
+)
+@click.option(
+    "--detector_id",
+    type=str,
+    default=None,
+    help="Box `source` (default: model directory name, JSON stem or chunk model id).",
+)
+@click.option(
+    "--tag",
+    type=str,
+    default=None,
+    help="Output name tag (default: bboxdetr for a model, dets otherwise).",
+)
+@click.option(
+    "--category",
+    type=str,
+    default="person",
+    show_default=True,
+    help="Person category: GT boxes, detector class and the new boxes' category.",
+)
+@click.option(
+    "--score_threshold",
+    type=float,
+    default=0.3,
+    show_default=True,
+    help="Detections scoring at least this are matched and stored.",
+)
+@click.option(
+    "--min_iou",
+    type=float,
+    default=0.1,
+    show_default=True,
+    help="Matched pairs with IoU above this are kept.",
+)
+@click.option(
+    "--json_category_id",
+    type=int,
+    default=1,
+    show_default=True,
+    help="COCO category id kept from --detections.",
+)
+@click.option("--device", type=str, default="auto", show_default=True)
+@click.option(
+    "--batch_size",
+    type=int,
+    default=8,
+    show_default=True,
+    help="Frames (or tiles) per forward pass.",
+)
+@click.option(
+    "--min_score",
+    type=float,
+    default=0.01,
+    show_default=True,
+    help="Detector score floor (model runs; what --save_detections keeps).",
+)
+@click.option(
+    "--max_detections",
+    type=int,
+    default=300,
+    show_default=True,
+    help="Detections per image (model runs; per tile and per merged frame).",
+)
+@click.option(
+    "--tile_width",
+    type=int,
+    default=None,
+    help="Detect in full-height tiles this wide (wide panoramas; model runs).",
+)
+@click.option("--tile_stride", type=int, default=390, show_default=True)
+@click.option(
+    "--tile_nms_iou",
+    type=float,
+    default=0.6,
+    show_default=True,
+    help="Tile merge: suppress boxes with IoU above this with a kept box.",
+)
+@click.option(
+    "--tile_contain",
+    type=float,
+    default=0.7,
+    show_default=True,
+    help="Tile merge: suppress inner-edge boxes this much inside a kept box.",
+)
+@click.option(
+    "--replace_predicted",
+    is_flag=True,
+    default=False,
+    help="Remove existing predicted boxes first (re-boxing a file).",
+)
+@click.option(
+    "--save_detections",
+    type=str,
+    default=None,
+    help="Also write the raw detections as a COCO results JSON.",
+)
+@click.option(
+    "--dry_run", is_flag=True, default=False, help="Print match statistics only."
+)
+@click.option(
+    "--overwrite", is_flag=True, default=False, help="Replace an existing output."
+)
+@_detect_boxes_save_options
+def detect_boxes(**kwargs):
+    """Write detector boxes into a training labels file (detector-box crops).
+
+    Experimental: this workflow may change or be removed without a deprecation
+    period.
+
+    Runs a bbox_* model over every labeled frame (or reads a COCO results JSON or
+    detector chunk files), matches the detections to each frame's GT people
+    (Hungarian on IoU over detections scoring >= --score_threshold, pairs with
+    IoU > --min_iou kept; GT people are the non-crowd person user boxes plus the
+    keypoint extent of pose instances without a linked box) and writes a copy of
+    the labels with one PredictedBoundingBox per detection, linked to its matched
+    pose instance. Train on it with `preprocessing.crop_bbox_source: detector`.
+    Match statistics go into provenance["detector_boxes"] and <output>.json.
+
+    The output is written in the SLP 3.0 layout, which keeps each box's matching
+    score, so `--slp_version` takes only `v3` or `auto`. The output embeds no
+    frames, so `--image_format` / `--image_quality` are refused.
+
+    Examples:
+        sleap-nn detect-boxes -i coco_val2017.slp -m models/rfdetr-medium
+
+        sleap-nn detect-boxes -i coco_val2017.slp --detections dets.json
+
+        sleap-nn detect-boxes -i jrdb_train.slp -m models/person --tile_width 640
+    """
+    from sleap_nn.inference.detect_boxes import TileSpec, detect_boxes as run
+    from sleap_nn.inference.save_options import save_options_from
+
+    _refuse_image_save_options(
+        kwargs, "by `detect-boxes`", "its output never embeds frames"
+    )
+
+    tiling = None
+    if kwargs["tile_width"] is not None:
+        tiling = TileSpec(
+            width=kwargs["tile_width"],
+            stride=kwargs["tile_stride"],
+            nms_iou=kwargs["tile_nms_iou"],
+            contain=kwargs["tile_contain"],
+        )
+    model = kwargs["model_path"]
+    try:
+        stats, out = run(
+            kwargs["data_path"],
+            kwargs["output_path"],
+            model=model,
+            detections=kwargs["detections"],
+            detection_chunks=kwargs["detection_chunks"],
+            image_list=kwargs["image_list"],
+            detector=kwargs["detector_id"],
+            tag=kwargs["tag"],
+            category=kwargs["category"],
+            score_threshold=kwargs["score_threshold"],
+            min_iou=kwargs["min_iou"],
+            json_category_id=kwargs["json_category_id"],
+            device=_resolve_device(kwargs["device"]) if model else "cpu",
+            batch_size=kwargs["batch_size"],
+            min_score=kwargs["min_score"],
+            max_detections=kwargs["max_detections"],
+            tiling=tiling,
+            replace_predicted=kwargs["replace_predicted"],
+            save_detections=kwargs["save_detections"],
+            dry_run=kwargs["dry_run"],
+            overwrite=kwargs["overwrite"],
+            **{k: v for k, v in save_options_from(kwargs).items() if v is not None},
+        )
+    except (FileExistsError, ValueError) as e:
+        raise click.ClickException(str(e)) from e
+    keys = ("people", "matched", "unmatched", "boxes_added", "boxes_linked")
+    click.echo(", ".join(f"{k} {stats[k]}" for k in keys))
+    click.echo(
+        f"recall@IoU0.5 {100 * stats['recall_iou50']:.1f}%, "
+        f"@0.75 {100 * stats['recall_iou75']:.1f}%, "
+        f"mean IoU {stats['mean_iou_matched']:.3f}"
+    )
+    if out is not None:
+        click.echo(f"Wrote {out}")
 
 
 def _require_finite(ctx, param, value):
@@ -4817,19 +5868,40 @@ def _register_export_commands():
             "multi_class_topdown",
             "bbox_centernet",
             "bbox_ssd",
+            "bbox_detr",
             "topdown_bbox_centernet",
             "topdown_bbox_ssd",
+            "topdown_bbox_detr",
         ]
     ),
     default=None,
+    # The choices are listed in the help text, which wraps between words; the
+    # default [a|b|...] metavar is too long for its column and splits names.
+    metavar="PIPELINE",
     help=(
-        "Override model pipeline type. 'centroid' generates a single STANDALONE "
+        "Override model pipeline type: single_instance, centroid, bottomup, "
+        "topdown, multi_class_bottomup, multi_class_topdown, bbox_centernet, "
+        "bbox_ssd, bbox_detr, topdown_bbox_centernet, topdown_bbox_ssd or "
+        "topdown_bbox_detr. 'centroid' generates a single STANDALONE "
         "centroid config (one point per animal); 'topdown' generates paired "
-        "centroid + centered_instance configs; 'bbox_centernet' / 'bbox_ssd' "
-        "generate a bounding-box detector trained on boxes derived from the poses; "
-        "'topdown_bbox_centernet' / 'topdown_bbox_ssd' generate paired detector + "
-        "centered_instance configs whose crops are the detected boxes "
-        "(crop_mode: bbox)."
+        "centroid + centered_instance configs; 'bbox_centernet' / 'bbox_ssd' / "
+        "'bbox_detr' generate a bounding-box detector trained on boxes derived from "
+        "the poses; 'topdown_bbox_centernet' / 'topdown_bbox_ssd' / "
+        "'topdown_bbox_detr' generate paired detector + centered_instance configs "
+        "whose crops are the detected boxes (crop_mode: bbox)."
+    ),
+)
+@click.option(
+    "--gpu_memory_gb",
+    "--gpu-memory-gb",
+    "gpu_memory_gb",
+    type=str,
+    default=None,
+    help=(
+        "GPU memory (GB) of the training machine, or 'auto' to read it from the "
+        "first visible GPU. With it, multi-animal top-down data whose bbox_detr "
+        "run fits is recommended topdown_bbox_detr. Default: not considered, so "
+        "--auto gives the same config on every machine."
     ),
 )
 @click.option(
@@ -4843,6 +5915,7 @@ def config(
     output,
     auto,
     pipeline,
+    gpu_memory_gb,
     show_yaml,
 ):
     """Generate training configuration for a SLEAP file.
@@ -4864,8 +5937,12 @@ def config(
 
         # Box detector + box-scaled centered-instance pair
         sleap-nn config labels.slp --auto --pipeline topdown_bbox_centernet -o cfg.yaml
+
+        # Recommend bbox_detr when this machine's GPU fits it
+        sleap-nn config labels.slp --auto --gpu_memory_gb auto -o cfg.yaml
     """
     from sleap_nn.config_generator.generator import ConfigGenerator
+    from sleap_nn.config_generator.recommender import detect_gpu_memory_gb
 
     # Auto mode (non-interactive)
     if auto:
@@ -4873,8 +5950,20 @@ def config(
             click.echo("Error: SLP_PATH is required for --auto mode", err=True)
             raise SystemExit(1)
 
+        gpu_gb = None
+        if gpu_memory_gb == "auto":
+            gpu_gb = detect_gpu_memory_gb()
+        elif gpu_memory_gb is not None:
+            try:
+                gpu_gb = float(gpu_memory_gb)
+            except ValueError:
+                raise click.BadParameter(
+                    f"expected a number of GB or 'auto', got {gpu_memory_gb!r}",
+                    param_hint="--gpu_memory_gb",
+                )
+
         gen = ConfigGenerator.from_slp(slp_path)
-        gen.auto()
+        gen.auto(gpu_memory_gb=gpu_gb)
 
         # Apply overrides
         if pipeline:

@@ -1,0 +1,760 @@
+"""bbox_detr data: categories, multi-file mixing, reduced-size JPEG decoding.
+
+Covers the person-only ground truth of multi-category box files (Objects365 /
+Open Images / CrowdHuman store faces, heads, crowds and ignore regions as other
+box categories), the per-sample weighted mixing of several training files by
+``trainer_config.balanced_sampler`` (sampler, bbox loaders, and an end-to-end CPU
+run on a tiny DINOv3 ``pretrained`` backbone), the DCT-domain reduced decode of
+large JPEGs, and the array-backed sample list (``SampleTable``).
+"""
+
+from collections import Counter
+
+import numpy as np
+import pytest
+import sleap_io as sio
+import torch
+from omegaconf import OmegaConf
+from PIL import Image
+
+from sleap_nn.data.bboxes import SetTargetEncoder, frame_bbox_arrays
+from sleap_nn.data.custom_datasets import (
+    BBoxDataset,
+    DetrBBoxDataset,
+    SampleTable,
+    get_train_val_dataloaders,
+)
+from sleap_nn.data.normalization import convert_to_grayscale, convert_to_rgb
+from sleap_nn.data.topdown_warp import BalancedBatchSampler, BalancedDataLoader
+
+
+# --------------------------------------------------------------------------- #
+# Categories
+# --------------------------------------------------------------------------- #
+def _box(x1, y1, x2, y2, category=None, **metadata):
+    box = sio.UserBoundingBox.from_xyxy(x1, y1, x2, y2, category=category)
+    box.metadata.update(metadata)
+    return box
+
+
+def test_single_category_skips_other_categories():
+    """A person detector does not train on faces, crowds or ignore regions."""
+    lf = sio.LabeledFrame(video=sio.Video(filename="x.mp4"), frame_idx=0)
+    lf.bboxes = [
+        _box(0, 0, 10, 10, "person"),
+        _box(5, 5, 8, 8, "face"),
+        _box(0, 0, 50, 50, "crowd", is_group_of=1),  # Open Images: no iscrowd
+        _box(20, 20, 40, 40, "ignore", isfake=1),
+        _box(30, 30, 60, 60, "crowd", iscrowd=1),  # dropped as crowd anyway
+        _box(1, 1, 4, 4),  # no category: class 0 of a single-class detector
+    ]
+    skipped = Counter()
+    xyxy, classes = frame_bbox_arrays(lf, ["person"], skipped)
+    np.testing.assert_allclose(xyxy, [[0, 0, 10, 10], [1, 1, 4, 4]])
+    assert classes.tolist() == [0, 0]
+    assert skipped == {"face": 1, "crowd": 1, "ignore": 1}
+    # Class-agnostic ("object") still takes every non-crowd box.
+    assert len(frame_bbox_arrays(lf, ["object"])[0]) == 5
+    # Multi-class: by name.
+    assert frame_bbox_arrays(lf, ["face", "person"])[1].tolist() == [1, 0]
+
+
+# --------------------------------------------------------------------------- #
+# Per-sample mixing
+# --------------------------------------------------------------------------- #
+def test_per_sample_mixing_sampler():
+    groups = np.array([0] * 3 + [1] * 50 + [2] * 20)
+    s = BalancedBatchSampler(
+        groups,
+        None,
+        batches_per_epoch=400,
+        seed=1,
+        rank=0,
+        weights=[2, 1, 1],
+        batch_size=4,
+    )
+    batches = list(s)
+    assert len(batches) == 400 and all(len(b) == 4 for b in batches)
+    share = np.bincount(groups[np.concatenate(batches)], minlength=3) / 1600
+    np.testing.assert_allclose(share, [0.5, 0.25, 0.25], atol=0.04)
+    # The 3-sample file is oversampled and fully covered.
+    assert set(np.concatenate(batches)[groups[np.concatenate(batches)] == 0]) == {
+        0,
+        1,
+        2,
+    }
+    # Deterministic per (seed, rank, batch); ranks differ; resumes mid-epoch.
+    again = BalancedBatchSampler(
+        groups, None, 400, seed=1, rank=0, weights=[2, 1, 1], batch_size=4
+    )
+    again.load_state_dict({"position": 150})
+    assert [list(b) for b in again] == [list(b) for b in batches[150:]]
+    other = BalancedBatchSampler(
+        groups, None, 400, seed=1, rank=1, weights=[2, 1, 1], batch_size=4
+    )
+    assert [list(b) for b in other] != [list(b) for b in batches]
+    with pytest.raises(ValueError, match="no samples"):
+        BalancedBatchSampler(groups, None, 4, weights=[1, 1, 1, 1], batch_size=4)
+
+
+def _image_labels(tmp_path, name, size_hw, boxes, seed=0, ext="jpg"):
+    """A one-frame Labels on an image (JPEG by default) of ``size_hw``, with boxes."""
+    h, w = size_hw
+    rng = np.random.default_rng(seed)
+    yy, xx = np.mgrid[0:h, 0:w]
+    img = np.stack(
+        [(xx * 255 // w), (yy * 255 // h), (xx + yy) * 255 // (h + w)], -1
+    ).astype(np.uint8)
+    for x1, y1, x2, y2 in boxes:
+        img[int(y1) : int(y2), int(x1) : int(x2)] = rng.integers(0, 255, 3)
+    path = tmp_path / f"{name}.{ext}"
+    Image.fromarray(img).save(path, **({"quality": 95} if ext == "jpg" else {}))
+    video = sio.Video.from_filename([str(path)])
+    lf = sio.LabeledFrame(video=video, frame_idx=0)
+    lf.bboxes = [_box(*b, "person") for b in boxes]
+    return sio.Labels(videos=[video], labeled_frames=[lf])
+
+
+def _detr_dataset(labels, hw=(256, 256), **kwargs):
+    return DetrBBoxDataset(
+        labels=labels,
+        target_encoder=SetTargetEncoder(),
+        categories=["person"],
+        max_stride=32,
+        ensure_rgb=True,
+        max_hw=hw,
+        resize_mode="letterbox",
+        **kwargs,
+    )
+
+
+def test_bbox_balanced_loader_mixes_files(tmp_path):
+    files = [
+        _image_labels(tmp_path, f"f{i}", (128, 160), [(10, 10, 60, 90)], seed=i)
+        for i in range(3)
+    ]
+    ds = _detr_dataset(files, hw=(128, 160))
+    assert ds.num_files == 3 and ds.labels_idx.tolist() == [0, 1, 2]
+    config = OmegaConf.create(
+        {
+            "trainer_config": {
+                "seed": 0,
+                "train_steps_per_epoch": 30,
+                "train_data_loader": {"batch_size": 2, "num_workers": 0},
+                "val_data_loader": {"batch_size": 2, "num_workers": 0},
+                "balanced_sampler": {"per_sample": True, "weights": [1, 0, 1]},
+            }
+        }
+    )
+    train, _ = get_train_val_dataloaders(ds, ds, config, train_steps_per_epoch=30)
+    assert isinstance(train, BalancedDataLoader)
+    seen = Counter(int(i) for b in train for i in b["labels_idx"])
+    assert set(seen) == {0, 2} and sum(seen.values()) == 60
+
+
+# --------------------------------------------------------------------------- #
+# Oversampling frames whose labelled boxes overlap
+# --------------------------------------------------------------------------- #
+def test_sample_weights_reweight_within_groups_only():
+    groups = np.array([0] * 10 + [1] * 10)
+    sw = np.ones(20)
+    sw[0] = 9.0  # sample 0 is half of group 0's draws
+    s = BalancedBatchSampler(
+        groups, None, 500, seed=3, weights=[1, 1], batch_size=4, sample_weights=sw
+    )
+    idx = np.concatenate(list(s))
+    share = np.bincount(groups[idx], minlength=2) / len(idx)
+    np.testing.assert_allclose(share, [0.5, 0.5], atol=0.04)
+    in0 = idx[groups[idx] == 0]
+    assert abs(np.mean(in0 == 0) - 0.5) < 0.05
+    in1 = idx[groups[idx] == 1]
+    assert np.bincount(in1 - 10, minlength=10).min() > 0  # group 1 still uniform
+    # Deterministic and resumable like the uniform draw.
+    again = BalancedBatchSampler(
+        groups, None, 500, seed=3, weights=[1, 1], batch_size=4, sample_weights=sw
+    )
+    again.load_state_dict({"position": 200})
+    assert [list(b) for b in again] == [list(b) for b in list(s)[200:]]
+
+
+def test_sample_weights_errors():
+    groups = np.array([0, 0, 1, 1])
+    with pytest.raises(ValueError, match="per-sample group weights"):
+        BalancedBatchSampler(groups, [1, 1], 2, sample_weights=[1, 1, 1, 1])
+    with pytest.raises(ValueError, match="4 values"):
+        BalancedBatchSampler(
+            groups, None, 2, weights=[1, 1], batch_size=2, sample_weights=[1, 1]
+        )
+    with pytest.raises(ValueError, match="no sample with weight"):
+        BalancedBatchSampler(
+            groups, None, 2, weights=[1, 1], batch_size=2, sample_weights=[1, 1, 0, 0]
+        )
+
+
+def _frames_labels(tmp_path, name, frames):
+    """One Labels with a frame (its own image) per box list in ``frames``."""
+    parts = [
+        _image_labels(tmp_path, f"{name}{i}", (128, 160), boxes, seed=i)
+        for i, boxes in enumerate(frames)
+    ]
+    return sio.Labels(
+        videos=[v for p in parts for v in p.videos],
+        labeled_frames=[lf for p in parts for lf in p.labeled_frames],
+    )
+
+
+def test_box_overlap_is_largest_pair_share_of_smaller_box(tmp_path):
+    labels = _frames_labels(
+        tmp_path,
+        "ov",
+        [
+            [(10, 10, 60, 90), (35, 10, 85, 90)],  # half of either box shared
+            [(10, 10, 40, 40), (80, 60, 120, 100)],  # apart
+            [(10, 10, 60, 90)],  # one box
+            [(10, 10, 110, 110), (20, 20, 40, 40), (90, 90, 150, 120)],  # nested
+        ],
+    )
+    ds = _detr_dataset([labels], hw=(128, 160))
+    np.testing.assert_allclose(ds.box_overlap(), [0.5, 0.0, 0.0, 1.0], atol=1e-6)
+
+
+def test_bbox_loader_overlap_weight(tmp_path):
+    f0 = _frames_labels(
+        tmp_path, "a", [[(10, 10, 60, 90), (35, 10, 85, 90)], [(10, 10, 60, 90)]]
+    )
+    f1 = _frames_labels(tmp_path, "b", [[(10, 10, 60, 90)]])
+    ds = _detr_dataset([f0, f1], hw=(128, 160))
+
+    def loader(**bs):
+        config = OmegaConf.create(
+            {
+                "trainer_config": {
+                    "seed": 0,
+                    "train_steps_per_epoch": 400,
+                    "train_data_loader": {"batch_size": 4, "num_workers": 0},
+                    "val_data_loader": {"batch_size": 2, "num_workers": 0},
+                    "balanced_sampler": bs,
+                }
+            }
+        )
+        return get_train_val_dataloaders(ds, ds, config, train_steps_per_epoch=400)[0]
+
+    train = loader(per_sample=True, weights=[1, 1], overlap_weight=3.0)
+    idx = np.concatenate(list(train.batch_sampler))
+    file0 = idx[ds.labels_idx[idx] == 0]
+    assert abs(np.mean(file0 == 0) - 0.75) < 0.05  # 3:1 within file 0
+    assert abs(np.mean(ds.labels_idx[idx] == 0) - 0.5) < 0.05  # file shares kept
+    # Off by default: the uniform draw.
+    assert loader(per_sample=True, weights=[1, 1]).batch_sampler.sample_cdf is None
+    with pytest.raises(ValueError, match="needs per_sample"):
+        loader(weights=[1, 1], overlap_weight=3.0)
+
+
+def test_balanced_sampler_config_overlap_fields():
+    from sleap_nn.config.trainer_config import BalancedSamplerConfig
+
+    c = BalancedSamplerConfig()
+    assert c.overlap_weight == 1.0 and c.overlap_min == 0.25
+    with pytest.raises(ValueError):
+        BalancedSamplerConfig(overlap_weight=0)
+    with pytest.raises(ValueError):
+        BalancedSamplerConfig(overlap_min=1.5)
+
+
+# --------------------------------------------------------------------------- #
+# Array-backed sample list
+# --------------------------------------------------------------------------- #
+def test_sample_table_round_trip():
+    samples = [
+        {
+            "labels_idx": 0,
+            "lf_idx": 5,
+            "frame_idx": np.int64(7),
+            "is_negative": False,
+            "instances": None,
+            "bboxes": np.arange(8, dtype=np.float32).reshape(2, 4),
+            "bbox_classes": np.array([0, 1]),
+            "image_path": "/data/a.jpg",
+            "extra": {"k": 1},
+        },
+        {
+            "labels_idx": 1,
+            "lf_idx": "neg_1_0",
+            "frame_idx": 3,
+            "is_negative": True,
+            "instances": None,
+            "bboxes": np.zeros((0, 4), dtype=np.float32),
+            "bbox_classes": np.zeros((0,), dtype=np.int64),
+            "image_path": None,
+            "extra": [2],
+        },
+    ]
+    table = SampleTable.from_dicts(samples)
+    kinds = {k: kind for k, (kind, _) in table.columns.items()}
+    assert kinds == {
+        "labels_idx": "scalar",
+        "lf_idx": "scalar",
+        "frame_idx": "scalar",
+        "is_negative": "scalar",
+        "instances": "none",
+        "bboxes": "ragged",
+        "bbox_classes": "ragged",
+        "image_path": "str",
+        "extra": "object",
+    }
+    assert len(table) == 2 and table.column("labels_idx").tolist() == [0, 1]
+    for got, want in zip(table, samples):
+        assert list(got) == list(want)
+        for key, value in want.items():
+            if isinstance(value, np.ndarray):
+                assert got[key].dtype == value.dtype
+                np.testing.assert_array_equal(got[key], value)
+            else:
+                assert got[key] == value and type(got[key]) is not np.int64
+    assert table[-1]["lf_idx"] == "neg_1_0"
+    # Reads are copies: writing a sample leaves the table unchanged.
+    table[0]["bboxes"][:] = -1
+    np.testing.assert_array_equal(table[0]["bboxes"], samples[0]["bboxes"])
+    with pytest.raises(IndexError):
+        table[2]
+
+
+def test_sample_table_kinds_do_not_depend_on_proportions():
+    # Mostly negative frames: `lf_idx` stays an int array plus string exceptions,
+    # never an object array of per-sample Python objects.
+    lf_idx = [0] + [f"neg_0_{i}" for i in range(5)] + [None]
+    table = SampleTable.from_dicts([{"lf_idx": v} for v in lf_idx])
+    kind, (array, other_idx, _) = table.columns["lf_idx"]
+    assert kind == "scalar" and array.dtype == np.int64
+    assert other_idx.tolist() == list(range(1, 7))
+    assert [s["lf_idx"] for s in table] == lf_idx
+    assert table.column("lf_idx") is array
+    # Only scalar columns come out as one array.
+    with pytest.raises(ValueError, match="is str, not scalar"):
+        SampleTable.from_dicts([{"path": "a.jpg"}]).column("path")
+    # Mixed numeric types are not coerced.
+    assert SampleTable._column([1, 2.5])[0] == "object"
+
+
+def test_sample_table_needs_the_same_keys():
+    with pytest.raises(ValueError, match="Sample 1 has keys"):
+        SampleTable.from_dicts([{"a": 1, "b": 2}, {"a": 3}])
+    with pytest.raises(ValueError, match="Sample 1 has keys"):
+        SampleTable.from_dicts([{"a": 1}, {"a": 3, "c": 4}])
+
+
+def test_bbox_samples_are_a_table(tmp_path):
+    boxes = [(10, 10, 60, 90), (70, 20, 120, 100)]
+    labels = _image_labels(tmp_path, "img", (128, 160), boxes)
+    ds = _detr_dataset([labels], hw=(128, 160))
+    assert isinstance(ds.lf_idx_list, SampleTable)
+    sample = ds.lf_idx_list[0]
+    xyxy, classes = frame_bbox_arrays(labels[0], ["person"])
+    np.testing.assert_array_equal(sample["bboxes"], xyxy)
+    np.testing.assert_array_equal(sample["bbox_classes"], classes)
+    np.testing.assert_array_equal(ds.labels_idx, [0])
+    want = labels[0].image
+    # Frames are read through the video, never the `LabeledFrame`s.
+    labels.labeled_frames.clear()
+    img, scale = ds._read_frame(sample)
+    assert scale is None
+    np.testing.assert_array_equal(img, want)
+
+
+# --------------------------------------------------------------------------- #
+# Reduced-size JPEG decoding
+# --------------------------------------------------------------------------- #
+def test_reduced_decode_matches_full_decode(tmp_path):
+    boxes = [(200, 100, 900, 800), (1300, 300, 1900, 1000)]
+    labels = _image_labels(tmp_path, "big", (1024, 2048), boxes)
+    ds = _detr_dataset([labels])
+    assert ds.min_decode_scale(1024, 2048) == pytest.approx(0.125)
+    img, scale = ds._read_frame(ds.lf_idx_list[0])
+    assert img.shape == (128, 256, 3) and scale == (0.125, 0.125)
+    reduced = ds[0]
+
+    ds.reduced_decode = False
+    assert ds._read_frame(ds.lf_idx_list[0])[1] is None
+    full = ds[0]
+    n = full["num_instances"]
+    assert reduced["num_instances"] == n == 2
+    torch.testing.assert_close(reduced["bboxes"][:n], full["bboxes"][:n])
+    torch.testing.assert_close(reduced["eff_scale"], full["eff_scale"])
+    torch.testing.assert_close(reduced["orig_size"], full["orig_size"])
+    diff = (reduced["image"].float() - full["image"].float()).abs().mean()
+    assert diff < 3.0  # 0..255 levels: the same picture
+
+
+def test_reduced_decode_only_when_nothing_is_lost(tmp_path):
+    # 1.5x the training size: no 1/2 decode.
+    labels = _image_labels(tmp_path, "mid", (384, 384), [(10, 10, 100, 100)])
+    ds = _detr_dataset([labels])
+    assert ds._read_frame(ds.lf_idx_list[0])[1] is None
+    # RF-DETR's crop branch resizes the shortest side to 600 first.
+    big = _image_labels(tmp_path, "big", (1400, 1400), [(10, 10, 100, 100)])
+    aug = {
+        "crop_p": 0.5,
+        "shortest_sides": [400, 500, 600],
+        "crop_range": [384, 600],
+        "flip_p": 0.5,
+    }
+    ds = _detr_dataset([big], apply_aug=True, detr_aug=aug)
+    assert ds.min_decode_scale(1400, 1400) == pytest.approx(600 / 1400)
+    img, scale = ds._read_frame(ds.lf_idx_list[0])
+    assert img.shape[0] >= 600 and scale == (0.5, 0.5)
+
+
+def test_reduced_decode_picks_the_largest_lossless_downscale(tmp_path):
+    labels = _image_labels(tmp_path, "img", (128, 160), [(10, 10, 60, 90)])
+    ds = _detr_dataset([labels])
+    # 256 / 2048 = 1/8 exactly; one pixel less and only 1/4 keeps 256.
+    assert ds._decode_downscale(2048, 2048) == 8
+    assert ds._decode_downscale(2047, 2047) == 4
+    assert ds._decode_downscale(512, 512) == 2
+    assert ds._decode_downscale(511, 511) == 1
+    # Odd sizes: the scale is what the decoder returned, per axis.
+    odd = _image_labels(tmp_path, "odd", (1001, 2050), [(10, 10, 100, 100)])
+    ds = _detr_dataset([odd])
+    img, scale = ds._read_frame(ds.lf_idx_list[0])
+    assert img.shape[:2] == (251, 513)  # ceil(size / 4)
+    assert scale == (513 / 2050, 251 / 1001)
+
+
+def test_reduced_decode_falls_back_to_full_frames(tmp_path):
+    # PNG has no reduced decode: the full frame, scale None.
+    labels = _image_labels(
+        tmp_path, "big", (1024, 2048), [(10, 10, 100, 100)], ext="png"
+    )
+    ds = _detr_dataset([labels])
+    want = labels.videos[0][0]
+    img, scale = ds._read_frame(ds.lf_idx_list[0])
+    assert scale is None
+    np.testing.assert_array_equal(img, want)
+    # Plain `BBoxDataset` never reduces.
+    assert BBoxDataset.reduced_decode is False
+    assert BBoxDataset.min_decode_scale(ds, 1024, 2048) == 1.0
+
+
+# --------------------------------------------------------------------------- #
+# End to end: tiny DINOv3 `pretrained` backbone, two mixed training files
+# --------------------------------------------------------------------------- #
+def test_train_pretrained_backbone_with_mixing(config, minimal_instance, tmp_path):
+    pytest.importorskip("transformers")
+    from transformers import DINOv3ViTConfig
+
+    from sleap_nn.training.model_trainer import ModelTrainer
+    from tests.test_bbox_detr_training import _detr_train_config
+
+    model_dir = tmp_path / "tiny_dinov3"
+    DINOv3ViTConfig(
+        hidden_size=16,
+        num_hidden_layers=4,
+        num_attention_heads=2,
+        intermediate_size=32,
+        patch_size=16,
+        num_register_tokens=4,
+    ).save_pretrained(model_dir)
+    cfg = _detr_train_config(config, tmp_path, run_name="dinov3_mix")
+    cfg.data_config.train_labels_path = [minimal_instance.as_posix()] * 2
+    cfg.data_config.preprocessing.resize_mode = "letterbox"
+    cfg.model_config.backbone_config = {
+        "pretrained": {
+            "model_name": model_dir.as_posix(),
+            "weights": False,
+            "image_mean": [0.485, 0.456, 0.406],
+            "image_std": [0.229, 0.224, 0.225],
+            "drop_path_rate": 0.1,
+            "max_stride": 32,
+            "output_stride": 16,
+        }
+    }
+    cfg.trainer_config.eval = {"enabled": False}
+    cfg.trainer_config.ema = {"enabled": False}
+    cfg.trainer_config.visualize_preds_during_training = False
+    cfg.trainer_config.balanced_sampler = {"per_sample": True, "weights": [3, 1]}
+    trainer = ModelTrainer.get_model_trainer_from_config(cfg)
+    trainer.train()
+    saved = OmegaConf.load(tmp_path / "dinov3_mix" / "training_config.yaml")
+    assert saved.model_config.backbone_config.pretrained.mode == "tokens"
+    assert isinstance(trainer.trainer.train_dataloader, BalancedDataLoader)
+    assert torch.isfinite(trainer.trainer.callback_metrics["train/loss"])
+
+
+# --------------------------------------------------------------------------- #
+# Zoom-out onto another training frame
+# --------------------------------------------------------------------------- #
+def test_zoom_out_on_frame_keeps_both_frames_boxes(tmp_path):
+    """A frame shrunk onto another frame keeps the canvas boxes that stay visible, so a
+    sample can hold more boxes than any one frame; the dataset pads for that instead of
+    failing in the target encoder ("boxes exceed max_targets")."""
+    corners = [
+        (4, 4, 40, 40),
+        (216, 4, 252, 40),
+        (4, 216, 40, 252),
+        (216, 216, 252, 252),
+    ]
+    files = [
+        _image_labels(tmp_path, f"z{i}", (256, 256), corners, seed=i) for i in range(2)
+    ]
+    aug = {
+        "crop_p": 0.0,
+        "shortest_sides": [256],
+        "crop_range": [256, 256],
+        "flip_p": 0.0,
+        "zoom_out_p": 1.0,
+        "zoom_out_min": 0.3,
+        "zoom_out_max": 0.3,
+        "zoom_out_canvas": "frame",
+    }
+    ds = _detr_dataset(files, hw=(256, 256), apply_aug=True, detr_aug=aug)
+    assert ds.max_instances == 8 and ds.target_encoder.max_targets == 8
+    torch.manual_seed(0)
+    counts = []
+    for _ in range(20):
+        s = ds[0]
+        counts.append(int(s["num_instances"]))
+        assert s["bboxes"].shape == (8, 4)
+    # 4 pasted boxes + the canvas corner boxes the small paste does not cover (>= 3).
+    assert max(counts) > 4 and min(counts) >= 7
+    # Off by default: the frame limit stays the largest per-frame count.
+    plain = _detr_dataset(
+        files, hw=(256, 256), apply_aug=True, detr_aug={**aug, "zoom_out_p": 0.0}
+    )
+    assert plain.max_instances == 4 and plain.target_encoder.max_targets == 4
+
+
+# --------------------------------------------------------------------------- #
+# Copy-paste of animals from other training frames (default off)
+# --------------------------------------------------------------------------- #
+def _animal_labels(tmp_path, name, size_hw, rects, seed=0, link=True):
+    """One frame with a bright blob in each rect, a 5-point instance inside it and its
+    linked person box (unlinked boxes with ``link=False``)."""
+    h, w = size_hw
+    rng = np.random.default_rng(seed)
+    img = np.full((h, w, 3), 40, np.uint8)
+    skel = sio.Skeleton(["a", "b", "c", "d", "e"])
+    insts, boxes = [], []
+    for x1, y1, x2, y2 in rects:
+        img[int(y1) + 2 : int(y2) - 2, int(x1) + 2 : int(x2) - 2] = rng.integers(
+            150, 255, 3
+        )
+        cx, cy = (x1 + x2) / 2, (y1 + y2) / 2
+        pts = np.array(
+            [[x1 + 3, cy], [cx, y1 + 3], [x2 - 3, cy], [cx, y2 - 3], [cx, cy]], float
+        )
+        inst = sio.Instance.from_numpy(pts, skeleton=skel)
+        insts.append(inst)
+        box = _box(x1, y1, x2, y2, "person")
+        if link:
+            box.instance = inst
+        boxes.append(box)
+    path = tmp_path / f"{name}.png"
+    Image.fromarray(img).save(path)
+    video = sio.Video.from_filename([str(path)])
+    lf = sio.LabeledFrame(video=video, frame_idx=0, instances=insts)
+    lf.bboxes = boxes
+    return sio.Labels(videos=[video], labeled_frames=[lf], skeletons=[skel])
+
+
+_PASTE_AUG = {
+    "crop_p": 0.0,
+    "shortest_sides": [256],
+    "crop_range": [256, 256],
+    "flip_p": 0.0,
+    "paste_p": 1.0,
+    "paste_max": 4,
+    "paste_frames": 2,
+    "paste_scale_min": 0.5,
+    "paste_scale_max": 0.5,
+}
+
+
+def test_instance_hull_keeps_points_inside_box():
+    from sleap_nn.data.bboxes import HULL_VERTICES, instance_hull
+
+    pts = np.array([[1, 1], [10, 2], [9, 9], [2, 8], [5, 5], [50, 50], [np.nan, 1]])
+    hull = instance_hull(pts, (0, 0, 12, 12))
+    assert hull.shape == (HULL_VERTICES, 2)
+    kept = hull[np.isfinite(hull).all(1)]
+    assert len(kept) == 4 and not (kept == 50).any()  # interior point and tail out
+    assert np.isnan(instance_hull(pts[:3], (0, 0, 12, 12))).all()  # < 4 points
+    assert np.isnan(instance_hull([[0, 0], [1, 1], [2, 2], [3, 3]], (0, 0, 9, 9))).all()
+
+
+def test_hull_mask_is_soft_and_inside_patch():
+    from sleap_nn.data.detr_augmentation import hull_mask
+
+    m = hull_mask(np.array([[5, 5], [30, 8], [25, 30], [6, 25]]), (36, 40), 2, 1.5)
+    assert m.shape == (36, 40) and float(m[18, 18]) == 1.0 and float(m[0, 39]) == 0.0
+    assert ((m > 0) & (m < 1)).any()  # feathered edge
+
+
+def test_paste_adds_animals_from_other_frames(tmp_path):
+    rects = [(20, 20, 80, 60), (150, 150, 220, 200)]
+    files = [
+        _animal_labels(tmp_path, f"p{i}", (256, 256), rects, seed=i) for i in range(2)
+    ]
+    ds = _detr_dataset(files, hw=(256, 256), apply_aug=True, detr_aug=_PASTE_AUG)
+    assert ds.max_instances == 2 + 4 and ds.target_encoder.max_targets == 6
+    torch.manual_seed(0)
+    counts = []
+    orig = torch.tensor(rects, dtype=torch.float32)
+    for _ in range(20):
+        s = ds[0]
+        n = int(s["num_instances"])
+        counts.append(n)
+        b = s["bboxes"][:n]
+        assert torch.isfinite(b).all()
+        assert (b[:, :2] >= 0).all() and (b[:, 2:] <= 256).all()
+        # pasted boxes (after the frame's own two) never cover half of another box
+        lt = torch.maximum(b[2:, None, :2], orig[None, :, :2])
+        rb = torch.minimum(b[2:, None, 2:], orig[None, :, 2:])
+        inter = (rb - lt).clamp(min=0).prod(-1)
+        assert (inter < 0.5 * (orig[:, 2:] - orig[:, :2]).prod(-1)).all()
+    assert min(counts) >= 3 and max(counts) > 3
+
+
+def test_paste_skips_boxes_without_instances(tmp_path):
+    rects = [(20, 20, 80, 60)]
+    files = [
+        _animal_labels(tmp_path, f"u{i}", (256, 256), rects, seed=i, link=False)
+        for i in range(2)
+    ]
+    ds = _detr_dataset(files, hw=(256, 256), apply_aug=True, detr_aug=_PASTE_AUG)
+    torch.manual_seed(0)
+    assert all(int(ds[0]["num_instances"]) == 1 for _ in range(5))
+
+
+def test_paste_off_by_default_and_in_validation(tmp_path):
+    rects = [(20, 20, 80, 60), (150, 150, 220, 200)]
+    files = [
+        _animal_labels(tmp_path, f"d{i}", (256, 256), rects, seed=i) for i in range(2)
+    ]
+    base = {k: v for k, v in _PASTE_AUG.items() if not k.startswith("paste")}
+    off = _detr_dataset(files, hw=(256, 256), apply_aug=True, detr_aug=base)
+    zero = _detr_dataset(
+        files, hw=(256, 256), apply_aug=True, detr_aug={**_PASTE_AUG, "paste_p": 0.0}
+    )
+    val = _detr_dataset(files, hw=(256, 256), apply_aug=False, detr_aug=_PASTE_AUG)
+    for ds in (off, zero, val):
+        assert ds.max_instances == 2 and "paste_hulls" not in ds.lf_idx_list[0]
+    torch.manual_seed(0)
+    a = off[0]
+    torch.manual_seed(0)
+    b = zero[0]
+    assert torch.equal(a["image"], b["image"]) and torch.equal(a["bboxes"], b["bboxes"])
+
+
+# Reference: the DETR-only zoom-out onto a frame, before it was shared.
+def _reference_zoom_out_on_frame(self, image, boxes, classes, zoom_range):
+    """``DetrBBoxDataset._zoom_out_on_frame`` as it was before the box detectors
+    shared it: the canvas frame is fitted to ``self.train_hw`` / ``self.resize_mode``.
+    """
+    import math
+
+    from sleap_nn.data.detr_augmentation import resize_frame, zoom_out
+
+    # Canvas: a uniformly drawn labels file, then a uniform frame of it (a frame-uniform
+    # draw would make the largest set nearly every background).
+    if getattr(self, "_by_file", None) is None:
+        lid = np.asarray(self.labels_idx)
+        self._by_file = [np.flatnonzero(lid == u) for u in np.unique(lid)]
+    grp = self._by_file[int(torch.randint(len(self._by_file), ()))]
+    j = int(grp[int(torch.randint(len(grp), ()))])
+    s2 = self.lf_idx_list[j]
+    img2, dscale = self._read_frame(s2)
+    bg = torch.from_numpy(np.transpose(img2, (2, 0, 1))[None].copy())
+    if self.ensure_rgb:
+        bg = convert_to_rgb(bg)
+    elif self.ensure_grayscale:
+        bg = convert_to_grayscale(bg)
+    if bg.shape[-3] != image.shape[-3]:
+        bg = bg.expand(*bg.shape[:-3], image.shape[-3], *bg.shape[-2:]).clone()
+    xyxy2 = s2["bboxes"].astype(np.float32)
+    if dscale is not None:
+        sx, sy = dscale
+        xyxy2 = xyxy2 * np.asarray([sx, sy, sx, sy], dtype=np.float32)
+    b2 = torch.from_numpy(xyxy2).reshape(-1, 4)
+    bg, b2, _ = resize_frame(bg, b2, self.train_hw, self.resize_mode)
+    bg = bg.to(image.dtype)
+    c2 = torch.from_numpy(s2["bbox_classes"]).long()
+    lo, hi = (math.log(float(v)) for v in zoom_range)
+    f = math.exp(lo + (hi - lo) * float(torch.rand(())))
+    off = (float(torch.rand(())), float(torch.rand(())))
+    small, b1 = zoom_out(image, boxes, f, off)
+    H, W = image.shape[-2:]
+    h, w = max(1, int(round(H * f))), max(1, int(round(W * f)))
+    oy, ox = int(round(off[0] * (H - h))), int(round(off[1] * (W - w)))
+    out = bg.clone()
+    out[..., oy : oy + h, ox : ox + w] = small[..., oy : oy + h, ox : ox + w]
+    keep_b, keep_c = [], []
+    for bb, cc in zip(b2, c2):
+        x1, y1, x2, y2 = [float(v) for v in bb]
+        area = max(0.0, x2 - x1) * max(0.0, y2 - y1)
+        if area <= 0:
+            continue
+        ix = max(0.0, min(x2, ox + w) - max(x1, ox))
+        iy = max(0.0, min(y2, oy + h) - max(y1, oy))
+        if ix * iy >= 0.5 * area:
+            continue
+        if ix * iy > 0:  # clip to the visible side when it is a full strip
+            if y1 >= oy and y2 <= oy + h:
+                x1, x2 = (x1, ox) if x1 < ox else (ox + w, x2)
+            elif x1 >= ox and x2 <= ox + w:
+                y1, y2 = (y1, oy) if y1 < oy else (oy + h, y2)
+        keep_b.append([x1, y1, x2, y2])
+        keep_c.append(int(cc))
+    if keep_b:
+        boxes = torch.cat([b1, torch.tensor(keep_b, dtype=b1.dtype)], 0)
+        classes = torch.cat([classes, torch.tensor(keep_c, dtype=classes.dtype)], 0)
+    else:
+        boxes = b1
+    return out, boxes, classes
+
+
+def test_zoom_out_on_frame_matches_the_detr_only_version(tmp_path):
+    """bbox_detr samples (zoom-out onto another frame, with and without copy-paste,
+    letterbox and squash) are those of the earlier DETR-only zoom-out."""
+    import types
+
+    from sleap_nn.config.data_config import DetrAugmentationConfig
+
+    files = [
+        _image_labels(tmp_path, f"r{i}", hw, [(8, 8, 60, 50), (100, 90, 150, 140)], i)
+        for i, hw in enumerate([(160, 200), (200, 160)])
+    ]
+    for mode in ("letterbox", "squash"):
+        for paste in (0.0, 0.5):
+            aug = OmegaConf.structured(
+                DetrAugmentationConfig(
+                    crop_p=0.5,
+                    shortest_sides=[160],
+                    crop_range=[96, 160],
+                    zoom_out_p=0.8,
+                    zoom_out_canvas="frame",
+                    paste_p=paste,
+                )
+            )
+            kw = dict(
+                labels=files,
+                target_encoder=SetTargetEncoder(),
+                categories=["person"],
+                max_stride=32,
+                ensure_rgb=True,
+                max_hw=(128, 160),
+                apply_aug=True,
+                resize_mode=mode,
+                detr_aug=aug,
+            )
+            new, ref = DetrBBoxDataset(**kw), DetrBBoxDataset(**kw)
+            ref._zoom_out_on_frame = types.MethodType(_reference_zoom_out_on_frame, ref)
+            for seed in range(6):
+                torch.manual_seed(seed)
+                a = new[seed % 2]
+                torch.manual_seed(seed)
+                b = ref[seed % 2]
+                for key, value in a.items():
+                    if torch.is_tensor(value):
+                        assert torch.equal(value.nan_to_num(-7), b[key].nan_to_num(-7))
+                    else:
+                        assert value == b[key]

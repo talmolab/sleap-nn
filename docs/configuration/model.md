@@ -11,12 +11,14 @@ model_config:
   init_weights: default
   pretrained_backbone_weights: null
   pretrained_head_weights: null
+  init_from: null     # Initialize from another model (see below)
 
   backbone_config:
     unet: {...}       # Only one backbone
     convnext: null
     swint: null
-    pretrained: null  # HuggingFace / timm encoder
+    pretrained: null       # HuggingFace / timm encoder (also bbox_detr's DINOv3)
+    dinov2_windowed: null  # RF-DETR's windowed DINOv2 (bbox_detr only)
 
   head_configs:
     single_instance: {...}  # Only one head type
@@ -31,6 +33,7 @@ model_config:
     embedding: null
     bbox_centernet: null
     bbox_ssd: null
+    bbox_detr: null
 
   total_params: null  # set automatically when training starts
 ```
@@ -128,10 +131,13 @@ backbone_config:
     vit_neck: dpt          # dpt | sfp
     neck_channels: null    # null = [h/8, h/4, h/2, h] for hidden size h
     gradient_checkpointing: false  # any encoder
-    encoder_lr_scale: 1.0          # any encoder
-    layer_decay: null              # layer-wise LR decay for ViT blocks
+    drop_path_rate: null           # stochastic depth, ramped 0 -> rate over blocks
+    # encoder_lr_scale / layer_decay moved to trainer_config.optimizer
     detail_stem: false     # conv stream adding stride-2/4/8 skips to the ViT pyramid
     detail_channels: null  # null = [32, 64, 128]
+    vit_decoder: unet      # unet (neck + UNet decoder) | classic | simple (ViTPose heads)
+    vit_decoder_channels: 256  # classic deconv channels
+    vit_final_norm: null   # null = on for classic/simple: last tap uses the encoder's final norm
 ```
 
 Three integration cases (`mode: auto` picks one from the backbone family and the
@@ -149,10 +155,41 @@ model's heads; `mode` forces it):
   plain ViT can feed spatial heads. `auto` resolves to it whenever the model has a
   spatial head.
 
+A `bbox_detr` model uses a plain ViT in a fourth way, `mode: tokens` (written for
+you when `mode: auto`): the tapped layers' token maps go straight to the DETR
+projector, each through the encoder's pretrained final norm, with no neck or
+decoder. See the [DETR box detector guide](../guides/bbox-detr.md).
+
 See the [Pretrained Backbones guide](../guides/pretrained-backbones.md) for the
 tested-model table, `timm/...` checkpoints, the ViT knobs, gating/`HF_TOKEN` and
 offline workflow, and freeze / fine-tune guidance. The full field list is in
 [PretrainedConfig](#pretrainedconfig) below.
+
+### Windowed DINOv2 (RF-DETR, `bbox_detr` only)
+
+The backbone of RF-DETR's checkpoints: DINOv2 on a 16 px token grid (its 14 x 14
+patch embedding resampled to 16 x 16) with windowed attention in the blocks
+between taps. `sleap-nn import-rfdetr` writes it; set `weights` to start it from a
+plain DINOv2 checkpoint instead. Defaults are RF-DETR-M's.
+
+```yaml
+backbone_config:
+  dinov2_windowed:
+    hidden_size: 384         # ViT-S (768: ViT-B)
+    num_layers: 12
+    num_heads: 6
+    patch_size: 16
+    pos_embed_grid: 36       # training size / 16 (RF-DETR: 24 / 32 / 36 / 44 for N / S / M / L)
+    out_indices: [3, 6, 9, 12]
+    num_windows: 2           # input sides must be multiples of patch_size * num_windows
+    window_block_indexes: null  # null = every block up to the last tap except the taps
+    drop_path_rate: 0.0
+    weights: null            # e.g. facebook/dinov2-small; null = random (a checkpoint loads after)
+    output_stride: 16
+    max_stride: 32
+```
+
+Full field list: [Dinov2WindowedConfig](#dinov2windowedconfig).
 
 ---
 
@@ -364,7 +401,7 @@ Sample: [`config_embedding_convnext.yaml`](https://github.com/talmolab/sleap-nn/
 Axis-aligned box detection, one box per animal (written as
 `sio.PredictedBoundingBox` on `LabeledFrame.bboxes`). Ground-truth boxes come from
 the labels' own boxes or are derived from poses / masks
-(`data_config.bbox_source`). Two styles:
+(`data_config.bbox_source`). Three styles:
 
 ```yaml
 head_configs:
@@ -390,10 +427,26 @@ head_configs:
       anchor_sizes: null # null = auto-sized from the training boxes, saved into the config
 ```
 
+```yaml
+head_configs:
+  bbox_detr:             # RF-DETR-style set prediction (no NMS); needs a ViT backbone
+    detr:
+      categories: null   # filled from the training boxes
+      num_queries: 100   # detections per frame (RF-DETR: 300)
+      num_select: 100
+      dec_layers: 3
+      group_detr: 13     # query groups in training
+```
+
 Notes:
 
 - Keep rotation augmentation off: the axis-aligned box of rotated corners is larger
   than the rotated animal.
+- `bbox_detr` takes a `pretrained` plain ViT (DINOv3 / DINOv2) or `dinov2_windowed`
+  backbone, `preprocessing.scale: 1.0` with `max_height` / `max_width` as the input
+  size, and usually RF-DETR's augmentation (`augmentation_config.detr`). See the
+  [DETR box detector guide](../guides/bbox-detr.md) and
+  [`config_bbox_detr_dinov3_s_animals.yaml`](https://github.com/talmolab/sleap-nn/blob/main/docs/sample_configs/config_bbox_detr_dinov3_s_animals.yaml).
 - With `trainer_config.eval.enabled: true`, the best checkpoint and early stopping
   follow `eval/val/bbox_mAP` (see `eval.select_metric`).
 - See the [Bounding-box detection guide](../guides/bbox-detection.md) and the sample
@@ -424,6 +477,34 @@ model_config:
 
 !!! note "UNet only"
     Legacy SLEAP weights only work with UNet backbone.
+
+!!! note "Shape mismatches raise"
+    A `.ckpt` tensor whose shape differs from the new model's raises an error
+    with these two keys, and head channels are copied by position, as in
+    earlier releases. Set `init_from.remap_nodes: true` to copy head channels by
+    node name (a skeleton that grows or is reordered), `init_from.strict: false`
+    to skip tensors that do not fit with a warning (the target keeps its init),
+    or use `init_from.path`, which does both by default.
+
+### From Another Model, Tolerating Differences
+
+`init_from` loads what fits from another sleap-nn model: head channels are matched
+by node name (so the skeleton can grow or be reordered), learned positional
+embeddings are resized, and selected parts can be re-initialized. Every tensor is
+accounted for in a logged report.
+
+```yaml
+model_config:
+  init_from:
+    path: /runs/coco17          # model directory, .ckpt or state dict
+    include: null               # e.g. [backbone]
+    exclude: null
+    node_map: null              # {target node: source node}
+    reinit: null                # e.g. [head] or ["blocks[-2:]", head]
+    strict: false
+```
+
+See the [Initializing from Another Model](../guides/init-from.md) guide.
 
 ---
 
@@ -534,7 +615,23 @@ model_config:
 | `init_weights` | str | `default` | Weight initialization: `default` (kaiming) or `xavier` |
 | `pretrained_backbone_weights` | str | `null` | Path to `.ckpt` or `.h5` file for backbone weights |
 | `pretrained_head_weights` | str | `null` | Path to `.ckpt` or `.h5` file for head weights |
+| `init_from` | InitFromConfig | `null` | Shape-tolerant, node-name-aware init from another model, plus re-init ([guide](../guides/init-from.md)) |
 | `total_params` | int | `null` | Set automatically: the model's parameter count, computed when training starts |
+
+### InitFromConfig
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `path` | str | `null` | Model directory (`best.ckpt`), `.ckpt` or raw state dict. `null`: load nothing (`reinit` still applies) |
+| `include` | list | `null` | Selectors of weights to load (`null` = all): `all`, `backbone`, `encoder`, `decoder`, `neck`, `head`, `embeddings`, `blocks[a:b]`, globs |
+| `exclude` | list | `null` | Selectors of weights to leave at their init |
+| `remap_nodes` | bool | `null` | Copy per-node head channels by node name. `null`: yes for `path`, no (by position) for `pretrained_head_weights` |
+| `node_map` | dict | `null` | `{target node: source node}` overrides. For `bbox_detr` the class-head rows are matched by class name the same way (the never-positive extra logit is `__extra__`; leave it unmapped so it takes the source's own); classes the source lacks start fresh |
+| `source_part_names` | list | `null` | Source node names, for checkpoints that record none |
+| `interpolate_pos_embed` | bool | `true` | Resize learned positional embeddings to the new token grid |
+| `reinit` | list | `null` | Selectors re-initialized after loading |
+| `reinit_layer_scale` | float | `1e-5` | LayerScale for re-initialized ViT blocks |
+| `strict` | bool | `null` | Raise on any shape-mismatched tensor. `null`: `init_from.path` skips with a warning, the `.ckpt` forms of `pretrained_*_weights` raise. `true` / `false` apply one rule to both |
 
 ### UNetConfig
 
@@ -597,7 +694,7 @@ External HuggingFace / timm backbone (`backbone_config.pretrained`). See the
 | `source` | str | `hf` | Backbone source; only `hf` (HuggingFace Hub) is supported |
 | `model_name` | str | `facebook/convnextv2-nano-22k-224` | HF model id, or a `timm/...` checkpoint (needs `timm`) |
 | `weights` | bool | `true` | Download and load pretrained weights; `false` = random init from the model config |
-| `mode` | str | `auto` | `auto`, `decoder` (Case A hierarchical / Case C plain ViT), or `encoder` (Case B pooled bottleneck). `auto` picks `decoder` when the model has a spatial head, `encoder` for `embedding` |
+| `mode` | str | `auto` | `auto`, `decoder` (Case A hierarchical / Case C plain ViT), `encoder` (Case B pooled bottleneck), or `tokens` (the tapped token maps, for `bbox_detr`). `auto` picks `decoder` when the model has a spatial head, `encoder` for `embedding`, `tokens` for `bbox_detr` |
 | `freeze` | bool | `false` | Freeze the pretrained encoder (feature extraction); the neck, decoder and heads still train |
 | `revision` | str | `null` | HF revision (commit sha / tag) to pin |
 | `normalize` | bool | `true` | Apply the model's mean/std inside the backbone (forced off for `embedding`) |
@@ -612,14 +709,18 @@ External HuggingFace / timm backbone (`backbone_config.pretrained`). See the
 | `output_stride` | int | `2` | Finest decoder output stride (plain ViT: at most `token_stride`) |
 | `max_stride` | int | `32` | Deepest encoder stride: 32 for hierarchical backbones; for a plain ViT a multiple of `2 × token_stride` |
 | `token_stride` | int | `null` | Plain ViT: stride of the token grid (power of two ≥ 4; the input is resized to match). `null` = power of two nearest the patch size (16 for patch 14 or 16). `8` = finer grid, ~4× encoder cost |
-| `layers` | list[int] | `null` | Plain ViT: layers to tap, 1-indexed (`-1` = last). `null` = one evenly spaced tap per built pyramid level, ending at the last, for `dpt` (`[3, 6, 9, 12]` for 12 layers); the last layer for `sfp` / encoder mode (which take exactly one) |
+| `layers` | list[int] | `null` | Plain ViT: layers to tap, 1-indexed (`-1` = last). `null` = one evenly spaced tap per built pyramid level, ending at the last, for `dpt` (`[3, 6, 9, 12]` for 12 layers); the last layer for `sfp` / encoder mode (which take exactly one). `dpt` takes one tap per built level, or 4 taps (one per level of the full pyramid): when `output_stride` leaves the finer levels out, their (shallowest) taps are dropped, so `[3, 6, 9, 12]` at `output_stride: 8` and token stride 16 uses `[6, 9, 12]`. Any other count is an error that names the counts to use |
 | `vit_neck` | str | `dpt` | Plain ViT: `dpt` (one tapped layer per pyramid level) or `sfp` (ViTDet Simple Feature Pyramid from the last tap) |
 | `neck_channels` | list[int] | `null` | Plain ViT: channels of the 4 neck levels, finest first. `null` = `[h/8, h/4, h/2, h]` for hidden size `h` |
 | `gradient_checkpointing` | bool | `false` | Enable gradient checkpointing in the encoder during training (less memory, slower) |
-| `encoder_lr_scale` | float | `1.0` | LR multiplier for the pretrained encoder relative to the neck/decoder/heads |
-| `layer_decay` | float | `null` | Plain ViT: layer-wise LR decay; block `i` of `L` trains at `encoder_lr_scale · layer_decay^(L+1−i)` × base LR (LR-schedule floors scale with it) |
+| `encoder_lr_scale` | float | `1.0` | **Deprecated**: use [`trainer_config.optimizer.encoder_lr_scale`](trainer.md#optimizer). Still read, with a warning, when that is unset |
+| `layer_decay` | float | `null` | **Deprecated**: use [`trainer_config.optimizer.layer_decay`](trainer.md#optimizer). Still read, with a warning, when that is unset |
+| `drop_path_rate` | float | `null` | Stochastic depth of the encoder, ramped linearly from `0` (first block) to this value (last block). HF DINOv2 / DINOv3-ViT apply the rate uniformly; sleap-nn converts them to the ramp. Ignored, with a warning, for families without stochastic depth (CLIP, SigLIP, ViT, MAE). `null` keeps the checkpoint's setting |
 | `detail_stem` | bool | `false` | Plain ViT: add a light conv stream whose stride-2/4/8 features join the pyramid as decoder skips |
 | `detail_channels` | list[int] | `null` | Detail-stem channels at strides 2, 4, 8 (exactly three). `null` = `[32, 64, 128]` |
+| `vit_decoder` | str | `unet` | Plain ViT: `unet` (`vit_neck` pyramid + UNet decoder), or a ViTPose-style direct decoder on the last tap: `classic` (deconv 4×4/s2 + BN + ReLU blocks down to `output_stride`) or `simple` (ReLU + bilinear upsampling, no parameters; the heads' output conv becomes 3×3, as in ViTPose). The direct decoders take one tap and ignore `vit_neck`, `neck_channels`, `detail_stem`; `max_stride` need only be a multiple of `token_stride` |
+| `vit_decoder_channels` | int | `256` | Channels of the `classic` deconv blocks |
+| `vit_final_norm` | bool | `null` | Plain ViT: normalize a last-layer tap with the encoder's own pretrained final norm instead of a fresh LayerNorm. `null` = on for `classic`/`simple`, off for `unet` |
 
 ### single_instance.confmaps
 
@@ -646,7 +747,7 @@ For detecting instance centers (top-down stage 1).
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `anchor_part` | str | `null` | Anchor node (null = mean of the visible nodes) |
+| `anchor_part` | str or list | `null` | Anchor node (null = mean of the visible nodes). **Experimental:** a non-empty list of nodes, in order of preference: each instance uses the first one its file labels and it has located, else `centroid_fallback` as with one node; frames of a file that labels none of them get zero loss instead of a fallback centroid. Prediction uses the first listed node. See [Frame models on several skeletons](../guides/multi-skeleton-pool.md) |
 | `centroid_method` | str | `null` | How the centroid is computed: `center_of_mass`, `bbox_center`, `geometric_median` or `anchor`. `null` = `anchor` when `anchor_part` is set, else `center_of_mass`. A non-anchor method together with `anchor_part` is an error |
 | `centroid_fallback` | str | `null` | Used when the `anchor_part` node is not visible: `center_of_mass` (what `null` means), `bbox_center` or `geometric_median` |
 | `centroid_source` | str | `null` | Training target: `user` (the labels' `UserCentroid`s; frames with poses but no user centroid are dropped) or `computed` (from keypoints, ignoring user centroids). `null` = `user` if the labels have user centroids, else `computed`, with a warning |
@@ -942,3 +1043,70 @@ The crop itself is set by `data_config.preprocessing` (`crop_size`, `burn_in`,
 | `head_channels` | int | `128` | Channels of each level's conv tower |
 | `head_convs` | int | `1` | 3x3 conv + ReLU layers per tower |
 | `loss_weight` | float | `1.0` | Weight of the box regression loss relative to classification |
+
+### Dinov2WindowedConfig
+
+RF-DETR's windowed DINOv2 (`backbone_config.dinov2_windowed`, `bbox_detr` only).
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `in_channels` | int | `3` | Input channels |
+| `hidden_size` | int | `384` | Token width: 384 (ViT-S) or 768 (ViT-B) |
+| `num_layers` | int | `12` | Transformer blocks |
+| `num_heads` | int | `6` | Attention heads (6 for ViT-S, 12 for ViT-B) |
+| `mlp_ratio` | float | `4.0` | MLP width as a multiple of `hidden_size` |
+| `patch_size` | int | `16` | Patch size (the token stride) |
+| `pos_embed_grid` | int | `36` | Side of the token grid the learned position embedding covers (training size / `patch_size`); interpolated for other inputs |
+| `out_indices` | list[int] | `[3, 6, 9, 12]` | Tapped hidden states (`0` = embedding output, `i` = output of block `i`) |
+| `num_windows` | int | `2` | Attention windows per side (`1` = global attention). Input sides must be multiples of `patch_size * num_windows` |
+| `window_block_indexes` | list[int] | `null` | Blocks (0-based) that attend within windows; `null` = every block up to the last tap except the tapped ones (RF-DETR) |
+| `drop_path_rate` | float | `0.0` | Stochastic depth, ramped over the blocks |
+| `weights` | str | `null` | Initialize from a plain DINOv2 checkpoint (HF id such as `facebook/dinov2-small`, or a directory): patch embedding resampled to `patch_size`, position embedding resized to `pos_embed_grid`. `null` = random init |
+| `revision` | str | `null` | HF Hub revision of `weights` |
+| `output_stride` | int | `16` | Stride of the token maps (`= patch_size`) |
+| `max_stride` | int | `32` | Inputs are padded to multiples of this (`patch_size * num_windows`); also the multi-scale step |
+
+### bbox_detr.detr
+
+The DETR detector after the backbone (`head_configs.bbox_detr.detr`). Defaults are
+RF-DETR's; the [guide](../guides/bbox-detr.md) gives animal defaults.
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `categories` | list | `null` | Class names; `null` = the training boxes' categories in first-seen order (`object` for boxes without one). The class head has `len(categories) + 1` sigmoid logits; the last is never a positive |
+| `output_stride` | int | `16` | Stride of the backbone's token maps |
+| `hidden_dim` | int | `256` | Width of the projected map and the queries |
+| `num_queries` | int | `300` | Queries per group: the most boxes per frame. Needs at least this many tokens in every input (training sizes with fewer are dropped from multi-scale) |
+| `group_detr` | int | `13` | Query groups in training (Group DETR); inference uses one |
+| `dec_layers` | int | `3` | Decoder layers |
+| `sa_nheads` | int | `8` | Decoder self-attention heads |
+| `ca_nheads` | int | `16` | Deformable cross-attention heads |
+| `dec_n_points` | int | `2` | Sampling points per cross-attention head |
+| `dim_feedforward` | int | `2048` | Decoder FFN width |
+| `dropout` | float | `0.0` | Decoder dropout |
+| `c2f_num_blocks` | int | `3` | Bottlenecks in the projector's C2f block |
+| `c2f_expansion` | float | `0.5` | C2f hidden width as a fraction of `hidden_dim` |
+| `num_select` | int | `300` | Detections kept per frame (top-k over queries x classes) |
+| `cls_loss_coef` | float | `1.0` | Weight of the IoU-aware BCE class loss |
+| `bbox_loss_coef` | float | `5.0` | Weight of the L1 box loss |
+| `giou_loss_coef` | float | `2.0` | Weight of the GIoU loss |
+| `set_cost_class` | float | `2.0` | Matcher weight of the focal class cost |
+| `set_cost_bbox` | float | `5.0` | Matcher weight of the L1 box cost |
+| `set_cost_giou` | float | `2.0` | Matcher weight of the GIoU cost |
+| `focal_alpha` | float | `0.25` | Alpha of the matcher's focal cost and of the IA-BCE soft target |
+| `focal_gamma` | float | `2.0` | Gamma of the matcher's focal cost and of the IA-BCE negative weight |
+| `lr_component_decay` | float | `0.7` | The decoder trains at `lr * lr_component_decay`, the backbone at `lr * encoder_lr_scale * lr_component_decay^2` (times its layer decay), everything else at `lr` |
+| `keypoints` | dict | `null` | Experimental: also predict keypoints per query, boxes and poses in one pass (see below). `null`: a box detector only; left out of the saved config while unset |
+
+### bbox_detr.detr.keypoints (experimental)
+
+Keypoints per query of a `bbox_detr` model (`head_configs.bbox_detr.detr.keypoints`;
+`keypoints: {}` turns them on with these defaults). See the
+[guide](../guides/bbox-detr.md#boxes-and-keypoints-in-one-pass-experimental).
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `part_names` | list | `null` | Nodes to predict, matched by name in every training file. `null` = the nodes of the first training file's skeleton (written into the saved config) |
+| `loss_weight` | float | `5.0` | Weight of the keypoint L1 loss (per point, divided by the target box size; a weighted mean over the batch's located points) |
+| `visibility_loss_weight` | float | `1.0` | Weight of the keypoint visibility loss (binary cross-entropy; a weighted mean over the batch's points) |
+| `visibility_threshold` | float | `0.5` | At prediction, points whose visibility probability is below this are written as missing (set it in the model's `training_config.yaml`) |

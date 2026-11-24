@@ -40,7 +40,10 @@ trainer_config:
 !!! warning "Workers without caching"
     Only use `num_workers > 0` with data caching enabled. The `torch_dataset`
     (streaming) pipeline reads frames through the video backend inside the
-    dataset, and those backends cannot be pickled to worker processes.
+    dataset, and those backends cannot be pickled to worker processes. The
+    exception is labels whose videos are all image sequences (one file per
+    frame, e.g. COCO converted to `.slp`): there is no open handle to pickle, and
+    streaming with workers is both the fastest and the leanest pipeline.
 
 ### Automatic worker count
 
@@ -57,7 +60,10 @@ trainer_config:
 `auto` resolves once, at the start of training, taking the smaller of a **CPU
 bound** and a **memory bound**.
 
-**CPU bound** — `min(4, usable_cpus - 1)`, leaving one core for the main process.
+**CPU bound** — `min(16, usable_cpus // local_processes - 1)`: the usable cores are
+split across the training processes on the node (one per GPU under DDP), leaving
+one core per process for the training loop. E.g. 128 cores and 4 GPUs give 16
+workers per GPU; 8 cores and 1 GPU give 7.
 "Usable" CPUs come from the process's CPU affinity mask where the platform
 provides one (Linux cgroups/cpusets, SLURM, `docker --cpuset-cpus`), so a job
 confined to part of a node sizes itself to its allocation rather than to the
@@ -104,8 +110,9 @@ allow 4): in-memory cache is 6.00 GB and each worker adds ~100% of it on darwin.
 
 Two cases skip the memory bound:
 
-- **`torch_dataset` (streaming) → always `0`**, per the warning above, so `auto`
-  is safe to leave set regardless of pipeline.
+- **`torch_dataset` (streaming) → `0`**, per the warning above, so `auto`
+  is safe to leave set regardless of pipeline. When every train and val video is
+  an image sequence, the CPU bound applies instead.
 - **`torch_dataset_cache_img_disk`** keeps no large in-process cache, so it is
   CPU-bound only.
 
@@ -149,16 +156,41 @@ trainer_config:
   optimizer:
     lr: 0.0001
     amsgrad: false
+    weight_decay: null      # e.g. 0.1 with AdamW (ViTPose); null = torch default
+    encoder_lr_scale: null  # `pretrained` backbones: encoder LR multiplier (null = 1.0)
+    layer_decay: null       # plain-ViT `pretrained` encoders: layer-wise LR decay
 ```
+
+**Weight decay.** With `weight_decay: null` the optimizer keeps PyTorch's default
+on every parameter: `0` for `Adam`, but `0.01` for `AdamW`, including biases and
+normalization weights. Setting `weight_decay` applies it to weight matrices and
+conv kernels only. Biases, normalization weights, any other 1-D parameter,
+position embeddings and CLS / register / mask tokens (plus any names a timm
+model lists in `no_weight_decay()`) train without decay, as in the ViTPose, MAE
+and timm recipes. Each optimizer param group is split into a `<group>/decay` and a
+`<group>/no_decay` half that keep the group's learning rate, so this composes with
+`layer_decay`.
+
+**Encoder learning rates.** `encoder_lr_scale` and `layer_decay` set the learning
+rate of a [`pretrained`](model.md) backbone's encoder relative to `lr` (the neck,
+decoder and heads always train at `lr`). Block `i` of `L` trains at
+`encoder_lr_scale · layer_decay^(L+1−i)` × `lr`. They used to live on
+`model_config.backbone_config.pretrained`; those keys still work, with a
+deprecation warning, and training writes them here in the saved
+`training_config.yaml`. Setting both places to different values is an error.
+
+Param groups are named (`base` for the neck/decoder/heads, `encoder` or
+`encoder/depth<k>` for the encoder, with `/decay` / `/no_decay` suffixes under
+`weight_decay`), and `ThroughputMonitor` logs each as `perf/lr/<name>`.
 
 ### Learning Rate Schedulers
 
 `reduce_lr_on_plateau` is **on by default**: the schema fills it in even when the
 config has no `lr_scheduler` block. Setting another scheduler does not switch it off
-(it stays populated after the merge), but only one scheduler ever runs, picked in this
-priority order: `cosine_annealing_warmup` > `linear_warmup_linear_decay` > `step_lr` >
-`reduce_lr_on_plateau`. For a constant learning rate, set `lr_scheduler: null` (or set
-all four to `null`).
+(it stays populated after the merge), but only one scheduler ever runs (they never
+stack), picked in this priority order: `cosine_annealing_warmup` >
+`linear_warmup_linear_decay` > `multi_step_lr` > `step_lr` > `reduce_lr_on_plateau`.
+For a constant learning rate, set `lr_scheduler: null` (or set all five to `null`).
 
 Choose **one** scheduler:
 
@@ -197,6 +229,52 @@ Choose **one** scheduler:
         end_lr: 1e-6
     ```
 
+=== "Multi-step (ViTPose)"
+    ```yaml
+    lr_scheduler:
+      multi_step_lr:
+        milestones: [170, 200]   # epochs (or steps with milestone_unit: step)
+        gamma: 0.1
+        milestone_unit: epoch
+        warmup_steps: 500        # linear warmup, in optimizer steps
+        warmup_start_factor: 0.001
+    ```
+
+**Per-step schedules.** `cosine_annealing_warmup` and `linear_warmup_linear_decay`
+update the learning rate once per epoch by default, and the warmup counts whole
+epochs: warmup epoch `e` trains at `(e + 1) / (warmup_epochs + 1)` of the way from
+`warmup_start_lr` to the base LR, so epoch 0 is not at `warmup_start_lr`.
+Setting `warmup_steps` (any int, `0` included) switches either schedule to
+per-iteration updates: the warmup lasts `warmup_steps` optimizer steps and the
+decay runs to `max_steps`. When `max_steps` is unset it is the schedule's own
+`max_epochs` × optimizer steps per epoch, or else the run's total optimizer steps
+(`trainer_config.max_epochs`, capped by `trainer_config.max_steps`).
+
+```yaml
+lr_scheduler:
+  cosine_annealing_warmup:
+    warmup_steps: 1000   # per-iteration schedule
+    max_steps: null      # = the whole run
+    warmup_start_lr: 0.0
+    eta_min: 1e-6
+```
+
+`multi_step_lr` always updates per optimizer step. Epoch milestones are converted
+with the number of optimizer steps per epoch, so milestone `170` takes effect on
+the first step of epoch 170 (0-indexed), as in mmcv's `step` policy. Every
+schedule scales its absolute values (`warmup_start_lr`, `eta_min`, `end_lr`,
+`min_lr`) by each param group's LR ratio, so `encoder_lr_scale` / `layer_decay`
+ratios hold for the whole run.
+
+**Fixed-length schedules and early stopping.** `cosine_annealing_warmup`,
+`linear_warmup_linear_decay` and `multi_step_lr` are planned around the run
+length. The default `reduce_lr_on_plateau` section stays in the saved config, as in
+v0.3.5, but does not run: only one schedule runs, chosen in priority order (see
+[LRSchedulerConfig](#lrschedulerconfig)). Early stopping stays on, as under every
+schedule, and training warns that it can end the run before the schedule has
+finished: set `early_stopping.stop_training_on_plateau: false` to run the whole
+schedule.
+
 ---
 
 ## Early Stopping
@@ -204,14 +282,49 @@ Choose **one** scheduler:
 ```yaml
 trainer_config:
   early_stopping:
-    stop_training_on_plateau: true
-    patience: 10        # Epochs without improvement (embedding, bbox_* with eval on: evaluations)
+    stop_training_on_plateau: true  # On under every LR schedule; false turns it off
+    patience: 10        # Epochs without improvement (eval/* metrics: evaluations)
     min_delta: 1e-8     # Minimum improvement
 ```
 
-Early stopping monitors `val/loss`, or the `eval.select_metric` metric for
-`embedding` models and for `bbox_*` models with `eval.enabled`. It ignores
-`model_ckpt.monitor`.
+Early stopping watches the same metric (and mode) as the best checkpoint:
+`model_ckpt.monitor` / `model_ckpt.mode` when set, otherwise the model type's default
+(`val/loss`, or the `eval.select_metric` metric for `embedding` models and for
+`bbox_*` models with `eval.enabled`). An `eval/*` metric is only measured every
+`eval.frequency` epochs, so patience then counts evaluations.
+
+
+Training writes the resolved `true`/`false` into the saved `training_config.yaml`.
+
+---
+
+## Weight EMA
+
+```yaml
+trainer_config:
+  ema:
+    enabled: false
+    decay: 0.9998
+    warmup_steps: 2000
+```
+
+Keeps an exponential moving average of the weights, updated after every optimizer
+step as `ema = d · ema + (1 − d) · weights` with `d = decay · (1 − exp(−n /
+warmup_steps))` after `n` updates (RTMPose's `ExpMomentumEMA`; `warmup_steps: 0`
+uses `decay` from the first step). The average is kept in float32 under any
+`precision`, and covers the trainable parameters and floating-point buffers
+(BatchNorm running statistics).
+
+* Validation runs on the EMA weights, so `val/loss`, epoch-end evaluation,
+  checkpoint selection, early stopping and the plateau scheduler all see them.
+* Checkpoints store the EMA weights as `state_dict`, so inference, export and
+  `pretrained_backbone_weights` use them with no changes. The online weights are
+  saved under `checkpoint["ema"]`, and resuming restores both. Resuming an EMA
+  checkpoint with `ema.enabled: false` continues from the online weights.
+* At the end of training the EMA weights are left in the model.
+
+Each DDP rank keeps its own identical copy, so no communication is needed.
+Sharded strategies (FSDP, DeepSpeed) are not supported.
 
 ---
 
@@ -224,6 +337,89 @@ trainer_config:
   trainer_device_indices: null  # Specific GPUs [0, 2]
   trainer_strategy: auto        # auto, ddp, fsdp
 ```
+
+---
+
+## Speed
+
+```yaml
+trainer_config:
+  precision: bf16-mixed            # "32" (default), "bf16-mixed", "16-mixed"
+  float32_matmul_precision: high   # TF32 for fp32 matmuls (default null = leave unchanged)
+  compile: false                   # true / "default" / "max-autotune" ... (torch.compile)
+  gradient_clip_val: null          # e.g. 1.0 (global-norm clipping)
+  gradient_clip_algorithm: norm    # "norm" or "value"
+  accumulate_grad_batches: 1
+  log_every_n_steps: 50            # step-metric logging cadence (default 1; each log syncs the GPU)
+  max_steps: null                  # optimizer-step budget (stops at max_steps or max_epochs)
+  val_check_interval: null         # validate every N batches (int) / epoch fraction (float)
+  throughput_log_every_n_steps: 50 # perf/* metrics window; 0 disables
+  confmap_fg_bg_diagnostics: null  # confmap fg/bg MSE split (null = centroid models only)
+  train_data_loader:
+    prefetch_factor: 2             # batches buffered per worker
+    pin_memory: null               # null = true
+    drop_last: null                # null = only under compile
+```
+
+The training-side defaults are unchanged, so existing configs train as before.
+Two logging defaults are new: `perf/*` throughput metrics every 50 batches, and
+the confmap fg/bg diagnostics now on for centroid models only (they were logged
+for single-instance and centered-instance models too). For ViT backbones on Ampere or newer GPUs, `precision: bf16-mixed`,
+`float32_matmul_precision: high`, `compile: true` and `log_every_n_steps: 50`
+together gave about a 5x single-GPU speedup in our benchmarks (ViT-S top-down,
+batch 128: ~370 to ~1,830 crops/s).
+
+**Precision.** `bf16-mixed` keeps fp32 weights and optimizer state and runs
+matmuls/convs in bfloat16 under autocast; the confmap MSE is computed in fp32.
+`16-mixed` (fp16 with a gradient scaler) is for GPUs without bf16 support:
+confmap gradients (~1e-8) are below fp16's range, so it only trains because of
+the scaler.
+
+**TF32.** `float32_matmul_precision: high` calls
+`torch.set_float32_matmul_precision("high")` for the duration of training on
+CUDA and restores the previous value afterwards, so inference and export are
+unaffected. It speeds up fp32 matmuls (all of them under `precision: "32"`, the
+ops autocast leaves in fp32 otherwise). cuDNN convolutions already use TF32 by
+default in PyTorch.
+
+**Compile.** `compile` runs `torch.compile` on the network in place
+(`nn.Module.compile`), so checkpoint keys do not change and checkpoints load into
+uncompiled models. The first steps are slow while compiling, and every new input
+shape recompiles, so the training loader drops each pass's partial batch under
+compile (`train_data_loader.drop_last: null`), unless a rank's share of the data
+is smaller than one batch. Validation and in-training evaluation also run the
+compiled network and recompile once per new shape.
+
+**Cadence.** `log_every_n_steps` controls how often step metrics such as `loss`
+reach the loggers; epoch metrics are unaffected. `max_steps` stops training at an
+optimizer-step budget (set `max_epochs: -1` to train by steps only; epoch-based LR
+schedulers such as `cosine_annealing_warmup` still count epochs). An int
+`val_check_interval` validates every N training batches counted across epochs, so
+validation no longer runs at every epoch end; early-stopping `patience` and
+`ReduceLROnPlateau` then count validation runs.
+
+**Dataloader.** `prefetch_factor` is the number of batches each worker keeps
+ready (at most `prefetch_factor x num_workers` per loader). Before 0.4 it was
+tied to `batch_size`, which with 16 workers and batch 128 buffered 2,048 batches
+and used 126-231 GB of host RAM.
+
+**Throughput metrics.** The `ThroughputMonitor` callback logs, every
+`throughput_log_every_n_steps` training batches and excluding validation:
+`perf/samples_per_sec`, `perf/steps_per_sec`, `perf/iter_time_ms`,
+`perf/data_wait_ms` / `perf/data_wait_frac` (host time spent waiting for the next
+batch), `perf/compute_ms`, `perf/gpu_idle_frac` (GPU idle time between steps,
+from CUDA events), `perf/max_mem_gb` / `perf/max_mem_reserved_gb` and
+`perf/lr/<group>` for every optimizer param group (`train/lr` is group 0 only). A
+summary line is also printed to the console. It costs one GPU sync per window. A
+high `gpu_idle_frac` means the dataloader is the bottleneck: raise `num_workers`
+or enable caching. (`data_wait_frac` is host-side: once per-step syncs are gone,
+e.g. with `log_every_n_steps: 50`, the host runs ahead of the GPU and spends most
+of its time waiting for data even when the GPU is saturated.)
+
+The epoch-level `train/time`, `train/steps_per_sec`, `train/samples_per_sec` and
+`train/frames_per_sec` exclude validation time. The epoch-averaged `train/loss`
+and per-node `train/confmaps/<node>` are summed on the GPU and read back once per
+epoch instead of every step.
 
 ---
 
@@ -250,7 +446,33 @@ trainer_config:
     wandb_mode: online        # online, offline
     save_viz_imgs_wandb: true
     delete_local_logs: null   # Auto-delete online logs
+    gallery: true             # Prediction gallery (default on with use_wandb)
 ```
+
+With `use_wandb: true`, box detectors (`bbox_*`), centered-instance models and bottom-up
+models (`bottomup`, `multi_class_bottomup`) log a **prediction gallery** at the end of every validation epoch, independent of
+`visualize_preds_during_training`:
+
+- `viz/gallery/val`: a fixed panel of up to `gallery_size` validation samples, chosen once
+  per run and stratified by validation file (a seeded "typical" draw plus each file's
+  hardest samples: most animals / smallest box for detectors, smallest animal for
+  top-down pose, most animals for bottom-up pose).
+  The same samples are logged every time, so the W&B step slider shows them improving.
+  Detectors use native W&B boxes (toggle ground truth / predictions, filter by score);
+  pose crops are drawn with each file's own nodes and skeleton edges, with the median
+  error in the caption. Bottom-up models show whole frames (downscaled to 640 px on the
+  long side): each predicted animal in its own color over the ground truth (thin green
+  skeleton, hollow green circles), drawn with sleap-io's renderer, with the ground-truth
+  and predicted animal counts and the median error of the paired animals in the caption.
+- `viz/gallery/train`: the first samples of the first training batch after each
+  validation, as the model received them (augmented), with their targets.
+- `viz/gallery/seconds`, `viz/gallery/bytes`: time of the event, JPEG bytes so far.
+
+It runs on rank 0 only (one no-grad forward over the panel per event), restores the RNG
+states and module modes it found, and turns itself off with a warning if anything in it
+fails. Events are capped at about `gallery_max_logs` per run and skipped while their
+time would exceed 1% of the training time so far (the first and last always log).
+Set `gallery: false` to turn it off.
 
 ---
 
@@ -271,10 +493,69 @@ trainer_config:
 ```yaml
 trainer_config:
   min_train_steps_per_epoch: 200  # Minimum steps
-  train_steps_per_epoch: null     # Steps per epoch (null=one pass); never below the minimum
+  train_steps_per_epoch: null     # Steps per epoch (null=one pass); never below the minimum; summed over all GPUs
   enable_progress_bar: true
   seed: 42                        # Random seed (ensures deterministic train/val splits)
 ```
+
+### Freeze Schedule
+
+Freeze part of the model for the first steps, e.g. to warm up a new head on a
+frozen pretrained encoder:
+
+```yaml
+trainer_config:
+  freeze_schedule:
+    targets: [encoder]      # selectors; default [encoder]
+    unfreeze_at_step: 1000  # null = frozen for the whole run
+```
+
+Frozen parameters stay in the optimizer and train once unfrozen. Under DDP,
+`find_unused_parameters` is enabled automatically. Do not combine
+`unfreeze_at_step` with the backbone's `freeze: true`. See
+[Freeze schedule](../guides/init-from.md#freeze-schedule).
+
+### Distillation
+
+Train a student with a frozen teacher (DWPose-style). Off by default.
+
+!!! warning "Experimental"
+    Distillation may change or be removed without a deprecation period, and it
+    showed no measured benefit in the developers' tests.
+
+```yaml
+trainer_config:
+  distillation:
+    teacher: /runs/vit_b_384  # teacher model directory
+    stage: 1                  # 1 teacher -> student, 2 head self-distillation
+    alpha: 1.0                # feature loss weight (0 = off)
+    beta: 1.0                 # heatmap loss weight
+    teacher_crop_size: [384, 288]  # warp crops: the teacher gets its own 384x288 crop
+    # teacher_input_scale: 1.5     # other crop paths: the student crop upsampled
+```
+
+The teacher stays frozen and outside the checkpoint; the distillation terms fade
+out linearly over the run. Box detectors (`bbox_*`, experimental, stage 1) learn
+from a box-detector teacher's detections instead of heatmaps
+(`teacher_score_threshold`, default `0.5`). See
+[Distillation](../guides/distillation.md).
+
+### Coordinate Losses (experimental)
+
+Centered-instance models only. Soft-argmax coordinates of the predicted maps go
+through a frozen linear keypoint autoencoder. Off by default; set exactly one
+weight:
+
+```yaml
+trainer_config:
+  coordinate_losses:
+    autoencoder: /models/keypoint_ae.npz  # W_enc (L x J), W_dec (J x L), names
+    consistency: 0.0001   # add |P - W_dec W_enc P|_1 to the confmap loss
+    # decoded: 0.01       # or: predict the L latent points, loss |W_dec Q - Y|_1
+    soft_argmax_beta: 20.0
+```
+
+See [Coordinate Losses](../guides/coordinate-losses.md).
 
 ---
 
@@ -290,7 +571,15 @@ trainer_config:
     min_hard_keypoints: 2
     max_hard_keypoints: null
     loss_scale: 5.0
+    per_sample: true   # rank hard keypoints per sample (false: pre-0.4 batch ranking)
 ```
+
+With `per_sample: true` (the default) each sample's nodes are ranked separately, only
+over nodes with nonzero loss weight (see
+[partially labeled skeletons](../guides/partial-labels.md)), and the OHKM term is the
+mean loss of the selected (sample, node) pairs times `loss_scale`. For batch size > 1
+this differs from the pre-0.4 behavior (`per_sample: false`), which ranks nodes on
+losses summed over the batch.
 
 ---
 
@@ -385,13 +674,30 @@ trainer_config:
 | `profiler` | str | `null` | Lightning profiler: `simple`, `advanced`, `pytorch` or `passthrough` |
 | `enable_progress_bar` | bool | `true` | Show training progress |
 | `min_train_steps_per_epoch` | int | `200` | Minimum batches per epoch (for `embedding`, P×K batches) |
-| `train_steps_per_epoch` | int | `null` | Steps per epoch, raised to `min_train_steps_per_epoch` if smaller (null = one pass over the data; for `embedding`, in P×K batches — `min(P, groups in the video)`×K for `sampler.kind: within_video`) |
+| `train_steps_per_epoch` | int | `null` | Steps per epoch, raised to `min_train_steps_per_epoch` if smaller (null = one pass over the data; for `embedding`, in P×K batches — `min(P, groups in the video)`×K for `sampler.kind: within_video`). With multiple GPUs this counts batches summed over all GPUs: each GPU runs `train_steps_per_epoch / num_gpus` optimizer steps, so an epoch is still one pass over the data (see [Multi-GPU](../guides/multi-gpu.md#steps-per-epoch)) |
 | `visualize_preds_during_training` | bool | `false` | Save prediction visualizations |
 | `keep_viz` | bool | `false` | Keep viz folder after training |
 | `viz_img_format` | str | `png` | Format of the saved viz images: `png` or `jpg` (much smaller files) |
 | `use_wandb` | bool | `false` | Enable WandB logging |
 | `resume_ckpt_path` | str | `null` | Path to checkpoint to resume from |
+| `reseed_on_resume` | bool | `false` | On resume, seed with `seed + epoch` so the resumed epochs do not repeat the first epochs' order and augmentation draws ([Resume & Fine-Tune](../guides/resume-finetune.md)) |
+| `freeze_schedule` | FreezeScheduleConfig | `null` | Freeze `targets` (selectors, default `[encoder]`) until `unfreeze_at_step` (`null` = whole run) |
+| `distillation` | DistillationConfig | `null` | **Experimental.** Teacher → student (`stage: 1`) or head self-distillation (`stage: 2`); box detectors: stage 1 from a box-detector teacher; see [Distillation](../guides/distillation.md) |
+| `coordinate_losses` | CoordinateLossesConfig | `null` | **Experimental.** Coordinate losses through a frozen linear keypoint autoencoder (`centered_instance` only); see [CoordinateLossesConfig](#coordinatelossesconfig). Left out of the saved `training_config.yaml` when unset |
 | `optimizer_name` | str | `Adam` | Optimizer: `Adam` or `AdamW` |
+| `precision` | str | `"32"` | Lightning precision: `"32"`, `"bf16-mixed"`, `"16-mixed"` |
+| `float32_matmul_precision` | str | `null` | `torch.set_float32_matmul_precision` during training on CUDA, restored afterwards (`high` = TF32; `highest` = strict fp32; `null` = leave unchanged) |
+| `compile` | bool/str | `false` | `torch.compile` the model in place (`true` or a mode such as `max-autotune`) |
+| `gradient_clip_val` | float | `null` | Gradient clipping threshold |
+| `gradient_clip_algorithm` | str | `norm` | `norm` or `value` |
+| `accumulate_grad_batches` | int | `1` | Batches per optimizer step |
+| `log_every_n_steps` | int | `1` | Step-metric logging cadence |
+| `max_steps` | int | `null` | Optimizer-step budget |
+| `val_check_interval` | int/float | `null` | Validate every N training batches (int, across epochs) or epoch fraction (float) |
+| `throughput_log_every_n_steps` | int | `50` | `perf/*` throughput window (0 disables) |
+| `confmap_fg_bg_diagnostics` | bool | `null` | Log confmap fg/bg MSE split (`null` = centroid only) |
+| `ema` | EMAConfig | off | Weight EMA; see [EMAConfig](#emaconfig) |
+| `balanced_sampler` | BalancedSamplerConfig | `null` | Per-file batch composition for `crop_pipeline: warp`, the `bbox_*` models and (experimental) the `bottomup`, `centroid` and `single_instance` models (ignored with tiling, with a warning; see [Frame models on several skeletons](../guides/multi-skeleton-pool.md#balanced-batches)): fixed per-file `counts`, or `weights` rounded to the batch size; with `per_sample: true` each sample's file is drawn with probability `weights` instead (any number of files at any batch size); `bbox_*` with `per_sample`: `overlap_weight` (**experimental**; default `1.0`, off) draws frames whose labelled boxes overlap by at least `overlap_min` (default `0.25`) of the smaller box that many times as often within their file. Per-rank streams, resumed from checkpoints. See [Fast top-down data path](../guides/warp-data-path.md#mixing-datasets) |
 
 ### DataLoaderConfig
 
@@ -400,6 +706,20 @@ trainer_config:
 | `batch_size` | int | `4` | Samples per batch (per-GPU; global batch = `batch_size × num_GPUs` with multi-GPU) |
 | `shuffle` | bool | `true` (train) / `false` (val) | Shuffle data each epoch |
 | `num_workers` | int or `"auto"` | `0` | Parallel data loading workers (use with caching only). `"auto"` sizes from usable CPU count; see [Automatic worker count](#automatic-worker-count) |
+| `prefetch_factor` | int | `2` | Batches loaded ahead per worker (ignored with `num_workers: 0`) |
+| `pin_memory` | bool | `null` | Pinned host memory for batches (`null` = `true`; the val loader falls back to the train loader's setting) |
+| `drop_last` | bool | `null` | Train loader only: drop each pass's partial batch (`null` = only with `compile`, to avoid recompiles) |
+
+### BalancedSamplerConfig (`balanced_sampler`)
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `counts` | list of int | `null` | Samples per file per batch (sum = per-GPU batch size) |
+| `weights` | list of float | `null` | Relative share per file (equal when both are `null`) |
+| `per_sample` | bool | `false` | Draw each sample's file with probability `weights` instead of fixed per-batch counts |
+| `overlap_weight` | float | `1.0` | **Experimental**, `bbox_*` with `per_sample`: frames whose labelled boxes overlap by at least `overlap_min` of the smaller box are drawn this many times as often within their file |
+| `overlap_min` | float | `0.25` | **Experimental.** Overlap that makes a frame count for `overlap_weight` |
+| `frame_weight_key` | str | `null` | **Experimental**, `bbox_*` with `per_sample`: each training frame's relative sampling weight within its file, read from `LabeledFrame.metadata[frame_weight_key]` (a number >= 0; frames without the key weigh 1). File shares are unchanged; multiplies with `overlap_weight` |
 
 ### OptimizerConfig
 
@@ -407,13 +727,16 @@ trainer_config:
 |--------|------|---------|-------------|
 | `lr` | float | `1e-4` | Learning rate |
 | `amsgrad` | bool | `false` | Enable AMSGrad variant |
+| `weight_decay` | float | `null` | Decay for weight matrices / kernels only; biases, norms, 1-D params, position embeddings and special tokens get none (`null` = torch default on every parameter: `0` for Adam, `0.01` for AdamW) |
+| `encoder_lr_scale` | float | `null` | `pretrained` encoder LR multiplier (`null` = `1.0`; replaces the deprecated backbone key). For `bbox_detr` the backbone (`pretrained` or `dinov2_windowed`) trains at `lr · encoder_lr_scale · lr_component_decay²` times its layer decay (RF-DETR: `1.5`) |
+| `layer_decay` | float | `null` | Plain-ViT `pretrained` encoder: block `i` of `L` trains at `encoder_lr_scale · layer_decay^(L+1−i)` × `lr` (replaces the deprecated backbone key). For `bbox_detr`, RF-DETR's rule with `L` = the last tapped block (RF-DETR: `0.8`) |
 
 ### LRSchedulerConfig
 
 Only one scheduler runs. `reduce_lr_on_plateau` is populated by default; when several
 are set, the first of `cosine_annealing_warmup`, `linear_warmup_linear_decay`,
-`step_lr`, `reduce_lr_on_plateau` wins. `lr_scheduler: null` (or all four `null`) =
-constant learning rate.
+`multi_step_lr`, `step_lr`, `reduce_lr_on_plateau` wins. `lr_scheduler: null` (or all
+five `null`) = constant learning rate.
 
 #### ReduceLROnPlateauConfig
 
@@ -438,26 +761,48 @@ constant learning rate.
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `warmup_epochs` | int | `5` | Linear warmup epochs |
-| `warmup_start_lr` | float | `0.0` | LR the warmup ramps up from; warmup epoch `e` trains at `(e + 1) / (warmup_epochs + 1)` of the way to the base LR, so epoch 0 is never at this value |
+| `warmup_start_lr` | float | `0.0` | LR the warmup ramps up from; warmup epoch `e` trains at `(e + 1) / (warmup_epochs + 1)` of the way to the base LR, so epoch 0 is never at this value; a per-step warmup (`warmup_steps`) starts at it (step `s` at `s / warmup_steps`) |
 | `eta_min` | float | `0.0` | Minimum LR at end of cosine decay |
 | `max_epochs` | int | `null` | Total epochs (auto from trainer) |
+| `warmup_steps` | int | `null` | Warmup in optimizer steps; any int switches to per-step updates (`warmup_epochs` ignored) |
+| `max_steps` | int | `null` | Per-step schedule length (`null` = `max_epochs` × steps/epoch, else the whole run) |
 
 #### LinearWarmupLinearDecayConfig
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `warmup_epochs` | int | `5` | Linear warmup epochs |
-| `warmup_start_lr` | float | `0.0` | LR the warmup ramps up from; warmup epoch `e` trains at `(e + 1) / (warmup_epochs + 1)` of the way to the base LR, so epoch 0 is never at this value |
+| `warmup_start_lr` | float | `0.0` | LR the warmup ramps up from; warmup epoch `e` trains at `(e + 1) / (warmup_epochs + 1)` of the way to the base LR, so epoch 0 is never at this value; a per-step warmup (`warmup_steps`) starts at it (step `s` at `s / warmup_steps`) |
 | `end_lr` | float | `0.0` | Final LR at end of training |
 | `max_epochs` | int | `null` | Total epochs (auto from trainer) |
+| `warmup_steps` | int | `null` | Warmup in optimizer steps; any int switches to per-step updates (`warmup_epochs` ignored) |
+| `max_steps` | int | `null` | Per-step schedule length (`null` = `max_epochs` × steps/epoch, else the whole run) |
+
+#### MultiStepLRConfig
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `milestones` | list[int] | `null` (required) | Strictly increasing epochs (or steps) at which the LR is multiplied by `gamma` |
+| `gamma` | float | `0.1` | Multiplicative decay at each milestone |
+| `milestone_unit` | str | `epoch` | `epoch` or `step` |
+| `warmup_steps` | int | `0` | Linear warmup in optimizer steps (`0` = none) |
+| `warmup_start_factor` | float | `0.001` | Fraction of the LR the warmup starts from |
 
 ### EarlyStoppingConfig
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `stop_training_on_plateau` | bool | `true` | Enable early stopping |
+| `stop_training_on_plateau` | bool | `true` | Enable early stopping, under every LR schedule (`null` is read as `true`). With a fixed-length LR schedule (`cosine_annealing_warmup`, `linear_warmup_linear_decay`, `multi_step_lr`) it can end the run before the schedule has finished; set `false` to run the whole schedule |
 | `patience` | int | `10` | Epochs without improvement. For `embedding`, and for `bbox_*` models with `eval.enabled` (which select on `eval/val/bbox_mAP`), evaluations without improvement (one check every `eval.frequency` epochs) |
 | `min_delta` | float | `1e-8` | Minimum improvement |
+
+### EMAConfig
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `enabled` | bool | `false` | Track an EMA of the weights; validate and checkpoint with it |
+| `decay` | float | `0.9998` | Decay after warmup, in `[0, 1)` |
+| `warmup_steps` | int | `2000` | Time constant (optimizer steps) of the decay warmup; `0` disables it |
 
 ### ModelCkptConfig
 
@@ -465,7 +810,7 @@ constant learning rate.
 |--------|------|---------|-------------|
 | `save_top_k` | int | `1` | Keep N best models |
 | `save_last` | bool | `null` | Also write last.ckpt at the end of every epoch |
-| `monitor` | str | `val/loss` | Metric that picks the best checkpoint: any logged metric, e.g. `eval/val/mask_mean_iou` or `eval/val/fg_mean_cldice` for segmentation with `eval.enabled`. Left at `val/loss`, `embedding` and `bbox_*` models use their model-type default (see `eval.select_metric`). Early stopping does **not** follow this field: it always monitors the model-type default (`val/loss`, or the `eval.select_metric` metric for `embedding` / `bbox_*`) |
+| `monitor` | str | `val/loss` | Metric that picks the best checkpoint: any logged metric, e.g. `eval/val/mask_mean_iou` or `eval/val/fg_mean_cldice` for segmentation with `eval.enabled`. Left at `val/loss`, `embedding` and `bbox_*` models use their model-type default (see `eval.select_metric`). Early stopping follows the same metric and mode |
 | `mode` | str | `min` | `min` or `max`: direction of improvement for `monitor` (use `max` for IoU/clDice). Only read when `monitor` is not `val/loss` |
 
 ### WandBConfig
@@ -487,6 +832,10 @@ constant learning rate.
 | `viz_confmap_threshold` | float | `0.1` | Confidence map mask threshold |
 | `log_viz_table` | bool | `false` | Log images to wandb.Table |
 | `delete_local_logs` | bool | `null` | Delete local logs (auto if online) |
+| `gallery` | bool | `true` | Log the prediction gallery (`viz/gallery/*`) when `use_wandb` |
+| `gallery_size` | int | `64` | Maximum validation samples in the gallery panel |
+| `gallery_max_logs` | int | `50` | Approximate maximum gallery events per run |
+| `gallery_labs` | dict | `null` | File name -> lab (or group) shown in gallery captions |
 | `current_run_id` | str | `null` | Set automatically: the WandB run ID of this training run |
 
 ### HardKeypointMiningConfig
@@ -498,6 +847,22 @@ constant learning rate.
 | `min_hard_keypoints` | int | `2` | Minimum hard keypoints |
 | `max_hard_keypoints` | int | `null` | Maximum hard keypoints |
 | `loss_scale` | float | `5.0` | Scale factor for hard keypoint losses |
+| `per_sample` | bool | `true` | Rank hard keypoints within each sample over nodes with nonzero loss weight; `false` restores batch-level ranking |
+
+### CoordinateLossesConfig
+
+Experimental. See [Coordinate Losses](../guides/coordinate-losses.md).
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `autoencoder` | str | required | `.npz` with `W_enc` (L x J), `W_dec` (J x L), `names` (J channel names) and optionally `latent_partner` (each latent point's left/right partner). Rows of both matrices must sum to 1 |
+| `consistency` | float | `0.0` | Weight of the L1 distance between `P` and `W_dec W_enc P`, for the soft-argmax coordinates of the head's channels (which must be the autoencoder's channels, any order); added to the confidence-map loss |
+| `decoded` | float | `0.0` | Weight of the L1 distance between `W_dec Q` and the labels `Y`: the head predicts the L latent points (`latent_00`, ...), compared after decoding with the channels each sample labels; the whole loss. Predict such a model with a very low `peak_threshold` (the latent maps' height is not fixed) |
+| `soft_argmax_beta` | float | `20.0` | Inverse temperature of the soft-argmax (`softmax(beta * map)`) |
+| `soft_argmax_window` | int | `null` | Soft-argmax over the grid cells within this many cells of each map's maximum (`null`: whole map); about `3 * sigma` (the head's `sigma` is in grid cells) |
+| `data_head` | dict | `null` | Set by training for `decoded`: the labelled channels' head settings the data loader uses. Leave unset |
+
+Exactly one of `consistency` and `decoded` must be above 0.
 
 ### EvalConfig
 
@@ -507,8 +872,39 @@ constant learning rate.
 | `frequency` | int | `1` | Evaluate every N epochs |
 | `oks_stddev` | float | `0.025` | OKS standard deviation (pose models only) |
 | `oks_scale` | float | `null` | OKS scale override (pose models only) |
+| `oks_sigmas` | str / float / list | `null` | Per-node OKS sigmas for post-training eval (`coco`, `crowdpose`, `ochuman`, `provenance`, `auto`, or one per node); overrides `oks_stddev` there |
+| `coco_metrics` | bool | `false` | Add COCOeval-faithful `coco.*` metrics to post-training eval; top-down models then predict with `peak_threshold` 0 and mmpose rescoring. See [COCO-Style Evaluation](../guides/coco-evaluation.md) |
 | `match_threshold` | float | `50.0` | Centroid models: max matching distance in pixels. Instance segmentation (`bottomup_segmentation`, `centered_instance_segmentation`): minimum mask IoU in `(0, 1]`; values outside that range (including the default) fall back to `0.5` |
 | `select_metric` | str | `rank1` | Metric that selects the best checkpoint and drives early stopping. `embedding`: `rank1`, `mAP`, `auc`, `knn_acc` (higher is better) or `eer` (lower is better). `bbox_*`: `bbox_mAP`, `bbox_AP50`, `bbox_AP75`, `bbox_AR`, `bbox_f1` or `val_loss`; left at the default, detectors use `bbox_mAP` when `enabled`, else `val/loss`. Ignored by other model types |
+| `file_nodes` | dict | `null` | With several validation files: the nodes each file is scored on, keyed by its display name (`data_config.val_names`), as a node list or a name prefix. Unlisted files are scored on the model nodes their skeleton has. See [Per-file validation](../guides/warp-data-path.md#per-file-validation) |
+| `post_train_splits` | list | `null` | Splits the post-training evaluation predicts and scores, any of `val`, `test`, `train` (always run in that order). `null` = all three |
+| `post_train_max_train_frames` | int | `null` | Score only this many random frames (seeded by `seed`) of each train file after training. Val and test always run in full |
+| `post_train_batch_size` | int | `null` | Frames per prediction batch after training. `null` = `val_data_loader.batch_size`, or 4 for the crop-based top-down models |
+| `post_train_precision` | str | `null` | `"32"`, `"bf16"` or `"fp16"` (CUDA autocast) for the post-training predictions. `null` follows `precision` (`bf16-mixed` -> bf16) |
+| `norm_scale` | str | `null` | Opt-in point error relative to instance size: `bbox` (the linked user box, else the labelled points' box) or `points`; unpredicted points count as `norm_missing_error`. Logs `eval/<file>/norm_distance/*`. See [Point error relative to animal size](../guides/evaluation.md#point-error-relative-to-animal-size-norm_scale) |
+| `norm_missing_error` | float | `1.0` | Error of an unpredicted labelled point, in instance sizes |
+| `norm_pad_frac` | float | `0.0` | Padding of a points box on every side, as a fraction of its longest side |
+| `norm_bootstrap` | int | `0` | Bootstrap resamples for 95% intervals of the post-training normalised p50 / p95 / miss rate (`0` = none) |
+| `norm_bootstrap_by` | str | `frame` | Resampling unit of `norm_bootstrap`: `frame` or `video` |
+| `bbox_cover_metrics` | bool | `false` | Box detectors with `enabled`: also log `eval/val/bbox_cover_*` (share of animals covered at fixed false boxes per frame, cover-rule AP). See [Box cover measures](../guides/evaluation.md#box-cover-measures-bbox_cover_metrics) |
+
+!!! tip "Post-training evaluation on large training sets"
+    After `fit`, the run predicts every saved GT file (`labels_gt.<split>.N.slp`)
+    and the test files, and scores them (`metrics.<split>.N.npz`). The held-out
+    splits run first. Predicting a large training set can take hours and adds
+    little; skip it or score a sample:
+
+    ```yaml
+    trainer_config:
+      eval:
+        post_train_splits: [val, test]       # or keep train and sample it:
+        post_train_max_train_frames: 5000
+    ```
+
+    The predictions log their progress (frames, frames/s, ETA) every minute, run
+    at the training precision, and keep `float32_matmul_precision` (TF32) as
+    during `fit`. Box detectors read their frames already fitted to the model
+    input (see [Bounding-box detection](../guides/bbox-detection.md#inference)).
 
 !!! info "Model-Type-Dependent Evaluation"
     SLEAP-NN automatically selects the appropriate evaluation callback based on model type:

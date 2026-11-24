@@ -6,8 +6,9 @@ the parameters required to initialize the model config.
 
 from attrs import asdict, define, field, validators
 from sleap_nn.config.utils import oneof
-from typing import Optional, List
+from typing import Any, Dict, Optional, List
 from loguru import logger
+from omegaconf import ListConfig
 
 
 # Define configuration for each backbone type (unet, convnext, swint) configurations
@@ -682,6 +683,34 @@ class SingleInstanceConfMapsConfig:
     output_stride: int = 1
 
 
+def normalize_anchor_part(value):
+    """A centroid ``anchor_part`` as a node name, or a list of names (experimental).
+
+    ``None`` stays ``None``. A scalar becomes its string, as the field's former
+    ``str`` type did (``1`` -> ``"1"``). A list or tuple becomes a list of strings.
+
+    Raises:
+        ValueError: For an empty list, or a value that is neither a scalar nor a
+            list of names.
+    """
+    if value is None:
+        return None
+    if isinstance(value, (str, int, float, bool)):
+        return str(value)
+    if isinstance(value, (list, tuple, ListConfig)):
+        names = list(value)
+        if not names:
+            raise ValueError(
+                "anchor_part is an empty list; give at least one node name, or null."
+            )
+        if not all(isinstance(n, (str, int, float)) for n in names):
+            raise ValueError(f"anchor_part must list node names, got {value!r}.")
+        return [str(n) for n in names]
+    raise ValueError(
+        f"anchor_part must be a node name or a list of node names, got {value!r}."
+    )
+
+
 @define
 class CentroidConfMapsConfig:
     """Centroid configuration map.
@@ -693,7 +722,16 @@ class CentroidConfMapsConfig:
             anchor part is specified but not visible in the instance. Setting a
             reliable anchor point can significantly improve topdown model
             accuracy as they benefit from a consistent geometry of the body parts
-            relative to the center of the image. Default is None.
+            relative to the center of the image. A scalar is read as a node
+            name (`1` -> `"1"`). **Experimental:** a non-empty list of node names,
+            in order of preference. Only the listed nodes a file labels count
+            (its `labeled_nodes`, set by `data_config.merge_skeletons`; all of
+            them without one): each instance is anchored on the first of those it
+            has located, else on `centroid_fallback`, as with one node. Frames of
+            a file that labels none of them get no centroids and zero loss,
+            instead of a centroid at a fallback location. Prediction treats the
+            first listed node as the anchor; the post-training evaluation uses
+            each file's first labeled one. Default is None.
         centroid_method: (str) How the centroid is derived from the instance's
             points, spelled as in ``sio.Instance.to_centroid``:
             ``"center_of_mass"`` (mean of visible nodes), ``"bbox_center"``
@@ -765,7 +803,7 @@ class CentroidConfMapsConfig:
             `0.5`.
     """
 
-    anchor_part: Optional[str] = None
+    anchor_part: Optional[Any] = field(default=None, converter=normalize_anchor_part)
     centroid_method: Optional[str] = None
     centroid_fallback: Optional[str] = None
     centroid_source: Optional[str] = None
@@ -1587,12 +1625,12 @@ class EmbeddingConfig:
 
 
 # ---------------------------------------------------------------------------
-# Bounding-box detection head configs (the `bbox_*` model family). Two detection
+# Bounding-box detection head configs (the `bbox_*` model family). The detection
 # styles share one data pipeline (`sleap_nn.data.bboxes`), one output type
 # (`sio.PredictedBoundingBox` on `LabeledFrame.bboxes`) and one COCO-style eval
 # (`match_method="bbox"`); they differ only in their heads, targets and decoder.
 # ---------------------------------------------------------------------------
-BBOX_MODEL_TYPES = ("bbox_centernet", "bbox_ssd")
+BBOX_MODEL_TYPES = ("bbox_centernet", "bbox_ssd", "bbox_detr")
 
 # Class name given to boxes that carry no `sio.Category`.
 DEFAULT_BBOX_CATEGORY = "object"
@@ -1762,6 +1800,170 @@ class BBoxSSDConfig:
     ssd: Optional[SSDHeadConfig] = None
 
 
+@define
+class DetrKeypointsConfig:
+    """Keypoints per query of a ``bbox_detr`` model (experimental).
+
+    With this section set, the detector predicts boxes and poses in one pass: each
+    decoder query also regresses ``K`` keypoints as offsets from its predicted box
+    center in units of the box's width and height, and ``K`` visibility logits, from
+    the query embedding (box-relative keypoint queries as in ED-Pose, Yang et al.
+    2023, and the keypoint heads of PETR, Shi et al. 2022). Hungarian matching stays
+    on boxes; each matched query gets an L1 loss on its located points (normalized
+    by the target box size) and a binary cross-entropy visibility loss (target:
+    the point is labelled with a location in the input), both weighted by the
+    per-node weights of partial labels and averaged over the summed weights. Boxes
+    without a linked pose instance train boxes only. Prediction writes one instance
+    per query (its best category) on the model's skeleton, linked to its box. Not
+    exportable to ONNX/TensorRT.
+
+    Attributes:
+        part_names: (List[str]) Nodes to predict, matched by name in every training
+            file (a node a file does not have is unlabeled there). ``None``
+            (default) takes the nodes of the first training file's skeleton. The
+            model's skeleton is these nodes with every edge and symmetry the files
+            have between them.
+        loss_weight: (float) Weight of the keypoint L1 loss. *Default*: ``5.0``.
+        visibility_loss_weight: (float) Weight of the visibility loss.
+            *Default*: ``1.0``.
+        visibility_threshold: (float) At prediction, a point whose visibility
+            probability is below this is written as missing. *Default*: ``0.5``.
+    """
+
+    part_names: Optional[List[str]] = None
+    loss_weight: float = field(default=5.0, validator=validators.ge(0))
+    visibility_loss_weight: float = field(default=1.0, validator=validators.ge(0))
+    visibility_threshold: float = field(
+        default=0.5, validator=[validators.ge(0), validators.le(1)]
+    )
+
+
+#: Config keys that are left out of a saved config while they are unset, so a
+#: config that does not use them saves exactly as before they existed.
+UNSET_KEYS_NOT_SAVED = ("model_config.head_configs.bbox_detr.detr.keypoints",)
+
+
+def config_to_save(cfg):
+    """``cfg`` without the unset keys of :data:`UNSET_KEYS_NOT_SAVED`, for saving.
+
+    Returns ``cfg`` itself when none of them is present and unset; otherwise a plain
+    (schema-free) copy without them. Loading the saved file through the schema
+    fills them in again with their defaults.
+    """
+    from omegaconf import OmegaConf
+
+    drop = []
+    for path in UNSET_KEYS_NOT_SAVED:
+        parent, key = path.rsplit(".", 1)
+        node = OmegaConf.select(cfg, parent, default=None)
+        if node is not None and key in node and node[key] is None:
+            drop.append((parent, key))
+    if not drop:
+        return cfg
+    plain = OmegaConf.create(OmegaConf.to_container(cfg, resolve=False))
+    for parent, key in drop:
+        del OmegaConf.select(plain, parent)[key]
+    return plain
+
+
+@define
+class DetrHeadConfig:
+    """Detector of a ``bbox_detr`` (RF-DETR-style set prediction) model.
+
+    Everything after the backbone: a projector from the backbone's tapped token
+    maps to one ``hidden_dim`` map, two-stage proposals (every token proposes a
+    box; the top ``num_queries`` seed the queries), a deformable-attention decoder
+    and shared class/box heads, trained with Hungarian matching and the RF-DETR set
+    loss (``sleap_nn.training.detr``). Defaults are RF-DETR's.
+
+    Attributes:
+        categories: (List[str]) Ordered class names. ``None`` (default) is filled
+            in at training setup, as for ``bbox_centernet``. The class head has
+            ``len(categories) + 1`` sigmoid logits (the last is never a positive).
+        output_stride: (int) Stride of the backbone's token maps (the patch size).
+            *Default*: ``16``.
+        hidden_dim: (int) Width of the projected map and the queries.
+            *Default*: ``256``.
+        num_queries: (int) Queries per group; at inference, the candidates per
+            image that ``num_select`` picks from. *Default*: ``300``.
+        group_detr: (int) Query groups in training (Group DETR); inference uses
+            one. *Default*: ``13``.
+        dec_layers: (int) Decoder layers. *Default*: ``3``.
+        sa_nheads: (int) Decoder self-attention heads. *Default*: ``8``.
+        ca_nheads: (int) Decoder deformable cross-attention heads. *Default*:
+            ``16``.
+        dec_n_points: (int) Sampling points per cross-attention head.
+            *Default*: ``2``.
+        dim_feedforward: (int) Decoder FFN width. *Default*: ``2048``.
+        dropout: (float) Decoder dropout. *Default*: ``0.0``.
+        c2f_num_blocks: (int) Bottlenecks in the projector's C2f block.
+            *Default*: ``3``.
+        c2f_expansion: (float) C2f hidden width as a fraction of ``hidden_dim``.
+            *Default*: ``0.5``.
+        num_select: (int) Detections kept per image by the set decoder (top-K over
+            queries x classes). *Default*: ``300``.
+        cls_loss_coef: (float) Weight of the IoU-aware BCE class loss.
+            *Default*: ``1.0``.
+        bbox_loss_coef: (float) Weight of the L1 box loss. *Default*: ``5.0``.
+        giou_loss_coef: (float) Weight of the GIoU loss. *Default*: ``2.0``.
+        set_cost_class: (float) Matcher weight of the focal class cost.
+            *Default*: ``2.0``.
+        set_cost_bbox: (float) Matcher weight of the L1 box cost. *Default*:
+            ``5.0``.
+        set_cost_giou: (float) Matcher weight of the GIoU cost. *Default*: ``2.0``.
+        focal_alpha: (float) Alpha of the matcher's focal cost and of the IA-BCE
+            soft target. *Default*: ``0.25``.
+        focal_gamma: (float) Gamma of the matcher's focal cost and of the IA-BCE
+            negative weight. *Default*: ``2.0``.
+        lr_component_decay: (float) RF-DETR's ``lr_component_decay``: the decoder
+            trains at ``lr * lr_component_decay`` and the backbone at
+            ``lr * encoder_lr_scale * lr_component_decay ** 2`` (times its layer
+            decay); everything else (projector, proposals, queries, heads) at
+            ``lr``. *Default*: ``0.7``.
+        keypoints: (DetrKeypointsConfig) Experimental: also predict keypoints per
+            query, boxes and poses in one pass (see `DetrKeypointsConfig`).
+            ``None`` (default): a box detector only. Left out of the saved config
+            while unset. *Default*: ``None``.
+    """
+
+    categories: Optional[List[str]] = None
+    output_stride: int = 16
+    hidden_dim: int = 256
+    num_queries: int = 300
+    group_detr: int = field(default=13, validator=validators.ge(1))
+    dec_layers: int = field(default=3, validator=validators.ge(1))
+    sa_nheads: int = 8
+    ca_nheads: int = 16
+    dec_n_points: int = 2
+    dim_feedforward: int = 2048
+    dropout: float = 0.0
+    c2f_num_blocks: int = 3
+    c2f_expansion: float = 0.5
+    num_select: int = 300
+    cls_loss_coef: float = 1.0
+    bbox_loss_coef: float = 5.0
+    giou_loss_coef: float = 2.0
+    set_cost_class: float = 2.0
+    set_cost_bbox: float = 5.0
+    set_cost_giou: float = 2.0
+    focal_alpha: float = 0.25
+    focal_gamma: float = 2.0
+    lr_component_decay: float = field(
+        default=0.7, validator=[validators.gt(0), validators.le(1)]
+    )
+    keypoints: Optional[DetrKeypointsConfig] = None
+
+
+@define
+class BBoxDetrConfig:
+    """Head config for the ``bbox_detr`` (RF-DETR-style, set prediction) model type.
+
+    Wraps the single ``detr`` leaf (mirrors ``BBoxSSDConfig``).
+    """
+
+    detr: Optional[DetrHeadConfig] = None
+
+
 @oneof
 @define
 class HeadConfig:
@@ -1783,6 +1985,7 @@ class HeadConfig:
         embedding: An instance of `EmbeddingConfig`.
         bbox_centernet: An instance of `BBoxCenterNetConfig`.
         bbox_ssd: An instance of `BBoxSSDConfig`.
+        bbox_detr: An instance of `BBoxDetrConfig`.
     """
 
     single_instance: Optional[SingleInstanceConfig] = None
@@ -1797,6 +2000,7 @@ class HeadConfig:
     embedding: Optional[EmbeddingConfig] = None
     bbox_centernet: Optional[BBoxCenterNetConfig] = None
     bbox_ssd: Optional[BBoxSSDConfig] = None
+    bbox_detr: Optional[BBoxDetrConfig] = None
 
 
 @define
@@ -1861,7 +2065,11 @@ class PretrainedConfig:
         layers: (List[int]) Plain-ViT layers to tap for the feature-pyramid neck,
             1-indexed (negative counts from the last). ``None`` taps 4 evenly
             spaced layers ending at the last (``vit_neck: dpt``) or the last layer
-            (``sfp``). *Default*: ``None``.
+            (``sfp``). ``dpt`` takes one tap per pyramid level the model builds
+            (levels finer than ``output_stride`` are left out), or 4 taps, one per
+            level of the full pyramid, of which the shallowest (those of the levels
+            left out) are then dropped: ``[3, 6, 9, 12]`` at ``output_stride: 8``
+            and token stride 16 uses ``[6, 9, 12]``. *Default*: ``None``.
         vit_neck: (str) How a plain ViT's single-stride token maps become the
             stride ``s/4..2s`` pyramid the decoder needs: ``"dpt"`` (one tapped
             layer per level) or ``"sfp"`` (ViTDet Simple Feature Pyramid from the
@@ -1877,17 +2085,44 @@ class PretrainedConfig:
             *Default*: ``None``.
         gradient_checkpointing: (bool) Enable gradient checkpointing in the
             encoder while training (less memory, slower). *Default*: ``False``.
-        encoder_lr_scale: (float) Learning-rate multiplier for the pretrained
-            encoder relative to the neck/decoder/heads. *Default*: ``1.0``.
-        layer_decay: (float) Optional layer-wise LR decay for a plain ViT
-            encoder: block ``i`` of ``L`` trains at
-            ``encoder_lr_scale * layer_decay**(L + 1 - i)`` times the base LR.
+        encoder_lr_scale: (float) **Deprecated**: use
+            ``trainer_config.optimizer.encoder_lr_scale``. Still read, with a
+            warning, when that is unset; training moves it there in the saved
+            config. *Default*: ``1.0``.
+        layer_decay: (float) **Deprecated**: use
+            ``trainer_config.optimizer.layer_decay``. Still read, with a warning,
+            when that is unset; training moves it there in the saved config.
             *Default*: ``None`` (off).
         detail_stem: (bool) Add a light conv stream on the image whose stride
             2/4/8 features join a plain ViT's pyramid as decoder skips (real
             high-resolution detail below the token stride). *Default*: ``False``.
         detail_channels: (List[int]) Detail-stem channels at strides 2, 4, 8
             (exactly three). ``None`` uses ``[32, 64, 128]``. *Default*: ``None``.
+        drop_path_rate: (float) Stochastic depth rate of the pretrained encoder,
+            ramped linearly over the blocks from ``0`` (first) to this value (last),
+            as in timm and the ViTPose/MAE recipes. Passed to timm models as
+            ``drop_path_rate`` and set on HF configs that have the field (DINOv2/v3,
+            ConvNeXtV2, Swinv2, BEiT, ...); ignored with a warning otherwise (CLIP,
+            SigLIP, ViT, MAE). HF families that apply the rate uniformly to every
+            block (DINOv2, DINOv2-with-registers, DINOv3 ViT) are converted to the linear ramp,
+            so the same value means the same regularization across families.
+            Active in training only.
+            ``None`` keeps the checkpoint's own setting. *Default*: ``None``.
+        vit_decoder: (str) How a plain ViT's tokens are decoded to the output
+            stride: ``"unet"`` (``vit_neck`` pyramid + sleap UNet decoder),
+            ``"classic"`` (ViTPose: ``log2(token_stride / output_stride)`` blocks
+            of deconv 4x4/s2 + BatchNorm + ReLU on the last tapped layer) or
+            ``"simple"`` (ViTPose: ReLU + bilinear upsampling, no parameters,
+            and the heads' output conv becomes 3x3 as in ViTPose).
+            The direct decoders take one tapped layer (default: the last) and
+            ignore ``vit_neck``, ``neck_channels`` and ``detail_stem``; use
+            ``output_stride: 4`` as in ViTPose. *Default*: ``"unet"``.
+        vit_decoder_channels: (int) Channels of the ``"classic"`` deconv blocks.
+            *Default*: ``256``.
+        vit_final_norm: (bool) Normalize the last-layer tap with the encoder's own
+            pretrained final norm (as ViTPose does) instead of a fresh LayerNorm.
+            ``None`` turns it on for ``vit_decoder: classic|simple`` and off for
+            ``"unet"``. *Default*: ``None``.
     """
 
     source: str = "hf"
@@ -1916,6 +2151,75 @@ class PretrainedConfig:
     layer_decay: Optional[float] = None
     detail_stem: bool = False
     detail_channels: Optional[List[int]] = None
+    drop_path_rate: Optional[float] = None
+    vit_decoder: str = "unet"
+    vit_decoder_channels: int = 256
+    vit_final_norm: Optional[bool] = None
+
+
+@define
+class Dinov2WindowedConfig:
+    """RF-DETR's windowed DINOv2 backbone, for ``bbox_detr`` models only.
+
+    A DINOv2 ViT on a stride-16 token grid (DINOv2's 14x14 patch embedding
+    resampled to 16x16) with windowed attention in the blocks between taps, whose
+    tapped token maps feed the DETR projector
+    (``sleap_nn.architectures.detr.dinov2_windowed``). This is the backbone of
+    RF-DETR's Apache checkpoints (``sleap-nn import-rfdetr``); defaults are
+    RF-DETR-M's (DINOv2-S at 576 px).
+
+    Attributes:
+        in_channels: (int) Input channels. *Default*: ``3``.
+        hidden_size: (int) Token width: 384 (ViT-S) or 768 (ViT-B).
+            *Default*: ``384``.
+        num_layers: (int) Transformer blocks. *Default*: ``12``.
+        num_heads: (int) Attention heads (6 for ViT-S, 12 for ViT-B).
+            *Default*: ``6``.
+        mlp_ratio: (float) MLP width as a multiple of ``hidden_size``.
+            *Default*: ``4.0``.
+        patch_size: (int) Patch size (the token stride). *Default*: ``16``.
+        pos_embed_grid: (int) Side of the square token grid the learned position
+            embedding covers (RF-DETR: training resolution / ``patch_size``); it is
+            interpolated for other inputs. *Default*: ``36``.
+        out_indices: (List[int]) Tapped hidden states (0 is the embedding output,
+            ``i`` the output of block ``i``). *Default*: ``[3, 6, 9, 12]``.
+        num_windows: (int) Attention windows per side (1 = global attention
+            everywhere). Input sides must be multiples of ``patch_size *
+            num_windows``. *Default*: ``2``.
+        window_block_indexes: (List[int]) Blocks (0-based) that attend within
+            windows. ``None``: every block up to the last tap except the tapped
+            indices, as RF-DETR. *Default*: ``None``.
+        drop_path_rate: (float) Stochastic depth, ramped over the blocks.
+            *Default*: ``0.0``.
+        weights: (str) Initialize from a plain DINOv2 checkpoint: an HF Hub id
+            (``facebook/dinov2-small`` / ``facebook/dinov2-base``) or a local
+            directory. The patch embedding is resampled to ``patch_size`` and the
+            position embedding resized to ``pos_embed_grid``. ``None``: random
+            init (e.g. when a whole checkpoint is loaded afterwards).
+            *Default*: ``None``.
+        revision: (str) HF Hub revision of ``weights``. *Default*: ``None``.
+        output_stride: (int) Stride of the token maps (= ``patch_size``).
+            *Default*: ``16``.
+        max_stride: (int) Inputs are padded to multiples of this (``patch_size *
+            num_windows``). *Default*: ``32``.
+    """
+
+    in_channels: int = 3
+    hidden_size: int = 384
+    num_layers: int = 12
+    num_heads: int = 6
+    mlp_ratio: float = 4.0
+    patch_size: int = 16
+    pos_embed_grid: int = 36
+    # A tuple, not `field(factory=...)` (see `NegativesConfig.sources`).
+    out_indices: List[int] = (3, 6, 9, 12)
+    num_windows: int = field(default=2, validator=validators.ge(1))
+    window_block_indexes: Optional[List[int]] = None
+    drop_path_rate: float = 0.0
+    weights: Optional[str] = None
+    revision: Optional[str] = None
+    output_stride: int = 16
+    max_stride: int = 32
 
 
 @oneof
@@ -1929,12 +2233,82 @@ class BackboneConfig:
         swint: An instance of `SwinTConfig`.
         pretrained: An instance of `PretrainedConfig` (external HuggingFace
             pretrained backbone).
+        dinov2_windowed: An instance of `Dinov2WindowedConfig` (RF-DETR's windowed
+            DINOv2; `bbox_detr` models only).
     """
 
     unet: Optional[UNetConfig] = None
     convnext: Optional[ConvNextConfig] = None
     swint: Optional[SwinTConfig] = None
     pretrained: Optional[PretrainedConfig] = None
+    dinov2_windowed: Optional[Dinov2WindowedConfig] = None
+
+
+@define
+class InitFromConfig:
+    """Initialize a model from another sleap-nn checkpoint, tolerating differences.
+
+    Unlike ``trainer_config.resume_ckpt_path`` (a full resume that needs an
+    identical architecture), this copies what fits: tensors with matching keys
+    and shapes, per-node head channels by node name (a COCO-17 checkpoint seeds a
+    46-node union head: shared nodes copied, new nodes fresh), and learned
+    positional embeddings resized to the target grid. Everything else keeps its
+    init and is listed in the logged report. Applied after ``init_weights``, the
+    backbone's pretrained weights and ``pretrained_backbone_weights`` /
+    ``pretrained_head_weights``.
+
+    Attributes:
+        path: (str) A ``.ckpt``, raw state-dict file or model directory
+            (``best.ckpt``). ``None``: no loading (``reinit`` still applies).
+        include: (List[str]) Selectors of target weights to load: ``all``,
+            ``backbone``, ``encoder``, ``embeddings``, ``neck``, ``decoder``,
+            ``head``, ``blocks[a:b]`` or globs on state-dict keys.
+            *Default*: ``None`` (everything).
+        exclude: (List[str]) Selectors to leave at their init. *Default*: ``None``.
+        remap_nodes: (bool) Copy per-node head channels by node name, using the
+            source skeleton saved in the checkpoint (or its
+            ``training_config.yaml``). ``None`` means each route's own default:
+            ``path`` here copies by name (``True``), while the ``.ckpt`` form of
+            ``pretrained_head_weights`` copies by position (``False``), as it did
+            before ``init_from`` existed, so a head whose node count differs
+            raises there. Set ``True`` or ``False`` to apply one rule to both.
+            *Default*: ``None``.
+        node_map: (Dict[str, str]) ``{target node: source node}`` overrides, e.g.
+            to seed a new node from a related source node. For ``bbox_detr`` the
+            class heads' rows (``categories`` plus the never-positive extra logit,
+            named ``__extra__``) are matched by class name the same way, so a
+            subset of the source classes keeps their rows and the extra logit
+            takes the source's own. Leave ``__extra__`` unmapped: seeding it from
+            a real class (e.g. ``{__extra__: person}``) makes it score like that
+            class, and the loss then fights it at every object.
+            *Default*: ``None``.
+        source_part_names: (List[str]) Source node names, for checkpoints that do
+            not record them. *Default*: ``None``.
+        interpolate_pos_embed: (bool) Resize learned positional embeddings on a
+            different grid instead of skipping them. *Default*: ``True``.
+        reinit: (List[str]) Selectors re-initialized AFTER loading, e.g.
+            ``["head"]`` or ``["blocks[-2:]", "neck", "decoder", "head"]``.
+            *Default*: ``None``.
+        reinit_layer_scale: (float) LayerScale value for re-initialized ViT blocks
+            (small = block starts near identity). *Default*: ``1e-5``.
+        strict: (bool) Raise if any selected source tensor had to be skipped
+            for a shape mismatch. ``None`` means each route's own default:
+            ``path`` here warns and skips (``False``), while the ``.ckpt`` forms
+            of ``pretrained_backbone_weights`` / ``pretrained_head_weights``
+            raise (``True``), as they did before ``init_from`` existed. Set
+            ``True`` or ``False`` to apply one rule to both. *Default*: ``None``.
+    """
+
+    path: Optional[str] = None
+    include: Optional[List[str]] = None
+    exclude: Optional[List[str]] = None
+    remap_nodes: Optional[bool] = None
+    node_map: Optional[Dict[str, str]] = None
+    source_part_names: Optional[List[str]] = None
+    interpolate_pos_embed: bool = True
+    reinit: Optional[List[str]] = None
+    reinit_layer_scale: float = 1e-5
+    strict: Optional[bool] = None
 
 
 @define
@@ -1955,11 +2329,14 @@ class ModelConfig:
             to train and others should be None
         total_params: (int) Total number of parameters in the model. This is automatically
             computed when the training starts.
+        init_from: (InitFromConfig) Shape-tolerant, skeleton-aware initialization
+            from another checkpoint, plus optional re-initialization.
     """
 
     init_weights: str = "default"
     pretrained_backbone_weights: Optional[str] = None
     pretrained_head_weights: Optional[str] = None
+    init_from: Optional[InitFromConfig] = None
     backbone_config: BackboneConfig = field(factory=BackboneConfig)
     head_configs: HeadConfig = field(factory=HeadConfig)
     total_params: Optional[int] = None

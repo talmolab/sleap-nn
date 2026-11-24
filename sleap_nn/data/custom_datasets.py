@@ -6,16 +6,18 @@ from sleap_nn.data.skia_augmentation import (
     crop_window_bounds,
 )
 
+import functools
 import math
 import os
 import threading
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from copy import deepcopy
 from itertools import cycle
 from pathlib import Path
 import torch.distributed as dist
-from typing import Any, Dict, Iterator, List, Optional, Tuple, Union
-from omegaconf import DictConfig, OmegaConf
+from typing import Any, Dict, Iterator, List, Optional, Sequence, Tuple, Union
+from omegaconf import DictConfig, ListConfig, OmegaConf
 import numpy as np
 from PIL import Image
 from loguru import logger
@@ -34,14 +36,18 @@ from torch.utils.data import Dataset, DataLoader, DistributedSampler
 import sleap_io as sio
 from sleap_nn.config.utils import get_backbone_type_from_cfg, get_model_type_from_cfg
 from sleap_nn.config.model_config import (
+    BBOX_MODEL_TYPES,
     EMBEDDING_SAMPLER_KINDS,
     resolve_embedding_objective,
 )
 from sleap_nn.data.identity import generate_class_maps, make_class_vectors
 from sleap_nn.data.instance_centroids import (
+    DEFAULT_ANCHOR_FALLBACK,
+    anchor_part_names,
     centroid_method_from_config,
     degrade_anchor_if_unresolved,
     generate_centroids,
+    reduce_points,
 )
 from sleap_nn.data.instance_cropping import (
     BBoxCropSpec,
@@ -58,6 +64,8 @@ from sleap_nn.data.normalization import (
 )
 from sleap_nn.data.providers import (
     filter_oob_points,
+    instance_points,
+    located_points,
     get_max_instances,
     get_max_height_width,
     process_lf,
@@ -74,18 +82,40 @@ from sleap_nn.data.utils import (
     superseded_predictions,
 )
 from sleap_nn.data.confidence_maps import generate_confmaps, generate_multiconfmaps
+from sleap_nn.data.node_weights import (
+    check_some_node_weighted,
+    warn_nodes_never_located,
+    finite_point_weights,
+    get_labeled_nodes_weights,
+    frame_node_weights,
+    instance_node_weights,
+    node_weights_active,
+)
 from sleap_nn.data.bboxes import (
+    HULL_VERTICES,
+    IGNORE_BOX_CLASS,
     bboxes_to_corners,
     clip_bboxes,
     corners_to_bboxes,
     bbox_head_categories,
     frame_bbox_arrays,
+    frame_bbox_hulls,
+    frame_bbox_keypoints,
     frame_user_bboxes,
     get_bbox_target_encoder,
     instance_crop_bbox,
     resolve_bbox_source,
 )
-from sleap_nn.data.edge_maps import generate_pafs
+from sleap_nn.architectures.detr.model import detr_keypoints_config
+from sleap_nn.data.detr_augmentation import (
+    detr_train_transform,
+    drop_points_outside,
+    mirror_order,
+    multi_scale_sizes,
+    resize_frame,
+    zoom_out,
+)
+from sleap_nn.data.edge_maps import generate_edge_weights, generate_pafs
 from sleap_nn.data.segmentation_maps import (
     _compute_mask_centroids,
     generate_foreground_mask,
@@ -402,6 +432,238 @@ class ParallelCacheFiller:
                     pass
 
 
+class SampleTable:
+    """A read-only list of sample dicts stored as a few numpy arrays.
+
+    A dataset's sample list as Python dicts is millions of small objects for a
+    large dataset. A forked dataloader worker shares them with its parent
+    copy-on-write, but reading an object writes its reference count, so every
+    sample a worker reads copies that object's memory page into the worker. Over
+    many shuffled epochs each persistent worker ends up with its own copy of the
+    whole list (Objects365 + Open Images: ~1 GB per worker per epoch, which ran a
+    4-GPU x 16-worker run out of host memory). Here each key is one array, read
+    without touching per-sample objects. A key's storage follows from the types of
+    its values:
+
+    - bools, ints or floats, optionally mixed with strings or ``None`` (e.g. a
+      negative frame's ``"neg_..."`` ``lf_idx``): one array, plus the indices and
+      fixed-width bytes of those other values;
+    - arrays of one dtype and trailing shape (e.g. boxes): concatenated along the
+      first axis, with row offsets;
+    - strings (``None`` allowed): one fixed-width UTF-8 bytes array;
+    - all ``None``: no storage;
+    - anything else: an object array. Its values are returned as stored (shared
+      with the table and the other workers), so this kind does not avoid the
+      copies and is only a fallback.
+
+    ``table[i]`` builds a new dict whose arrays are copies, so nothing written to a
+    sample's arrays reaches the table.
+
+    Attributes:
+        columns: Key -> ``(kind, data)``, in the samples' key order.
+    """
+
+    # Scalar column types, most specific first (bool is an int subclass).
+    _scalar_types = (
+        ((bool, np.bool_), bool),
+        ((int, np.integer), np.int64),
+        ((float, np.floating), np.float64),
+    )
+
+    def __init__(self, columns: Dict[str, Tuple[str, Any]], length: int):
+        """Initialize from columns built by :meth:`from_dicts`."""
+        self.columns = columns
+        self._len = length
+
+    @classmethod
+    def from_dicts(cls, samples: List[Dict]) -> "SampleTable":
+        """Build a table from sample dicts that all have the same keys."""
+        keys = list(samples[0]) if samples else []
+        key_set = set(keys)
+        for i, sample in enumerate(samples):
+            if sample.keys() != key_set:
+                raise ValueError(
+                    f"Sample {i} has keys {sorted(sample)}, but sample 0 has "
+                    f"{sorted(keys)}; every sample needs the same keys."
+                )
+        columns = {key: cls._column([s[key] for s in samples]) for key in keys}
+        return cls(columns, len(samples))
+
+    @staticmethod
+    def _strings(values: List[Optional[str]]) -> Tuple[np.ndarray, np.ndarray]:
+        """Strings (or ``None``) as ``(fixed-width bytes, is-not-None)`` arrays."""
+        encoded = [b"" if v is None else os.fsencode(v) for v in values]
+        valid = np.array([v is not None for v in values], dtype=bool)
+        return np.array(encoded, dtype=bytes), valid
+
+    @classmethod
+    def _column(cls, values: List[Any]) -> Tuple[str, Any]:
+        """The ``(kind, data)`` storage of one key's values."""
+        if all(v is None for v in values):
+            return "none", None
+        if all(v is None or isinstance(v, str) for v in values):
+            return "str", cls._strings(values)
+        if all(isinstance(v, np.ndarray) and v.ndim >= 1 for v in values):
+            if len({(v.dtype, v.shape[1:]) for v in values}) == 1:
+                offsets = np.zeros(len(values) + 1, dtype=np.int64)
+                np.cumsum([len(v) for v in values], out=offsets[1:])
+                return "ragged", (np.concatenate(values), offsets)
+        for types, dtype in cls._scalar_types:
+            typed = [
+                isinstance(v, types) and (dtype is bool or not isinstance(v, bool))
+                for v in values
+            ]
+            others = [i for i, t in enumerate(typed) if not t]
+            if len(others) < len(values) and all(
+                values[i] is None or isinstance(values[i], str) for i in others
+            ):
+                array = np.array(
+                    [v if t else 0 for v, t in zip(values, typed)], dtype=dtype
+                )
+                other_idx = np.array(others, dtype=np.int64)
+                return "scalar", (
+                    array,
+                    other_idx,
+                    cls._strings([values[i] for i in others]),
+                )
+        array = np.empty(len(values), dtype=object)
+        array[:] = values
+        return "object", array
+
+    def column(self, key: str) -> np.ndarray:
+        """All values of a scalar key as one array (other values read as 0)."""
+        kind, data = self.columns[key]
+        if kind != "scalar":
+            raise ValueError(f"Column {key!r} is {kind}, not scalar.")
+        return data[0]
+
+    def __len__(self) -> int:
+        """Number of samples."""
+        return self._len
+
+    def __getitem__(self, index: int) -> Dict:
+        """A new dict of sample ``index``."""
+        index = int(index)
+        if index < 0:
+            index += self._len
+        if not 0 <= index < self._len:
+            raise IndexError(f"Sample {index} out of range ({self._len}).")
+        sample = {}
+        for key, (kind, data) in self.columns.items():
+            if kind == "none":
+                sample[key] = None
+            elif kind == "scalar":
+                array, other_idx, (encoded, valid) = data
+                j = int(np.searchsorted(other_idx, index))
+                if j < len(other_idx) and other_idx[j] == index:
+                    sample[key] = os.fsdecode(encoded[j]) if valid[j] else None
+                else:
+                    sample[key] = array[index].item()
+            elif kind == "ragged":
+                array, offsets = data
+                sample[key] = array[offsets[index] : offsets[index + 1]].copy()
+            elif kind == "str":
+                encoded, valid = data
+                sample[key] = os.fsdecode(encoded[index]) if valid[index] else None
+            else:
+                sample[key] = data[index]
+        return sample
+
+    def __iter__(self) -> Iterator[Dict]:
+        """Iterate over new sample dicts."""
+        for i in range(self._len):
+            yield self[i]
+
+
+def _file_scale_source(labels: Optional[sio.Labels]) -> str:
+    """The labels file a ``file_scales`` key is matched against.
+
+    ``provenance["filename"]``, or for a train/val split of a file (which sleap-io
+    records under ``"source_labels"`` instead) the file it was split from. Empty
+    when the labels were not loaded from a file.
+    """
+    prov = (labels.provenance or {}) if labels is not None else {}
+    return str(prov.get("filename") or prov.get("source_labels") or "")
+
+
+def file_scale_keys(labels: Optional[sio.Labels]) -> List[str]:
+    """The names a ``file_scales`` key may give for a labels file.
+
+    Its path, its file name, and its file name up to the first ``"."``, from
+    :func:`_file_scale_source` (empty when the labels were not loaded from a file).
+    """
+    filename = _file_scale_source(labels)
+    if not filename:
+        return []
+    name = Path(filename).name
+    return list(dict.fromkeys([filename, name, name.split(".")[0]]))
+
+
+def resolve_file_scales(
+    labels: List[sio.Labels], file_scales: Optional[Dict[str, float]]
+) -> Optional[List[float]]:
+    """One input scale per labels file from ``file_scales`` (experimental).
+
+    Args:
+        labels: The dataset's labels files.
+        file_scales: ``{file name: scale}`` (see :func:`file_scale_keys`), or
+            ``None``.
+
+    Returns:
+        A scale per file (``1.0`` for files not listed), or ``None`` without
+        ``file_scales``.
+    """
+    if not file_scales:
+        return None
+    scales = dict(file_scales)
+    out = []
+    for lb in labels:
+        hits = [k for k in file_scale_keys(lb) if k in scales]
+        out.append(float(scales[hits[0]]) if hits else 1.0)
+    logger.info(
+        "Per-file input scales: "
+        + ", ".join(
+            f"{(file_scale_keys(lb) or [str(i)])[-1]}={sc:g}"
+            for i, (lb, sc) in enumerate(zip(labels, out))
+        )
+    )
+    return out
+
+
+def check_file_scales(
+    file_scales: Optional[Dict[str, float]], *labels_lists: List[sio.Labels]
+) -> None:
+    """Refuse ``file_scales`` keys that match no labels file, or several files.
+
+    Raises:
+        ValueError: If a key names no file of ``labels_lists``, or names
+            (by file name, or file name up to the first ``"."``) more than one
+            distinct file.
+    """
+    if not file_scales:
+        return
+    labels = [lb for lbs in labels_lists for lb in lbs or []]
+    unknown, ambiguous = [], {}
+    for key in file_scales:
+        files = {_file_scale_source(lb) for lb in labels if key in file_scale_keys(lb)}
+        if not files:
+            unknown.append(key)
+        elif len(files) > 1:
+            ambiguous[key] = sorted(files)
+    if unknown:
+        raise ValueError(
+            f"preprocessing.file_scales names {sorted(unknown)}, which match no "
+            "training or validation file (keys match a file by its path, its file "
+            "name, or its file name up to the first '.')."
+        )
+    if ambiguous:
+        raise ValueError(
+            "preprocessing.file_scales keys match more than one file: "
+            + "; ".join(f"{k!r} -> {v}" for k, v in ambiguous.items())
+            + ". Use the file's path or full file name."
+        )
+
+
 class BaseDataset(Dataset):
     """Base class for custom torch Datasets.
 
@@ -441,6 +703,21 @@ class BaseDataset(Dataset):
             disk occurs only once across all workers.
         parallel_caching: If True, use parallel processing for caching (faster for large datasets). Default: True.
         cache_workers: Number of worker threads for parallel caching. If 0, uses min(4, cpu_count). Default: 0.
+        node_loss_mask: Emit per-node loss weights (`node_weights`, shape `(1, n_nodes)`)
+            when they can differ from 1 (see `sleap_nn.data.node_weights`). Only the
+            single-instance, centered-instance and bottom-up datasets use it (and
+            default it to True). Default: False.
+        unlabeled_points: `"absent"` trains points with no location as absent (weight
+            1); `"ignore"` gives them weight 0. Default: `"absent"`.
+        supervise_occluded: Train labeled-but-occluded points (sleap-io >= 0.10
+            occluded estimates) at their estimated coordinates; `False` gives them
+            weight 0. Default: True.
+        file_scales: Experimental: one input scale per labels file,
+            `{file name: scale}` (see `PreprocessingConfig.file_scales` and
+            :func:`resolve_file_scales`). Each frame is resized by its file's scale,
+            then padded, not stretched, to `max_hw` (shrunk only if still larger).
+            Used by the single-instance, centroid and bottom-up datasets. Default:
+            None (no per-file scale).
         labels_list: List of `sio.Labels` objects. Used to store the labels in the cache. (only used if `cache_img` is `None`)
     """
 
@@ -478,10 +755,43 @@ class BaseDataset(Dataset):
         tiling: Optional[Union[DictConfig, Any]] = None,
         output_stride: Optional[int] = None,
         base_seed: int = 0,
+        node_loss_mask: bool = False,
+        unlabeled_points: str = "absent",
+        supervise_occluded: bool = True,
+        file_scales: Optional[Dict[str, float]] = None,
     ) -> None:
         """Initialize class attributes."""
         super().__init__()
         self.user_instances_only = user_instances_only
+        #: Number of labels files (the groups of ``trainer_config.balanced_sampler``).
+        self.num_files = len(labels)
+        #: Per labels file input scale, or ``None`` (experimental ``file_scales``).
+        self.file_scales = resolve_file_scales(labels, file_scales)
+        # Per-node loss weights (see `sleap_nn.data.node_weights`). Only the
+        # confmap datasets that emit them turn `node_loss_mask` on, and they emit
+        # the `node_weights` sample key only when weights can differ from 1, so
+        # fully labeled datasets under the defaults keep their exact sample dicts.
+        self.unlabeled_points = unlabeled_points
+        self.supervise_occluded = supervise_occluded
+        self.emit_node_weights = node_weights_active(
+            labels,
+            node_loss_mask=node_loss_mask,
+            unlabeled_points=unlabeled_points,
+            supervise_occluded=supervise_occluded,
+        )
+        # One (n_nodes,) mask per labels file from provenance["labeled_nodes"].
+        self.file_node_weights = (
+            [
+                (
+                    get_labeled_nodes_weights(x)
+                    if x is not None and x.skeletons
+                    else None
+                )
+                for x in labels
+            ]
+            if self.emit_node_weights
+            else None
+        )
         self.use_negative_frames = use_negative_frames
         self.ensure_rgb = ensure_rgb
         self.ensure_grayscale = ensure_grayscale
@@ -653,6 +963,38 @@ class BaseDataset(Dataset):
                 if is_distributed_initialized():
                     dist.barrier()
 
+    @property
+    def labels_idx(self) -> np.ndarray:
+        """The labels file of every sample (for the balanced per-file sampler)."""
+        return np.array(
+            [sample["labels_idx"] for sample in self.lf_idx_list], dtype=np.int64
+        )
+
+    def _apply_file_scale(self, sample: Dict, labels_idx: int) -> Dict:
+        """Resize a frame sample by its file's scale and pad it to ``max_hw``.
+
+        Experimental ``file_scales``: the frame is resized by its file's scale,
+        then padded (not stretched) to ``max_hw``, and shrunk only if it is still
+        larger. ``sample["eff_scale"]`` is the product, so predictions map back to
+        the original frame. Leaves the sample alone without ``file_scales``.
+        """
+        if self.file_scales is None:
+            return sample
+        file_scale = self.file_scales[labels_idx]
+        if file_scale != 1.0:
+            sample["image"], sample["instances"] = apply_resizer(
+                sample["image"], sample["instances"], scale=file_scale
+            )
+        sample["image"], fit = apply_sizematcher(
+            sample["image"],
+            max_height=self.max_hw[0],
+            max_width=self.max_hw[1],
+            upscale=False,
+        )
+        sample["instances"] = sample["instances"] * fit
+        sample["eff_scale"] = torch.tensor(file_scale * fit, dtype=torch.float32)
+        return sample
+
     @staticmethod
     def _extract_user_centroid_xy(
         lf: sio.LabeledFrame,
@@ -683,6 +1025,85 @@ class BaseDataset(Dataset):
                 continue
             xy.append([x, y])
         return xy if xy else None
+
+    def _instance_node_weights(
+        self,
+        labels_idx: int,
+        instance: Optional[sio.Instance] = None,
+        points: Optional[np.ndarray] = None,
+    ) -> Tuple[Optional[torch.Tensor], Optional[np.ndarray]]:
+        """Per-node loss weights ``(1, n_nodes)`` of a sample, before augmentation.
+
+        Returns ``(None, points)`` when the dataset emits no weights. Otherwise
+        starts from the file's ``provenance["labeled_nodes"]`` mask and, given an
+        ``instance`` and its ``points``, combines it with per-point ``labeled``
+        flags (when sleap-io exposes them) under the ``supervise_occluded``
+        policy, which may restore estimated coordinates of occluded points in the
+        returned ``points``. Frame-level datasets pass no instance (file mask only).
+        """
+        if not self.emit_node_weights:
+            return None, points
+        w = self.file_node_weights[labels_idx]
+        if w is None:
+            w = np.ones(self.num_nodes, dtype=np.float32)
+        if instance is not None:
+            w, points = instance_node_weights(
+                instance, w, points, supervise_occluded=self.supervise_occluded
+            )
+        return torch.from_numpy(np.asarray(w, dtype=np.float32))[None], points
+
+    def _frame_node_weights(
+        self, labels_idx: int, instances: List[sio.Instance]
+    ) -> Optional[torch.Tensor]:
+        """Per-node loss weights ``(1, n_nodes)`` of a frame-level sample.
+
+        For confmaps with one channel per node for the whole frame (single-instance,
+        bottom-up): the file mask times, per node, the maximum over ``instances``
+        (the ones `process_lf` kept) of their ``labeled | visible`` flags, so a
+        node gets weight 0 only when every instance is unlabeled there. ``None``
+        when the dataset emits no weights.
+        """
+        if not self.emit_node_weights:
+            return None
+        w = self.file_node_weights[labels_idx]
+        if w is None:
+            w = np.ones(self.num_nodes, dtype=np.float32)
+        w = frame_node_weights(w, instances, supervise_occluded=self.supervise_occluded)
+        return torch.from_numpy(np.asarray(w, dtype=np.float32))[None]
+
+    def _finalize_node_weights(
+        self,
+        node_weights: Optional[torch.Tensor],
+        points: torch.Tensor,
+        img_hw: Tuple[int, int],
+        is_negative: bool = False,
+    ) -> Optional[torch.Tensor]:
+        """Apply ``unlabeled_points`` to a sample's (augmented) node weights.
+
+        Under ``"ignore"``, nodes without a location in the model input (NaN, or
+        outside the ``img_hw`` image/crop after augmentation) get weight 0. With
+        several instances a node keeps its weight if any instance locates it.
+        Negative frames keep weight 1 on every node (they are trained as absent).
+
+        Args:
+            node_weights: ``(1, n_nodes)`` weights, or ``None`` (not emitting).
+            points: ``(..., n_nodes, 2)`` final target points.
+            img_hw: Height and width of the model input the points live in.
+            is_negative: Whether the sample is a negative frame.
+
+        Returns:
+            The ``(1, n_nodes)`` weights, or ``None``.
+        """
+        if node_weights is None:
+            return None
+        if is_negative:
+            return torch.ones_like(node_weights)
+        if self.unlabeled_points == "ignore":
+            located = finite_point_weights(
+                filter_oob_points(points, int(img_hw[0]), int(img_hw[1]))
+            )
+            node_weights = node_weights * located[None]
+        return node_weights
 
     def _get_lf_idx_list(self, labels: List[sio.Labels]) -> List[Tuple[int]]:
         """Return list of indices of labelled frames (and optionally negative frames).
@@ -1092,14 +1513,16 @@ class BaseDataset(Dataset):
             sample["image"] = convert_to_grayscale(sample["image"])
 
         if not self.tiling_enabled:
-            # size matcher
-            sample["image"], eff_scale = apply_sizematcher(
-                sample["image"],
-                max_height=self.max_hw[0],
-                max_width=self.max_hw[1],
-            )
-            sample["instances"] = sample["instances"] * eff_scale
-            sample["eff_scale"] = torch.tensor(eff_scale, dtype=torch.float32)
+            # size matcher (already applied with the file's scale under
+            # `file_scales`, see `_apply_file_scale`)
+            if self.file_scales is None:
+                sample["image"], eff_scale = apply_sizematcher(
+                    sample["image"],
+                    max_height=self.max_hw[0],
+                    max_width=self.max_hw[1],
+                )
+                sample["instances"] = sample["instances"] * eff_scale
+                sample["eff_scale"] = torch.tensor(eff_scale, dtype=torch.float32)
 
             # resize image
             sample["image"], sample["instances"] = apply_resizer(
@@ -1161,6 +1584,7 @@ class BaseDataset(Dataset):
 
         # apply augmentation
         if self.apply_aug:
+            sample = self._before_augmentation(sample)
             if self.intensity_aug is not None:
                 sample["image"], sample["instances"] = apply_intensity_augmentation(
                     sample["image"],
@@ -1171,13 +1595,28 @@ class BaseDataset(Dataset):
             # Under tiling, geometric augmentation is folded into `extract_tile`
             # (halo path); do NOT run it again here.
             if not self.tiling_enabled and self.geometric_aug is not None:
-                sample["image"], sample["instances"] = apply_geometric_augmentation(
+                # Per-node loss weights (if any) are swapped with the keypoints
+                # when the sample is flipped. (Tiled datasets emit none.)
+                node_weights = sample.get("node_weights")
+                out = apply_geometric_augmentation(
                     sample["image"],
                     sample["instances"],
                     symmetric_inds=self.symmetric_inds,
+                    node_weights=node_weights,
                     **self.geometric_aug,
                 )
+                sample["image"], sample["instances"] = out[0], out[1]
+                if node_weights is not None:
+                    sample["node_weights"] = out[-1]
 
+        return sample
+
+    def _before_augmentation(self, sample: Dict) -> Dict:
+        """Training-only step on the fitted, padded sample before the stock augmentation.
+
+        A no-op here; :class:`BBoxDataset` zooms out (``augmentation_config.detr``
+        ``zoom_out_*``).
+        """
         return sample
 
     def _load_negative_sample(self, sample: Dict) -> Dict:
@@ -1295,9 +1734,17 @@ class BottomUpDataset(BaseDataset):
         parallel_caching: bool = True,
         cache_workers: int = 0,
         use_negative_frames: bool = False,
+        node_loss_mask: bool = True,
+        unlabeled_points: str = "absent",
+        supervise_occluded: bool = True,
+        file_scales: Optional[Dict[str, float]] = None,
     ) -> None:
         """Initialize class attributes."""
         super().__init__(
+            node_loss_mask=node_loss_mask,
+            unlabeled_points=unlabeled_points,
+            supervise_occluded=supervise_occluded,
+            file_scales=file_scales,
             labels=labels,
             max_stride=max_stride,
             user_instances_only=user_instances_only,
@@ -1331,6 +1778,7 @@ class BottomUpDataset(BaseDataset):
 
         if sample.get("is_negative", False):
             sample = self._load_negative_sample(sample)
+            kept = []
         else:
             if self.cache_img is not None:
                 instances = sample["instances"]
@@ -1350,19 +1798,36 @@ class BottomUpDataset(BaseDataset):
             if img.ndim == 2:
                 img = np.expand_dims(img, axis=2)
 
-            # get dict
-            sample = process_lf(
+            # get dict, plus the instances it kept for the node weights below
+            sample, kept = process_lf(
                 instances_list=instances,
                 img=img,
                 frame_idx=frame_idx,
                 video_idx=video_idx,
                 max_instances=self.max_instances,
                 user_instances_only=self.user_instances_only,
+                supervise_occluded=self.supervise_occluded,
+                return_instances=True,
             )
 
+        # Per-node loss weights: 0 only where every instance in the frame is
+        # unlabeled (or the file does not label the node).
+        node_weights = self._frame_node_weights(labels_idx, kept)
+        if node_weights is not None:
+            sample["node_weights"] = node_weights
+
+        sample = self._apply_file_scale(sample, labels_idx)
         sample = self._apply_common_preprocessing(sample)
 
         img_hw = sample["image"].shape[-2:]
+
+        if node_weights is not None:
+            sample["node_weights"] = self._finalize_node_weights(
+                sample["node_weights"],
+                sample["instances"],
+                img_hw,
+                is_negative=bool(self.lf_idx_list[index].get("is_negative", False)),
+            )
 
         # Generate confidence maps
         confidence_maps = generate_multiconfmaps(
@@ -1386,6 +1851,11 @@ class BottomUpDataset(BaseDataset):
 
         sample["confidence_maps"] = confidence_maps
         sample["part_affinity_fields"] = pafs
+        if sample.get("node_weights") is not None:
+            # A PAF edge is supervised only where both of its endpoints are.
+            sample["edge_weights"] = generate_edge_weights(
+                sample["node_weights"], self.edge_inds
+            )  # (1, n_edges)
         sample["labels_idx"] = labels_idx
         if self.use_negative_frames:
             sample["is_negative"] = self.lf_idx_list[index].get("is_negative", False)
@@ -1519,24 +1989,27 @@ class BottomUpMultiClassDataset(BaseDataset):
             if img.ndim == 2:
                 img = np.expand_dims(img, axis=2)
 
-            # get dict
-            sample = process_lf(
+            # get dict, plus the instances that survived filtering so the track
+            # lookup below stays aligned with the sample's instance rows.
+            sample, kept = process_lf(
                 instances_list=instances,
                 img=img,
                 frame_idx=frame_idx,
                 video_idx=video_idx,
                 max_instances=self.max_instances,
                 user_instances_only=self.user_instances_only,
+                supervise_occluded=self.supervise_occluded,
+                return_instances=True,
             )
 
             track_ids = torch.Tensor(
                 [
                     (
-                        self.class_names.index(instances[idx].track.name)
-                        if instances[idx].track is not None
+                        self.class_names.index(inst.track.name)
+                        if inst.track is not None
                         else -1
                     )
-                    for idx in range(sample["num_instances"])
+                    for inst in kept
                 ]
             ).to(torch.int32)
 
@@ -1650,9 +2123,15 @@ class CenteredInstanceDataset(BaseDataset):
         parallel_caching: bool = True,
         cache_workers: int = 0,
         bbox_crop: Optional[BBoxCropSpec] = None,
+        node_loss_mask: bool = True,
+        unlabeled_points: str = "absent",
+        supervise_occluded: bool = True,
     ) -> None:
         """Initialize class attributes."""
         super().__init__(
+            node_loss_mask=node_loss_mask,
+            unlabeled_points=unlabeled_points,
+            supervise_occluded=supervise_occluded,
             labels=labels,
             max_stride=max_stride,
             user_instances_only=user_instances_only,
@@ -1862,10 +2341,13 @@ class CenteredInstanceDataset(BaseDataset):
         image = np.transpose(img, (2, 0, 1))  # HWC -> CHW
 
         instances = []
-        for inst in instances_list:
-            instances.append(
-                inst.numpy()
-            )  # no need to filter empty instances; handled while creating instance_idx_list
+        node_weights = None
+        for i, inst in enumerate(instances_list):
+            # no need to filter empty instances; handled while creating instance_idx_list
+            pts = instance_points(inst, self.supervise_occluded)
+            if i == inst_idx:
+                node_weights, pts = self._instance_node_weights(labels_idx, inst, pts)
+            instances.append(pts)
         instances = np.stack(instances, axis=0)
 
         # Add singleton time dimension for single frames.
@@ -1895,9 +2377,14 @@ class CenteredInstanceDataset(BaseDataset):
         )
         instances = instances * eff_scale
 
+        # The crop is centered on the instance's labeled points that have
+        # coordinates, whether or not occluded estimates are supervised.
+        located = torch.from_numpy(
+            located_points(instances_list[inst_idx]).astype("float32")
+        )[None]
         # get the centroids based on the anchor idx
         centroids = generate_centroids(
-            instances,
+            located * eff_scale,
             anchor_ind=self.anchor_ind,
             method=self.centroid_method,
             fallback=self.centroid_fallback,
@@ -1930,15 +2417,16 @@ class CenteredInstanceDataset(BaseDataset):
                 )
 
             if self.geometric_aug is not None:
-                (
-                    sample["instance_image"],
-                    sample["instance"],
-                ) = apply_geometric_augmentation(
+                out = apply_geometric_augmentation(
                     sample["instance_image"],
                     sample["instance"],
                     symmetric_inds=self.symmetric_inds,
+                    node_weights=node_weights,
                     **self.geometric_aug,
                 )
+                sample["instance_image"], sample["instance"] = out[0], out[1]
+                if node_weights is not None:
+                    node_weights = out[-1]
 
         # re-crop to original crop size
         sample = self._final_crop(sample)
@@ -1960,6 +2448,12 @@ class CenteredInstanceDataset(BaseDataset):
         # Drop keypoints pushed outside the crop by augmentation so their target
         # confidence map is empty rather than a partial blob at the crop edge.
         sample["instance"] = filter_oob_points(sample["instance"], img_hw[0], img_hw[1])
+
+        node_weights = self._finalize_node_weights(
+            node_weights, sample["instance"], img_hw
+        )
+        if node_weights is not None:
+            sample["node_weights"] = node_weights  # (n_samples=1, n_nodes)
 
         # Generate confidence maps
         confidence_maps = generate_confmaps(
@@ -2007,7 +2501,7 @@ def _match_mask_to_instance(
         if getattr(m, "instance", None) is inst:
             return m
     # Fallback: max bbox-IoU between the keypoint bbox and each mask's bbox.
-    pts = inst.numpy()
+    pts = located_points(inst)
     vis = pts[~np.isnan(pts).any(axis=1)]
     if len(vis) == 0:
         return None
@@ -2028,7 +2522,7 @@ def _match_mask_to_instance(
 
 def _kp_bbox(inst: sio.Instance) -> Optional[Tuple[float, float, float, float]]:
     """Keypoint bounding box ``(x0, y0, x1, y1)`` of an instance, or None."""
-    pts = inst.numpy()
+    pts = located_points(inst)
     vis = pts[~np.isnan(pts).any(axis=1)]
     if len(vis) == 0:
         return None
@@ -2245,7 +2739,8 @@ class CenteredInstanceSegmentationDataset(CenteredInstanceDataset):
             img = np.expand_dims(img, axis=2)
 
         image = np.transpose(img, (2, 0, 1))  # HWC -> CHW
-        instances = np.stack([inst.numpy() for inst in instances_list], axis=0)
+        # The crop is centered on labeled points that have coordinates.
+        instances = np.stack([located_points(inst) for inst in instances_list], axis=0)
         image = np.expand_dims(image, axis=0)  # (1, C, H, W)
         instances = np.expand_dims(instances, axis=0)  # (1, num, nodes, 2)
         instances = torch.from_numpy(instances.astype("float32"))
@@ -3100,7 +3595,7 @@ class EmbeddingDataset(BaseDataset):
                     if reason is not None:
                         skipped[reason] = skipped.get(reason, 0) + 1
                         continue
-                    pts = torch.from_numpy(inst.numpy()).to(
+                    pts = torch.from_numpy(located_points(inst)).to(
                         torch.float32
                     )  # (n_nodes,2)
                     centroid = generate_centroids(
@@ -3637,12 +4132,11 @@ class TopDownCenteredInstanceMultiClassDataset(CenteredInstanceDataset):
 
         image = np.transpose(img, (2, 0, 1))  # HWC -> CHW
 
-        instances = []
-        for inst in instances_list:
-            instances.append(
-                inst.numpy()
-            )  # no need to filter empty instance (handled while creating instance_idx)
-        instances = np.stack(instances, axis=0)
+        # No need to filter empty instances (handled while creating instance_idx).
+        instances = np.stack(
+            [instance_points(inst, self.supervise_occluded) for inst in instances_list],
+            axis=0,
+        )
 
         # Add singleton time dimension for single frames.
         image = np.expand_dims(image, axis=0)  # (n_samples=1, C, H, W)
@@ -3687,9 +4181,14 @@ class TopDownCenteredInstanceMultiClassDataset(CenteredInstanceDataset):
             n_classes=torch.tensor(len(self.class_names), dtype=torch.int32),
         )
 
+        # The crop is centered on the instance's labeled points that have
+        # coordinates, whether or not occluded estimates are supervised.
+        located = torch.from_numpy(
+            located_points(instances_list[inst_idx]).astype("float32")
+        )[None]
         # get the centroids based on the anchor idx
         centroids = generate_centroids(
-            instances,
+            located * eff_scale,
             anchor_ind=self.anchor_ind,
             method=self.centroid_method,
             fallback=self.centroid_fallback,
@@ -3777,6 +4276,15 @@ class CentroidDataset(BaseDataset):
             divisible by.
         anchor_ind: Index of the node to use as the anchor point, based on its index in the
             ordered list of skeleton nodes.
+        anchor_inds: Experimental: indices of several anchor nodes, in order of
+            preference (``anchor_part`` given as a list). Only the anchors a file
+            labels count (its ``provenance["labeled_nodes"]``; all of them without
+            one). Each instance is anchored on the first of those it has located,
+            else on the fallback, as with ``anchor_ind``. Frames of a file that
+            labels none of them get no centroids and weight 0 on the centroid map
+            (``node_weights`` of shape ``(1, 1)``, emitted for every sample in this
+            mode). ``None`` (default): ``anchor_ind`` alone, as before.
+        file_scales: Experimental per-file input scales (see `BaseDataset`).
         use_user_centroids: Selects the single dataset-wide centroid source.
             `True` trains on user-annotated centroids (``UserCentroid``); `False`
             computes every centroid from instance keypoints (``anchor_ind`` node,
@@ -3848,9 +4356,12 @@ class CentroidDataset(BaseDataset):
         parallel_caching: bool = True,
         cache_workers: int = 0,
         use_negative_frames: bool = False,
+        anchor_inds: Optional[List[int]] = None,
+        file_scales: Optional[Dict[str, float]] = None,
     ) -> None:
         """Initialize class attributes."""
         super().__init__(
+            file_scales=file_scales,
             labels=labels,
             max_stride=max_stride,
             user_instances_only=user_instances_only,
@@ -3870,6 +4381,31 @@ class CentroidDataset(BaseDataset):
             use_negative_frames=use_negative_frames,
         )
         self.anchor_ind = anchor_ind
+        self.anchor_inds = list(anchor_inds) if anchor_inds is not None else None
+        #: Per labels file, the listed anchors its `labeled_nodes` mask has (all of
+        #: them without a mask), in order of preference (anchor-list mode only).
+        self._file_anchors = None
+        if self.anchor_inds is not None:
+            self._file_anchors = []
+            for x in labels:
+                mask = (
+                    get_labeled_nodes_weights(x)
+                    if x is not None and x.skeletons
+                    else None
+                )
+                self._file_anchors.append(
+                    [
+                        a
+                        for a in self.anchor_inds
+                        if mask is None or (a < len(mask) and mask[a] > 0)
+                    ]
+                )
+            unanchored = [i for i, a in enumerate(self._file_anchors) if not a]
+            if unanchored:
+                logger.warning(
+                    f"CentroidDataset: labels file(s) {unanchored} label none of the "
+                    "anchor_part nodes; their frames get zero centroid loss."
+                )
         self.confmap_head_config = confmap_head_config
         # (method, fallback) for the centroid TARGET, resolved once from the head
         # config so the trained target and inference agree (#586).
@@ -4004,6 +4540,37 @@ class CentroidDataset(BaseDataset):
             uc = uc[:n_slots]
         return uc.unsqueeze(0)  # (1, n_slots, 2)
 
+    def _list_anchor_centroids(
+        self, points: torch.Tensor, n_instances: int, anchors: List[int]
+    ) -> Tuple[torch.Tensor, float]:
+        """Centroids for an ``anchor_inds`` list, and the frame's centroid weight.
+
+        Args:
+            points: ``(1, max_instances, n_nodes, 2)`` preprocessed points; the first
+                ``n_instances`` rows are the frame's instances.
+            n_instances: Number of instances in the frame.
+            anchors: The listed anchors the frame's file labels, in order.
+
+        Returns:
+            ``(centroids, weight)``: ``(1, max_instances, 2)`` centroids and the
+            frame's weight. Each instance takes its first anchor with a location,
+            else the configured fallback, as with a single anchor. When the file
+            labels none of the anchors, every centroid is NaN and the weight is
+            ``0.0`` (no centroid at a fallback location); else ``1.0``.
+        """
+        centroids = torch.full(points.shape[:-2] + (2,), torch.nan)
+        if not anchors:
+            return centroids, 0.0 if n_instances > 0 else 1.0
+        fallback = self.centroid_fallback or DEFAULT_ANCHOR_FALLBACK
+        for i in range(n_instances):
+            for a in anchors:
+                if torch.isfinite(points[0, i, a]).all():
+                    centroids[0, i] = points[0, i, a]
+                    break
+            else:
+                centroids[0, i] = reduce_points(points[0, i], fallback)
+        return centroids, 1.0
+
     def __getitem__(self, index) -> Dict:
         """Return dict with image and confmaps for centroids for given index."""
         sample = self.lf_idx_list[index]
@@ -4042,6 +4609,8 @@ class CentroidDataset(BaseDataset):
                 video_idx=video_idx,
                 max_instances=self.max_instances,
                 user_instances_only=self.user_instances_only,
+                # Centroids come from every labeled point with coordinates.
+                supervise_occluded=True,
             )
             # `process_lf` returns None when the frame has no (user) instances.
             # For the centroid model that is a valid pure-centroid frame (kept by
@@ -4056,14 +4625,19 @@ class CentroidDataset(BaseDataset):
         elif self.ensure_grayscale:
             sample["image"] = convert_to_grayscale(sample["image"])
 
-        # size matcher
-        sample["image"], eff_scale = apply_sizematcher(
-            sample["image"],
-            max_height=self.max_hw[0],
-            max_width=self.max_hw[1],
-        )
-        sample["instances"] = sample["instances"] * eff_scale
-        sample["eff_scale"] = torch.tensor(eff_scale, dtype=torch.float32)
+        if self.file_scales is not None:
+            # experimental per-file scale, padded to max_hw (no size matcher)
+            sample = self._apply_file_scale(sample, labels_idx)
+            eff_scale = float(sample["eff_scale"])
+        else:
+            # size matcher
+            sample["image"], eff_scale = apply_sizematcher(
+                sample["image"],
+                max_height=self.max_hw[0],
+                max_width=self.max_hw[1],
+            )
+            sample["instances"] = sample["instances"] * eff_scale
+            sample["eff_scale"] = torch.tensor(eff_scale, dtype=torch.float32)
 
         # resize image
         sample["image"], sample["instances"] = apply_resizer(
@@ -4088,6 +4662,13 @@ class CentroidDataset(BaseDataset):
             # The confmap generator and validation GT slice ``[:num_instances]``;
             # align the count with the number of user centroids.
             sample["num_instances"] = min(len(user_centroids), centroids.shape[1])
+            centroid_weight = 1.0
+        elif self.anchor_inds is not None:
+            centroids, centroid_weight = self._list_anchor_centroids(
+                sample["instances"],
+                int(sample["num_instances"]),
+                self._file_anchors[labels_idx],
+            )
         else:
             # get the centroids based on the anchor idx
             centroids = generate_centroids(
@@ -4098,6 +4679,9 @@ class CentroidDataset(BaseDataset):
             )
 
         sample["centroids"] = centroids
+        if self.anchor_inds is not None:
+            # Zero loss on the frame's centroid map when its file labels no anchor.
+            sample["node_weights"] = torch.tensor([[centroid_weight]])
 
         # Pad the image (if needed) according max stride
         sample["image"] = apply_pad_to_stride(
@@ -4205,9 +4789,17 @@ class SingleInstanceDataset(BaseDataset):
         parallel_caching: bool = True,
         cache_workers: int = 0,
         use_negative_frames: bool = False,
+        node_loss_mask: bool = True,
+        unlabeled_points: str = "absent",
+        supervise_occluded: bool = True,
+        file_scales: Optional[Dict[str, float]] = None,
     ) -> None:
         """Initialize class attributes."""
         super().__init__(
+            node_loss_mask=node_loss_mask,
+            unlabeled_points=unlabeled_points,
+            supervise_occluded=supervise_occluded,
+            file_scales=file_scales,
             labels=labels,
             max_stride=max_stride,
             user_instances_only=user_instances_only,
@@ -4238,6 +4830,7 @@ class SingleInstanceDataset(BaseDataset):
 
         if sample.get("is_negative", False):
             sample = self._load_negative_sample(sample)
+            kept = []
         else:
             if self.cache_img is not None:
                 instances = sample["instances"]
@@ -4256,16 +4849,24 @@ class SingleInstanceDataset(BaseDataset):
             if img.ndim == 2:
                 img = np.expand_dims(img, axis=2)
 
-            # get dict
-            sample = process_lf(
+            # get dict, plus the instances it kept for the node weights below
+            sample, kept = process_lf(
                 instances_list=instances,
                 img=img,
                 frame_idx=lf_frame_idx,
                 video_idx=video_idx,
                 max_instances=self.max_instances,
                 user_instances_only=self.user_instances_only,
+                supervise_occluded=self.supervise_occluded,
+                return_instances=True,
             )
 
+        # Per-node loss weights from the file mask and the instance's flags.
+        node_weights = self._frame_node_weights(labels_idx, kept)
+        if node_weights is not None:
+            sample["node_weights"] = node_weights
+
+        sample = self._apply_file_scale(sample, labels_idx)
         sample = self._apply_common_preprocessing(sample)
 
         img_hw = sample["image"].shape[-2:]
@@ -4275,6 +4876,14 @@ class SingleInstanceDataset(BaseDataset):
         sample["instances"] = filter_oob_points(
             sample["instances"], img_hw[0], img_hw[1]
         )
+
+        if node_weights is not None:
+            sample["node_weights"] = self._finalize_node_weights(
+                sample["node_weights"],
+                sample["instances"],
+                img_hw,
+                is_negative=bool(self.lf_idx_list[index].get("is_negative", False)),
+            )
 
         # Generate confidence maps
         confidence_maps = generate_confmaps(
@@ -4444,6 +5053,7 @@ class SingleInstanceTiledDataset(BaseDataset):
                     video_idx=d["video_idx"],
                     max_instances=self.max_instances,
                     user_instances_only=self.user_instances_only,
+                    supervise_occluded=self.supervise_occluded,
                 )
             frame = self._to_sized_frame(frame)
             if not d["is_negative"]:
@@ -4537,9 +5147,16 @@ class InfiniteDataLoader(DataLoader):
     This dataloader extends the PyTorch DataLoader to provide infinite recycling of workers, which improves efficiency
     for training loops that need to iterate through the dataset multiple times without recreating workers.
 
+    The iterator (and with it the workers) is created on the first ``__iter__``,
+    not in ``__init__``, so the first pass over the sampler uses the epoch
+    Lightning set for it (e.g. the resumed epoch). Each later pass advances an
+    epoch-aware sampler itself (see :class:`_RepeatSampler`), because the workers
+    prefetch the next pass's first batches before Lightning's ``set_epoch``.
+
     Attributes:
         batch_sampler (_RepeatSampler): A sampler that repeats indefinitely.
-        iterator (Iterator): The iterator from the parent DataLoader.
+        iterator (Optional[Iterator]): The iterator from the parent DataLoader
+            (``None`` until the first ``__iter__``).
         len_dataloader (Optional[int]): Number of minibatches to be generated. If `None`, this is set to len(dataset)/batch_size.
 
     Methods:
@@ -4562,7 +5179,7 @@ class InfiniteDataLoader(DataLoader):
         """Initialize the InfiniteDataLoader with the same arguments as DataLoader."""
         super().__init__(*args, **kwargs)
         object.__setattr__(self, "batch_sampler", _RepeatSampler(self.batch_sampler))
-        self.iterator = super().__iter__()
+        self.iterator = None
         self.len_dataloader = len_dataloader
 
     def __len__(self) -> int:
@@ -4580,6 +5197,8 @@ class InfiniteDataLoader(DataLoader):
 
     def __iter__(self) -> Iterator:
         """Create an iterator that yields indefinitely from the underlying iterator."""
+        if self.iterator is None:
+            self.iterator = super().__iter__()
         while True:
             yield next(self.iterator)
 
@@ -4606,6 +5225,13 @@ class _RepeatSampler:
     This sampler wraps another sampler and yields its contents indefinitely, allowing for infinite iteration
     over a dataset without recreating the sampler.
 
+    An epoch-aware sampler (one with ``set_epoch``, e.g. ``DistributedSampler``,
+    either this sampler or the one inside its ``BatchSampler``) is set to one epoch
+    more for each pass: pass ``k`` uses the epoch it had when iteration started,
+    plus ``k``. Persistent workers start a pass a few batches before Lightning's
+    ``set_epoch`` for that epoch, so waiting for Lightning would repeat the
+    previous epoch's order.
+
     Attributes:
         sampler (Dataset.sampler): The sampler to repeat.
 
@@ -4618,7 +5244,14 @@ class _RepeatSampler:
 
     def __iter__(self) -> Iterator:
         """Iterate over the sampler indefinitely, yielding its contents."""
+        inner = self.sampler
+        if not hasattr(inner, "set_epoch"):
+            inner = getattr(inner, "sampler", None)
+        epoch = getattr(inner, "epoch", None) if hasattr(inner, "set_epoch") else None
         while True:
+            if epoch is not None:
+                inner.set_epoch(epoch)
+                epoch += 1
             yield from iter(self.sampler)
 
 
@@ -5310,6 +5943,126 @@ class SemanticSegmentationDataset(BaseDataset):
         return sample_dict
 
 
+def _zoom_out_p(aug: Any) -> float:
+    """``zoom_out_p`` of an ``augmentation_config.detr`` section."""
+    return float(aug.get("zoom_out_p", 0.0) or 0.0)
+
+
+def _zoom_out_canvas(aug: Any) -> str:
+    """``zoom_out_canvas`` of an ``augmentation_config.detr`` section."""
+    return str(aug.get("zoom_out_canvas", "zero") or "zero")
+
+
+def _labeled_node_mask(labels: sio.Labels, node_names: Sequence[str]) -> np.ndarray:
+    """``(len(node_names),)`` mask of the nodes ``provenance["labeled_nodes"]`` lists.
+
+    Entries are node names or integer indices into the file's own first skeleton;
+    both are matched to ``node_names`` by name. All ones without the key.
+    """
+    from sleap_nn.data.node_weights import LABELED_NODES_KEY
+
+    listed = (labels.provenance or {}).get(LABELED_NODES_KEY, None)
+    if listed is None:
+        return np.ones(len(node_names), dtype=np.float32)
+    own = list(labels.skeletons[0].node_names) if labels.skeletons else []
+    names, unknown = set(), []
+    for node in listed:
+        if isinstance(node, (int, np.integer)) and not isinstance(node, bool):
+            if 0 <= int(node) < len(own):
+                names.add(own[int(node)])
+            else:
+                unknown.append(node)
+        else:
+            names.add(str(node))
+    if unknown:
+        logger.warning(
+            f"provenance['{LABELED_NODES_KEY}'] lists node indices outside the "
+            f"file's skeleton (ignored): {unknown[:5]}"
+        )
+    strangers = sorted(n for n in names if n not in own and n not in node_names)
+    if strangers:
+        logger.warning(
+            f"provenance['{LABELED_NODES_KEY}'] lists {len(strangers)} node(s) in "
+            f"neither the file's skeleton nor the keypoint names (ignored): "
+            f"{strangers[:5]}"
+        )
+    mask = np.asarray([n in names for n in node_names], dtype=np.float32)
+    if node_names and mask.sum() == 0:
+        logger.warning(
+            f"provenance['{LABELED_NODES_KEY}'] matches no keypoint node; every "
+            "keypoint node of this file gets zero loss weight."
+        )
+    return mask
+
+
+def _unweight_points(points: torch.Tensor, covered: torch.Tensor) -> torch.Tensor:
+    """``(..., 3)`` points with the weight of the ``covered`` ones set to 0."""
+    weight = points[..., 2:3].masked_fill(covered[..., None], 0.0)
+    return torch.cat([points[..., :2], weight, points[..., 3:]], dim=-1)
+
+
+def _unweight_points_in_rect(points: torch.Tensor, rect) -> torch.Tensor:
+    """Points inside ``rect`` ``(x1, y1, x2, y2)`` (covered by a shrunk frame) unweighted.
+
+    Keypoint branch, ``supervise_occluded: false`` only: a covered point is an
+    occluded point, which then gets no loss (with the default, it keeps its location
+    and is trained like a labelled occluded point).
+    """
+    x1, y1, x2, y2 = rect
+    x, y = points[..., 0], points[..., 1]
+    return _unweight_points(points, (x >= x1) & (x < x2) & (y >= y1) & (y < y2))
+
+
+def _unweight_points_under(
+    points: torch.Tensor, alpha: torch.Tensor, ox: int, oy: int
+) -> torch.Tensor:
+    """Points where a pasted ``(h, w)`` mask at ``(ox, oy)`` is > 0.5 unweighted.
+
+    As :func:`_unweight_points_in_rect`, for a pasted animal's mask.
+    """
+    h, w = alpha.shape[-2:]
+    xi = torch.round(points[..., 0]) - ox
+    yi = torch.round(points[..., 1]) - oy
+    inside = (xi >= 0) & (xi < w) & (yi >= 0) & (yi < h)
+    covered = torch.zeros_like(inside)
+    if inside.any():
+        covered[inside] = alpha[yi[inside].long(), xi[inside].long()] > 0.5
+    return _unweight_points(points, covered)
+
+
+def _patch_points(
+    points: torch.Tensor,
+    box: Tuple[int, int, int, int],
+    size_hw: Tuple[int, int],
+    order: Optional[Sequence[int]],
+    turns: int,
+) -> torch.Tensor:
+    """An animal's ``(K, C)`` points in its copy-paste patch's pixels.
+
+    The patch is ``box`` ``(x1, y1, x2, y2)`` cut from the fitted source frame,
+    resized to ``size_hw``, mirrored left-right when ``order`` is given (the node
+    order after the mirror) and turned ``turns`` times by 90 degrees
+    counterclockwise (``Tensor.rot90(turns, dims=(-2, -1))``). Points outside the
+    box are not on the patch and become NaN.
+    """
+    x1, y1, x2, y2 = box
+    h, w = int(size_hw[0]), int(size_hw[1])
+    pts = points.clone().float()
+    pts[..., 0] -= x1
+    pts[..., 1] -= y1
+    pts = drop_points_outside(pts, (y2 - y1, x2 - x1))
+    pts[..., 0] *= w / (x2 - x1)
+    pts[..., 1] *= h / (y2 - y1)
+    if order is not None:
+        pts[..., 0] = w - 1 - pts[..., 0]
+        pts = pts[list(order)]
+    for _ in range(turns):
+        x, y = pts[..., 0].clone(), pts[..., 1].clone()
+        pts[..., 0], pts[..., 1] = y, w - 1 - x
+        h, w = w, h
+    return pts
+
+
 class BBoxDataset(BaseDataset):
     """Whole-frame dataset for the bounding-box detectors (``bbox_*`` model types).
 
@@ -5326,15 +6079,49 @@ class BBoxDataset(BaseDataset):
     the image; afterwards each box is the extent of its corners, clipped to the
     frame, and dropped when too little of it remains visible.
 
+    With ``zoom_out_aug`` (``augmentation_config.detr``, given for ``bbox_centernet``
+    and ``bbox_ssd`` training) and ``zoom_out_p > 0``, a training frame is shrunk by
+    a log-uniform factor in ``[zoom_out_min, zoom_out_max]`` onto a black canvas or
+    another training frame (``zoom_out_canvas``) after it is fitted to the model
+    input and before the stock augmentation, as ``bbox_detr`` does after its own fit
+    (:meth:`_before_augmentation`).
+
+    With ``reduced_decode`` on, a frame much larger than it ends up in training is
+    read at 1/2, 1/4 or 1/8 size (``sio.Video.get_frame(downscale=...)``, libjpeg
+    DCT scaling for JPEG image lists; other frames come back full size) whenever
+    that is still at least :meth:`min_decode_scale` of the frame; the boxes are
+    scaled to match.
+
+    With ``ignore_box_category`` (experimental; a keyword argument of
+    :class:`DetrBBoxDataset`), the frame's
+    boxes of that category ride the same chain with class id ``IGNORE_BOX_CLASS``
+    and come out as ``ignore_bboxes`` (NaN-padded xyxy) / ``num_ignore``, apart
+    from the targets and ``bboxes``. A frame whose only boxes are ignore boxes is a
+    sample.
+
     Attributes:
         target_encoder: Callable ``(boxes (n, 4), classes (n,), img_hw) -> dict`` of
             target tensors (``CenterNetTargetEncoder`` / ``SSDTargetEncoder``).
         categories: Ordered class names; box class ids index into it.
+        ignore_box_category: Category of the ignore boxes, or ``None``.
         min_visible_fraction: A box keeping less of its area than this inside the
             frame after augmentation is dropped from the targets.
+        reduced_decode: Read large frames at reduced size (see above). Off here;
+            subclasses that know how small a frame gets turn it on.
+        zoom_out_aug: The ``augmentation_config.detr`` section whose ``zoom_out_*``
+            keys this dataset applies (training only), or ``None``.
     """
 
     _flip_needs_symmetries = False
+    #: Category of the ignore boxes (experimental; ``DetrBBoxDataset`` sets it).
+    ignore_box_category: Optional[str] = None
+    # Box clipping after augmentation (see `clip_bboxes`).
+    _min_box_size = 2.0
+    _edge_coords = False
+    reduced_decode = False
+    # Keypoint names of the experimental `bbox_detr` keypoint branch (set by
+    # `DetrBBoxDataset`); `None`: boxes only.
+    _kpt_names = None
 
     def __init__(
         self,
@@ -5358,11 +6145,15 @@ class BBoxDataset(BaseDataset):
         cache_workers: int = 0,
         use_negative_frames: bool = False,
         min_visible_fraction: float = 0.25,
+        zoom_out_aug: Optional[Any] = None,
     ) -> None:
         """Initialize class attributes."""
         # Read by `_get_lf_idx_list`, which runs inside `BaseDataset.__init__`.
         self.target_encoder = target_encoder
         self.categories = list(categories)
+        self.ignore_box_category = _check_ignore_box_category(
+            self.ignore_box_category, target_encoder, self.categories
+        )
         self.min_visible_fraction = min_visible_fraction
         super().__init__(
             labels=labels,
@@ -5383,41 +6174,98 @@ class BBoxDataset(BaseDataset):
             cache_workers=cache_workers,
             use_negative_frames=use_negative_frames,
         )
+        #: Number of training files (the groups of ``trainer_config.balanced_sampler``).
+        self.num_files = len(labels)
         # A box's corners are not skeleton nodes: a horizontal flip mirrors them and
         # re-boxing takes their extent, so no index swap is needed (or wanted).
         self.symmetric_inds = []
+        # Encoders with fixed-length outputs (`SetTargetEncoder`) pad to the
+        # largest box count, known only once the frames are indexed.
+        if hasattr(self.target_encoder, "max_targets"):
+            self.target_encoder.max_targets = self.max_instances
+        self.zoom_out_aug = None
+        if zoom_out_aug is not None and self.apply_aug and _zoom_out_p(zoom_out_aug):
+            self.zoom_out_aug = zoom_out_aug
+            if _zoom_out_canvas(zoom_out_aug) == "frame":
+                # A frame zoomed out onto another training frame keeps the visible
+                # boxes of both, so a sample holds up to twice the largest count.
+                self._carries_classes = True
+                self.max_instances = 2 * int(self.max_instances)
+                if hasattr(self.target_encoder, "max_targets"):
+                    self.target_encoder.max_targets = self.max_instances
 
-    def _get_lf_idx_list(self, labels: List[sio.Labels]) -> List[Dict]:
+    def _get_lf_idx_list(self, labels: List[sio.Labels]) -> SampleTable:
         """Return samples for frames with user boxes (+ negative frames if enabled).
 
         The boxes are captured into each sample as plain arrays so ``__getitem__``
-        needs no live ``Labels`` handle (the image-caching paths drop it).
+        needs no live ``Labels`` handle (the image-caching paths drop it). The
+        samples are stored as a :class:`SampleTable`, so persistent dataloader
+        workers don't copy them as they read them.
         """
         lf_idx_list = []
         max_boxes = 0
+        skipped = Counter()
+        if self._kpt_names is not None:
+            # Per file: [boxes, linked boxes, boxes with a pose] (keypoint branch).
+            self._kpt_box_counts = [[0, 0, 0] for _ in labels]
         for labels_idx, label in enumerate(labels):
             for lf_idx, lf in enumerate(label):
-                xyxy, classes = frame_bbox_arrays(lf, self.categories)
+                xyxy, classes = frame_bbox_arrays(
+                    lf, self.categories, skipped, self.ignore_box_category
+                )
                 if xyxy.shape[0] == 0:
                     continue
                 max_boxes = max(max_boxes, xyxy.shape[0])
-                lf_idx_list.append(
-                    {
-                        "labels_idx": labels_idx,
-                        "lf_idx": lf_idx,
-                        "video_idx": label.videos.index(lf.video),
-                        "frame_idx": lf.frame_idx,
-                        "is_negative": False,
-                        "instances": None,
-                        "bboxes": xyxy,
-                        "bbox_classes": classes,
-                    }
-                )
+                entry = {
+                    "labels_idx": labels_idx,
+                    "lf_idx": lf_idx,
+                    "video_idx": label.videos.index(lf.video),
+                    "frame_idx": lf.frame_idx,
+                    "is_negative": False,
+                    "instances": None,
+                    "bboxes": xyxy,
+                    "bbox_classes": classes,
+                }
+                if getattr(self, "_capture_hulls", False):
+                    entry["paste_hulls"] = frame_bbox_hulls(
+                        lf, self.categories, ignore_category=self.ignore_box_category
+                    )
+                if self._kpt_names is not None:
+                    # The same boxes in the same order as `bboxes` (ignore boxes
+                    # last, with no points and no weight).
+                    entry["kpts"], linked = frame_bbox_keypoints(
+                        lf,
+                        self.categories,
+                        self._kpt_names,
+                        self._kpt_file_weights(label),
+                        self._kpt_supervise_occluded,
+                        point_flags=self._kpt_node_mask,
+                        return_linked=True,
+                        ignore_category=self.ignore_box_category,
+                    )
+                    # Boxes, boxes linked to a pose instance, and boxes whose points
+                    # carry any loss (linked, with a labelled keypoint node); ignore
+                    # boxes are not counted.
+                    posed = int((entry["kpts"][..., 2] > 0).any(-1).sum())
+                    counts = self._kpt_box_counts[labels_idx]
+                    counts[0] += int((classes != IGNORE_BOX_CLASS).sum())
+                    counts[1] += int(linked.sum())
+                    counts[2] += posed
+                lf_idx_list.append(entry)
+        if skipped:
+            logger.info(
+                f"Boxes of categories outside {self.categories} are not ground "
+                f"truth; skipped: {dict(skipped.most_common())}."
+            )
         if self.use_negative_frames and lf_idx_list:
             neg_samples = self._collect_negative_frames(labels)
             for neg in neg_samples:
                 neg["bboxes"] = np.zeros((0, 4), dtype=np.float32)
                 neg["bbox_classes"] = np.zeros((0,), dtype=np.int64)
+                if getattr(self, "_capture_hulls", False):
+                    neg["paste_hulls"] = np.zeros((0, HULL_VERTICES, 2), np.float32)
+                if self._kpt_names is not None:
+                    neg["kpts"] = np.zeros((0, len(self._kpt_names), 3), np.float32)
             if neg_samples:
                 logger.info(
                     f"Added {len(neg_samples)} negative samples "
@@ -5427,10 +6275,15 @@ class BBoxDataset(BaseDataset):
         # GT boxes are padded to this many slots per sample (collation needs one
         # shape). Overrides the pose-instance count `BaseDataset` computed.
         self.max_instances = max(max_boxes, 1)
-        return lf_idx_list
+        return SampleTable.from_dicts(lf_idx_list)
 
     def _read_image(self, sample: Dict) -> np.ndarray:
-        """The sample's frame as ``(H, W, C)``, from the cache or the video."""
+        """The sample's frame as ``(H, W, C)``, from the cache or the video.
+
+        Frames are read from the ``Video`` by ``frame_idx``, not through the
+        ``LabeledFrame``: reading a frame's ``LabeledFrame`` in a forked worker
+        copies its memory page into the worker (see :class:`SampleTable`).
+        """
         labels_idx, lf_idx = sample["labels_idx"], sample["lf_idx"]
         if self.cache_img == "disk":
             img = np.array(
@@ -5438,22 +6291,149 @@ class BBoxDataset(BaseDataset):
             )
         elif self.cache_img == "memory":
             img = self.cache[(labels_idx, lf_idx)].copy()
-        elif sample["is_negative"]:
+        else:
             video = self.labels_list[labels_idx].videos[sample["video_idx"]]
             img = video[sample["frame_idx"]]
-        else:
-            img = self.labels_list[labels_idx][lf_idx].image
         if img.ndim == 2:
             img = np.expand_dims(img, axis=2)
         return img
 
+    @property
+    def labels_idx(self) -> np.ndarray:
+        """The training file of every sample."""
+        return self.lf_idx_list.column("labels_idx").copy()
+
+    def box_overlap(self) -> np.ndarray:
+        """Per sample, the largest overlap of two of its labelled boxes.
+
+        The overlap of two boxes is their intersection as a share of the smaller
+        box's area; ``0`` for a frame with fewer than two boxes (and for negative
+        frames). Used by ``trainer_config.balanced_sampler.overlap_weight``.
+        """
+        out = np.zeros(len(self.lf_idx_list), np.float64)
+        kind, data = self.lf_idx_list.columns["bboxes"]
+        for i in range(len(out)):
+            if kind == "ragged":
+                array, offsets = data
+                b = array[offsets[i] : offsets[i + 1]]
+            else:
+                b = np.asarray(self.lf_idx_list[i]["bboxes"])
+            if len(b) < 2:
+                continue
+            b = np.asarray(b, np.float64).reshape(-1, 4)
+            if self.ignore_box_category is not None:
+                b = b[np.asarray(self.lf_idx_list[i]["bbox_classes"]) >= 0]
+                if len(b) < 2:
+                    continue
+            ix = np.clip(
+                np.minimum(b[:, None, 2], b[None, :, 2])
+                - np.maximum(b[:, None, 0], b[None, :, 0]),
+                0,
+                None,
+            )
+            iy = np.clip(
+                np.minimum(b[:, None, 3], b[None, :, 3])
+                - np.maximum(b[:, None, 1], b[None, :, 1]),
+                0,
+                None,
+            )
+            area = np.clip((b[:, 2] - b[:, 0]) * (b[:, 3] - b[:, 1]), 1e-9, None)
+            share = ix * iy / np.minimum(area[:, None], area[None, :])
+            np.fill_diagonal(share, 0)
+            out[i] = share.max()
+        return out
+
+    def frame_metadata_weights(self, labels: List[sio.Labels], key: str) -> np.ndarray:
+        """Per sample, the number its labelled frame's metadata holds under ``key``.
+
+        Used by ``trainer_config.balanced_sampler.frame_weight_key``
+        (experimental). A frame without the key weighs ``1``.
+
+        Args:
+            labels: The labels the dataset was built from (same order).
+            key: The ``LabeledFrame.metadata`` key.
+
+        Returns:
+            ``(n_samples,)`` float64 weights, each >= 0.
+
+        Raises:
+            ValueError: If a value is not a finite number >= 0.
+        """
+        out = np.ones(len(self.lf_idx_list), np.float64)
+        for i in range(len(out)):
+            sample = self.lf_idx_list[i]
+            label = labels[int(sample["labels_idx"])]
+            if sample["is_negative"]:
+                # `_collect_negative_frames` ids: "neg_<labels_idx>_<position>".
+                lf = label.negative_frames[int(str(sample["lf_idx"]).rsplit("_", 1)[1])]
+            else:
+                lf = label[int(sample["lf_idx"])]
+            value = (getattr(lf, "metadata", None) or {}).get(key)
+            if value is None:
+                continue
+            try:
+                weight = float(value)
+            except (TypeError, ValueError):
+                weight = float("nan")
+            if not np.isfinite(weight) or weight < 0:
+                raise ValueError(
+                    f"balanced_sampler.frame_weight_key: frame {lf.frame_idx} of "
+                    f"training file {int(sample['labels_idx'])} has {key}={value!r}; "
+                    "expected a number >= 0."
+                )
+            out[i] = weight
+        return out
+
+    def min_decode_scale(self, height: int, width: int) -> float:
+        """Smallest scale of a ``height x width`` frame that no later step enlarges.
+
+        ``1.0`` here (always read full size); see :attr:`reduced_decode`.
+        """
+        return 1.0
+
+    def _decode_downscale(self, height: int, width: int) -> int:
+        """Largest of 8, 4, 2 (else 1) that keeps the frame at ``min_decode_scale``.
+
+        Mirrors PIL ``draft``: the reduced frame must still be at least
+        ``ceil(size * scale)`` on both axes.
+        """
+        scale = self.min_decode_scale(height, width)
+        need_h, need_w = math.ceil(height * scale), math.ceil(width * scale)
+        for downscale in (8, 4, 2):
+            if height >= downscale * need_h and width >= downscale * need_w:
+                return downscale
+        return 1
+
+    def _read_frame(
+        self, sample: Dict
+    ) -> Tuple[np.ndarray, Optional[Tuple[float, float]]]:
+        """The sample's frame and, if it was decoded smaller, its ``(sx, sy)`` scale."""
+        if not self.reduced_decode or self.cache_img is not None:
+            return self._read_image(sample), None
+        video = self.labels_list[sample["labels_idx"]].videos[sample["video_idx"]]
+        frame_idx = sample["frame_idx"]
+        # Image lists read this from the file header, other videos from `shape`.
+        height, width = video.get_frame_size(frame_idx)
+        downscale = self._decode_downscale(height, width)
+        if downscale == 1:
+            return self._read_image(sample), None
+        img = video.get_frame(frame_idx, downscale=downscale)  # (H, W, C)
+        if img.shape[:2] == (height, width):
+            return img, None  # This format/backend has no reduced decode.
+        return img, (img.shape[1] / width, img.shape[0] / height)
+
     def __getitem__(self, index) -> Dict:
         """Return the image, padded GT boxes and detection targets for ``index``."""
         sample = self.lf_idx_list[index]
-        img = self._read_image(sample)
+        img, decode_scale = self._read_frame(sample)
         image = torch.from_numpy(np.transpose(img, (2, 0, 1))[None].copy())
+        orig_hw = [image.shape[-2], image.shape[-1]]
 
         xyxy = sample["bboxes"]
+        if decode_scale is not None:
+            sx, sy = decode_scale
+            xyxy = xyxy * np.asarray([sx, sy, sx, sy], dtype=np.float32)
+            orig_hw = [round(orig_hw[0] / sy), round(orig_hw[1] / sx)]
         classes = torch.from_numpy(sample["bbox_classes"]).long()
         n_boxes = xyxy.shape[0]
         # Boxes ride the instance-coordinate path of the shared preprocessing /
@@ -5463,24 +6443,80 @@ class BBoxDataset(BaseDataset):
             if n_boxes
             else torch.full((1, 1, 4, 2), float("nan"))
         )
+        kpt = self._kpt_names is not None
+        if kpt:
+            # Keypoint branch: each box's points ride along as extra nodes of its
+            # pseudo-instance, and their weights as `_kpt_w`.
+            pts = torch.from_numpy(sample["kpts"].copy()).reshape(
+                n_boxes, len(self._kpt_names), 3
+            )
+            if decode_scale is not None:
+                pts[..., :2] *= torch.tensor(decode_scale, dtype=pts.dtype)
+            if not n_boxes:
+                pts = torch.full((1, len(self._kpt_names), 3), float("nan"))
+                pts[..., 2] = 0.0
+            corners = torch.cat([corners, pts[None, ..., :2]], dim=-2)
         sample_dict = {
             "image": image,
             "instances": corners,
             "video_idx": torch.tensor(sample["video_idx"], dtype=torch.int32),
             "frame_idx": torch.tensor(sample["frame_idx"], dtype=torch.int32),
-            "orig_size": torch.Tensor([image.shape[-2], image.shape[-1]]).unsqueeze(0),
+            "orig_size": torch.Tensor(orig_hw).unsqueeze(0),
         }
+        if getattr(self, "_carries_classes", False):
+            sample_dict["_classes"] = classes
+        if kpt:
+            sample_dict["_kpt_w"] = pts[..., 2]
         sample_dict = self._apply_common_preprocessing(sample_dict)
+        if "_classes" in sample_dict:  # zoom-out onto a frame may add canvas boxes
+            classes = sample_dict.pop("_classes")
+            n_boxes = int(classes.shape[0])
+        if decode_scale is not None and "eff_scale" in sample_dict:
+            # Relative to the original frame, not the smaller decode.
+            sample_dict["eff_scale"] = sample_dict["eff_scale"] * torch.tensor(
+                decode_scale, dtype=torch.float32
+            )
         img_hw = tuple(sample_dict["image"].shape[-2:])
 
         corners = sample_dict.pop("instances")[0, :n_boxes]
+        if kpt:
+            points = drop_points_outside(corners[:, 4:], img_hw)
+            point_w = sample_dict.pop("_kpt_w")[:n_boxes]
+            corners = corners[:, :4]
         boxes, keep = clip_bboxes(
             corners_to_bboxes(corners),
             img_hw,
+            min_size=self._min_box_size,
             min_visible_fraction=self.min_visible_fraction,
+            edge_coords=self._edge_coords,
         )
         boxes, classes = boxes[keep], classes[keep]
-        sample_dict.update(self.target_encoder(boxes, classes, img_hw))
+        if kpt:
+            points, point_w = points[keep], point_w[keep]
+        if self.ignore_box_category is not None:
+            # Ignore boxes leave here: never targets, `bboxes` or metric GT (nor
+            # keypoint targets: their rows leave the keypoint arrays too).
+            is_ignore = classes == IGNORE_BOX_CLASS
+            ignore = boxes[is_ignore]
+            boxes, classes = boxes[~is_ignore], classes[~is_ignore]
+            if kpt:
+                points, point_w = points[~is_ignore], point_w[~is_ignore]
+            padded_ignore = torch.full((self.max_instances, 4), float("nan"))
+            padded_ignore[: ignore.shape[0]] = ignore
+            sample_dict["ignore_bboxes"] = padded_ignore
+            sample_dict["num_ignore"] = int(ignore.shape[0])
+        if kpt:
+            sample_dict.update(
+                self.target_encoder(
+                    boxes,
+                    classes,
+                    img_hw,
+                    keypoints=points,
+                    keypoint_weights=point_w,
+                )
+            )
+        else:
+            sample_dict.update(self.target_encoder(boxes, classes, img_hw))
 
         n_kept = boxes.shape[0]
         padded = torch.full((self.max_instances, 4), float("nan"))
@@ -5493,6 +6529,694 @@ class BBoxDataset(BaseDataset):
         sample_dict["is_negative"] = bool(sample["is_negative"])
         sample_dict["labels_idx"] = sample["labels_idx"]
         return sample_dict
+
+    # Zoom-out. `DetrBBoxDataset` runs `_zoom_out_on_frame` from its own path.
+    def _before_augmentation(self, sample: Dict) -> Dict:
+        """Zoom out (``zoom_out_aug``) the fitted, padded training frame.
+
+        With probability ``zoom_out_p``, the frame and its boxes are shrunk by a
+        log-uniform factor in ``[zoom_out_min, zoom_out_max]`` and placed at a
+        uniform offset, on a black canvas (``zoom_out_canvas: zero``) or on another
+        training frame fitted to the same size (``frame``; see
+        :meth:`_zoom_out_on_frame`): ``bbox_detr``'s zoom-out, here for the other
+        box detectors.
+        """
+        aug = self.zoom_out_aug
+        if aug is None:
+            return sample
+        p = _zoom_out_p(aug)
+        if not (p > 0 and float(torch.rand(())) < p):
+            return sample
+        zoom_range = (
+            float(aug.get("zoom_out_min", 0.4) or 0.4),
+            float(aug.get("zoom_out_max", 1.0) or 1.0),
+        )
+        corners = sample["instances"]  # (1, n, 4, 2)
+        boxes = corners_to_bboxes(corners[0])
+        if "_classes" in sample:
+            boxes = boxes[torch.isfinite(boxes).all(-1)]
+        if _zoom_out_canvas(aug) == "frame":
+            sample["image"], boxes, sample["_classes"] = self._zoom_out_on_frame(
+                sample["image"], boxes, sample["_classes"], zoom_range
+            )
+        else:
+            lo, hi = (math.log(v) for v in zoom_range)
+            factor = math.exp(lo + (hi - lo) * float(torch.rand(())))
+            offset = (float(torch.rand(())), float(torch.rand(())))
+            sample["image"], boxes = zoom_out(sample["image"], boxes, factor, offset)
+        if boxes.shape[0]:
+            sample["instances"] = torch.from_numpy(
+                bboxes_to_corners(boxes.numpy().astype(np.float32))
+            )[None].to(corners.dtype)
+        else:
+            sample["instances"] = torch.full((1, 1, 4, 2), float("nan"))
+        return sample
+
+    def _zoom_out_on_frame(self, image, boxes, classes, zoom_range, points=None):
+        """Shrink the fitted frame onto another random training frame.
+
+        The canvas frame is read, channel-coerced and fitted to the frame's size like
+        any frame (``bbox_detr``: its ``resize_mode``; the other box detectors:
+        letterbox; no other augmentation); its boxes covered >= 50% by the pasted
+        frame are dropped and the rest clipped to outside it (a box straddling the
+        paste keeps only its visible side when that side is a full strip of the box).
+
+        With ``points`` (the ``bbox_detr`` keypoint branch: ``(n, K, 3)`` points and
+        weights of ``boxes``), the frame's points shrink with it, the kept canvas
+        boxes bring their own points, and the points are returned as a fourth
+        element. Canvas points under the shrunk frame are occluded points: they keep
+        their location, or lose their weight under ``supervise_occluded: false``.
+        """
+        import math
+
+        from sleap_nn.data.detr_augmentation import resize_frame, zoom_out
+
+        # Canvas: a uniformly drawn labels file, then a uniform frame of it (a frame-uniform
+        # draw would make the largest set nearly every background).
+        if getattr(self, "_by_file", None) is None:
+            lid = np.asarray(self.labels_idx)
+            self._by_file = [np.flatnonzero(lid == u) for u in np.unique(lid)]
+        grp = self._by_file[int(torch.randint(len(self._by_file), ()))]
+        j = int(grp[int(torch.randint(len(grp), ()))])
+        s2 = self.lf_idx_list[j]
+        img2, dscale = self._read_frame(s2)
+        bg = torch.from_numpy(np.transpose(img2, (2, 0, 1))[None].copy())
+        if self.ensure_rgb:
+            bg = convert_to_rgb(bg)
+        elif self.ensure_grayscale:
+            bg = convert_to_grayscale(bg)
+        if bg.shape[-3] != image.shape[-3]:
+            bg = bg.expand(*bg.shape[:-3], image.shape[-3], *bg.shape[-2:]).clone()
+        xyxy2 = s2["bboxes"].astype(np.float32)
+        if dscale is not None:
+            sx, sy = dscale
+            xyxy2 = xyxy2 * np.asarray([sx, sy, sx, sy], dtype=np.float32)
+        b2 = torch.from_numpy(xyxy2).reshape(-1, 4)
+        p2 = ()
+        if points is not None:
+            p2 = torch.from_numpy(s2["kpts"].copy()).reshape(
+                len(b2), len(self._kpt_names), 3
+            )
+            if dscale is not None:
+                p2[..., :2] *= torch.tensor(dscale, dtype=p2.dtype)
+            p2 = (p2,)
+        bg, b2, _, *p2 = resize_frame(
+            bg,
+            b2,
+            tuple(int(v) for v in image.shape[-2:]),
+            getattr(self, "resize_mode", "letterbox"),
+            *p2,
+        )
+        bg = bg.to(image.dtype)
+        c2 = torch.from_numpy(s2["bbox_classes"]).long()
+        lo, hi = (math.log(float(v)) for v in zoom_range)
+        f = math.exp(lo + (hi - lo) * float(torch.rand(())))
+        off = (float(torch.rand(())), float(torch.rand(())))
+        p1 = () if points is None else (points,)
+        small, b1, *p1 = zoom_out(image, boxes, f, off, *p1)
+        H, W = image.shape[-2:]
+        h, w = max(1, int(round(H * f))), max(1, int(round(W * f)))
+        oy, ox = int(round(off[0] * (H - h))), int(round(off[1] * (W - w)))
+        out = bg.clone()
+        out[..., oy : oy + h, ox : ox + w] = small[..., oy : oy + h, ox : ox + w]
+        keep_b, keep_c, keep_p = [], [], []
+        for j, (bb, cc) in enumerate(zip(b2, c2)):
+            x1, y1, x2, y2 = [float(v) for v in bb]
+            area = max(0.0, x2 - x1) * max(0.0, y2 - y1)
+            if area <= 0:
+                continue
+            ix = max(0.0, min(x2, ox + w) - max(x1, ox))
+            iy = max(0.0, min(y2, oy + h) - max(y1, oy))
+            if ix * iy >= 0.5 * area:
+                continue
+            if ix * iy > 0:  # clip to the visible side when it is a full strip
+                if y1 >= oy and y2 <= oy + h:
+                    x1, x2 = (x1, ox) if x1 < ox else (ox + w, x2)
+                elif x1 >= ox and x2 <= ox + w:
+                    y1, y2 = (y1, oy) if y1 < oy else (oy + h, y2)
+            keep_b.append([x1, y1, x2, y2])
+            keep_c.append(int(cc))
+            if points is not None:
+                pj = p2[0][j]
+                if not self._kpt_supervise_occluded:
+                    pj = _unweight_points_in_rect(pj, (ox, oy, ox + w, oy + h))
+                keep_p.append(pj)
+        if keep_b:
+            boxes = torch.cat([b1, torch.tensor(keep_b, dtype=b1.dtype)], 0)
+            classes = torch.cat([classes, torch.tensor(keep_c, dtype=classes.dtype)], 0)
+        else:
+            boxes = b1
+        if points is None:
+            return out, boxes, classes
+        points = p1[0]
+        if keep_p:
+            points = torch.cat([points, torch.stack(keep_p).to(points.dtype)], 0)
+        return out, boxes, classes, points
+
+
+class DetrBBoxDataset(BBoxDataset):
+    """:class:`BBoxDataset` for ``bbox_detr``: RF-DETR's resize, crop and flip.
+
+    Every frame is fitted to a fixed training size by ``resize_mode`` (``squash``
+    or ``letterbox``; ``max_height`` x ``max_width``, or the largest per-batch
+    multi-scale size when multi-scale is on). Training frames first go through
+    RF-DETR's geometry (:func:`~sleap_nn.data.detr_augmentation.
+    detr_train_transform`, from ``augmentation_config.detr``), then the stock
+    ``intensity`` / ``geometric`` augmentation. Boxes are clipped to the frame as
+    edge coordinates and dropped only when no area is left (RF-DETR keeps every
+    box with a positive area). Targets come from the
+    :class:`~sleap_nn.data.bboxes.SetTargetEncoder`.
+
+    Every step of that chain starts by shrinking the frame, so ``reduced_decode``
+    is on: a JPEG much larger than the training size (CrowdHuman photos up to
+    10,800 px, JRDB-Pose panoramas) is decoded at 1/2, 1/4 or 1/8 scale whenever
+    that is still at least as large as the frame's next resize target
+    (:meth:`min_decode_scale`; see :class:`BBoxDataset`).
+
+    Attributes:
+        resize_mode: ``"squash"`` or ``"letterbox"``.
+        train_hw: ``(height, width)`` frames are fitted to.
+        detr_aug: The ``augmentation_config.detr`` options (``None``: none).
+    """
+
+    _min_box_size = 0.0
+    _edge_coords = True
+    reduced_decode = True
+
+    def __init__(
+        self,
+        *args,
+        resize_mode: str = "letterbox",
+        train_hw: Optional[Tuple[int, int]] = None,
+        detr_aug: Optional[Any] = None,
+        ignore_box_category: Optional[str] = None,
+        keypoints: Optional[Dict[str, Any]] = None,
+        **kwargs,
+    ) -> None:
+        """Initialize class attributes (see :class:`BBoxDataset`).
+
+        Args:
+            resize_mode: ``"squash"`` or ``"letterbox"``.
+            train_hw: ``(height, width)`` frames are fitted to (default: max_hw).
+            detr_aug: The ``augmentation_config.detr`` options.
+            ignore_box_category: Experimental: the category of the ignore boxes
+                (``data_config.ignore_box_category``).
+            keypoints: Experimental keypoint branch: ``{"part_names": [...],
+                "node_loss_mask": bool, "supervise_occluded": bool,
+                "require_poses": bool, "split": str}`` (``require_poses``: raise
+                when no box is linked to a pose instance with labelled nodes;
+                ``split``: ``"training"`` or ``"validation"``, for messages). Each box
+                then carries its linked instance's points (by node name) and
+                per-node weights through every augmentation into the set targets
+                (``set_keypoints``, ``set_keypoint_visible``,
+                ``set_keypoint_weights``); ignore boxes carry none. ``None``: boxes
+                only.
+            *args: :class:`BBoxDataset` arguments.
+            **kwargs: :class:`BBoxDataset` arguments.
+        """
+        # Read by `_get_lf_idx_list`, which runs inside `BaseDataset.__init__`.
+        self.ignore_box_category = ignore_box_category
+        if keypoints is not None:
+            self._kpt_names = list(keypoints["part_names"])
+            self._kpt_node_mask = bool(keypoints.get("node_loss_mask", True))
+            self._kpt_supervise_occluded = bool(
+                keypoints.get("supervise_occluded", True)
+            )
+        kwargs.setdefault("min_visible_fraction", 0.0)
+        paste_p = (
+            float(detr_aug.get("paste_p", 0.0) or 0.0) if detr_aug is not None else 0.0
+        )
+        apply_aug = bool(kwargs.get("apply_aug", False))
+        # Copy-paste needs each box's instance hull, captured while indexing.
+        self._capture_hulls = paste_p > 0 and apply_aug
+        super().__init__(*args, **kwargs)
+        if self.scale != 1.0:
+            raise ValueError(
+                "bbox_detr fits frames to max_height x max_width; "
+                f"data_config.preprocessing.scale must be 1.0, got {self.scale}."
+            )
+        if train_hw is None:
+            if None in tuple(self.max_hw):
+                raise ValueError(
+                    "bbox_detr training needs data_config.preprocessing.max_height "
+                    "and max_width (the model input size)."
+                )
+            train_hw = tuple(self.max_hw)
+        self.resize_mode = resize_mode
+        self.train_hw = (int(train_hw[0]), int(train_hw[1]))
+        self.detr_aug = detr_aug
+        self._carries_classes = bool(
+            detr_aug is not None
+            and str(detr_aug.get("zoom_out_canvas", "zero") or "zero") == "frame"
+            and float(detr_aug.get("zoom_out_p", 0.0) or 0.0) > 0
+        )
+        if self._carries_classes:
+            # A frame zoomed out onto another training frame keeps the visible boxes
+            # of both, so a sample holds up to twice the largest per-frame box count.
+            self.max_instances = 2 * int(self.max_instances)
+            if hasattr(self.target_encoder, "max_targets"):
+                self.target_encoder.max_targets = self.max_instances
+        if self._capture_hulls:
+            # Copy-paste adds up to `paste_max` boxes to a sample.
+            self._carries_classes = True
+            self.max_instances = int(self.max_instances) + int(
+                detr_aug.get("paste_max", 6) or 6
+            )
+            if hasattr(self.target_encoder, "max_targets"):
+                self.target_encoder.max_targets = self.max_instances
+        if self._kpt_names is not None:
+            # The mirror flips swap the skeleton's symmetric pairs, by node name.
+            pairs = set()
+            for label in self.labels_list:
+                for skeleton in label.skeletons:
+                    for sym in skeleton.symmetries:
+                        a, b = (n.name for n in sym.nodes)
+                        if a in self._kpt_names and b in self._kpt_names:
+                            i, j = self._kpt_names.index(a), self._kpt_names.index(b)
+                            pairs.add((min(i, j), max(i, j)))
+            self._kpt_pairs = sorted(pairs)
+            self._kpt_flip_order = mirror_order(len(self._kpt_names), self._kpt_pairs)
+            # The stock flip swaps the same pairs, offset past the 4 box corners.
+            self.symmetric_inds = [(4 + i, 4 + j) for i, j in self._kpt_pairs]
+            self._check_kpt_poses(
+                bool(keypoints.get("require_poses", False)),
+                str(keypoints.get("split", "") or ""),
+            )
+
+    def _check_kpt_poses(self, require: bool, split: str = "") -> None:
+        """Warn about files whose boxes have no pose; raise if no box has one.
+
+        A box trains keypoints only when it is linked to a pose instance
+        (``box.instance``) with at least one labelled keypoint node. The messages
+        tell the two causes apart: boxes not linked to instances, or linked
+        instances whose ``part_names`` nodes are all unlabelled.
+
+        Args:
+            require: Raise when no box of the dataset has a pose (the training set:
+                the keypoint branch would train nothing).
+            split: ``"training"`` or ``"validation"``, for the messages.
+
+        Raises:
+            ValueError: With ``require``, if no box has a pose.
+        """
+        what = f"{split} file" if split else "file"
+        unlinked_hint = (
+            "derive the boxes from the poses (data_config.bbox_source: instances) "
+            "or link each box to its instance (box.instance)"
+        )
+        unlabelled_hint = (
+            "every keypoint node is unlabelled there (provenance['labeled_nodes'] "
+            "or the points' labeled flags leave none of part_names labelled)"
+        )
+        counts = getattr(self, "_kpt_box_counts", [])
+        for i, (n_boxes, n_linked, n_posed) in enumerate(counts):
+            if not n_boxes or n_posed:
+                continue
+            if not n_linked:
+                logger.warning(
+                    f"bbox_detr keypoints: none of the {n_boxes} boxes of {what} {i} "
+                    "is linked to a pose instance, so its boxes train boxes only; "
+                    f"{unlinked_hint}."
+                )
+            else:
+                logger.warning(
+                    f"bbox_detr keypoints: {n_linked} of the {n_boxes} boxes of "
+                    f"{what} {i} are linked to pose instances, but {unlabelled_hint}, "
+                    "so its boxes train boxes only."
+                )
+        if require and counts and not sum(c[2] for c in counts):
+            if not sum(c[1] for c in counts):
+                cause = f"no training box is linked to a pose instance; {unlinked_hint}"
+            else:
+                cause = (
+                    "the training boxes are linked to pose instances, but "
+                    f"{unlabelled_hint}"
+                )
+            raise ValueError(
+                f"bbox_detr keypoints: {cause}. The keypoint branch would train "
+                "nothing; fix the labels or turn the keypoints off."
+            )
+
+    def _kpt_file_weights(self, labels: sio.Labels) -> np.ndarray:
+        """The keypoint branch's node mask of one file (all ones without masking).
+
+        ``provenance["labeled_nodes"]`` is read once per file. Its node names, or
+        indices into the file's own skeleton, are matched to the keypoint names by
+        name.
+        """
+        if not self._kpt_node_mask:
+            return np.ones(len(self._kpt_names), dtype=np.float32)
+        cache = self.__dict__.setdefault("_kpt_file_weights_cache", {})
+        if id(labels) not in cache:
+            cache[id(labels)] = _labeled_node_mask(labels, self._kpt_names)
+        return cache[id(labels)]
+
+    def min_decode_scale(self, height: int, width: int) -> float:
+        """Smallest scale of a ``height x width`` frame that no later step enlarges.
+
+        The fit to ``train_hw`` (letterbox: the limiting axis; squash: both axes)
+        and, in training with RF-DETR's crop branch on, the resize of the shortest
+        side to the largest of ``shortest_sides``.
+        """
+        out_h, out_w = self.train_hw
+        if self.resize_mode == "squash":
+            scale = max(out_h / height, out_w / width)
+        else:
+            scale = min(out_h / height, out_w / width)
+        aug = self.detr_aug
+        if self.apply_aug and aug is not None and float(aug["crop_p"]) > 0:
+            side = max(int(v) for v in aug["shortest_sides"])
+            scale = max(scale, side / min(height, width))
+        return scale
+
+    def _apply_common_preprocessing(self, sample: Dict) -> Dict:
+        """Channels, RF-DETR geometry + fit to ``train_hw``, pad, then stock aug."""
+        if self.ensure_rgb:
+            sample["image"] = convert_to_rgb(sample["image"])
+        elif self.ensure_grayscale:
+            sample["image"] = convert_to_grayscale(sample["image"])
+
+        frame_photo = self.apply_aug and bool(
+            self.intensity_aug is not None
+            and self.intensity_aug.get("frame_photometric", False)
+        )
+        if frame_photo:
+            sample["image"] = self._frame_photometric(sample["image"])
+
+        corners = sample["instances"]  # (1, n, 4, 2)
+        kpt = self._kpt_names is not None
+        # Keypoint branch: the pseudo-instances are (1, n, 4 + K, 2); the points
+        # travel as (n, K, 3) `x, y, weight` (`pts` holds them, or nothing).
+        pts = ()
+        if kpt:
+            pts = (torch.cat([corners[0, :, 4:], sample.pop("_kpt_w")[..., None]], -1),)
+            corners = corners[..., :4, :]
+        boxes = corners_to_bboxes(corners[0])
+        if "_classes" in sample:
+            finite = torch.isfinite(boxes).all(-1)
+            boxes = boxes[finite]
+            pts = tuple(p[finite] for p in pts)
+        in_hw = tuple(sample["image"].shape[-2:])
+        if self.apply_aug and self.detr_aug is not None:
+            aug = self.detr_aug
+            sample["image"], boxes, *pts = detr_train_transform(
+                sample["image"],
+                boxes,
+                self.train_hw,
+                self.resize_mode,
+                crop_p=float(aug["crop_p"]),
+                shortest_sides=[int(v) for v in aug["shortest_sides"]],
+                crop_range=tuple(int(v) for v in aug["crop_range"]),
+                flip_p=float(aug["flip_p"]),
+                vflip_p=float(aug.get("vflip_p", 0.0) or 0.0),
+                rot90_p=float(aug.get("rot90_p", 0.0) or 0.0),
+                zoom_out_p=(
+                    0.0
+                    if str(aug.get("zoom_out_canvas", "zero") or "zero") == "frame"
+                    else float(aug.get("zoom_out_p", 0.0) or 0.0)
+                ),
+                zoom_out_range=(
+                    float(aug.get("zoom_out_min", 0.4) or 0.4),
+                    float(aug.get("zoom_out_max", 1.0) or 1.0),
+                ),
+                **(dict(points=pts[0], flip_order=self._kpt_flip_order) if kpt else {}),
+            )
+            if str(aug.get("zoom_out_canvas", "zero") or "zero") == "frame":
+                p_zo = float(aug.get("zoom_out_p", 0.0) or 0.0)
+                if p_zo > 0 and float(torch.rand(())) < p_zo:
+                    sample["image"], boxes, sample["_classes"], *pts = (
+                        self._zoom_out_on_frame(
+                            sample["image"],
+                            boxes,
+                            sample["_classes"],
+                            (
+                                float(aug.get("zoom_out_min", 0.4) or 0.4),
+                                float(aug.get("zoom_out_max", 1.0) or 1.0),
+                            ),
+                            *pts,
+                        )
+                    )
+            p_paste = float(aug.get("paste_p", 0.0) or 0.0)
+            if self._capture_hulls and p_paste > 0 and float(torch.rand(())) < p_paste:
+                sample["image"], boxes, sample["_classes"], *pts = self._paste_animals(
+                    sample["image"], boxes, sample["_classes"], *pts
+                )
+            scale_xy = (self.train_hw[1] / in_hw[1], self.train_hw[0] / in_hw[0])
+        else:
+            sample["image"], boxes, scale_xy, *pts = resize_frame(
+                sample["image"], boxes, self.train_hw, self.resize_mode, *pts
+            )
+        sample["instances"] = torch.from_numpy(bboxes_to_corners(boxes.numpy()))[None]
+        if kpt:
+            points = pts[0].reshape(-1, len(self._kpt_names), 3).to(torch.float32)
+            sample["instances"] = torch.cat(
+                [sample["instances"], points[None, ..., :2]], -2
+            )
+            sample["_kpt_w"] = points[..., 2]
+        # Per-axis input scale (both equal for letterbox); approximate after a crop.
+        sample["eff_scale"] = torch.tensor(scale_xy, dtype=torch.float32)
+        sample["image"] = apply_pad_to_stride(
+            sample["image"], max_stride=self.max_stride
+        )
+
+        if self.apply_aug:
+            if self.intensity_aug is not None and not frame_photo:
+                sample["image"], sample["instances"] = apply_intensity_augmentation(
+                    sample["image"], sample["instances"], **self.intensity_aug
+                )
+            if self.geometric_aug is not None and kpt:
+                # The keypoint weights swap with their nodes on a mirror flip.
+                kw = sample["_kpt_w"]
+                weights = torch.cat([kw.new_zeros(kw.shape[0], 4), kw], -1)[None]
+                sample["image"], sample["instances"], weights = (
+                    apply_geometric_augmentation(
+                        sample["image"],
+                        sample["instances"],
+                        symmetric_inds=self.symmetric_inds,
+                        node_weights=weights,
+                        **self.geometric_aug,
+                    )
+                )
+                sample["_kpt_w"] = weights[0, :, 4:]
+            elif self.geometric_aug is not None:
+                sample["image"], sample["instances"] = apply_geometric_augmentation(
+                    sample["image"],
+                    sample["instances"],
+                    symmetric_inds=self.symmetric_inds,
+                    **self.geometric_aug,
+                )[:2]
+        return sample
+
+    def _paste_animals(self, image, boxes, classes, points=None):
+        """Paste animals cut from other training frames onto the fitted frame.
+
+        ``augmentation_config.detr.paste_*``. Source frames (a uniformly drawn file,
+        then frame, up to ``paste_frames`` of them) are read and fitted to
+        ``train_hw`` like any frame, so an animal starts at the size it has in its own
+        fitted frame; each is then scaled by a log-uniform factor, flipped and turned
+        by a multiple of 90 degrees at random, and blended in with a soft mask (its
+        instance's point hull, dilated and feathered:
+        :func:`~sleap_nn.data.detr_augmentation.hull_mask`) at a random place inside
+        the frame's content (not on the letterbox padding), overlapping the boxes
+        already there by at most ``paste_overlap`` of its own box and never covering
+        half of one. Its box is its source box, transformed the same way.
+
+        With ``points`` (the keypoint branch: ``(n, K, 3)`` points and weights of
+        ``boxes``), each pasted animal brings its instance's points, transformed the
+        same way (points outside its source box are not pasted and become NaN; a
+        mirror flip swaps the symmetric nodes), and the points are returned as a
+        fourth element. Points of earlier animals under the pasted mask are occluded
+        points: they keep their location, or lose their weight under
+        ``supervise_occluded: false``.
+        """
+        import math
+
+        from sleap_nn.data.detr_augmentation import hull_mask, resize_frame
+
+        aug = self.detr_aug
+        n_max = int(aug.get("paste_max", 6) or 6)
+        n_frames = int(aug.get("paste_frames", 2) or 2)
+        lo = math.log(float(aug.get("paste_scale_min", 0.3) or 0.3))
+        hi = math.log(float(aug.get("paste_scale_max", 1.2) or 1.2))
+        overlap = float(aug.get("paste_overlap", 0.3))
+        dilate = float(aug.get("paste_dilate", 0.08))
+        feather = float(aug.get("paste_feather", 0.04))
+        budget = int(torch.randint(1, n_max + 1, ()))
+
+        H, W = image.shape[-2:]
+        nz = (image.reshape(-1, H, W) != 0).any(0)
+        rows, cols = nz.any(1).nonzero(), nz.any(0).nonzero()
+        if not len(rows):
+            return (
+                (image, boxes, classes)
+                if points is None
+                else (image, boxes, classes, points)
+            )
+        Hc, Wc = int(rows.max()) + 1, int(cols.max()) + 1
+        placed = boxes.reshape(-1, 4).clone().float()
+        out = image.clone()
+        new_b, new_c, new_p = [], [], []
+        if getattr(self, "_by_file", None) is None:
+            lid = np.asarray(self.labels_idx)
+            self._by_file = [np.flatnonzero(lid == u) for u in np.unique(lid)]
+        for _ in range(n_frames):
+            if len(new_b) >= budget:
+                break
+            grp = self._by_file[int(torch.randint(len(self._by_file), ()))]
+            s2 = self.lf_idx_list[int(grp[int(torch.randint(len(grp), ()))])]
+            hulls = s2.get("paste_hulls")
+            if hulls is None or not np.isfinite(hulls).any():
+                continue
+            img2, dscale = self._read_frame(s2)
+            src = torch.from_numpy(np.transpose(img2, (2, 0, 1))[None].copy())
+            if self.ensure_rgb:
+                src = convert_to_rgb(src)
+            elif self.ensure_grayscale:
+                src = convert_to_grayscale(src)
+            if src.shape[-3] != image.shape[-3]:
+                src = src.expand(*src.shape[:-3], image.shape[-3], *src.shape[-2:])
+            xyxy2 = s2["bboxes"].astype(np.float32)
+            hulls = hulls.astype(np.float32)
+            if dscale is not None:
+                sx, sy = dscale
+                xyxy2 = xyxy2 * np.asarray([sx, sy, sx, sy], dtype=np.float32)
+                hulls = hulls * np.asarray([sx, sy], dtype=np.float32)
+            p2 = ()
+            if points is not None:
+                p2 = torch.from_numpy(s2["kpts"].copy()).reshape(
+                    len(xyxy2), len(self._kpt_names), 3
+                )
+                if dscale is not None:
+                    p2[..., :2] *= torch.tensor(dscale, dtype=p2.dtype)
+                p2 = (p2,)
+            src, b2, (fx, fy), *p2 = resize_frame(
+                src,
+                torch.from_numpy(xyxy2).reshape(-1, 4),
+                self.train_hw,
+                self.resize_mode,
+                *p2,
+            )
+            hulls = hulls * np.asarray([fx, fy], dtype=np.float32)
+            src = src.to(torch.float32)
+            c2 = s2["bbox_classes"]
+            for k in torch.randperm(len(b2)).tolist():
+                if len(new_b) >= budget:
+                    break
+                if not np.isfinite(hulls[k]).any():
+                    continue
+                x1, y1 = int(math.floor(float(b2[k, 0]))), int(
+                    math.floor(float(b2[k, 1]))
+                )
+                x2, y2 = int(math.ceil(float(b2[k, 2]))), int(
+                    math.ceil(float(b2[k, 3]))
+                )
+                x1, y1 = max(x1, 0), max(y1, 0)
+                x2, y2 = min(x2, src.shape[-1]), min(y2, src.shape[-2])
+                if x2 - x1 < 4 or y2 - y1 < 4:
+                    continue
+                patch = src[0, :, y1:y2, x1:x2]
+                mask = hull_mask(
+                    hulls[k] - np.asarray([x1, y1], dtype=np.float32),
+                    (y2 - y1, x2 - x1),
+                    dilate * max(x2 - x1, y2 - y1),
+                    feather * max(x2 - x1, y2 - y1),
+                )
+                f = math.exp(lo + (hi - lo) * float(torch.rand(())))
+                ph, pw = int(round((y2 - y1) * f)), int(round((x2 - x1) * f))
+                if ph < 4 or pw < 4:
+                    continue
+                pm = torch.cat([patch, mask[None]], 0)
+                pm = torch.nn.functional.interpolate(
+                    pm[None],
+                    size=(ph, pw),
+                    mode="bilinear",
+                    antialias=f < 1,
+                    align_corners=False,
+                )[0]
+                mirror = float(torch.rand(())) < 0.5
+                if mirror:
+                    pm = pm.flip(-1)
+                turns = int(torch.randint(4, ()))
+                if turns:
+                    pm = pm.rot90(turns, dims=(-2, -1))
+                if points is not None:
+                    pk = _patch_points(
+                        p2[0][k],
+                        (x1, y1, x2, y2),
+                        (ph, pw),
+                        self._kpt_flip_order if mirror else None,
+                        turns,
+                    )
+                ph, pw = pm.shape[-2:]
+                if ph > Hc or pw > Wc:
+                    continue
+                for _try in range(10):
+                    oy = int(torch.randint(Hc - ph + 1, ()))
+                    ox = int(torch.randint(Wc - pw + 1, ()))
+                    cand = torch.tensor(
+                        [[ox, oy, ox + pw, oy + ph]], dtype=torch.float32
+                    )
+                    if len(placed):
+                        lt = torch.maximum(cand[:, :2], placed[:, :2])
+                        rb = torch.minimum(cand[:, 2:], placed[:, 2:])
+                        inter = (rb - lt).clamp(min=0).prod(-1)
+                        area_p = (placed[:, 2:] - placed[:, :2]).clamp(min=0).prod(-1)
+                        if float(inter.max()) > overlap * ph * pw or bool(
+                            (inter >= 0.5 * area_p.clamp(min=1e-6)).any()
+                        ):
+                            continue
+                    region = out[..., oy : oy + ph, ox : ox + pw].to(torch.float32)
+                    alpha = pm[-1:].clamp(0, 1)
+                    blend = alpha * pm[:-1] + (1 - alpha) * region
+                    if not out.dtype.is_floating_point:
+                        blend = blend.round().clamp(0, 255)
+                    out[..., oy : oy + ph, ox : ox + pw] = blend.to(out.dtype)
+                    placed = torch.cat([placed, cand], 0)
+                    new_b.append(cand[0])
+                    new_c.append(int(c2[k]))
+                    if points is not None:
+                        if not self._kpt_supervise_occluded:
+                            points = _unweight_points_under(points, alpha[0], ox, oy)
+                            new_p = [
+                                _unweight_points_under(q, alpha[0], ox, oy)
+                                for q in new_p
+                            ]
+                        new_p.append(pk + pk.new_tensor([ox, oy, 0.0]))
+                    break
+        if new_b:
+            boxes = torch.cat(
+                [boxes.reshape(-1, 4), torch.stack(new_b).to(boxes.dtype)], 0
+            )
+            classes = torch.cat([classes, torch.tensor(new_c, dtype=classes.dtype)], 0)
+        if points is None:
+            return out, boxes, classes
+        if new_p:
+            points = torch.cat([points, torch.stack(new_p).to(points.dtype)], 0)
+        return out, boxes, classes, points
+
+    def _frame_photometric(self, image: torch.Tensor) -> torch.Tensor:
+        """The warp pipeline's photometric ops on a whole ``(1, C, H, W)`` uint8 frame.
+
+        ``intensity.frame_photometric`` (experimental): contrast, brightness, HSV,
+        blurs, noise and :mod:`sleap_nn.data.photometric_extra`, drawn from one
+        generator per worker process.
+        """
+        from sleap_nn.data.topdown_warp import WarpAug
+
+        if getattr(self, "_photo_pid", None) != os.getpid():
+            self._photo_aug = WarpAug.from_configs(None, self.intensity_aug)
+            self._photo_rng = np.random.default_rng((17, torch.initial_seed()))
+            self._photo_pid = os.getpid()
+        dtype = image.dtype
+        x = image[0] if image.ndim == 4 else image
+        hwc = x.permute(1, 2, 0).contiguous().numpy()
+        if hwc.dtype != np.uint8:
+            hwc = np.clip(hwc, 0, 255).astype(np.uint8)
+        out = self._photo_aug.intensity(hwc, self._photo_rng)
+        if out.ndim == 2:
+            out = out[:, :, None]
+        t = torch.from_numpy(np.ascontiguousarray(out)).permute(2, 0, 1).to(dtype)
+        return t[None] if image.ndim == 4 else t
 
 
 # Minimum number of tile-local foreground pixels for a mask to be "owned" by a tile.
@@ -6446,11 +8170,290 @@ def resolve_centroid_source(
     return has_user
 
 
+def _get_warp_centered_instance_datasets(
+    train_labels: List[sio.Labels],
+    val_labels: List[sio.Labels],
+    config: DictConfig,
+    backbone_type: str,
+    node_weight_kwargs: Dict[str, Any],
+    teacher_crop_size=None,
+):
+    """Train/val datasets of ``preprocessing.crop_pipeline="warp"`` (centered instance).
+
+    ``teacher_crop_size`` (distillation's dual-resolution crop) goes to the
+    training dataset only.
+
+    Raises:
+        ValueError: If the config cannot use the warp pipeline (it needs
+            ``crop_mode="bbox"``, a resolved ``crop_size`` and ``scale=1.0``).
+    """
+    from sleap_nn.data.topdown_warp import InstanceFilter, WarpCenteredInstanceDataset
+
+    pre = config.data_config.preprocessing
+    bbox_crop = BBoxCropSpec.from_config(config)
+    if bbox_crop is None:
+        raise ValueError("crop_pipeline='warp' needs preprocessing.crop_mode='bbox'.")
+    if pre.crop_size is None:
+        raise ValueError("crop_pipeline='warp' needs preprocessing.crop_size.")
+    if float(pre.scale) != 1.0:
+        raise ValueError("crop_pipeline='warp' cuts crops at crop_size; set scale=1.0.")
+    aug = config.data_config.augmentation_config
+    geometric = aug.geometric if aug is not None else None
+    intensity = aug.intensity if aug is not None else None
+    stage2 = aug.get("stage2") if aug is not None else None
+    stage2_aug = None
+    if stage2 is not None:
+        # Stage 2 = stage 1 with the overrides merged over it.
+        def _merge(base, override):
+            if base is None and override is None:
+                return None
+            out = OmegaConf.to_container(base, resolve=True) if base is not None else {}
+            out.update(dict(override or {}))
+            return out
+
+        stage2_aug = (
+            _merge(geometric, stage2.get("geometric")),
+            _merge(intensity, stage2.get("intensity")),
+        )
+    common = dict(
+        crop_size=pre.crop_size,
+        confmap_head_config=config.model_config.head_configs.centered_instance.confmaps,
+        max_stride=config.model_config.backbone_config[f"{backbone_type}"][
+            "max_stride"
+        ],
+        bbox_crop=bbox_crop,
+        gpu_confmaps=bool(pre.get("gpu_confmaps", False)),
+        bbox_categories=pre.get("crop_bbox_categories"),
+        crop_bbox_source=pre.get("crop_bbox_source", "gt") or "gt",
+        crop_bbox_detector=pre.get("crop_bbox_detector"),
+        crop_bbox_min_score=float(pre.get("crop_bbox_min_score", 0.0) or 0.0),
+        crop_bbox_fallback=pre.get("crop_bbox_fallback", "gt") or "gt",
+        crop_bbox_jitter=float(pre.get("crop_bbox_jitter", 0.0) or 0.0),
+        crop_bbox_jitter_tail=float(pre.get("crop_bbox_jitter_tail", 0.0) or 0.0),
+        crop_bbox_jitter_tail_p=float(pre.get("crop_bbox_jitter_tail_p", 0.0) or 0.0),
+        crop_bbox_jitter_min_cover=float(
+            pre.get("crop_bbox_jitter_min_cover", 0.0) or 0.0
+        ),
+        ensure_rgb=pre.ensure_rgb,
+        ensure_grayscale=pre.ensure_grayscale,
+        user_instances_only=config.data_config.user_instances_only,
+        **node_weight_kwargs,
+    )
+    train_dataset = WarpCenteredInstanceDataset(
+        labels=train_labels,
+        geometric_aug=geometric,
+        intensity_aug=intensity,
+        stage2_aug=stage2_aug,
+        apply_aug=config.data_config.use_augmentations_train,
+        instance_filter=InstanceFilter.from_config(
+            OmegaConf.select(config, "data_config.instance_filter", default=None)
+        ),
+        base_seed=OmegaConf.select(config, "trainer_config.seed", default=0) or 0,
+        teacher_crop_size=teacher_crop_size,
+        **common,
+    )
+    val_dataset = WarpCenteredInstanceDataset(
+        labels=val_labels, apply_aug=False, **common
+    )
+    return train_dataset, val_dataset
+
+
+def detr_multi_scale_sizes(config: DictConfig) -> Optional[List[Tuple[int, int]]]:
+    """The per-batch multi-scale sizes of a ``bbox_detr`` training config, if on.
+
+    On when training augmentation is on and ``augmentation_config.detr.multi_scale``
+    is set: ``max_height x max_width`` +/- ``multi_scale_steps`` multiples of the
+    backbone's ``max_stride`` (:func:`~sleap_nn.data.detr_augmentation.
+    multi_scale_sizes`), without the sizes whose token map has fewer tokens than
+    ``num_queries`` (the two-stage proposals pick ``num_queries`` tokens; a small
+    input with many queries would fail at that step). ``None`` otherwise.
+    """
+    detr_aug = OmegaConf.select(
+        config, "data_config.augmentation_config.detr", default=None
+    )
+    if (
+        detr_aug is None
+        or not detr_aug.multi_scale
+        or not config.data_config.use_augmentations_train
+    ):
+        return None
+    preprocessing = config.data_config.preprocessing
+    backbone_type = get_backbone_type_from_cfg(config)
+    block = int(config.model_config.backbone_config[backbone_type].max_stride)
+    sizes = multi_scale_sizes(
+        (int(preprocessing.max_height), int(preprocessing.max_width)),
+        block,
+        int(detr_aug.multi_scale_steps),
+    )
+    detr = OmegaConf.select(config, "model_config.head_configs.bbox_detr.detr")
+    if detr is None:
+        return sizes
+    stride, queries = int(detr.output_stride), int(detr.num_queries)
+    kept = [(h, w) for h, w in sizes if (h // stride) * (w // stride) >= queries]
+    if len(kept) < len(sizes):
+        logger.info(
+            f"bbox_detr multi-scale: dropped {len(sizes) - len(kept)} sizes with "
+            f"fewer than num_queries={queries} tokens; training sizes "
+            f"{kept[0] if kept else None}..{kept[-1] if kept else None}."
+        )
+    return kept or sizes
+
+
+def _val_negative_frames(config: DictConfig) -> bool:
+    """``data_config.val_negative_frames`` (experimental; ``bbox_*`` models only)."""
+    on = bool(
+        OmegaConf.select(config, "data_config.val_negative_frames", default=False)
+    )
+    if on and get_model_type_from_cfg(config=config) not in BBOX_MODEL_TYPES:
+        raise ValueError(
+            "data_config.val_negative_frames is supported for the bbox_* models only."
+        )
+    return on
+
+
+def _check_ignore_box_config(config: DictConfig) -> None:
+    """``data_config.ignore_box_category`` (experimental): ``bbox_detr`` only."""
+    from sleap_nn.config.model_config import DEFAULT_BBOX_CATEGORY
+
+    name = OmegaConf.select(config, "data_config.ignore_box_category", default=None)
+    if name is None:
+        return
+    if get_model_type_from_cfg(config=config) != "bbox_detr":
+        raise ValueError(
+            "data_config.ignore_box_category is supported for bbox_detr models only."
+        )
+    if name == DEFAULT_BBOX_CATEGORY:
+        raise ValueError(
+            f"data_config.ignore_box_category cannot be {DEFAULT_BBOX_CATEGORY!r}, "
+            "the name boxes without a category get."
+        )
+
+
+def _check_ignore_box_category(
+    name: Optional[str], target_encoder: Any, categories: List[str]
+) -> Optional[str]:
+    """``data_config.ignore_box_category`` (experimental), checked; ``None`` if off."""
+    if name is None:
+        return None
+    from sleap_nn.data.bboxes import SetTargetEncoder
+
+    if not isinstance(target_encoder, SetTargetEncoder):
+        raise ValueError(
+            "data_config.ignore_box_category is supported for bbox_detr models only."
+        )
+    if name in categories:
+        raise ValueError(
+            f"data_config.ignore_box_category {name!r} is one of the detector's "
+            f"categories {categories}; ignore boxes cannot also be objects."
+        )
+    return str(name)
+
+
+def detr_dataset_kwargs(config: DictConfig) -> Tuple[Dict, Dict]:
+    """``(train, val)`` extra kwargs of :class:`DetrBBoxDataset` from a config.
+
+    Training frames are made at the largest multi-scale size (the batch is resized
+    per step, as RF-DETR does) or at ``max_height x max_width``; validation frames
+    at ``max_height x max_width``.
+    """
+    preprocessing = config.data_config.preprocessing
+    resize_mode = OmegaConf.select(
+        config, "data_config.preprocessing.resize_mode", default="letterbox"
+    )
+    if preprocessing.max_height is None or preprocessing.max_width is None:
+        raise ValueError(
+            "bbox_detr training needs data_config.preprocessing.max_height and "
+            "max_width (the model input size)."
+        )
+    base_hw = (int(preprocessing.max_height), int(preprocessing.max_width))
+    sizes = detr_multi_scale_sizes(config)
+    detr_aug = OmegaConf.select(
+        config, "data_config.augmentation_config.detr", default=None
+    )
+    ignore = OmegaConf.select(config, "data_config.ignore_box_category", default=None)
+    train = dict(
+        resize_mode=resize_mode,
+        train_hw=sizes[-1] if sizes else base_hw,
+        detr_aug=detr_aug,
+        ignore_box_category=ignore,
+    )
+    val = dict(resize_mode=resize_mode, train_hw=base_hw, ignore_box_category=ignore)
+    keypoints = detr_keypoints_config(
+        OmegaConf.select(config, "model_config.head_configs.bbox_detr.detr")
+    )
+    if keypoints is not None:  # Experimental keypoint branch.
+        names = keypoints.part_names
+        if not names:
+            raise ValueError(
+                "model_config.head_configs.bbox_detr.detr.keypoints.part_names is "
+                "unset; training setup fills it in from the labels' skeleton."
+            )
+        val["keypoints"] = dict(
+            split="validation",
+            part_names=list(names),
+            node_loss_mask=bool(
+                OmegaConf.select(config, "data_config.node_loss_mask", default=True)
+            ),
+            supervise_occluded=bool(
+                OmegaConf.select(config, "data_config.supervise_occluded", default=True)
+            ),
+        )
+        # The training set must have a box with a pose, or keypoints train nothing.
+        train["keypoints"] = dict(
+            val["keypoints"], split="training", require_poses=True
+        )
+    return train, val
+
+
+#: ``augmentation_config.detr`` keys that ``bbox_centernet`` / ``bbox_ssd`` apply.
+ZOOM_OUT_KEYS = ("zoom_out_p", "zoom_out_min", "zoom_out_max", "zoom_out_canvas")
+
+
+def box_zoom_out_aug(config: DictConfig) -> Optional[DictConfig]:
+    """The zoom-out settings of a ``bbox_centernet`` / ``bbox_ssd`` training config.
+
+    These detectors apply only the ``zoom_out_*`` keys of
+    ``augmentation_config.detr`` (the rest of that section is ``bbox_detr``'s own
+    training geometry); a warning lists the other keys set away from their
+    defaults. ``None`` when the section is unset or training augmentation is off.
+    """
+    aug = OmegaConf.select(config, "data_config.augmentation_config.detr", default=None)
+    if aug is None or not config.data_config.use_augmentations_train:
+        return None
+    from sleap_nn.config.data_config import DetrAugmentationConfig
+
+    def plain(cfg):
+        cfg = OmegaConf.to_container(cfg) if OmegaConf.is_config(cfg) else dict(cfg)
+        return {k: list(v) if isinstance(v, tuple) else v for k, v in cfg.items()}
+
+    given = plain(aug)
+    defaults = plain(OmegaConf.structured(DetrAugmentationConfig))
+    ignored = [
+        k
+        for k, v in given.items()
+        if k not in ZOOM_OUT_KEYS and k in defaults and v != defaults[k]
+    ]
+    if ignored:
+        logger.warning(
+            "augmentation_config.detr: bbox_centernet and bbox_ssd apply only its "
+            f"{list(ZOOM_OUT_KEYS)}; ignored: {ignored}."
+        )
+    if float(given.get("zoom_out_p", 0.0) or 0.0) > 0:
+        logger.info(
+            f"Zoom-out on for training frames: p={given.get('zoom_out_p')}, factor "
+            f"{given.get('zoom_out_min', 0.4)}..{given.get('zoom_out_max', 1.0)}, "
+            f"canvas {given.get('zoom_out_canvas', 'zero')} "
+            "(augmentation_config.detr.zoom_out_*)."
+        )
+    return aug
+
+
 def get_train_val_datasets(
     train_labels: List[sio.Labels],
     val_labels: List[sio.Labels],
     config: DictConfig,
     rank: Optional[int] = None,
+    teacher_crop_size=None,
 ):
     """Return the train and val datasets.
 
@@ -6460,10 +8463,19 @@ def get_train_val_datasets(
         config: Sleap-nn config.
         rank: Indicates the rank of the process. Used during distributed training to ensure that image storage to
             disk occurs only once across all workers.
+        teacher_crop_size: Distillation's dual-resolution crop
+            (``trainer_config.distillation.teacher_crop_size``): the training
+            dataset also returns each window at this size as ``teacher_image``.
+            Warp ``centered_instance`` only. *Default*: ``None``.
 
     Returns:
         A tuple (train_dataset, val_dataset).
     """
+    # Experimental decoded coordinate loss: the data loader reads the labelled
+    # channels' head settings, not the latent-point head (no-op otherwise).
+    from sleap_nn.training.coordinate_losses import dataset_config
+
+    config = dataset_config(config)
     cache_imgs = (
         config.data_config.data_pipeline_fw.split("_")[-1]
         if "cache_img" in config.data_config.data_pipeline_fw
@@ -6482,9 +8494,65 @@ def get_train_val_datasets(
     cache_workers = getattr(config.data_config, "cache_workers", 0)
 
     use_negative_frames = getattr(config.data_config, "use_negative_frames", False)
+    val_negative_frames = _val_negative_frames(config)
+    _check_ignore_box_config(config)
+    # Per-node loss weights (`sleap_nn.data.node_weights`), used by the
+    # single-instance, centered-instance and bottom-up confmap datasets.
+    node_weight_kwargs = dict(
+        node_loss_mask=getattr(config.data_config, "node_loss_mask", True),
+        unlabeled_points=getattr(config.data_config, "unlabeled_points", "absent"),
+        supervise_occluded=getattr(config.data_config, "supervise_occluded", True),
+    )
 
     model_type = get_model_type_from_cfg(config=config)
     backbone_type = get_backbone_type_from_cfg(config=config)
+    # Experimental: one input scale per labels file (frame models only).
+    file_scales = OmegaConf.select(
+        config, "data_config.preprocessing.file_scales", default=None
+    )
+    if file_scales:
+        file_scales = dict(file_scales)
+        tiling = OmegaConf.select(
+            config, "data_config.preprocessing.tiling", default=None
+        )
+        if model_type not in ("bottomup", "centroid", "single_instance") or (
+            tiling is not None and tiling.enabled
+        ):
+            raise ValueError(
+                "preprocessing.file_scales is supported for the bottomup, centroid "
+                f"and single_instance model types (without tiling), not {model_type!r}."
+            )
+        check_file_scales(file_scales, train_labels, val_labels)
+    if (
+        OmegaConf.select(
+            config, "data_config.preprocessing.crop_pipeline", default="legacy"
+        )
+        == "warp"
+        and model_type != "centered_instance"
+    ):
+        raise ValueError(
+            "preprocessing.crop_pipeline='warp' is implemented for the "
+            f"centered_instance model type only, not {model_type!r}."
+        )
+    if teacher_crop_size is not None and (
+        model_type != "centered_instance"
+        or OmegaConf.select(
+            config, "data_config.preprocessing.crop_pipeline", default="legacy"
+        )
+        != "warp"
+    ):
+        raise ValueError(
+            "trainer_config.distillation.teacher_crop_size needs a centered_instance "
+            "model with preprocessing.crop_pipeline='warp' (the crop path that cuts "
+            "the teacher's crop); use teacher_input_scale otherwise."
+        )
+    _check_train_node_mask(model_type, train_labels, config, node_weight_kwargs)
+    if model_type in (
+        "single_instance",
+        "centered_instance",
+        "bottomup",
+    ) and node_weight_kwargs.get("node_loss_mask", True):
+        warn_nodes_never_located(train_labels)
 
     # Gate the lossy disk cache for the embedding (appearance / re-ID) model (SPEC §5.1):
     # `torch_dataset_cache_img_disk` writes source frames as JPEG, which silently
@@ -6533,6 +8601,7 @@ def get_train_val_datasets(
 
     if model_type == "bottomup":
         train_dataset = BottomUpDataset(
+            **node_weight_kwargs,
             labels=train_labels,
             confmap_head_config=config.model_config.head_configs.bottomup.confmaps,
             pafs_head_config=config.model_config.head_configs.bottomup.pafs,
@@ -6565,8 +8634,10 @@ def get_train_val_datasets(
             parallel_caching=parallel_caching,
             cache_workers=cache_workers,
             use_negative_frames=use_negative_frames,
+            file_scales=file_scales,
         )
         val_dataset = BottomUpDataset(
+            **node_weight_kwargs,
             labels=val_labels,
             confmap_head_config=config.model_config.head_configs.bottomup.confmaps,
             pafs_head_config=config.model_config.head_configs.bottomup.pafs,
@@ -6591,6 +8662,7 @@ def get_train_val_datasets(
             parallel_caching=parallel_caching,
             cache_workers=cache_workers,
             use_negative_frames=use_negative_frames,
+            file_scales=file_scales,
         )
 
     elif model_type == "multi_class_bottomup":
@@ -6655,6 +8727,22 @@ def get_train_val_datasets(
             use_negative_frames=use_negative_frames,
         )
 
+    elif (
+        model_type == "centered_instance"
+        and OmegaConf.select(
+            config, "data_config.preprocessing.crop_pipeline", default="legacy"
+        )
+        == "warp"
+    ):
+        train_dataset, val_dataset = _get_warp_centered_instance_datasets(
+            train_labels,
+            val_labels,
+            config,
+            backbone_type,
+            node_weight_kwargs,
+            teacher_crop_size=teacher_crop_size,
+        )
+
     elif model_type == "centered_instance":
         bbox_crop = BBoxCropSpec.from_config(config)
         nodes = config.model_config.head_configs.centered_instance.confmaps.part_names
@@ -6663,6 +8751,7 @@ def get_train_val_datasets(
         )
         anchor_ind = nodes.index(anchor_part) if anchor_part is not None else None
         train_dataset = CenteredInstanceDataset(
+            **node_weight_kwargs,
             labels=train_labels,
             confmap_head_config=config.model_config.head_configs.centered_instance.confmaps,
             max_stride=config.model_config.backbone_config[f"{backbone_type}"][
@@ -6698,6 +8787,7 @@ def get_train_val_datasets(
             bbox_crop=bbox_crop,
         )
         val_dataset = CenteredInstanceDataset(
+            **node_weight_kwargs,
             labels=val_labels,
             confmap_head_config=config.model_config.head_configs.centered_instance.confmaps,
             max_stride=config.model_config.backbone_config[f"{backbone_type}"][
@@ -6811,6 +8901,25 @@ def get_train_val_datasets(
         # the pose skeleton must NOT crash (it did: ``nodes.index`` raised
         # ValueError). Resolve when possible, else leave ``anchor_ind=None`` and
         # the fallback derives the centroid from the mean of visible nodes.
+        anchor_inds = None
+        if isinstance(anchor_part, (list, tuple, ListConfig)):
+            # Experimental: several anchors, the first one labeled per instance.
+            names = anchor_part_names(anchor_part)
+            if not names:
+                raise ValueError(
+                    "model_config.head_configs.centroid.confmaps.anchor_part is an "
+                    "empty list; give at least one node name, or null."
+                )
+            missing = [n for n in names if n not in nodes]
+            if missing:
+                raise ValueError(
+                    "model_config.head_configs.centroid.confmaps.anchor_part lists "
+                    f"{missing}, which are not nodes of the skeleton {nodes}."
+                )
+            anchor_inds = [nodes.index(n) for n in names]
+            anchor_part = names[0]
+        elif anchor_part is not None:
+            anchor_part = str(anchor_part)
         anchor_ind = (
             nodes.index(anchor_part)
             if anchor_part is not None and anchor_part in nodes
@@ -6834,6 +8943,8 @@ def get_train_val_datasets(
                 "max_stride"
             ],
             anchor_ind=anchor_ind,
+            anchor_inds=anchor_inds,
+            file_scales=file_scales,
             user_instances_only=config.data_config.user_instances_only,
             ensure_rgb=config.data_config.preprocessing.ensure_rgb,
             ensure_grayscale=config.data_config.preprocessing.ensure_grayscale,
@@ -6869,6 +8980,8 @@ def get_train_val_datasets(
                 "max_stride"
             ],
             anchor_ind=anchor_ind,
+            anchor_inds=anchor_inds,
+            file_scales=file_scales,
             user_instances_only=config.data_config.user_instances_only,
             ensure_rgb=config.data_config.preprocessing.ensure_rgb,
             ensure_grayscale=config.data_config.preprocessing.ensure_grayscale,
@@ -7161,12 +9274,10 @@ def get_train_val_datasets(
                 use_negative_frames=False,
             )
 
-    elif model_type in ("bbox_centernet", "bbox_ssd"):
+    elif model_type in ("bbox_centernet", "bbox_ssd", "bbox_detr"):
         head_configs = config.model_config.head_configs
-        target_encoder = get_bbox_target_encoder(model_type, head_configs)
         categories = bbox_head_categories(model_type, head_configs)
         common = dict(
-            target_encoder=target_encoder,
             categories=categories,
             max_stride=config.model_config.backbone_config[f"{backbone_type}"][
                 "max_stride"
@@ -7185,8 +9296,15 @@ def get_train_val_datasets(
             parallel_caching=parallel_caching,
             cache_workers=cache_workers,
         )
-        train_dataset = BBoxDataset(
+        dataset_cls, train_extra, val_extra = BBoxDataset, {}, {}
+        if model_type == "bbox_detr":
+            dataset_cls = DetrBBoxDataset
+            train_extra, val_extra = detr_dataset_kwargs(config)
+        else:
+            train_extra = {"zoom_out_aug": box_zoom_out_aug(config)}
+        train_dataset = dataset_cls(
             labels=train_labels,
+            target_encoder=get_bbox_target_encoder(model_type, head_configs),
             intensity_aug=(
                 config.data_config.augmentation_config.intensity
                 if config.data_config.augmentation_config is not None
@@ -7201,16 +9319,26 @@ def get_train_val_datasets(
             cache_img_path=train_cache_img_path,
             use_negative_frames=use_negative_frames,
             **common,
+            **train_extra,
         )
-        val_dataset = BBoxDataset(
+        val_dataset = dataset_cls(
             labels=val_labels,
+            target_encoder=get_bbox_target_encoder(model_type, head_configs),
             intensity_aug=None,
             geometric_aug=None,
             apply_aug=False,
             cache_img_path=val_cache_img_path,
-            use_negative_frames=False,
+            use_negative_frames=val_negative_frames,
             **common,
+            **val_extra,
         )
+        key = OmegaConf.select(
+            config, "trainer_config.balanced_sampler.frame_weight_key", default=None
+        )
+        if key is not None:
+            train_dataset.frame_weights = train_dataset.frame_metadata_weights(
+                train_labels, str(key)
+            )
 
     elif model_type == "centered_instance_segmentation":
         seg_cfg = config.model_config.head_configs.centered_instance_segmentation
@@ -7408,6 +9536,24 @@ def get_train_val_datasets(
         if tiling is not None and tiling.enabled:
             # Tiled single-instance training. Train draws foreground-aware tiles;
             # val always uses a deterministic full-coverage grid (no aug).
+            if (
+                OmegaConf.select(
+                    config, "trainer_config.balanced_sampler", default=None
+                )
+                is not None
+            ):
+                logger.warning(
+                    "trainer_config.balanced_sampler is ignored for tiled "
+                    "single_instance training (preprocessing.tiling.enabled): tiles "
+                    "are drawn by the tiled dataset's own sampler."
+                )
+            if node_weights_active(train_labels, **node_weight_kwargs):
+                logger.warning(
+                    "Tiled single-instance training does not apply per-node loss "
+                    "weights yet: unlabeled points, `provenance['labeled_nodes']` "
+                    "and `data_config.unlabeled_points` are ignored, so unlabeled "
+                    "nodes are trained as absent."
+                )
             base_seed = config.trainer_config.seed or 0
             train_dataset = SingleInstanceTiledDataset(
                 labels=train_labels,
@@ -7473,6 +9619,7 @@ def get_train_val_datasets(
             )
         else:
             train_dataset = SingleInstanceDataset(
+                **node_weight_kwargs,
                 labels=train_labels,
                 confmap_head_config=config.model_config.head_configs.single_instance.confmaps,
                 max_stride=config.model_config.backbone_config[f"{backbone_type}"][
@@ -7504,8 +9651,10 @@ def get_train_val_datasets(
                 parallel_caching=parallel_caching,
                 cache_workers=cache_workers,
                 use_negative_frames=use_negative_frames,
+                file_scales=file_scales,
             )
             val_dataset = SingleInstanceDataset(
+                **node_weight_kwargs,
                 labels=val_labels,
                 confmap_head_config=config.model_config.head_configs.single_instance.confmaps,
                 max_stride=config.model_config.backbone_config[f"{backbone_type}"][
@@ -7529,7 +9678,14 @@ def get_train_val_datasets(
                 parallel_caching=parallel_caching,
                 cache_workers=cache_workers,
                 use_negative_frames=use_negative_frames,
+                file_scales=file_scales,
             )
+
+    # Every pose dataset reads `supervise_occluded` for its targets, including
+    # the ones that take no per-node weight kwargs (multi-class, tiled).
+    for dataset in (train_dataset, val_dataset):
+        if dataset is not None:
+            dataset.supervise_occluded = node_weight_kwargs["supervise_occluded"]
 
     if cache_imgs == "disk" and use_existing_imgs:
         _validate_existing_disk_cache_complete(
@@ -7548,6 +9704,94 @@ def get_train_val_datasets(
                     video.close()
 
     return train_dataset, val_dataset
+
+
+def _check_train_node_mask(
+    model_type: str,
+    train_labels: List[sio.Labels],
+    config: DictConfig,
+    node_weight_kwargs: Dict[str, Any],
+) -> None:
+    """Stop when the files' node masks leave every node of the training set unweighted.
+
+    Runs before any dataset is built (and before image caches are filled). Only the
+    model types whose datasets apply the mask are checked: single-instance
+    (untiled), centered-instance (the warp crop path checks in its own dataset) and
+    bottom-up. Distillation with ``mask_unlabeled_nodes: false`` trains every node on
+    the teacher's maps whatever the mask says, so it is not checked either.
+    """
+    if model_type not in ("single_instance", "centered_instance", "bottomup"):
+        return
+    if (
+        OmegaConf.select(
+            config, "data_config.preprocessing.crop_pipeline", default="legacy"
+        )
+        == "warp"
+    ):
+        return
+    tiling = OmegaConf.select(config, "data_config.preprocessing.tiling", default=None)
+    if model_type == "single_instance" and tiling is not None and tiling.enabled:
+        return
+    if not node_weights_active(train_labels, **node_weight_kwargs):
+        return
+    if OmegaConf.select(
+        config, "trainer_config.distillation", default=None
+    ) is not None and not OmegaConf.select(
+        config, "trainer_config.distillation.mask_unlabeled_nodes", default=True
+    ):
+        return
+    file_weights = [
+        get_labeled_nodes_weights(x) if x is not None and x.skeletons else None
+        for x in train_labels
+    ]
+    check_some_node_weighted(file_weights, train_labels)
+
+
+def freeze_heap_worker_init_fn(worker_id: int) -> None:
+    """Exclude a forked dataloader worker's inherited objects from its GC.
+
+    A worker inherits its parent's heap copy-on-write. CPython's cyclic GC
+    writes into every tracked object's header when it scans it, so the first
+    full collection in a worker copies the whole inherited heap (the loaded
+    ``Labels``: ~1.3 KB per box, ~14 GB for Objects365 + Open Images) into that
+    worker. ``gc.freeze()`` moves those objects to the permanent generation,
+    which collections never scan.
+
+    Args:
+        worker_id: The dataloader worker id (unused).
+    """
+    import gc
+
+    gc.freeze()
+
+
+def rank_worker_init_fn(worker_id: int, rank: int = 0) -> None:
+    """Seed a DDP rank's train dataloader worker from its own seed and the rank.
+
+    PyTorch seeds worker ``w`` from ``base_seed + w``, where ``base_seed`` is drawn
+    from the main process's torch RNG. ``trainer_config.seed`` seeds that RNG the
+    same way on every rank, so without this every rank's workers drew the SAME
+    augmentation stream (each rank's batch ``k`` got the same rotations, flips and
+    noise as every other rank's batch ``k``). This re-seeds ``random``, ``numpy`` and
+    ``torch`` from ``SeedSequence((worker seed, rank))``, so streams stay
+    reproducible but are independent across ranks and workers. The warp dataset
+    keys its own per-worker generator on ``(base_seed, rank, torch.initial_seed())``
+    for the same reason.
+
+    Args:
+        worker_id: The dataloader worker id (as passed by PyTorch; unused, already
+            part of the worker's torch seed).
+        rank: Global rank of the process that owns the dataloader.
+    """
+    import random
+
+    freeze_heap_worker_init_fn(worker_id)
+    state = np.random.SeedSequence([torch.initial_seed(), int(rank)]).generate_state(
+        4, dtype=np.uint32
+    )
+    random.seed(int(state[0]))
+    np.random.seed(state[1:3])
+    torch.manual_seed((int(state[2]) << 32) | int(state[3]))
 
 
 def get_train_val_dataloaders(
@@ -7574,12 +9818,18 @@ def get_train_val_dataloaders(
     Returns:
         A tuple (train_dataloader, val_dataloader).
     """
-    pin_memory = (
-        config.trainer_config.train_data_loader.pin_memory
-        if "pin_memory" in config.trainer_config.train_data_loader
-        and config.trainer_config.train_data_loader.pin_memory is not None
-        else True
+    pin_memory = OmegaConf.select(
+        config, "trainer_config.train_data_loader.pin_memory", default=None
     )
+    if pin_memory is None:
+        pin_memory = True
+    # The val loader used to always follow the train setting; it still does
+    # unless `val_data_loader.pin_memory` is set explicitly.
+    val_pin_memory = OmegaConf.select(
+        config, "trainer_config.val_data_loader.pin_memory", default=None
+    )
+    if val_pin_memory is None:
+        val_pin_memory = pin_memory
 
     if train_steps_per_epoch is None:
         train_steps_per_epoch = config.trainer_config.train_steps_per_epoch
@@ -7623,6 +9873,7 @@ def get_train_val_dataloaders(
             batch_sampler=batch_sampler,
             num_workers=train_nw,
             pin_memory=pin_memory,
+            worker_init_fn=_train_worker_init_fn(config, rank, trainer_devices),
             persistent_workers=train_nw > 0,
         )
         val_data_loader = DataLoader(
@@ -7630,10 +9881,34 @@ def get_train_val_dataloaders(
             shuffle=False,
             batch_size=config.trainer_config.val_data_loader.batch_size,
             num_workers=val_nw,
-            pin_memory=pin_memory,
+            pin_memory=val_pin_memory,
             persistent_workers=val_nw > 0,
         )
         return train_data_loader, val_data_loader
+
+    from sleap_nn.data.topdown_warp import WarpCenteredInstanceDataset
+
+    balanced = (
+        OmegaConf.select(config, "trainer_config.balanced_sampler", default=None)
+        is not None
+    )
+    if isinstance(train_dataset, WarpCenteredInstanceDataset) or (
+        balanced
+        and isinstance(
+            train_dataset,
+            (BBoxDataset, BottomUpDataset, CentroidDataset, SingleInstanceDataset),
+        )
+    ):
+        return _get_balanced_dataloaders(
+            train_dataset,
+            val_dataset,
+            config,
+            train_steps_per_epoch,
+            rank,
+            trainer_devices,
+            pin_memory,
+            val_pin_memory,
+        )
 
     tiling = OmegaConf.select(config, "data_config.preprocessing.tiling", default=None)
     tiling_enabled = tiling is not None and tiling.enabled
@@ -7642,6 +9917,13 @@ def get_train_val_dataloaders(
     # shards whole frame blocks so a frame's tiles stay together and DDP-disjoint),
     # and a per-worker RNG init de-correlates the halo augmentation streams.
     worker_init_fn = tiling_worker_init_fn if tiling_enabled else None
+    # Tiling seeds every augmentation from the sample's own identity (frame, tile,
+    # epoch) and shards frames across ranks, so its streams already differ per rank.
+    train_worker_init_fn = (
+        worker_init_fn
+        if tiling_enabled
+        else _train_worker_init_fn(config, rank, trainer_devices)
+    )
 
     if tiling_enabled:
         train_sampler = FrameGroupedTileSampler(
@@ -7667,6 +9949,9 @@ def get_train_val_dataloaders(
     train_data_loader = InfiniteDataLoader(
         dataset=train_dataset,
         sampler=train_sampler,
+        drop_last=_get_train_drop_last(
+            config, train_dataset, trainer_devices, tiling_enabled
+        ),
         len_dataloader=max(1, round(train_steps_per_epoch / trainer_devices)),
         shuffle=(
             config.trainer_config.train_data_loader.shuffle
@@ -7676,7 +9961,7 @@ def get_train_val_dataloaders(
         batch_size=config.trainer_config.train_data_loader.batch_size,
         num_workers=config.trainer_config.train_data_loader.num_workers,
         pin_memory=pin_memory,
-        worker_init_fn=worker_init_fn,
+        worker_init_fn=train_worker_init_fn,
         persistent_workers=(
             True if config.trainer_config.train_data_loader.num_workers > 0 else None
         ),
@@ -7707,14 +9992,18 @@ def get_train_val_dataloaders(
         dataset=val_dataset,
         shuffle=False if val_sampler is None else None,
         sampler=val_sampler,
+        # One exact pass over this rank's shard per epoch. The loader's iterator
+        # persists across epochs, so any other length (e.g. the old
+        # `round(val_steps / devices)`, short whenever the shards end in a partial
+        # batch) skipped val samples and shifted every later epoch's val window.
         len_dataloader=(
             max(1, round(val_steps_per_epoch / trainer_devices))
-            if trainer_devices > 1
+            if trainer_devices > 1 and tiling_enabled
             else None
         ),
         batch_size=config.trainer_config.val_data_loader.batch_size,
         num_workers=config.trainer_config.val_data_loader.num_workers,
-        pin_memory=pin_memory,
+        pin_memory=val_pin_memory,
         worker_init_fn=worker_init_fn,
         persistent_workers=(
             True if config.trainer_config.val_data_loader.num_workers > 0 else None
@@ -7725,12 +10014,12 @@ def get_train_val_dataloaders(
     return train_data_loader, val_data_loader
 
 
-#: Batches each dataloader worker loads ahead of the training loop.
+#: Batches each dataloader worker loads ahead when ``prefetch_factor`` is unset.
 DEFAULT_PREFETCH_FACTOR = 2
 
 
 def _get_prefetch_factor(config: DictConfig, loader: str) -> Optional[int]:
-    """Prefetch depth of ``trainer_config.<loader>`` (``None`` without workers).
+    """Resolve ``trainer_config.<loader>.prefetch_factor`` (``None`` without workers).
 
     This used to be ``batch_size``, so ``num_workers x batch_size`` batches could be
     queued (e.g. 16 workers x 128 = 2048 batches of crops + confmaps), which only
@@ -7738,7 +10027,268 @@ def _get_prefetch_factor(config: DictConfig, loader: str) -> Optional[int]:
     """
     if OmegaConf.select(config, f"trainer_config.{loader}.num_workers", default=0) <= 0:
         return None
-    return DEFAULT_PREFETCH_FACTOR
+    value = OmegaConf.select(
+        config, f"trainer_config.{loader}.prefetch_factor", default=None
+    )
+    return int(value) if value is not None else DEFAULT_PREFETCH_FACTOR
+
+
+def _get_train_drop_last(
+    config: DictConfig, train_dataset, trainer_devices: int, tiling_enabled: bool
+) -> bool:
+    """Whether the (infinite) train loader drops the partial batch of each pass.
+
+    ``trainer_config.train_data_loader.drop_last`` (``None`` = auto) defaults to
+    ``True`` only when ``trainer_config.compile`` is on: the repeating sampler
+    otherwise emits one short batch per pass over the data, and every new batch
+    size makes ``torch.compile`` recompile the model (each ~10-40 s). It is never
+    enabled when a rank's share of the data is smaller than one batch, since the
+    repeating sampler would then yield nothing and hang.
+    """
+    if tiling_enabled:
+        return False
+    drop_last = OmegaConf.select(
+        config, "trainer_config.train_data_loader.drop_last", default=None
+    )
+    if drop_last is None:
+        compile_mode = OmegaConf.select(config, "trainer_config.compile", default=False)
+        drop_last = compile_mode not in (None, False)
+    if not drop_last:
+        return False
+    batch_size = config.trainer_config.train_data_loader.batch_size
+    return len(train_dataset) // max(1, trainer_devices) >= batch_size
+
+
+def _train_worker_init_fn(config: DictConfig, rank: Optional[int], devices: int):
+    """The train loader's ``worker_init_fn``: rank-seeded under DDP.
+
+    Every worker also freezes its inherited heap (:func:`freeze_heap_worker_init_fn`).
+    """
+    if devices <= 1:
+        return freeze_heap_worker_init_fn
+    if config.trainer_config.train_data_loader.num_workers == 0 and (rank or 0) == 0:
+        logger.warning(
+            "train_data_loader.num_workers=0 with multiple devices: augmentation runs "
+            "in each rank's main process, whose RNG Lightning seeds identically on "
+            "every rank, so all ranks draw the same augmentation stream. Use "
+            "num_workers > 0 for per-rank augmentation streams."
+        )
+    return functools.partial(rank_worker_init_fn, rank=rank if rank is not None else 0)
+
+
+def _overlap_sample_weights(
+    bs, train_dataset, weights, rank, frame_weights=None
+) -> Optional[np.ndarray]:
+    """Per-sample weights for ``balanced_sampler.overlap_weight`` (``None`` if off).
+
+    Frames whose labelled boxes overlap by at least ``overlap_min`` of the smaller
+    box get weight ``overlap_weight``, the rest ``1``; the sampler draws within
+    each file in proportion, so files keep their shares. ``frame_weights``
+    (``frame_weight_key``) only enter the logged shares; the caller multiplies.
+    """
+    k = float(bs.get("overlap_weight", 1.0) or 1.0)
+    if k == 1.0:
+        return None
+    if k <= 0:
+        raise ValueError(f"balanced_sampler.overlap_weight must be > 0, got {k}.")
+    if not hasattr(train_dataset, "box_overlap"):
+        raise ValueError(
+            "balanced_sampler.overlap_weight is for the bbox_* models (box labels)."
+        )
+    t = float(bs.get("overlap_min", 0.25) or 0.25)
+    hit = train_dataset.box_overlap() >= t
+    sw = np.where(hit, k, 1.0)
+    if rank == 0:
+        gid = train_dataset.labels_idx
+        w = np.asarray(weights, np.float64)
+        w = w / w.sum()
+        fw = np.ones_like(sw) if frame_weights is None else frame_weights
+        before = after = 0.0
+        for g in range(len(w)):
+            m = gid == g
+            if m.any() and fw[m].sum() > 0:
+                before += w[g] * fw[m][hit[m]].sum() / fw[m].sum()
+                after += w[g] * (sw * fw)[m][hit[m]].sum() / (sw * fw)[m].sum()
+        logger.info(
+            f"Overlap oversampling: {int(hit.sum())} of {len(hit)} training frames "
+            f"have two labelled boxes sharing >= {t:g} of the smaller box; drawn "
+            f"{k:g}x as often within their file: {100 * before:.1f}% -> "
+            f"{100 * after:.1f}% of samples."
+        )
+    return sw
+
+
+def _get_balanced_dataloaders(
+    train_dataset,
+    val_dataset,
+    config: DictConfig,
+    train_steps_per_epoch: int,
+    rank: Optional[int],
+    trainer_devices: int,
+    pin_memory: bool,
+    val_pin_memory: bool,
+):
+    """Loaders for ``crop_pipeline="warp"`` and for mixed training files.
+
+    Bbox, bottom-up, centroid and single-instance datasets come here only with
+    ``trainer_config.balanced_sampler`` set.
+
+    Training uses :class:`~sleap_nn.data.topdown_warp.BalancedBatchSampler` in a
+    resumable :class:`~sleap_nn.data.topdown_warp.BalancedDataLoader` when
+    ``trainer_config.balanced_sampler`` is set (per-rank streams, so Lightning must
+    not inject a DistributedSampler), else the usual (Distributed)sampler. Prefetch
+    depth and worker seeding are those of the stock loaders
+    (:func:`_get_prefetch_factor`, :func:`_train_worker_init_fn`); the dataset also
+    mixes the rank into its own augmentation generator.
+    """
+    from sleap_nn.data.topdown_warp import (
+        BalancedBatchSampler,
+        BalancedDataLoader,
+        resolve_batch_counts,
+    )
+
+    tl, vl = (
+        config.trainer_config.train_data_loader,
+        config.trainer_config.val_data_loader,
+    )
+    rank = rank if rank is not None else 0
+    bs = OmegaConf.select(config, "trainer_config.balanced_sampler", default=None)
+    batches = max(1, round(train_steps_per_epoch / trainer_devices))
+    train_nw, val_nw = int(tl.num_workers), int(vl.num_workers)
+    # Per-rank augmentation streams (workers are forked after this is set).
+    train_dataset.rank = rank
+    worker_init_fn = _train_worker_init_fn(config, rank, trainer_devices)
+    tl_prefetch = _get_prefetch_factor(config, "train_data_loader")
+    vl_prefetch = _get_prefetch_factor(config, "val_data_loader")
+    if bs is not None:
+        n_groups = train_dataset.num_files
+        seed = OmegaConf.select(config, "trainer_config.seed", default=0) or 0
+        if bs.get("per_sample", False):
+            weights = bs.get("weights")
+            if weights is None:
+                weights = [1.0] * n_groups
+            if len(weights) != n_groups:
+                raise ValueError(
+                    f"balanced_sampler.weights has {len(weights)} entries for "
+                    f"{n_groups} training files."
+                )
+            if rank == 0:
+                logger.info(
+                    f"Mixed batches: each sample from training file g with "
+                    f"probability {list(weights)} (normalized)."
+                )
+            frame_weights = getattr(train_dataset, "frame_weights", None)
+            sample_weights = _overlap_sample_weights(
+                bs, train_dataset, weights, rank, frame_weights
+            )
+            if bs.get("frame_weight_key") is not None and frame_weights is None:
+                raise ValueError(
+                    "balanced_sampler.frame_weight_key is for the bbox_* models."
+                )
+            if frame_weights is not None:
+                # `balanced_sampler.frame_weight_key` (experimental).
+                if rank == 0:
+                    logger.info(
+                        "Per-frame sampling weights from frame metadata "
+                        f"'{bs.get('frame_weight_key')}': "
+                        f"{int((frame_weights != 1).sum())} of {len(frame_weights)} "
+                        "training frames weigh other than 1."
+                    )
+                sample_weights = (
+                    frame_weights
+                    if sample_weights is None
+                    else sample_weights * frame_weights
+                )
+            sampler = BalancedBatchSampler(
+                train_dataset.labels_idx,
+                None,
+                batches_per_epoch=batches,
+                seed=seed,
+                rank=rank,
+                weights=list(weights),
+                batch_size=tl.batch_size,
+                sample_weights=sample_weights,
+            )
+        else:
+            if float(bs.get("overlap_weight", 1.0) or 1.0) != 1.0:
+                raise ValueError(
+                    "balanced_sampler.overlap_weight needs per_sample: true."
+                )
+            if bs.get("frame_weight_key") is not None:
+                raise ValueError(
+                    "balanced_sampler.frame_weight_key needs per_sample: true."
+                )
+            counts = resolve_batch_counts(
+                bs.get("counts"), bs.get("weights"), tl.batch_size, n_groups
+            )
+            if rank == 0:
+                logger.info(
+                    f"Balanced batches: {counts} samples per training file per "
+                    "batch."
+                )
+            sampler = BalancedBatchSampler(
+                train_dataset.labels_idx,
+                counts,
+                batches_per_epoch=batches,
+                seed=seed,
+                rank=rank,
+            )
+        train_loader = BalancedDataLoader(
+            train_dataset,
+            batch_sampler=sampler,
+            num_workers=train_nw,
+            pin_memory=pin_memory,
+            worker_init_fn=worker_init_fn,
+            persistent_workers=train_nw > 0,
+            prefetch_factor=tl_prefetch,
+        )
+    else:
+        sampler = (
+            DistributedSampler(
+                train_dataset,
+                shuffle=tl.shuffle,
+                rank=rank,
+                num_replicas=trainer_devices,
+            )
+            if trainer_devices > 1
+            else None
+        )
+        train_loader = InfiniteDataLoader(
+            dataset=train_dataset,
+            sampler=sampler,
+            drop_last=_get_train_drop_last(
+                config, train_dataset, trainer_devices, False
+            ),
+            len_dataloader=batches,
+            shuffle=tl.shuffle if sampler is None else None,
+            batch_size=tl.batch_size,
+            num_workers=train_nw,
+            pin_memory=pin_memory,
+            worker_init_fn=worker_init_fn,
+            persistent_workers=True if train_nw > 0 else None,
+            prefetch_factor=tl_prefetch,
+        )
+    val_sampler = (
+        DistributedSampler(
+            val_dataset,
+            shuffle=False,
+            rank=rank,
+            num_replicas=trainer_devices,
+        )
+        if trainer_devices > 1
+        else None
+    )
+    val_loader = DataLoader(
+        val_dataset,
+        sampler=val_sampler,
+        shuffle=False,
+        batch_size=vl.batch_size,
+        num_workers=val_nw,
+        pin_memory=val_pin_memory,
+        persistent_workers=val_nw > 0,
+        prefetch_factor=vl_prefetch,
+    )
+    return train_loader, val_loader
 
 
 def get_steps_per_epoch(dataset: BaseDataset, batch_size: int):

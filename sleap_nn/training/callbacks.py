@@ -1,8 +1,13 @@
 """Custom Callback modules for Lightning Trainer."""
 
+import math
+import random
 import zmq
 import jsonpickle
-from typing import Callable, Optional, Union
+import numpy as np
+import torch
+from dataclasses import dataclass
+from typing import Callable, List, Optional, Sequence, Union
 from lightning.pytorch.callbacks import Callback, EarlyStopping, ModelCheckpoint
 from lightning.pytorch.callbacks.progress import TQDMProgressBar
 from loguru import logger
@@ -16,6 +21,7 @@ from PIL import Image
 from pathlib import Path
 import wandb
 import csv
+import time
 from sleap_nn import RANK
 
 
@@ -548,6 +554,37 @@ def _resolve_viz_img_format(img_format: str):
     return "png", "png", {}
 
 
+def _restrict_viz_nodes(data, node_idx: Sequence[int]):
+    """``data`` (a ``VisualizationData``) on the channels ``node_idx`` only.
+
+    A head trained on several files with different skeletons predicts every
+    file's channels on every crop; the training viz of one sample draws only the
+    nodes of the sample's own file (its confmaps, peaks, GT points and names).
+    """
+    import dataclasses
+
+    import numpy as np
+
+    idx = np.asarray(node_idx, dtype=int)
+    return dataclasses.replace(
+        data,
+        pred_confmaps=data.pred_confmaps[..., idx],
+        pred_peaks=data.pred_peaks[..., idx, :],
+        pred_peak_values=data.pred_peak_values[..., idx],
+        gt_instances=data.gt_instances[..., idx, :],
+        node_names=[data.node_names[i] for i in idx] if data.node_names else [],
+    )
+
+
+def _dataset_labels_idx(dataset):
+    """Each sample's labels-file index (``table.labels_idx``), or ``None``."""
+    import numpy as np
+
+    table = getattr(dataset, "table", None)
+    labels_idx = getattr(table, "labels_idx", None)
+    return None if labels_idx is None else np.asarray(labels_idx)
+
+
 class UnifiedVizCallback(Callback):
     """Unified callback for all visualization outputs during training.
 
@@ -591,6 +628,9 @@ class UnifiedVizCallback(Callback):
         wandb_confmap_threshold: float = 0.1,
         log_wandb_table: bool = False,
         img_format: str = "png",
+        train_file_nodes: Optional[List[List[int]]] = None,
+        val_file_nodes: Optional[List[List[int]]] = None,
+        val_file_names: Optional[List[str]] = None,
     ):
         """Initialize the unified visualization callback.
 
@@ -609,6 +649,17 @@ class UnifiedVizCallback(Callback):
             img_format: Image format for figures saved to ``local_save_dir`` --
                 ``"png"`` (default) or ``"jpg"`` (smaller files; #644). Unknown
                 values fall back to ``"png"``.
+            train_file_nodes: For a head trained on files with different
+                skeletons: per training labels file, the channel indices of its
+                nodes. Each training sample is drawn on its own file's nodes only.
+                ``None`` draws every channel.
+            val_file_nodes: The same per validation labels file.
+            val_file_names: Display names of the validation files. With
+                ``val_file_nodes``, every epoch draws one validation sample of
+                EACH file (a different one each epoch), logged as
+                ``viz/val/<name>/*`` and saved as ``validation.<name>.<epoch>.*``,
+                so every dataset's head is seen each epoch; one crop per file is
+                a forward pass and a figure each, small next to a training epoch.
         """
         super().__init__()
         from itertools import cycle
@@ -622,6 +673,19 @@ class UnifiedVizCallback(Callback):
         self.train_dataset = train_dataset
         self.val_dataset = val_dataset
         self.model_type = model_type
+        self.train_file_nodes = train_file_nodes
+        self.val_file_nodes = val_file_nodes
+        self.val_file_names = val_file_names
+        # Per val file, the indices of its samples in `val_dataset` (one is drawn
+        # per file per epoch), or None to draw one pooled sample.
+        self._val_file_samples = None
+        labels_idx = _dataset_labels_idx(val_dataset)
+        if val_file_nodes is not None and val_file_names and labels_idx is not None:
+            import numpy as np
+
+            self._val_file_samples = [
+                np.flatnonzero(labels_idx == f) for f in range(len(val_file_names))
+            ]
 
         # Local disk config
         self.save_local = save_local
@@ -692,11 +756,13 @@ class UnifiedVizCallback(Callback):
                 return log
         return None
 
-    def _get_viz_data(self, sample):
+    def _get_viz_data(self, sample, split: str = "train"):
         """Get visualization data with all needed fields based on model type.
 
         Args:
             sample: A sample from the visualization dataset.
+            split: ``"train"`` or ``"val"``: which per-file node sets restrict the
+                sample to its own file's nodes (see ``train_file_nodes``).
 
         Returns:
             VisualizationData with appropriate fields populated.
@@ -717,9 +783,13 @@ class UnifiedVizCallback(Callback):
             kwargs["include_instance_masks"] = True
 
         # Access lightning_model lazily from model_trainer
-        return self.model_trainer.lightning_model.get_visualization_data(
+        data = self.model_trainer.lightning_model.get_visualization_data(
             sample, **kwargs
         )
+        node_sets = self.train_file_nodes if split == "train" else self.val_file_nodes
+        if node_sets is not None and "labels_idx" in sample:
+            data = _restrict_viz_nodes(data, node_sets[int(sample["labels_idx"])])
+        return data
 
     def _save_local_viz(self, data, prefix: str, epoch: int):
         """Save visualization to local disk.
@@ -1011,16 +1081,31 @@ class UnifiedVizCallback(Callback):
                 # Get ONE sample for train visualization
                 train_sample = next(self.train_pipeline)
                 # Run inference ONCE with all needed data
-                train_data = self._get_viz_data(train_sample)
+                train_data = self._get_viz_data(train_sample, "train")
                 # Output to all destinations
                 self._save_local_viz(train_data, "train", epoch)
                 self._log_wandb_viz(train_data, "train", epoch, wandb_logger)
 
-                # Same for validation
-                val_sample = next(self.val_pipeline)
-                val_data = self._get_viz_data(val_sample)
-                self._save_local_viz(val_data, "validation", epoch)
-                self._log_wandb_viz(val_data, "val", epoch, wandb_logger)
+                if self._val_file_samples is not None:
+                    # One validation sample of each file, a different one each
+                    # epoch, on that file's nodes.
+                    for name, samples in zip(
+                        self.val_file_names, self._val_file_samples
+                    ):
+                        if not len(samples):
+                            continue
+                        i = int(samples[(epoch * 7919) % len(samples)])
+                        val_data = self._get_viz_data(self.val_dataset[i], "val")
+                        self._save_local_viz(val_data, f"validation.{name}", epoch)
+                        self._log_wandb_viz(
+                            val_data, f"val/{name}", epoch, wandb_logger
+                        )
+                else:
+                    # Same for validation
+                    val_sample = next(self.val_pipeline)
+                    val_data = self._get_viz_data(val_sample, "val")
+                    self._save_local_viz(val_data, "validation", epoch)
+                    self._log_wandb_viz(val_data, "val", epoch, wandb_logger)
 
         # Sync all processes - barrier must be reached by ALL ranks
         trainer.strategy.barrier()
@@ -1251,6 +1336,651 @@ class UnifiedVizCallback(Callback):
         ax.set_yticks([])
         fig.tight_layout()
         return fig
+
+
+class WandBGalleryCallback(Callback):
+    """W&B prediction gallery for box detectors, top-down and bottom-up pose models.
+
+    On by default whenever W&B logging is on (``trainer_config.wandb.gallery``).
+    At the end of a validation epoch (rank 0 only, no barrier) it logs:
+
+    * ``viz/gallery/val``: a fixed panel of validation samples with ground truth and
+      predictions. The panel is chosen once (on the first event) from the val
+      dataset's sample metadata by :func:`~sleap_nn.training.gallery.select_panel`
+      (stratified by val file, a seeded "typical" draw plus the "hard" samples), and
+      the same images are logged at every event, so the W&B step slider shows the
+      same samples improving. Detectors: frames with native W&B boxes
+      (``ground_truth`` / ``predictions`` with scores, toggled and filtered in the
+      viewer). Pose: crops drawn with OpenCV on the crop's own skeleton (its file's
+      nodes and edges), with the median error in the caption. Bottom-up pose
+      (``"instances"``): whole frames with the grouped predicted animals over the
+      ground truth, drawn with sleap-io's renderer (Skia), with the ground-truth and
+      predicted animal counts and the median error of greedily paired animals in
+      the caption; the "hard" samples are the frames with the most animals.
+    * ``viz/gallery/train``: the first samples of the first training batch after the
+      previous validation, exactly as the loader produced them (augmented), with
+      their targets; ``bbox_detr`` frames are resized to that step's multi-scale size
+      as the model received them.
+    * ``viz/gallery/seconds`` (wall time of the event) and ``viz/gallery/bytes``
+      (JPEG bytes logged so far).
+
+    Cost: one no-grad forward over the panel per event, in chunks of
+    ``batch_size``, eager even when the model is compiled (no recompilation for a new
+    batch size), under the trainer's precision context, with the weights the
+    validation pass used (EMA swaps out at ``on_validation_end``, after this hook).
+    Events are capped at about ``max_logs`` per run (a stride over the planned
+    validations) and by a time budget: an event is skipped while the gallery's
+    running time would exceed ``max_fraction`` of the training time so far (runs that
+    validate every few seconds). The first and the last planned validation always
+    log. Panel frames are decoded, downscaled and JPEG-encoded once; each event
+    only re-encodes the boxes (detectors) or the drawn crops / frames (pose).
+
+    It never changes training: Python, NumPy, torch CPU and CUDA RNG states and every
+    submodule's train/eval mode are restored after each hook, and the panel and
+    training samples are drawn without touching the training loaders. Any error
+    inside the gallery is logged once as a warning and turns the gallery off for the
+    rest of the run; training continues.
+
+    Attributes:
+        kind: ``"bbox"`` (box detectors), ``"keypoints"`` (centered instance) or
+            ``"instances"`` (bottom-up models: whole frames, grouped animals).
+        size: Maximum validation panel size.
+        max_logs: Approximate maximum number of logging events per run.
+        train_size: Training samples shown per event.
+        frame_long_side: Whole frames (detectors, bottom-up) are downscaled to this
+            long side.
+        max_fraction: Time budget of the events, as a fraction of training time.
+        enabled: False after an error (or when W&B is not configured).
+    """
+
+    def __init__(
+        self,
+        kind: str,
+        val_names: Sequence[str],
+        train_names: Sequence[str],
+        val_labs: Optional[Sequence[Optional[str]]] = None,
+        train_labs: Optional[Sequence[Optional[str]]] = None,
+        val_file_nodes: Optional[List[List[int]]] = None,
+        train_file_nodes: Optional[List[List[int]]] = None,
+        val_edges: Optional[List[list]] = None,
+        train_edges: Optional[List[list]] = None,
+        categories: Optional[Sequence[str]] = None,
+        size: int = 64,
+        max_logs: int = 50,
+        train_size: int = 8,
+        frame_long_side: int = 640,
+        max_fraction: float = 0.01,
+    ):
+        """Initialize the gallery.
+
+        Args:
+            kind: ``"bbox"``, ``"keypoints"`` or ``"instances"``.
+            val_names: Display name of every validation labels file.
+            train_names: Display name of every training labels file.
+            val_labs: Optional lab (or other group) per validation file, shown in
+                captions.
+            train_labs: The same per training file.
+            val_file_nodes: Per validation file, the model channels of its nodes
+                (multi-skeleton pose heads); ``None``: every channel.
+            train_file_nodes: The same per training file.
+            val_edges: Per validation file, skeleton edges as model channel pairs.
+            train_edges: The same per training file.
+            categories: Box class names (detectors); default: the module's
+                ``categories``.
+            size: Maximum validation panel size.
+            max_logs: Approximate maximum number of logging events per run.
+            train_size: Training samples shown per event.
+            frame_long_side: Whole frames (detectors, bottom-up) are downscaled to
+                this long side.
+            max_fraction: Time budget: skip an event while the events so far plus
+                the last event's time would exceed this fraction of the elapsed
+                training time (the one-time panel load is not counted).
+        """
+        super().__init__()
+        if kind not in ("bbox", "keypoints", "instances"):
+            raise ValueError(f"Unknown gallery kind {kind!r}.")
+        self.kind = kind
+        self.val_names = list(val_names)
+        self.train_names = list(train_names)
+        self.val_labs = list(val_labs or [None] * len(self.val_names))
+        self.train_labs = list(train_labs or [None] * len(self.train_names))
+        self.val_file_nodes = val_file_nodes
+        self.train_file_nodes = train_file_nodes
+        self.val_edges = val_edges
+        self.train_edges = train_edges
+        self.categories = list(categories) if categories else None
+        self.size = int(size)
+        self.max_logs = max(1, int(max_logs))
+        self.train_size = int(train_size)
+        self.frame_long_side = int(frame_long_side)
+        self.max_fraction = float(max_fraction)
+        self.enabled = True
+        self._panel = None  # list of panel sample dicts (CPU)
+        self._panel_images = None  # (N, 1, C, H, W) uint8 CPU
+        self._train = None  # captured training samples (pinned CPU) + event
+        self._need_train = True
+        self._val_count = 0  # validation epochs seen (sanity check excluded)
+        self._stride = None
+        self._planned = None
+        self._events = 0
+        self._bytes = 0
+        #: Wall time of every logging event (seconds; the first includes the
+        #: panel load, also kept in ``panel_seconds``).
+        self.event_seconds = []
+        self.panel_seconds = 0.0
+        self.skipped_for_budget = 0
+        self._t0 = None
+        self._cache_dir = None
+
+    # ── hooks ──────────────────────────────────────────────────────────────
+    def on_train_start(self, trainer, pl_module):
+        """Start the clock of the time budget."""
+        self._t0 = time.perf_counter()
+
+    def teardown(self, trainer, pl_module, stage):
+        """Remove the cached panel JPEGs."""
+        import shutil
+
+        if self._cache_dir is not None:
+            shutil.rmtree(self._cache_dir, ignore_errors=True)
+            self._cache_dir = None
+
+    def on_train_batch_start(self, trainer, pl_module, batch, batch_idx):
+        """Copy the first samples of the first batch after a validation (async)."""
+        if not (self.enabled and self._need_train and trainer.is_global_zero):
+            return
+        self._need_train = False
+        self._guarded(self._capture_train, trainer, pl_module, batch)
+
+    def on_validation_end(self, trainer, pl_module):
+        """Capture the next training batch."""
+        if not trainer.sanity_checking:
+            self._need_train = True
+
+    def on_validation_epoch_end(self, trainer, pl_module):
+        """Log the gallery (rank 0, capped frequency)."""
+        if not self.enabled or trainer.sanity_checking or not trainer.is_global_zero:
+            return
+        count = self._val_count
+        self._val_count += 1
+        if not self._should_log(trainer, count):
+            return
+        if self._over_budget(count):
+            self.skipped_for_budget += 1
+            return
+        self._guarded(self._log_event, trainer, pl_module)
+
+    # ── scheduling ─────────────────────────────────────────────────────────
+    def _planned_validations(self, trainer) -> Optional[int]:
+        max_epochs = getattr(trainer, "max_epochs", None)
+        if max_epochs is None or max_epochs < 0:
+            return None
+        every = getattr(trainer, "check_val_every_n_epoch", None) or 1
+        per_epoch = 1
+        interval = getattr(trainer, "val_check_interval", 1.0)
+        if isinstance(interval, float) and 0 < interval < 1:
+            per_epoch = int(math.floor(1.0 / interval))
+        return max(1, int(math.ceil(max_epochs / every)) * per_epoch)
+
+    def _should_log(self, trainer, count: int) -> bool:
+        if self._stride is None:
+            self._planned = self._planned_validations(trainer)
+            self._stride = (
+                1
+                if self._planned is None
+                else max(1, math.ceil(self._planned / self.max_logs))
+            )
+        if self._planned is None and self._events >= self.max_logs:
+            # Unknown run length: halve the rate each time the cap is reached.
+            self._stride *= 2
+            self.max_logs *= 2
+        return count % self._stride == 0 or self._is_last(count)
+
+    def _is_last(self, count: int) -> bool:
+        return self._planned is not None and count == self._planned - 1
+
+    def _over_budget(self, count: int) -> bool:
+        """Would this event push the events' time over ``max_fraction``?"""
+        if not self.event_seconds or self._t0 is None or self._is_last(count):
+            return False
+        spent = sum(self.event_seconds) - self.panel_seconds
+        last = self.event_seconds[-1]
+        if len(self.event_seconds) == 1:
+            last -= self.panel_seconds
+        elapsed = time.perf_counter() - self._t0
+        return spent + last > self.max_fraction * elapsed
+
+    # ── safety ─────────────────────────────────────────────────────────────
+    def _guarded(self, fn, trainer, pl_module, *args):
+        """Run ``fn`` with RNG states and module modes restored; never raise."""
+        import random
+
+        import numpy as np
+
+        device = getattr(pl_module, "device", None)
+        cuda = device is not None and device.type == "cuda"
+        states = (
+            random.getstate(),
+            np.random.get_state(),
+            torch.get_rng_state(),
+            torch.cuda.get_rng_state(device) if cuda else None,
+        )
+        modes = [(m, m.training) for m in pl_module.modules()]
+        try:
+            fn(trainer, pl_module, *args)
+        except Exception as e:  # noqa: BLE001 -- the gallery must never stop training
+            self.enabled = False
+            logger.warning(
+                f"W&B gallery turned off for this run after an error: "
+                f"{type(e).__name__}: {e}"
+            )
+        finally:
+            for m, mode in modes:
+                m.training = mode
+            random.setstate(states[0])
+            np.random.set_state(states[1])
+            torch.set_rng_state(states[2])
+            if cuda:
+                torch.cuda.set_rng_state(states[3], device)
+
+    @staticmethod
+    def _wandb_logger(trainer):
+        from lightning.pytorch.loggers import WandbLogger
+
+        for log in trainer.loggers:
+            if isinstance(log, WandbLogger):
+                return log
+        return None
+
+    @staticmethod
+    def _val_dataset(trainer):
+        loaders = trainer.val_dataloaders
+        if isinstance(loaders, (list, tuple)):
+            loaders = loaders[0]
+        return getattr(loaders, "dataset", None), getattr(loaders, "batch_size", None)
+
+    @property
+    def _image_key(self) -> str:
+        """The batch key of the model input: whole frames or instance crops."""
+        return "instance_image" if self.kind == "keypoints" else "image"
+
+    # ── training samples ───────────────────────────────────────────────────
+    def _capture_train(self, trainer, pl_module, batch):
+        key = self._image_key
+        if not isinstance(batch, dict) or key not in batch:
+            return
+        k = min(self.train_size, int(batch[key].shape[0]))
+        if k <= 0:
+            return
+        keys = [key, "labels_idx", "video_idx", "frame_idx"]
+        keys += {
+            "bbox": ["bboxes", "bbox_classes", "num_instances"],
+            "keypoints": ["instance", "node_weights"],
+            "instances": ["instances", "num_instances"],
+        }[self.kind]
+        out = {}
+        for name in keys:
+            t = batch.get(name)
+            if not isinstance(t, torch.Tensor):
+                continue
+            t = t[:k]
+            if t.is_cuda:
+                dst = torch.empty(t.shape, dtype=t.dtype, pin_memory=True)
+                dst.copy_(t, non_blocking=True)
+                out[name] = dst
+            else:
+                out[name] = t.clone()
+        event = None
+        if out[key].is_pinned():
+            event = torch.cuda.Event()
+            event.record()
+        size = None
+        sizes = getattr(pl_module, "multi_scale_sizes", None)
+        if self.kind == "bbox" and sizes:
+            from sleap_nn.data.detr_augmentation import batch_scale
+
+            # `_train_input` resizes this step's batch to this size.
+            size = tuple(batch_scale(trainer.global_step, sizes))
+        self._train = {"tensors": out, "event": event, "size": size}
+
+    def _train_images(self, categories) -> list:
+        import numpy as np
+
+        from sleap_nn.training import gallery
+
+        if self._train is None:
+            return []
+        if self._train["event"] is not None:
+            self._train["event"].synchronize()
+        t = self._train["tensors"]
+        key = self._image_key
+        images = []
+        for i in range(t[key].shape[0]):
+            img = gallery.to_rgb_uint8(t[key][i])
+            f = int(t["labels_idx"][i]) if "labels_idx" in t else 0
+            name = self.train_names[f] if f < len(self.train_names) else f"train{f}"
+            lab = self.train_labs[f] if f < len(self.train_labs) else None
+            v = int(t["video_idx"][i]) if "video_idx" in t else -1
+            fr = int(t["frame_idx"][i]) if "frame_idx" in t else -1
+            if self.kind == "bbox":
+                n = int(t["num_instances"][i]) if "num_instances" in t else None
+                boxes = t["bboxes"][i].float().numpy()[:n]
+                classes = (
+                    t["bbox_classes"][i].numpy()[:n] if "bbox_classes" in t else None
+                )
+                h, w = img.shape[:2]
+                extra = f"input {h}x{w}"
+                size = self._train["size"]
+                if size is not None and tuple(size) != (h, w):
+                    sy, sx = size[0] / h, size[1] / w
+                    img = gallery.cv2.resize(
+                        img, (size[1], size[0]), interpolation=gallery.cv2.INTER_LINEAR
+                    )
+                    boxes = boxes * np.array([sx, sy, sx, sy], dtype=np.float32)
+                    extra = f"input {size[0]}x{size[1]} (multi-scale)"
+                cap = gallery.caption(name, lab, v, fr, f"{extra}, {n} boxes")
+                images.append(
+                    gallery.bbox_wandb_image(
+                        img,
+                        boxes,
+                        cap,
+                        categories,
+                        gt_classes=classes,
+                        long_side=self.frame_long_side,
+                    )
+                )
+            elif self.kind == "instances":
+                gt = self._frame_instances(t["instances"][i], t.get("num_instances"), i)
+                gt = self._only_nodes(gt, self._nodes(self.train_file_nodes, f, None))
+                edges = self.train_edges[f] if self.train_edges else []
+                drawn = gallery.draw_instances(
+                    img, edges, gt=gt, long_side=self.frame_long_side
+                )
+                h, w = img.shape[:2]
+                cap = gallery.caption(
+                    name, lab, v, fr, f"input {h}x{w}, {len(gt)} instances"
+                )
+                images.append(gallery.keypoint_wandb_image(drawn, cap))
+            else:
+                kpts = t["instance"][i].reshape(-1, 2).float().numpy()
+                nodes = self._nodes(self.train_file_nodes, f, kpts.shape[0])
+                if "node_weights" in t:
+                    w = t["node_weights"][i].reshape(-1).float().numpy()
+                    nodes = [n for n in nodes if w[n] > 0]
+                edges = self.train_edges[f] if self.train_edges else []
+                drawn = gallery.draw_keypoints(img, nodes, edges, gt=kpts)
+                cap = gallery.caption(name, lab, v, fr, f"{len(nodes)} target nodes")
+                images.append(gallery.keypoint_wandb_image(drawn, cap))
+        self._train = None
+        return images
+
+    def _categories(self, pl_module) -> list:
+        return self.categories or list(
+            getattr(pl_module, "categories", None) or ["object"]
+        )
+
+    @staticmethod
+    def _nodes(file_nodes, f: int, k: Optional[int]) -> Optional[list]:
+        if file_nodes is not None and f < len(file_nodes):
+            return list(file_nodes[f])
+        return None if k is None else list(range(k))
+
+    @staticmethod
+    def _frame_instances(instances, num_instances=None, i: int = 0):
+        """``(n, K, 2)`` numpy instances of one sample's ``instances`` tensor."""
+        import numpy as np
+
+        arr = instances.float().cpu().numpy()
+        arr = arr.reshape(-1, arr.shape[-2], 2)
+        if num_instances is not None:
+            n = num_instances[i] if getattr(num_instances, "ndim", 0) else num_instances
+            arr = arr[: int(n)]
+        return arr[np.isfinite(arr).all(axis=-1).any(axis=-1)]
+
+    @staticmethod
+    def _only_nodes(instances, nodes: Optional[list]):
+        """``instances`` with the nodes outside ``nodes`` set to NaN (``None``: all)."""
+        import numpy as np
+
+        if nodes is None:
+            return instances
+        out = np.full_like(instances, np.nan)
+        out[:, nodes] = instances[:, nodes]
+        return out
+
+    # ── validation panel ───────────────────────────────────────────────────
+    def _panel_metadata(self, dataset):
+        """``(groups, hardness)`` of the val dataset's samples, from metadata only."""
+        import numpy as np
+
+        from sleap_nn.training import gallery
+
+        table = getattr(dataset, "table", None)
+        if self.kind == "keypoints" and table is not None and hasattr(table, "box"):
+            return (
+                np.asarray(table.labels_idx),
+                gallery.instance_hardness(table.box, table.labels_idx),
+            )
+        samples = getattr(dataset, "lf_idx_list", None)
+        if samples is None:
+            n = len(dataset)
+            return np.zeros(n, dtype=int), None
+        groups, boxes, counts = [], [], []
+        for i in range(len(samples)):
+            s = samples[i]
+            groups.append(int(s.get("labels_idx", 0)))
+            boxes.append(s.get("bboxes", np.zeros((0, 4))))
+            if self.kind == "instances":
+                counts.append(self._sample_count(dataset, s))
+        groups = np.asarray(groups)
+        hardness = None
+        if self.kind == "bbox":
+            hardness = gallery.box_hardness(boxes, groups)
+        elif self.kind == "instances" and all(c is not None for c in counts):
+            hardness = gallery.instance_count_hardness(counts)
+        return np.asarray(groups), hardness
+
+    @staticmethod
+    def _sample_count(dataset, sample) -> Optional[int]:
+        """Number of labeled animals in a whole-frame sample (``None``: unknown).
+
+        From the sample's cached instances, else from its labeled frame.
+        """
+        if sample.get("is_negative", False):
+            return 0
+        instances = sample.get("instances")
+        if instances is None:
+            labels_list = getattr(dataset, "labels_list", None)
+            try:
+                lf = labels_list[sample["labels_idx"]][sample["lf_idx"]]
+            except (TypeError, KeyError, IndexError):
+                return None
+            instances = lf.instances
+        return sum(1 for inst in instances if not inst.is_empty)
+
+    def _build_panel(self, trainer):
+        from sleap_nn.training import gallery
+
+        dataset, batch_size = self._val_dataset(trainer)
+        if dataset is None or len(dataset) == 0:
+            raise RuntimeError("no validation dataset to draw a gallery from")
+        self._batch_size = max(1, int(batch_size or 16))
+        groups, hardness = self._panel_metadata(dataset)
+        names = self.val_names or ["val"]
+        picks = gallery.select_panel(groups, names, self.size, hardness)
+        key = self._image_key
+        if self.kind == "bbox":
+            import tempfile
+
+            self._cache_dir = tempfile.mkdtemp(prefix="sleap_nn_gallery_")
+        panel, images = [], []
+        for idx, role in picks:
+            s = dataset[idx]
+            img = s[key]
+            images.append(img if img.dim() == 4 else img.unsqueeze(0))
+            item = {
+                "file": int(s.get("labels_idx", 0)),
+                "video": int(s.get("video_idx", -1)),
+                "frame": int(s.get("frame_idx", -1)),
+                "role": role,
+            }
+            if self.kind == "bbox":
+                n = int(s["num_instances"])
+                item["gt"] = s["bboxes"][:n].float().numpy()
+                item["gt_classes"] = s["bbox_classes"][:n].numpy()
+                # The frame never changes: downscale and encode it once.
+                path = f"{self._cache_dir}/val_{len(panel):03d}.jpg"
+                scale, _ = gallery.encode_display_jpeg(
+                    gallery.to_rgb_uint8(img), path, self.frame_long_side
+                )
+                item["cached"] = (path, scale)
+            elif self.kind == "instances":
+                item["gt"] = self._frame_instances(
+                    s["instances"], s.get("num_instances")
+                )
+            else:
+                item["gt"] = s["instance"].reshape(-1, 2).float().numpy()
+            panel.append(item)
+        self._panel = panel
+        self._panel_images = torch.stack(images, 0)
+        logger.info(
+            f"W&B gallery: {len(panel)} validation samples from "
+            f"{len(set(p['file'] for p in panel))} file(s); stride "
+            f"{self._stride} over {self._planned} planned validations."
+        )
+
+    def _val_images(self, trainer, pl_module) -> list:
+        import contextlib
+
+        import numpy as np
+
+        from sleap_nn.training import gallery
+
+        pl_module.eval()
+        preds = []
+        with contextlib.ExitStack() as stack:
+            # Eager even if the network is compiled: a new batch size would
+            # recompile it. `set_stance` takes effect when called, so it is entered
+            # into the stack at once (its exit restores the previous stance).
+            set_stance = getattr(torch.compiler, "set_stance", None)
+            if set_stance is not None:
+                stack.enter_context(set_stance("force_eager"))
+            plugin = getattr(trainer, "precision_plugin", None)
+            if plugin is not None and hasattr(plugin, "forward_context"):
+                stack.enter_context(plugin.forward_context())
+            stack.enter_context(torch.no_grad())
+            for start in range(0, len(self._panel), self._batch_size):
+                x = self._panel_images[start : start + self._batch_size].to(
+                    pl_module.device, non_blocking=True
+                )
+                if self.kind == "bbox":
+                    preds += gallery.predict_boxes(pl_module, x)
+                elif self.kind == "instances":
+                    preds += gallery.predict_instances(pl_module, x)
+                else:
+                    pts, vals = gallery.predict_keypoints(pl_module, x)
+                    preds += list(zip(pts, vals))
+
+        categories = self._categories(pl_module)
+        images = []
+        for item, img_t, pred in zip(self._panel, self._panel_images, preds):
+            f = item["file"]
+            name = self.val_names[f] if f < len(self.val_names) else f"val{f}"
+            lab = self.val_labs[f] if f < len(self.val_labs) else None
+            if self.kind == "bbox":
+                boxes, scores = pred
+                extra = f"GT {len(item['gt'])}, pred>=0.5 {int((scores >= 0.5).sum())}"
+                cap = gallery.caption(
+                    name, lab, item["video"], item["frame"], extra, item["role"]
+                )
+                images.append(
+                    gallery.bbox_wandb_image(
+                        None,
+                        item["gt"],
+                        cap,
+                        categories,
+                        pred_boxes=boxes,
+                        pred_scores=scores,
+                        gt_classes=item["gt_classes"],
+                        cached=item["cached"],
+                    )
+                )
+            elif self.kind == "instances":
+                img = gallery.to_rgb_uint8(img_t)
+                pts, _ = pred
+                nodes = self._nodes(self.val_file_nodes, f, None)
+                gt = self._only_nodes(item["gt"], nodes)
+                pts = self._only_nodes(pts, nodes)
+                edges = self.val_edges[f] if self.val_edges else []
+                err = gallery.instance_error(gt, pts)
+                # Count animals with a found node: class-map grouping returns one
+                # slot per class, found or not.
+                n_pred = int(np.isfinite(pts).all(-1).any(-1).sum()) if pts.size else 0
+                extra = f"GT {len(gt)}, pred {n_pred}"
+                if np.isfinite(err):
+                    extra += f", err {err:.1f}px"
+                drawn = gallery.draw_instances(
+                    img, edges, gt=gt, pred=pts, long_side=self.frame_long_side
+                )
+                cap = gallery.caption(
+                    name, lab, item["video"], item["frame"], extra, item["role"]
+                )
+                images.append(gallery.keypoint_wandb_image(drawn, cap))
+            else:
+                img = gallery.to_rgb_uint8(img_t)
+                pts, vals = pred
+                nodes = self._nodes(self.val_file_nodes, f, pts.shape[0])
+                edges = self.val_edges[f] if self.val_edges else []
+                err = gallery.keypoint_error(item["gt"], pts, nodes)
+                side = max(img.shape[:2])
+                extra = (
+                    f"err {err:.1f}px ({100 * err / side:.1f}% crop)"
+                    if np.isfinite(err)
+                    else "no GT"
+                )
+                drawn = gallery.draw_keypoints(
+                    img, nodes, edges, gt=item["gt"], pred=pts, pred_values=vals
+                )
+                cap = gallery.caption(
+                    name, lab, item["video"], item["frame"], extra, item["role"]
+                )
+                images.append(gallery.keypoint_wandb_image(drawn, cap))
+        return images
+
+    def _log_event(self, trainer, pl_module):
+        import os
+
+        wandb_logger = self._wandb_logger(trainer)
+        if wandb_logger is None:
+            self.enabled = False
+            return
+        t0 = time.perf_counter()
+        if self._panel is None:
+            self._build_panel(trainer)
+            self.panel_seconds = time.perf_counter() - t0
+        val_images = self._val_images(trainer, pl_module)
+        train_images = self._train_images(self._categories(pl_module))
+        for img in val_images + train_images:
+            path = getattr(img, "_path", None)
+            if path and os.path.exists(path):
+                self._bytes += os.path.getsize(path)
+        log = {"viz/gallery/val": val_images, "epoch": trainer.current_epoch}
+        if train_images:
+            log["viz/gallery/train"] = train_images
+        wandb_logger.experiment.log(log, commit=False)
+        # The event's time includes the log call (W&B copies the media files there).
+        seconds = time.perf_counter() - t0
+        self.event_seconds.append(seconds)
+        self._events += 1
+        wandb_logger.experiment.log(
+            {"viz/gallery/seconds": seconds, "viz/gallery/bytes": self._bytes},
+            commit=False,
+        )
+        logger.info(
+            f"W&B gallery: event {self._events} ({len(val_images)} val, "
+            f"{len(train_images)} train images) in {seconds:.2f} s; "
+            f"{self._bytes / 2**20:.1f} MiB logged so far."
+        )
 
 
 class MatplotlibSaver(Callback):
@@ -1505,6 +2235,73 @@ class ProgressReporterZMQ(Callback):
         }
 
 
+def _is_eval_epoch(trainer, eval_frequency: int) -> bool:
+    """Whether this validation epoch is scored (every ``eval_frequency`` epochs)."""
+    return (
+        trainer.current_epoch + 1
+    ) % eval_frequency == 0 and not trainer.sanity_checking
+
+
+def _val_sampler(trainer):
+    """The sampler of the (first) val dataloader, or None."""
+    dataloaders = trainer.val_dataloaders
+    if isinstance(dataloaders, (list, tuple)):
+        dataloaders = dataloaders[0] if dataloaders else None
+    return getattr(dataloaders, "sampler", None)
+
+
+def _gather_val_entries(trainer, gts: list, preds: list):
+    """Every rank's collected val entries, in val-set order.
+
+    A collective under DDP: every rank must call it. DDP shards the val set with a
+    ``DistributedSampler``, so each rank holds only its shard and scoring rank 0's
+    lists alone measured ``1 / world_size`` of the val set. Validation steps append
+    one ``(gt, pred)`` pair per val sample, in sampler order, and an unshuffled
+    sampler deals sample ``i`` to rank ``i % world_size``; interleaving the ranks'
+    lists therefore restores val-set order, and the padding the sampler appends to
+    even out the shards (repeats of the first samples) is whatever lies past
+    ``len(dataset)``. When the lists do not line up one-to-one with the sampler (e.g.
+    the tiling sampler) the ranks' lists are concatenated as they are.
+
+    Top-down entries carry a ``crop_id`` counted per rank; the gathered entries are
+    renumbered so every crop stays its own pseudo-frame (:func:`_eval_frame_idx`).
+    A single process returns its own lists.
+    """
+    import torch.distributed as dist
+    from torch.utils.data import DistributedSampler
+
+    if not (dist.is_available() and dist.is_initialized()) or (trainer.world_size <= 1):
+        return gts, preds
+    gathered = [None] * trainer.world_size
+    dist.all_gather_object(gathered, (gts, preds))
+    sampler = _val_sampler(trainer)
+    aligned = (
+        isinstance(sampler, DistributedSampler)
+        and not sampler.shuffle
+        and all(
+            len(rank_gts) == len(rank_preds) == sampler.num_samples
+            for rank_gts, rank_preds in gathered
+        )
+    )
+    if aligned:
+        n = len(sampler.dataset)
+        out_gts = [r[0][i] for i in range(sampler.num_samples) for r in gathered][:n]
+        out_preds = [r[1][i] for i in range(sampler.num_samples) for r in gathered][:n]
+    else:
+        out_gts = [gt for rank_gts, _ in gathered for gt in rank_gts]
+        out_preds = [pred for _, rank_preds in gathered for pred in rank_preds]
+    if len(out_gts) == len(out_preds):
+        out_gts = [
+            {**gt, "crop_id": i} if "crop_id" in gt else gt
+            for i, gt in enumerate(out_gts)
+        ]
+        out_preds = [
+            {**pred, "crop_id": i} if "crop_id" in pred else pred
+            for i, pred in enumerate(out_preds)
+        ]
+    return out_gts, out_preds
+
+
 def _eval_frame_idx(entry: dict) -> int:
     """The frame index an epoch-end eval entry is scored under.
 
@@ -1517,6 +2314,51 @@ def _eval_frame_idx(entry: dict) -> int:
     """
     crop_id = entry.get("crop_id")
     return int(crop_id) if crop_id is not None else int(entry["frame_idx"])
+
+
+@dataclass
+class ValFile:
+    """One validation labels file, for per-file epoch-end evaluation.
+
+    Attributes:
+        name: Display name; metrics are logged as ``eval/<name>/*``.
+        videos: The file's own ``labels.videos`` (val entries' ``video_idx``
+            indexes them).
+        node_names: The model nodes this file is scored on, in model order.
+    """
+
+    name: str
+    videos: list
+    node_names: List[str]
+
+
+def select_nodes(
+    node_names: Sequence[str], spec: Union[str, Sequence[str], None]
+) -> List[str]:
+    """The nodes of ``node_names`` a node spec picks, in ``node_names`` order.
+
+    ``spec`` is a list of node names, or a string prefix (e.g. ``"lab_a/"``)
+    selecting every node whose name starts with it; ``None`` selects every node.
+
+    Raises:
+        ValueError: If a listed node is not in ``node_names`` or nothing is
+            selected.
+    """
+    if spec is None:
+        return list(node_names)
+    if isinstance(spec, str):
+        out = [n for n in node_names if n.startswith(spec)]
+        if not out:
+            raise ValueError(f"No node name starts with the prefix {spec!r}.")
+        return out
+    spec = list(spec)
+    missing = [n for n in spec if n not in node_names]
+    if missing:
+        raise ValueError(f"Nodes {missing} are not model nodes.")
+    if not spec:
+        raise ValueError("An empty node list selects no node.")
+    keep = set(spec)
+    return [n for n in node_names if n in keep]
 
 
 class EpochEndEvaluationCallback(Callback):
@@ -1535,6 +2377,17 @@ class EpochEndEvaluationCallback(Callback):
         metrics_to_log: List of metric keys to log.
     """
 
+    # The nested `Evaluator.evaluate()` scalars `_log_metrics` reads.
+    _LOGGED_METRICS = {
+        "mOKS": ("mOKS",),
+        "voc_metrics": ("oks_voc.mAP", "oks_voc.mAR"),
+        "distance_metrics": ("avg", "p50", "p95", "p99"),
+        "pck_metrics": ("mPCK", "PCK@5", "PCK@10"),
+        "visibility_metrics": ("precision", "recall"),
+        # Present only with ``norm_scale`` (Evaluator's opt-in metrics).
+        "normalized_distance_metrics": ("p50", "p95", "miss_rate"),
+    }
+
     def __init__(
         self,
         skeleton: "sio.Skeleton",
@@ -1543,23 +2396,63 @@ class EpochEndEvaluationCallback(Callback):
         oks_stddev: float = 0.025,
         oks_scale: Optional[float] = None,
         metrics_to_log: Optional[list] = None,
+        val_files: Optional[List["ValFile"]] = None,
+        norm_scale: Optional[str] = None,
+        norm_missing_error: float = 1.0,
+        norm_pad_frac: float = 0.0,
     ):
         """Initialize the callback.
 
         Args:
             skeleton: sio.Skeleton for creating instances.
-            videos: List of sio.Video objects.
+            videos: List of sio.Video objects (of the first val file when there
+                are several; ``val_files`` then carries every file's own).
             eval_frequency: Run evaluation every N epochs (default: 1).
             oks_stddev: OKS standard deviation (default: 0.025).
             oks_scale: Optional OKS scale override.
             metrics_to_log: List of metric keys to log. If None, logs all available.
+            val_files: One :class:`ValFile` per validation labels file, when there
+                are several. Entries carrying ``labels_idx`` are then keyed by
+                ``(labels_idx, video_idx, frame_idx)`` against their own file's
+                videos; the pooled ``eval/val/*`` metrics cover every file on the
+                full skeleton, and each file is also scored alone on its own nodes
+                (``eval/<name>/*``) with the unweighted mean over files logged as
+                ``eval/macro/*``.
+            norm_scale: Opt-in error relative to instance size (``"bbox"`` /
+                ``"points"``, see :meth:`Evaluator.normalized_distance_metrics`), logged
+                as ``<prefix>/norm_distance/p50``, ``p95`` and ``miss_rate``. ``None``
+                (default) logs nothing new.
+            norm_missing_error: Error of an unpredicted labeled point (scale units).
+            norm_pad_frac: Padding of a points box, fraction of its longest side.
         """
+        import numpy as np
+        import sleap_io as sio
+
         super().__init__()
         self.skeleton = skeleton
         self.videos = videos
+        self.val_files = list(val_files) if val_files and len(val_files) > 1 else None
+        if self.val_files is not None:
+            # Pooled labels hold every file's videos: file `f`'s video `v` is
+            # `self.videos[self._video_offsets[f] + v]`.
+            self._video_offsets = np.cumsum(
+                [0] + [len(f.videos) for f in self.val_files[:-1]]
+            ).tolist()
+            self.videos = [v for f in self.val_files for v in f.videos]
+            self._file_node_idx = [
+                [skeleton.node_names.index(n) for n in f.node_names]
+                for f in self.val_files
+            ]
+            self._file_skeletons = [
+                sio.Skeleton(nodes=list(f.node_names), name=f.name)
+                for f in self.val_files
+            ]
         self.eval_frequency = eval_frequency
         self.oks_stddev = oks_stddev
         self.oks_scale = oks_scale
+        self.norm_scale = norm_scale
+        self.norm_missing_error = norm_missing_error
+        self.norm_pad_frac = norm_pad_frac
         self.metrics_to_log = metrics_to_log or [
             "mOKS",
             "oks_voc.mAP",
@@ -1574,87 +2467,170 @@ class EpochEndEvaluationCallback(Callback):
             "visibility_precision",
             "visibility_recall",
         ]
+        if norm_scale is not None and metrics_to_log is None:
+            self.metrics_to_log += ["norm/p50", "norm/p95", "norm/miss_rate"]
 
     def on_validation_epoch_start(self, trainer, pl_module):
-        """Enable prediction collection at the start of validation.
-
-        Skip during sanity check to avoid inference issues.
-        """
+        """Enable prediction collection on scored epochs (not the sanity check)."""
         if trainer.sanity_checking:
             return
-        pl_module._collect_val_predictions = True
+        pl_module._collect_val_predictions = _is_eval_epoch(
+            trainer, self.eval_frequency
+        )
 
     def on_validation_epoch_end(self, trainer, pl_module):
-        """Run evaluation and log metrics at end of validation epoch."""
-        import sleap_io as sio
-        import numpy as np
-        from lightning.pytorch.loggers import WandbLogger
-        from sleap_nn.evaluation import Evaluator
+        """Run evaluation and log metrics at end of validation epoch.
 
-        # Determine if we should run evaluation this epoch (only on rank 0)
-        should_evaluate = (
-            trainer.current_epoch + 1
-        ) % self.eval_frequency == 0 and trainer.is_global_zero
+        Under DDP every rank's val shard is gathered and rank 0 scores the whole val
+        set; its metrics are then broadcast so every rank exposes the same values to
+        ``ModelCheckpoint`` / ``EarlyStopping`` (which run, and must agree, on every
+        rank).
+        """
+        scored = _is_eval_epoch(trainer, self.eval_frequency)
+        gts, preds = pl_module.val_ground_truth, pl_module.val_predictions
+        if scored:
+            gts, preds = _gather_val_entries(trainer, gts, preds)
+        metrics = file_metrics = None
+        if scored and trainer.is_global_zero:
+            metrics = self._evaluate(gts, preds, trainer.current_epoch)
+            if self.val_files is not None:
+                file_metrics = self._evaluate_files(gts, preds, trainer.current_epoch)
+        if scored:
+            metrics = trainer.strategy.broadcast(metrics, src=0)
+            self._log_metrics(trainer, metrics or {}, trainer.current_epoch)
+            if self.val_files is not None:
+                file_metrics = trainer.strategy.broadcast(file_metrics, src=0)
+                self._log_file_metrics(
+                    trainer, file_metrics or {}, trainer.current_epoch
+                )
 
-        if should_evaluate:
-            # Check if we have predictions
-            if not pl_module.val_predictions or not pl_module.val_ground_truth:
-                logger.warning("No predictions collected for epoch-end evaluation")
-            else:
-                try:
-                    # Build sio.Labels from accumulated predictions and ground truth
-                    pred_labels = self._build_pred_labels(
-                        pl_module.val_predictions, sio, np
-                    )
-                    gt_labels = self._build_gt_labels(
-                        pl_module.val_ground_truth, sio, np
-                    )
-
-                    # Check if we have valid frames to evaluate
-                    if len(pred_labels) == 0:
-                        logger.warning(
-                            "No valid predictions for epoch-end evaluation "
-                            "(all predictions may be empty or NaN)"
-                        )
-                    else:
-                        # Run evaluation
-                        evaluator = Evaluator(
-                            ground_truth_instances=gt_labels,
-                            predicted_instances=pred_labels,
-                            oks_stddev=self.oks_stddev,
-                            oks_scale=self.oks_scale,
-                            user_labels_only=False,  # All validation frames are "user" frames
-                        )
-                        metrics = evaluator.evaluate()
-
-                        # Log to WandB
-                        self._log_metrics(trainer, metrics, trainer.current_epoch)
-
-                        logger.info(
-                            f"Epoch {trainer.current_epoch} evaluation: "
-                            f"PCK@5={metrics['pck_metrics']['PCK@5']:.4f}, "
-                            f"mOKS={metrics['mOKS']['mOKS']:.4f}, "
-                            f"mAP={metrics['voc_metrics']['oks_voc.mAP']:.4f}"
-                        )
-
-                except Exception as e:
-                    logger.warning(f"Epoch-end evaluation failed: {e}")
-
-        # Cleanup - all ranks reset the flag, rank 0 clears the lists
+        # Every rank clears its own lists (they only fill on scored epochs).
         pl_module._collect_val_predictions = False
-        if trainer.is_global_zero:
-            pl_module.val_predictions = []
-            pl_module.val_ground_truth = []
+        pl_module.val_predictions = []
+        pl_module.val_ground_truth = []
 
         # Sync all processes - barrier must be reached by ALL ranks
         trainer.strategy.barrier()
 
-    def _build_pred_labels(self, predictions: list, sio, np) -> "sio.Labels":
-        """Convert prediction dicts to sio.Labels."""
+    def _evaluate(
+        self,
+        gts: list,
+        preds: list,
+        epoch: int,
+        file_idx: Optional[int] = None,
+    ) -> Optional[dict]:
+        """Score the val entries; the metrics ``_log_metrics`` reads, or None.
+
+        With ``file_idx`` the entries are one val file's, scored on that file's
+        nodes only (:class:`ValFile`).
+        """
+        import sleap_io as sio
+        import numpy as np
+        from sleap_nn.evaluation import Evaluator
+
+        where = "" if file_idx is None else f" ({self.val_files[file_idx].name})"
+        if not preds or not gts:
+            logger.warning(f"No predictions collected for epoch-end evaluation{where}")
+            return None
+        try:
+            # Build sio.Labels from accumulated predictions and ground truth
+            pred_labels = self._build_pred_labels(preds, sio, np, file_idx)
+            gt_labels = self._build_gt_labels(gts, sio, np, file_idx)
+
+            # Check if we have valid frames to evaluate
+            if len(pred_labels) == 0:
+                logger.warning(
+                    "No valid predictions for epoch-end evaluation "
+                    "(all predictions may be empty or NaN)"
+                )
+                return None
+            evaluator = Evaluator(
+                ground_truth_instances=gt_labels,
+                predicted_instances=pred_labels,
+                oks_stddev=self.oks_stddev,
+                oks_scale=self.oks_scale,
+                user_labels_only=False,  # All validation frames are "user" frames
+                norm_scale=self.norm_scale,
+                norm_missing_error=self.norm_missing_error,
+                norm_pad_frac=self.norm_pad_frac,
+            )
+            metrics = evaluator.evaluate()
+            logger.info(
+                f"Epoch {epoch} evaluation{where}: "
+                f"PCK@5={metrics['pck_metrics']['PCK@5']:.4f}, "
+                f"mOKS={metrics['mOKS']['mOKS']:.4f}, "
+                f"mAP={metrics['voc_metrics']['oks_voc.mAP']:.4f}"
+            )
+        except Exception as e:
+            logger.warning(f"Epoch-end evaluation failed{where}: {e}")
+            return None
+        # Only the scalars `_log_metrics` reads cross the broadcast (the full result
+        # also holds per-instance arrays).
+        return {
+            group: {key: metrics[group][key] for key in keys}
+            for group, keys in self._LOGGED_METRICS.items()
+            if group in metrics
+        }
+
+    def _evaluate_files(self, gts: list, preds: list, epoch: int) -> Optional[dict]:
+        """Score each val file alone: ``{name: metrics or None}``, or None.
+
+        Only entries that carry ``labels_idx`` can be attributed to a file; when
+        none does (a pipeline that does not emit it), only the pooled metrics are
+        logged.
+        """
+        if not any("labels_idx" in g for g in gts):
+            if not getattr(self, "_warned_no_labels_idx", False):
+                logger.warning(
+                    "Per-file epoch-end evaluation needs `labels_idx` in the val "
+                    "batches (the warp centered-instance pipeline emits it); logging "
+                    "pooled eval/val/* metrics only."
+                )
+                self._warned_no_labels_idx = True
+            return None
+        out = {}
+        for f, val_file in enumerate(self.val_files):
+            f_gts = [g for g in gts if g.get("labels_idx") == f]
+            f_preds = [p for p in preds if p.get("labels_idx") == f]
+            out[val_file.name] = (
+                self._evaluate(f_gts, f_preds, epoch, file_idx=f) if f_gts else None
+            )
+        return out
+
+    def _entry_video(self, entry: dict):
+        """The ``sio.Video`` of an entry: its own file's when it has ``labels_idx``."""
+        v = int(entry["video_idx"])
+        if self.val_files is not None:
+            v += self._video_offsets[int(entry.get("labels_idx", 0))]
+        return self.videos[v]
+
+    def _file_skeleton(self, file_idx: Optional[int]):
+        """The skeleton entries are scored on: a val file's nodes, or all."""
+        return self.skeleton if file_idx is None else self._file_skeletons[file_idx]
+
+    def _file_view(self, points, file_idx: Optional[int], skeleton):
+        """``(points, skeleton)`` restricted to a val file's nodes (last axis -2)."""
+        if file_idx is None or points is None:
+            return points, skeleton
+        return (
+            points[..., self._file_node_idx[file_idx], :],
+            self._file_skeletons[file_idx],
+        )
+
+    def _build_pred_labels(
+        self, predictions: list, sio, np, file_idx: Optional[int] = None
+    ) -> "sio.Labels":
+        """Convert prediction dicts to sio.Labels (on one file's nodes if given)."""
+        skeleton = self.skeleton
         labeled_frames = []
         for pred in predictions:
             pred_peaks = pred["pred_peaks"]
             pred_scores = pred["pred_scores"]
+            if file_idx is not None and pred_peaks is not None:
+                node_idx = self._file_node_idx[file_idx]
+                pred_peaks, skeleton = self._file_view(pred_peaks, file_idx, skeleton)
+                if pred_scores is not None:
+                    pred_scores = pred_scores[..., node_idx]
 
             # Handle NaN/missing predictions
             if pred_peaks is None or (
@@ -1679,7 +2655,7 @@ class EpochEndEvaluationCallback(Callback):
 
                 inst = sio.PredictedInstance.from_numpy(
                     points_data=inst_points,
-                    skeleton=self.skeleton,
+                    skeleton=skeleton,
                     point_scores=(
                         inst_scores
                         if inst_scores is not None
@@ -1695,7 +2671,7 @@ class EpochEndEvaluationCallback(Callback):
 
             if instances:
                 lf = sio.LabeledFrame(
-                    video=self.videos[pred["video_idx"]],
+                    video=self._entry_video(pred),
                     frame_idx=_eval_frame_idx(pred),
                     instances=instances,
                 )
@@ -1703,16 +2679,21 @@ class EpochEndEvaluationCallback(Callback):
 
         return sio.Labels(
             videos=self.videos,
-            skeletons=[self.skeleton],
+            skeletons=[self._file_skeleton(file_idx)],
             labeled_frames=labeled_frames,
         )
 
-    def _build_gt_labels(self, ground_truth: list, sio, np) -> "sio.Labels":
-        """Convert ground truth dicts to sio.Labels."""
+    def _build_gt_labels(
+        self, ground_truth: list, sio, np, file_idx: Optional[int] = None
+    ) -> "sio.Labels":
+        """Convert ground truth dicts to sio.Labels (on one file's nodes if given)."""
+        skeleton = self.skeleton
         labeled_frames = []
         for gt in ground_truth:
             instances = []
-            gt_instances = gt["gt_instances"]
+            gt_instances, skeleton = self._file_view(
+                gt["gt_instances"], file_idx, self.skeleton
+            )
 
             # Handle shape variations
             if len(gt_instances.shape) == 2:
@@ -1725,13 +2706,13 @@ class EpochEndEvaluationCallback(Callback):
                     continue
                 inst = sio.Instance.from_numpy(
                     points_data=inst_data,
-                    skeleton=self.skeleton,
+                    skeleton=skeleton,
                 )
                 instances.append(inst)
 
             if instances:
                 lf = sio.LabeledFrame(
-                    video=self.videos[gt["video_idx"]],
+                    video=self._entry_video(gt),
                     frame_idx=_eval_frame_idx(gt),
                     instances=instances,
                 )
@@ -1739,69 +2720,132 @@ class EpochEndEvaluationCallback(Callback):
 
         return sio.Labels(
             videos=self.videos,
-            skeletons=[self.skeleton],
+            skeletons=[self._file_skeleton(file_idx)],
             labeled_frames=labeled_frames,
         )
 
-    def _log_metrics(self, trainer, metrics: dict, epoch: int):
-        """Populate callback_metrics for ModelCheckpoint, then log to WandB."""
+    def _log_file_metrics(self, trainer, file_metrics: dict, epoch: int):
+        """Log each val file's metrics as ``eval/<name>/*`` and their mean.
+
+        ``eval/macro/*`` is the unweighted mean over the files that were scored
+        (NaN values skipped), so each file counts once whatever its size. A file
+        whose evaluation failed or was empty gets the worst values under its own
+        name and is left out of the mean.
+        """
+        import numpy as np
+
+        scored = []
+        for val_file in self.val_files:
+            m = file_metrics.get(val_file.name)
+            self._log_metrics(trainer, m or {}, epoch, prefix=f"eval/{val_file.name}")
+            if m:
+                scored.append(m)
+        macro = {}
+        for group, keys in self._LOGGED_METRICS.items():
+            macro[group] = {}
+            for key in keys:
+                vals = [
+                    float(m[group][key])
+                    for m in scored
+                    if m.get(group, {}).get(key) is not None
+                    and np.isfinite(m[group][key])
+                ]
+                macro[group][key] = float(np.mean(vals)) if vals else float("nan")
+        self._log_metrics(trainer, macro if scored else {}, epoch, prefix="eval/macro")
+
+    def _log_metrics(self, trainer, metrics: dict, epoch: int, prefix="eval/val"):
+        """Populate callback_metrics for ModelCheckpoint, then log to WandB.
+
+        Runs on every rank (each rank's checkpointer reads ``callback_metrics``);
+        wandb logging happens on rank 0 only. An empty ``metrics`` (a failed or
+        empty evaluation) sets every tracked key to its worst value. Keys are
+        ``<prefix>/<metric>`` (``eval/val/mOKS``, ...).
+        """
         import numpy as np
         import torch
         from lightning.pytorch.loggers import WandbLogger
 
+        def _get(metrics, group, key):
+            return metrics.get(group, {}).get(key)
+
         # (metrics_to_log name, callback/wandb key, raw value, higher_is_better)
         candidates = [
-            ("mOKS", "eval/val/mOKS", metrics["mOKS"]["mOKS"], True),
+            ("mOKS", f"{prefix}/mOKS", _get(metrics, "mOKS", "mOKS"), True),
             (
                 "oks_voc.mAP",
-                "eval/val/oks_voc_mAP",
-                metrics["voc_metrics"]["oks_voc.mAP"],
+                f"{prefix}/oks_voc_mAP",
+                _get(metrics, "voc_metrics", "oks_voc.mAP"),
                 True,
             ),
             (
                 "oks_voc.mAR",
-                "eval/val/oks_voc_mAR",
-                metrics["voc_metrics"]["oks_voc.mAR"],
+                f"{prefix}/oks_voc_mAR",
+                _get(metrics, "voc_metrics", "oks_voc.mAR"),
                 True,
             ),
             (
                 "distance/avg",
-                "eval/val/distance/avg",
-                metrics["distance_metrics"]["avg"],
+                f"{prefix}/distance/avg",
+                _get(metrics, "distance_metrics", "avg"),
                 False,
             ),
             (
                 "distance/p50",
-                "eval/val/distance/p50",
-                metrics["distance_metrics"]["p50"],
+                f"{prefix}/distance/p50",
+                _get(metrics, "distance_metrics", "p50"),
                 False,
             ),
             (
                 "distance/p95",
-                "eval/val/distance/p95",
-                metrics["distance_metrics"]["p95"],
+                f"{prefix}/distance/p95",
+                _get(metrics, "distance_metrics", "p95"),
                 False,
             ),
             (
                 "distance/p99",
-                "eval/val/distance/p99",
-                metrics["distance_metrics"]["p99"],
+                f"{prefix}/distance/p99",
+                _get(metrics, "distance_metrics", "p99"),
                 False,
             ),
-            ("mPCK", "eval/val/mPCK", metrics["pck_metrics"]["mPCK"], True),
-            ("PCK@5", "eval/val/PCK_5", metrics["pck_metrics"]["PCK@5"], True),
-            ("PCK@10", "eval/val/PCK_10", metrics["pck_metrics"]["PCK@10"], True),
+            ("mPCK", f"{prefix}/mPCK", _get(metrics, "pck_metrics", "mPCK"), True),
+            ("PCK@5", f"{prefix}/PCK_5", _get(metrics, "pck_metrics", "PCK@5"), True),
+            (
+                "PCK@10",
+                f"{prefix}/PCK_10",
+                _get(metrics, "pck_metrics", "PCK@10"),
+                True,
+            ),
             (
                 "visibility_precision",
-                "eval/val/visibility_precision",
-                metrics["visibility_metrics"]["precision"],
+                f"{prefix}/visibility_precision",
+                _get(metrics, "visibility_metrics", "precision"),
                 True,
             ),
             (
                 "visibility_recall",
-                "eval/val/visibility_recall",
-                metrics["visibility_metrics"]["recall"],
+                f"{prefix}/visibility_recall",
+                _get(metrics, "visibility_metrics", "recall"),
                 True,
+            ),
+            # Opt-in (``norm_scale``): error / instance scale, missing points counted.
+            # "distance" in the key keeps the W&B best-summary direction lower-is-better.
+            (
+                "norm/p50",
+                f"{prefix}/norm_distance/p50",
+                _get(metrics, "normalized_distance_metrics", "p50"),
+                False,
+            ),
+            (
+                "norm/p95",
+                f"{prefix}/norm_distance/p95",
+                _get(metrics, "normalized_distance_metrics", "p95"),
+                False,
+            ),
+            (
+                "norm/miss_rate",
+                f"{prefix}/norm_distance/miss_rate",
+                _get(metrics, "normalized_distance_metrics", "miss_rate"),
+                False,
             ),
         ]
         tracked = [c for c in candidates if c[0] in self.metrics_to_log]
@@ -1830,12 +2874,12 @@ class EpochEndEvaluationCallback(Callback):
                 wandb_logger = log
                 break
 
-        if wandb_logger is None:
+        if wandb_logger is None or not trainer.is_global_zero:
             return
 
         log_dict = {"epoch": epoch}
         for _name, ck_key, raw_value, _higher_is_better in tracked:
-            if not np.isnan(raw_value):
+            if raw_value is not None and not np.isnan(raw_value):
                 log_dict[ck_key] = raw_value
 
         wandb_logger.experiment.log(log_dict, commit=False)
@@ -1916,64 +2960,71 @@ class SegmentationEvaluationCallback(Callback):
         self.match_threshold = float(match_threshold)
 
     def on_validation_epoch_start(self, trainer, pl_module):
-        """Enable prediction collection at the start of validation.
-
-        Skip during sanity check to avoid inference issues.
-        """
+        """Enable prediction collection on scored epochs (not the sanity check)."""
         if trainer.sanity_checking:
             return
-        pl_module._collect_val_predictions = True
+        pl_module._collect_val_predictions = _is_eval_epoch(
+            trainer, self.eval_frequency
+        )
 
     def on_validation_epoch_end(self, trainer, pl_module):
-        """Run mask-IoU evaluation and log metrics at end of validation epoch."""
-        should_evaluate = (
-            trainer.current_epoch + 1
-        ) % self.eval_frequency == 0 and trainer.is_global_zero
+        """Run mask-IoU evaluation and log metrics at end of validation epoch.
 
-        if should_evaluate:
-            if not pl_module.val_predictions or not pl_module.val_ground_truth:
-                logger.warning(
-                    "No predictions collected for segmentation epoch-end evaluation"
-                )
+        Under DDP every rank's val shard is gathered, rank 0 scores the whole val
+        set, and its metrics are broadcast so every rank's checkpointer sees them.
+        """
+        scored = _is_eval_epoch(trainer, self.eval_frequency)
+        gts, preds = pl_module.val_ground_truth, pl_module.val_predictions
+        if scored:
+            gts, preds = _gather_val_entries(trainer, gts, preds)
+        metrics = None
+        if scored and trainer.is_global_zero:
+            metrics = self._evaluate(gts, preds, trainer.current_epoch)
+        if scored:
+            metrics = trainer.strategy.broadcast(metrics, src=0) or {}
+            if self.foreground:
+                self._log_metrics_foreground(trainer, metrics, trainer.current_epoch)
             else:
-                try:
-                    if self.foreground:
-                        metrics = self._compute_metrics_foreground(
-                            pl_module.val_predictions, pl_module.val_ground_truth
-                        )
-                        self._log_metrics_foreground(
-                            trainer, metrics, trainer.current_epoch
-                        )
-                        logger.info(
-                            f"Epoch {trainer.current_epoch} semantic (foreground) "
-                            f"evaluation: fg_mean_iou={metrics['fg_mean_iou']:.4f}, "
-                            f"fg_mean_cldice={metrics['fg_mean_cldice']:.4f}, "
-                            f"fg_mean_boundary_iou="
-                            f"{metrics['fg_mean_boundary_iou']:.4f}, "
-                            f"frames={metrics['n_frames']}"
-                        )
-                    else:
-                        metrics = self._compute_metrics(
-                            pl_module.val_predictions, pl_module.val_ground_truth
-                        )
-                        self._log_metrics(trainer, metrics, trainer.current_epoch)
-                        logger.info(
-                            f"Epoch {trainer.current_epoch} segmentation evaluation: "
-                            f"mask_mean_iou={metrics['mask_mean_iou']:.4f}, "
-                            f"mask_mean_cldice={metrics['mask_mean_cldice']:.4f}, "
-                            f"precision={metrics['precision']:.4f}, "
-                            f"recall={metrics['recall']:.4f}"
-                        )
-                except Exception as e:
-                    logger.warning(f"Segmentation epoch-end evaluation failed: {e}")
+                self._log_metrics(trainer, metrics, trainer.current_epoch)
 
-        # Cleanup
+        # Every rank clears its own lists (they only fill on scored epochs).
         pl_module._collect_val_predictions = False
-        if trainer.is_global_zero:
-            pl_module.val_predictions = []
-            pl_module.val_ground_truth = []
+        pl_module.val_predictions = []
+        pl_module.val_ground_truth = []
 
         trainer.strategy.barrier()
+
+    def _evaluate(self, gts: list, preds: list, epoch: int) -> Optional[dict]:
+        """Score the val entries (foreground or instance mode), or None."""
+        if not preds or not gts:
+            logger.warning(
+                "No predictions collected for segmentation epoch-end evaluation"
+            )
+            return None
+        try:
+            if self.foreground:
+                metrics = self._compute_metrics_foreground(preds, gts)
+                logger.info(
+                    f"Epoch {epoch} semantic (foreground) "
+                    f"evaluation: fg_mean_iou={metrics['fg_mean_iou']:.4f}, "
+                    f"fg_mean_cldice={metrics['fg_mean_cldice']:.4f}, "
+                    f"fg_mean_boundary_iou="
+                    f"{metrics['fg_mean_boundary_iou']:.4f}, "
+                    f"frames={metrics['n_frames']}"
+                )
+            else:
+                metrics = self._compute_metrics(preds, gts)
+                logger.info(
+                    f"Epoch {epoch} segmentation evaluation: "
+                    f"mask_mean_iou={metrics['mask_mean_iou']:.4f}, "
+                    f"mask_mean_cldice={metrics['mask_mean_cldice']:.4f}, "
+                    f"precision={metrics['precision']:.4f}, "
+                    f"recall={metrics['recall']:.4f}"
+                )
+        except Exception as e:
+            logger.warning(f"Segmentation epoch-end evaluation failed: {e}")
+            return None
+        return metrics
 
     def _compute_metrics(self, predictions: list, ground_truth: list) -> dict:
         """Match collected per-instance masks by IoU and aggregate metrics.
@@ -2107,9 +3158,8 @@ class SegmentationEvaluationCallback(Callback):
         # (model_ckpt.monitor="eval/val/fg_mean_cldice", mode="max") instead of the
         # coarse val/loss. This runs in on_validation_epoch_end (before the
         # ModelCheckpoint save in on_validation_end), so the value is available.
-        # Set on rank 0 only (this callback computes there); single-GPU. Under DDP,
-        # checkpoint-on-clDice would need an all-rank broadcast of these values.
-        # ALWAYS populate the key (0.0 for NaN/missing) so a run that monitors it does
+        # Runs on every rank with rank 0's (broadcast) values, so every rank's
+        # checkpointer agrees. ALWAYS populate the key (0.0 for NaN/missing) so a run that monitors it does
         # not crash ModelCheckpoint on an epoch with no valid metric; these are all
         # in [0, 1] and higher-is-better, so 0.0 is the correct worst value.
         for src_key, ck_key in (
@@ -2127,7 +3177,7 @@ class SegmentationEvaluationCallback(Callback):
             if isinstance(log, WandbLogger):
                 wandb_logger = log
                 break
-        if wandb_logger is None:
+        if wandb_logger is None or not trainer.is_global_zero or not metrics:
             return
 
         log_dict = {"epoch": epoch}
@@ -2159,8 +3209,8 @@ class SegmentationEvaluationCallback(Callback):
 
         # Expose per-instance mask metrics to ModelCheckpoint/EarlyStopping via
         # callback_metrics so instance-seg runs can select best.ckpt on
-        # eval/val/mask_mean_iou (mode="max") instead of val/loss. See the
-        # foreground variant above for the rank/DDP caveat. ALWAYS populate the key
+        # eval/val/mask_mean_iou (mode="max") instead of val/loss. Runs on every
+        # rank with rank 0's (broadcast) values. ALWAYS populate the key
         # (0.0 for NaN/missing): mask_mean_iou is NaN on epochs with no matched
         # instances (common early in training / on sparse-instance datasets), and a
         # missing monitored key crashes ModelCheckpoint. These metrics are in [0, 1]
@@ -2186,7 +3236,7 @@ class SegmentationEvaluationCallback(Callback):
             if isinstance(log, WandbLogger):
                 wandb_logger = log
                 break
-        if wandb_logger is None:
+        if wandb_logger is None or not trainer.is_global_zero or not metrics:
             return
 
         log_dict = {"epoch": epoch}
@@ -2254,54 +3304,51 @@ class CentroidEvaluationCallback(Callback):
         self.match_threshold = match_threshold
 
     def on_validation_epoch_start(self, trainer, pl_module):
-        """Enable prediction collection at the start of validation.
-
-        Skip during sanity check to avoid inference issues.
-        """
+        """Enable prediction collection on scored epochs (not the sanity check)."""
         if trainer.sanity_checking:
             return
-        pl_module._collect_val_predictions = True
+        pl_module._collect_val_predictions = _is_eval_epoch(
+            trainer, self.eval_frequency
+        )
 
     def on_validation_epoch_end(self, trainer, pl_module):
-        """Run centroid evaluation and log metrics at end of validation epoch."""
+        """Run centroid evaluation and log metrics at end of validation epoch.
+
+        Under DDP every rank's val shard is gathered, rank 0 scores the whole val
+        set, and its metrics are broadcast so every rank's checkpointer sees them.
+        """
         import numpy as np
-        from lightning.pytorch.loggers import WandbLogger
 
-        # Determine if we should run evaluation this epoch (only on rank 0)
-        should_evaluate = (
-            trainer.current_epoch + 1
-        ) % self.eval_frequency == 0 and trainer.is_global_zero
-
-        if should_evaluate:
-            # Check if we have predictions
-            if not pl_module.val_predictions or not pl_module.val_ground_truth:
+        scored = _is_eval_epoch(trainer, self.eval_frequency)
+        gts, preds = pl_module.val_ground_truth, pl_module.val_predictions
+        metrics = None
+        if scored:
+            gts, preds = _gather_val_entries(trainer, gts, preds)
+        if scored and trainer.is_global_zero:
+            if not preds or not gts:
                 logger.warning(
                     "No predictions collected for centroid epoch-end evaluation"
                 )
             else:
                 try:
-                    metrics = self._compute_metrics(
-                        pl_module.val_predictions, pl_module.val_ground_truth, np
-                    )
-
-                    # Log to WandB
-                    self._log_metrics(trainer, metrics, trainer.current_epoch)
-
+                    metrics = self._compute_metrics(preds, gts, np)
                     logger.info(
                         f"Epoch {trainer.current_epoch} centroid evaluation: "
                         f"precision={metrics['precision']:.4f}, "
                         f"recall={metrics['recall']:.4f}, "
                         f"dist_avg={metrics['dist_avg']:.2f}px"
                     )
-
                 except Exception as e:
+                    metrics = None
                     logger.warning(f"Centroid epoch-end evaluation failed: {e}")
+        if scored:
+            metrics = trainer.strategy.broadcast(metrics, src=0)
+            self._log_metrics(trainer, metrics or {}, trainer.current_epoch)
 
-        # Cleanup - all ranks reset the flag, rank 0 clears the lists
+        # Every rank clears its own lists (they only fill on scored epochs).
         pl_module._collect_val_predictions = False
-        if trainer.is_global_zero:
-            pl_module.val_predictions = []
-            pl_module.val_ground_truth = []
+        pl_module.val_predictions = []
+        pl_module.val_ground_truth = []
 
         # Sync all processes - barrier must be reached by ALL ranks
         trainer.strategy.barrier()
@@ -2420,24 +3467,28 @@ class CentroidEvaluationCallback(Callback):
         }
 
     def _log_metrics(self, trainer, metrics: dict, epoch: int):
-        """Populate callback_metrics for ModelCheckpoint, then log to WandB."""
+        """Populate callback_metrics for ModelCheckpoint, then log to WandB.
+
+        Runs on every rank; wandb logging happens on rank 0 only. An empty
+        ``metrics`` (a failed or empty evaluation) sets every key to its worst value.
+        """
         import numpy as np
         import torch
         from lightning.pytorch.loggers import WandbLogger
 
         # (callback/wandb key, raw value, higher_is_better)
         tracked = [
-            ("eval/val/centroid_dist_avg", metrics["dist_avg"], False),
-            ("eval/val/centroid_dist_median", metrics["dist_median"], False),
-            ("eval/val/centroid_dist_p90", metrics["dist_p90"], False),
-            ("eval/val/centroid_dist_p95", metrics["dist_p95"], False),
-            ("eval/val/centroid_dist_max", metrics["dist_max"], False),
-            ("eval/val/centroid_precision", metrics["precision"], True),
-            ("eval/val/centroid_recall", metrics["recall"], True),
-            ("eval/val/centroid_f1", metrics["f1"], True),
-            ("eval/val/centroid_n_tp", metrics["n_true_positives"], True),
-            ("eval/val/centroid_n_fp", metrics["n_false_positives"], True),
-            ("eval/val/centroid_n_fn", metrics["n_false_negatives"], True),
+            ("eval/val/centroid_dist_avg", metrics.get("dist_avg"), False),
+            ("eval/val/centroid_dist_median", metrics.get("dist_median"), False),
+            ("eval/val/centroid_dist_p90", metrics.get("dist_p90"), False),
+            ("eval/val/centroid_dist_p95", metrics.get("dist_p95"), False),
+            ("eval/val/centroid_dist_max", metrics.get("dist_max"), False),
+            ("eval/val/centroid_precision", metrics.get("precision"), True),
+            ("eval/val/centroid_recall", metrics.get("recall"), True),
+            ("eval/val/centroid_f1", metrics.get("f1"), True),
+            ("eval/val/centroid_n_tp", metrics.get("n_true_positives"), True),
+            ("eval/val/centroid_n_fp", metrics.get("n_false_positives"), True),
+            ("eval/val/centroid_n_fn", metrics.get("n_false_negatives"), True),
         ]
 
         # Expose every metric to ModelCheckpoint/EarlyStopping via
@@ -2462,12 +3513,12 @@ class CentroidEvaluationCallback(Callback):
                 wandb_logger = log
                 break
 
-        if wandb_logger is None:
+        if wandb_logger is None or not trainer.is_global_zero:
             return
 
         log_dict = {"epoch": epoch}
         for ck_key, raw_value, _higher_is_better in tracked:
-            if not np.isnan(raw_value):
+            if raw_value is not None and not np.isnan(raw_value):
                 log_dict[ck_key] = raw_value
 
         wandb_logger.experiment.log(log_dict, commit=False)
@@ -2505,12 +3556,13 @@ class BBoxEvaluationCallback(Callback):
     """
 
     # Lower-is-better keys (counts of errors); everything else is higher-is-better.
-    _LOWER_IS_BETTER = ("bbox_n_fp", "bbox_n_fn")
+    _LOWER_IS_BETTER = ("bbox_n_fp", "bbox_n_fn", "bbox_false_per_frame")
 
-    def __init__(self, eval_frequency: int = 1):
+    def __init__(self, eval_frequency: int = 1, cover_metrics: bool = False):
         """Initialize the callback."""
         super().__init__()
         self.eval_frequency = eval_frequency
+        self.cover_metrics = cover_metrics
 
     def on_validation_epoch_start(self, trainer, pl_module):
         """Enable detection collection on scored epochs (not the sanity check)."""
@@ -2523,7 +3575,12 @@ class BBoxEvaluationCallback(Callback):
 
     def on_validation_epoch_end(self, trainer, pl_module):
         """Score the collected detections and log the metrics."""
-        from sleap_nn.evaluation import BBOX_EVAL_LOG_KEYS, compute_bbox_metrics
+        from sleap_nn.evaluation import (
+            BBOX_COVER_LOG_KEYS,
+            BBOX_EVAL_LOG_KEYS,
+            compute_bbox_cover_metrics,
+            compute_bbox_metrics,
+        )
 
         scored = (
             trainer.current_epoch + 1
@@ -2538,11 +3595,16 @@ class BBoxEvaluationCallback(Callback):
             else:
                 try:
                     frames = [{**gt, **pred} for gt, pred in zip(gts, preds)]
+                    # Ignore boxes (experimental): the loss's ignore rule.
+                    rule = getattr(pl_module, "ignore_metric_rule", None) or {}
                     metrics = compute_bbox_metrics(
                         frames,
                         num_classes=len(pl_module.categories),
                         max_detections=pl_module.decoder.max_detections,
+                        **rule,
                     )
+                    if self.cover_metrics:
+                        metrics.update(compute_bbox_cover_metrics(frames, **rule))
                     logger.info(
                         f"Epoch {trainer.current_epoch} bbox evaluation: "
                         f"mAP={metrics['bbox_mAP']:.4f}, "
@@ -2558,7 +3620,10 @@ class BBoxEvaluationCallback(Callback):
             # monitor, so every rank gets rank 0's values, even after a failed eval.
             values = None
             if metrics is not None:
-                values = {key: metrics.get(key) for key in BBOX_EVAL_LOG_KEYS}
+                keys = BBOX_EVAL_LOG_KEYS + (
+                    BBOX_COVER_LOG_KEYS if self.cover_metrics else ()
+                )
+                values = {key: metrics.get(key) for key in keys}
             values = trainer.strategy.broadcast(values, src=0)
             self._log_metrics(trainer, values or {}, trainer.current_epoch)
 
@@ -2604,10 +3669,11 @@ class BBoxEvaluationCallback(Callback):
         import numpy as np
         import torch
         from lightning.pytorch.loggers import WandbLogger
-        from sleap_nn.evaluation import BBOX_EVAL_LOG_KEYS
+        from sleap_nn.evaluation import BBOX_COVER_LOG_KEYS, BBOX_EVAL_LOG_KEYS
 
         log_dict = {}
-        for key in BBOX_EVAL_LOG_KEYS:
+        keys = BBOX_EVAL_LOG_KEYS + (BBOX_COVER_LOG_KEYS if self.cover_metrics else ())
+        for key in keys:
             raw_value = metrics.get(key, float("nan"))
             lower_is_better = key in self._LOWER_IS_BETTER
             if raw_value is None or np.isnan(raw_value):
@@ -2700,6 +3766,81 @@ class TilingEpochCallback(Callback):
             self._set_loader_epoch(dl, epoch)
 
 
+class AugmentationStageCallback(Callback):
+    """Switch the warp dataset's augmentation stage at an epoch or global step.
+
+    The RTMPose "stage-2 pipeline switch" (mmdet ``PipelineSwitchHook``) for
+    ``crop_pipeline="warp"``: from ``start_epoch`` (or ``start_step``) on, the
+    training dataset uses its second :class:`~sleap_nn.data.topdown_warp.WarpAug`
+    (``augmentation_config.stage2``). mmdet rebuilds the pipeline and restarts the
+    workers; here the dataset holds both stages and reads a shared-memory
+    ``aug_stage`` tensor per sample, so persistent workers switch without a
+    restart. The rule is stateless (a function of epoch / step), so resuming from a
+    checkpoint lands in the right stage. Batches prefetched before the switch (at
+    most ``num_workers * prefetch_factor``) still carry stage-1 augmentation.
+
+    Attributes:
+        start_epoch: First (0-based) epoch of stage 2, or ``None``.
+        start_step: First global step of stage 2 (when ``start_epoch`` is ``None``).
+    """
+
+    def __init__(
+        self, start_epoch: Optional[int] = None, start_step: Optional[int] = None
+    ):
+        """Initialize with the epoch or step at which stage 2 starts."""
+        if start_epoch is None and start_step is None:
+            raise ValueError(
+                "AugmentationStageCallback needs start_epoch or start_step."
+            )
+        self.start_epoch = start_epoch
+        self.start_step = start_step
+        self._stage = None
+
+    def stage_at(self, epoch: int, step: int) -> int:
+        """The augmentation stage (0 or 1) at an epoch / global step."""
+        if self.start_epoch is not None:
+            return int(epoch >= self.start_epoch)
+        return int(step >= self.start_step)
+
+    @staticmethod
+    def _datasets(trainer):
+        for dl in TilingEpochCallback._iter_dataloaders(trainer.train_dataloader):
+            ds = getattr(dl, "dataset", None)
+            if ds is not None and hasattr(ds, "set_aug_stage"):
+                yield ds
+
+    def _sync(self, trainer, step: int) -> None:
+        stage = self.stage_at(int(trainer.current_epoch), int(step))
+        if stage == self._stage:
+            return
+        for ds in self._datasets(trainer):
+            ds.set_aug_stage(stage)
+        if self._stage is not None or stage:
+            logger.info(
+                f"Augmentation stage {stage + 1} from epoch {trainer.current_epoch}, "
+                f"step {step}."
+            )
+        self._stage = stage
+
+    def on_train_epoch_start(self, trainer, pl_module):
+        """Set the stage for this epoch."""
+        self._sync(trainer, trainer.global_step)
+
+    def on_train_epoch_end(self, trainer, pl_module):
+        """Switch before the next epoch's batches are prefetched."""
+        if (
+            self.start_epoch is not None
+            and trainer.current_epoch + 1 >= self.start_epoch
+        ):
+            for ds in self._datasets(trainer):
+                ds.set_aug_stage(1)
+
+    def on_train_batch_start(self, trainer, pl_module, batch, batch_idx):
+        """Step-based switch."""
+        if self.start_step is not None and self.start_epoch is None:
+            self._sync(trainer, trainer.global_step)
+
+
 class EvalCadenceEarlyStopping(EarlyStopping):
     """``EarlyStopping`` that checks only on eval epochs, so patience counts evaluations.
 
@@ -2737,6 +3878,207 @@ class EvalCadenceEarlyStopping(EarlyStopping):
             super().on_validation_end(trainer, pl_module)
 
 
+class WeightEMA(Callback):
+    """Exponential moving average (EMA) of the model weights.
+
+    Keeps a float32 shadow copy of every trainable parameter and floating-point
+    buffer, updated after each optimizer step as ``ema += (1 - d) * (w - ema)``
+    with ``d = decay * (1 - exp(-n / warmup_steps))`` after ``n`` updates (mmdet /
+    RTMPose ``ExpMomentumEMA``; ``warmup_steps=0`` uses ``decay`` throughout).
+
+    * **Validation** runs on the EMA weights: they are swapped into the module on
+      ``on_validation_start`` and the online weights swapped back on
+      ``on_validation_end``, so ``val/loss``, epoch-end evaluation callbacks, LR
+      plateau / early stopping and checkpoint selection all see the EMA model.
+    * **Checkpoints** store the EMA weights as ``state_dict`` (so inference,
+      export and ``pretrained_backbone_weights`` load them unchanged) and the
+      online weights under ``checkpoint["ema"]["online_state_dict"]``; resuming
+      with this callback restores both. Resuming a checkpoint saved without EMA
+      starts the average from the loaded weights.
+    * At the end of ``fit`` the EMA weights are left in the module.
+
+    Each DDP rank keeps its own (identical) average of its (identical) replica,
+    so no communication is needed. Sharded strategies (FSDP, DeepSpeed) are not
+    supported. Under bf16/fp16 the shadow stays float32 (an EMA with decay near 1
+    cannot be accumulated in bf16).
+
+    Args:
+        decay: EMA decay after warmup (``1 - momentum``). Default: 0.9998.
+        warmup_steps: Time constant of the decay warmup, in optimizer steps;
+            ``0`` disables it. Default: 2000.
+    """
+
+    CHECKPOINT_KEY = "ema"
+
+    def __init__(self, decay: float = 0.9998, warmup_steps: int = 2000):
+        """Initialize the callback. See the class docstring for the arguments."""
+        super().__init__()
+        if not 0.0 <= decay < 1.0:
+            raise ValueError(f"EMA decay must be in [0, 1), got {decay}")
+        if warmup_steps < 0:
+            raise ValueError(f"EMA warmup_steps must be >= 0, got {warmup_steps}")
+        self.decay = float(decay)
+        self.warmup_steps = int(warmup_steps)
+        self.num_updates = 0
+        self._shadow = None  # name -> float32 EMA tensor (on the param's device)
+        self._backup = None  # name -> online tensor while the EMA is swapped in
+        self._pending = None  # EMA tensors loaded before the shadow exists
+        self._last_step = None
+
+    # ------------------------------------------------------------------ state
+
+    @staticmethod
+    def _tensors(pl_module, trainable_only: bool = True):
+        """Name -> tensor for the parameters (and float buffers) the EMA tracks."""
+        out = {
+            n: p
+            for n, p in pl_module.named_parameters()
+            if p.requires_grad or not trainable_only
+        }
+        for n, b in pl_module.named_buffers():
+            if b.is_floating_point():
+                out[n] = b
+        return out
+
+    def current_decay(self) -> float:
+        """The decay applied by the latest update."""
+        if self.warmup_steps <= 0:
+            return self.decay
+        return self.decay * (1.0 - math.exp(-self.num_updates / self.warmup_steps))
+
+    @property
+    def shadow(self):
+        """The EMA tensors (name -> float32 tensor), or ``None`` before fit."""
+        return self._shadow
+
+    @torch.no_grad()
+    def update(self, pl_module) -> None:
+        """Fold the module's current weights into the average (one step)."""
+        if self._shadow is None:
+            return
+        self.num_updates += 1
+        d = self.current_decay()
+        tensors = self._tensors(pl_module, trainable_only=False)
+        ema, cur = [], []
+        for name, e in self._shadow.items():
+            t = tensors.get(name)
+            if t is None:
+                continue
+            ema.append(e)
+            cur.append(t.detach().to(dtype=e.dtype, device=e.device))
+        if ema:
+            torch._foreach_lerp_(ema, cur, 1.0 - d)
+
+    @torch.no_grad()
+    def _copy_into(self, pl_module, values) -> None:
+        tensors = self._tensors(pl_module, trainable_only=False)
+        for name, v in values.items():
+            t = tensors.get(name)
+            if t is not None:
+                t.copy_(v)
+
+    @torch.no_grad()
+    def swap_in(self, pl_module) -> None:
+        """Load the EMA weights into the module, keeping the online ones aside."""
+        if self._shadow is None or self._backup is not None:
+            return
+        tensors = self._tensors(pl_module, trainable_only=False)
+        self._backup = {
+            n: tensors[n].detach().clone() for n in self._shadow if n in tensors
+        }
+        self._copy_into(pl_module, self._shadow)
+
+    @torch.no_grad()
+    def swap_out(self, pl_module) -> None:
+        """Restore the online weights saved by `swap_in`."""
+        if self._backup is None:
+            return
+        self._copy_into(pl_module, self._backup)
+        self._backup = None
+
+    # ------------------------------------------------------------------ hooks
+
+    def on_fit_start(self, trainer, pl_module) -> None:
+        """Start the average from the current (possibly resumed) weights."""
+        strategy = type(trainer.strategy).__name__
+        if "FSDP" in strategy or "DeepSpeed" in strategy:
+            raise ValueError(
+                f"Weight EMA does not support sharded training ({strategy}); "
+                "use DDP or a single device."
+            )
+        self._shadow = {
+            n: t.detach().float().clone() for n, t in self._tensors(pl_module).items()
+        }
+        if self._pending is not None:
+            for n, v in self._pending.items():
+                if n in self._shadow:
+                    self._shadow[n].copy_(v)
+            self._pending = None
+        self._last_step = trainer.global_step
+
+    def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx):
+        """Update after every optimizer step (skips gradient-accumulation steps)."""
+        if trainer.global_step == self._last_step:
+            return
+        self._last_step = trainer.global_step
+        self.update(pl_module)
+
+    def on_validation_start(self, trainer, pl_module) -> None:
+        """Validate the EMA weights."""
+        self.swap_in(pl_module)
+
+    def on_validation_end(self, trainer, pl_module) -> None:
+        """Go back to the online weights for training."""
+        self.swap_out(pl_module)
+
+    def on_fit_end(self, trainer, pl_module) -> None:
+        """Leave the EMA weights in the module."""
+        self.swap_out(pl_module)
+        if self._shadow is not None:
+            self._copy_into(pl_module, self._shadow)
+
+    def on_save_checkpoint(self, trainer, pl_module, checkpoint) -> None:
+        """Save the EMA weights as the ``state_dict`` and the online ones aside."""
+        if self._shadow is None:
+            return
+        sd = checkpoint["state_dict"]
+        online = {}
+        for name, e in self._shadow.items():
+            if name not in sd:
+                continue
+            if self._backup is not None and name in self._backup:
+                online[name] = self._backup[name].detach().clone()
+            else:
+                online[name] = sd[name].detach().clone()
+            sd[name] = e.detach().to(dtype=sd[name].dtype).clone()
+        checkpoint[self.CHECKPOINT_KEY] = {
+            "online_state_dict": online,
+            "decay": self.decay,
+            "warmup_steps": self.warmup_steps,
+            "num_updates": self.num_updates,
+        }
+
+    def on_load_checkpoint(self, trainer, pl_module, checkpoint) -> None:
+        """Resume: the module got the EMA ``state_dict``; put the online weights back.
+
+        Lightning restores the module's ``state_dict`` before this hook runs.
+        """
+        state = checkpoint.get(self.CHECKPOINT_KEY)
+        if not state:
+            return
+        sd = checkpoint["state_dict"]
+        online = state["online_state_dict"]
+        ema = {n: sd[n].detach().float().clone() for n in online if n in sd}
+        self._copy_into(pl_module, online)
+        self.num_updates = int(state.get("num_updates", 0))
+        if self._shadow is not None:
+            for n, v in ema.items():
+                if n in self._shadow:
+                    self._shadow[n].copy_(v)
+        else:
+            self._pending = ema
+
+
 class LastEpochCheckpoint(ModelCheckpoint):
     """Write ``last.ckpt`` at the end of EVERY epoch.
 
@@ -2758,6 +4100,80 @@ class LastEpochCheckpoint(ModelCheckpoint):
             every_n_epochs=1,
             enable_version_counter=False,
         )
+
+
+class BalancedSamplerResume(Callback):
+    """Continue the balanced sampler's stream on a resume from an end-of-epoch checkpoint.
+
+    :class:`~sleap_nn.data.topdown_warp.BalancedDataLoader` saves the number of
+    batches it has delivered in every checkpoint (Lightning stores a train loader's
+    ``state_dict`` with the fit loop), but Lightning loads it back only from a
+    checkpoint written in the middle of an epoch (or with ``max_steps`` set).
+    ``last.ckpt`` and ``best.ckpt`` are written once an epoch is over, so a run
+    resumed from them started the stream over and trained on the first epochs'
+    batches again. This loads the saved state at the start of training in that
+    case too. It is the state Lightning itself loads from a mid-epoch checkpoint,
+    so doing both changes nothing, and without a resume this does nothing.
+    """
+
+    def __init__(self):
+        """Initialize with no state to restore."""
+        super().__init__()
+        self._states = None
+
+    def on_load_checkpoint(self, trainer, pl_module, checkpoint) -> None:
+        """Keep the train loader states saved with the checkpoint's fit loop."""
+        fit_loop = checkpoint.get("loops", {}).get("fit_loop", {})
+        self._states = fit_loop.get("state_dict", {}).get("combined_loader")
+
+    def on_train_start(self, trainer, pl_module) -> None:
+        """Load the saved states (before the first batch is drawn)."""
+        from sleap_nn.data.topdown_warp import BalancedDataLoader
+
+        states, self._states = self._states, None
+        if not states:
+            return
+        loaders = [
+            dl
+            for dl in TilingEpochCallback._iter_dataloaders(trainer.train_dataloader)
+            if isinstance(dl, BalancedDataLoader)
+        ]
+        if len(loaders) != len(states):
+            return
+        for dl, state in zip(loaders, states):
+            dl.load_state_dict(state)
+
+
+class ResumeReseed(Callback):
+    """Seed the random generators for the resumed epoch when a run is resumed.
+
+    On one device without an epoch-aware sampler, the train loader shuffles with
+    the global torch random generator, and the augmentations draw from the global
+    generators too. A resumed run seeds them again with ``trainer_config.seed``,
+    so without this its first epoch replays the first epoch of the original run
+    (same order, same augmentation draws), its second the second, and so on.
+
+    Added when ``trainer_config.reseed_on_resume`` is on (off by default). When
+    training starts from a checkpoint (``current_epoch`` above 0), this seeds
+    ``random``, numpy and torch with ``seed + current_epoch``. The resumed epochs
+    then differ from the ones already trained; they are not the ones an
+    uninterrupted run would draw. A run that is not resumed is unchanged.
+    """
+
+    def __init__(self, seed: int):
+        """Initialize with the run's ``trainer_config.seed``."""
+        super().__init__()
+        self.seed = int(seed)
+
+    def on_train_start(self, trainer, pl_module) -> None:
+        """Reseed before the first resumed epoch draws its order."""
+        epoch = int(trainer.current_epoch)
+        if epoch <= 0:
+            return
+        seed = (self.seed + epoch) % (2**32)
+        random.seed(seed)
+        np.random.seed(seed)
+        torch.manual_seed(seed)  # also seeds every CUDA device
 
 
 class EmbeddingEvaluationCallback(Callback):
@@ -2953,3 +4369,346 @@ class EmbeddingEvaluationCallback(Callback):
         pl_module.val_predictions = []
         pl_module.val_ground_truth = []
         trainer.strategy.barrier()
+
+
+def _batch_num_samples(batch) -> int:
+    """Best-effort number of samples in a collated training batch."""
+    if isinstance(batch, dict):
+        for key in ("instance_image", "image"):
+            v = batch.get(key)
+            if hasattr(v, "shape") and len(v.shape) > 0:
+                return int(v.shape[0])
+        for v in batch.values():
+            if hasattr(v, "shape") and len(v.shape) > 0:
+                return int(v.shape[0])
+        if "frame_idx" in batch:
+            return len(batch["frame_idx"])
+    elif isinstance(batch, (list, tuple)) and len(batch):
+        return _batch_num_samples(batch[0])
+    elif hasattr(batch, "shape") and len(batch.shape) > 0:
+        return int(batch.shape[0])
+    return 0
+
+
+class ThroughputMonitor(Callback):
+    """Log training speed and input-pipeline stalls every ``log_every_n_steps``.
+
+    Timing is measured over windows of ``log_every_n_steps`` training batches and
+    is reset at the start of every train epoch and around validation, so the
+    reported rates are *train-only* (unlike the epoch-level ``train/samples_per_sec``
+    which historically included the validation loop).
+
+    Host-side timings use ``time.perf_counter`` and add no device syncs. When the
+    module runs on CUDA, a pair of CUDA events is also recorded around each step
+    and read back once per window (a single sync on the last event), which gives
+    the fraction of the window the GPU was actually idle -- the true cost of a
+    slow dataloader, independent of how far the host runs ahead of the device.
+
+    Logged keys (to every Lightning logger, at ``trainer.global_step``):
+
+    * ``perf/samples_per_sec``: training samples (crops/frames) per second,
+      summed over all ranks (per-rank batch x world size).
+    * ``perf/steps_per_sec``, ``perf/iter_time_ms``: training batches per second
+      and wall time per batch (a batch, not an optimizer step, under
+      ``accumulate_grad_batches``).
+    * ``perf/data_wait_ms``, ``perf/data_wait_frac``: host time between the end
+      of one batch and the start of the next (dataloader fetch + host-to-device
+      copy + loop overhead), per batch and as a fraction of wall time.
+    * ``perf/compute_ms``: host time inside the step (forward/backward/optimizer
+      launch; equals device time only if the step synchronizes).
+    * ``perf/gpu_idle_frac``: fraction of the window the GPU stream was idle
+      between steps (CUDA only). This is the stall metric to watch: when the
+      step has no host sync the host runs ahead of the GPU, so
+      ``data_wait_frac`` can be high while the GPU is still fully busy.
+    * ``perf/max_mem_gb``, ``perf/max_mem_reserved_gb``: peak allocated/reserved
+      CUDA memory on this rank since the start of training.
+    * ``perf/lr/<group>``: learning rate of every optimizer param group (named by
+      the group's ``"name"`` key when present, else its index).
+
+    Args:
+        log_every_n_steps: Window size (in training batches) between logs.
+        log_to_console: Also emit a one-line ``loguru`` summary on rank 0.
+        cuda_events: Measure GPU idle time with CUDA events (CUDA only).
+    """
+
+    def __init__(
+        self,
+        log_every_n_steps: int = 50,
+        log_to_console: bool = True,
+        cuda_events: bool = True,
+    ):
+        """Initialize the monitor."""
+        super().__init__()
+        self.log_every_n_steps = max(1, int(log_every_n_steps))
+        self.log_to_console = log_to_console
+        self.cuda_events = cuda_events
+        # Every window's metrics (rank-local), e.g. for tests and benchmarks.
+        self.history = []
+        self._reset()
+
+    def _reset(self):
+        self._window_start = None
+        self._prev_end = None
+        self._step_start = None
+        self._wait = 0.0
+        self._compute = 0.0
+        self._n = 0
+        self._samples = 0
+        self._events = []
+
+    def _use_events(self, pl_module) -> bool:
+        import torch
+
+        return (
+            self.cuda_events
+            and torch.cuda.is_available()
+            and getattr(pl_module.device, "type", "cpu") == "cuda"
+        )
+
+    def on_train_epoch_start(self, trainer, pl_module):
+        """Start a fresh window each epoch."""
+        self._reset()
+
+    def on_validation_start(self, trainer, pl_module):
+        """Drop the partial window so validation never counts as train time."""
+        self._reset()
+
+    def on_train_batch_start(self, trainer, pl_module, batch, batch_idx):
+        """Record the end of the data wait / start of compute."""
+        now = time.perf_counter()
+        if self._window_start is None:
+            # First batch of a window opened by a reset: its wait is unknown.
+            self._window_start = now
+        elif self._prev_end is not None:
+            self._wait += now - self._prev_end
+        self._step_start = now
+        if self._use_events(pl_module):
+            import torch
+
+            start = torch.cuda.Event(enable_timing=True)
+            start.record()
+            self._events.append([start, None])
+
+    def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx):
+        """Accumulate the step and log once the window is full."""
+        now = time.perf_counter()
+        if self._step_start is None:
+            return
+        self._compute += now - self._step_start
+        self._prev_end = now
+        self._n += 1
+        self._samples += _batch_num_samples(batch)
+        if self._events and self._events[-1][1] is None:
+            import torch
+
+            end = torch.cuda.Event(enable_timing=True)
+            end.record()
+            self._events[-1][1] = end
+        if self._n >= self.log_every_n_steps:
+            self._log_window(trainer, pl_module, now)
+            # Next window starts where this one ended (keeps the wait of its
+            # first batch).
+            self._window_start = now
+            self._wait = self._compute = 0.0
+            self._n = self._samples = 0
+            self._events = []
+
+    def _log_window(self, trainer, pl_module, now):
+        import torch
+
+        wall = max(now - self._window_start, 1e-9)
+        world = int(getattr(trainer, "world_size", 1) or 1)
+        metrics = {
+            "perf/samples_per_sec": self._samples * world / wall,
+            "perf/steps_per_sec": self._n / wall,
+            "perf/iter_time_ms": 1000.0 * wall / self._n,
+            "perf/data_wait_ms": 1000.0 * self._wait / self._n,
+            "perf/data_wait_frac": self._wait / wall,
+            "perf/compute_ms": 1000.0 * self._compute / self._n,
+        }
+        events = [e for e in self._events if e[1] is not None]
+        if len(events) >= 2:
+            events[-1][1].synchronize()
+            busy = sum(s.elapsed_time(e) for s, e in events)
+            span = events[0][0].elapsed_time(events[-1][1])
+            if span > 0:
+                metrics["perf/gpu_idle_frac"] = max(0.0, 1.0 - busy / span)
+        if torch.cuda.is_available() and pl_module.device.type == "cuda":
+            dev = pl_module.device
+            metrics["perf/max_mem_gb"] = torch.cuda.max_memory_allocated(dev) / 1e9
+            metrics["perf/max_mem_reserved_gb"] = (
+                torch.cuda.max_memory_reserved(dev) / 1e9
+            )
+        for opt_idx, opt in enumerate(trainer.optimizers):
+            for g_idx, group in enumerate(opt.param_groups):
+                name = group.get("name", str(g_idx))
+                prefix = "perf/lr" if opt_idx == 0 else f"perf/lr_opt{opt_idx}"
+                metrics[f"{prefix}/{name}"] = float(group["lr"])
+        self.history.append(metrics)
+        if trainer.is_global_zero:
+            for lg in trainer.loggers:
+                lg.log_metrics(metrics, step=trainer.global_step)
+            if self.log_to_console:
+                idle = metrics.get("perf/gpu_idle_frac")
+                logger.info(
+                    f"[throughput] step {trainer.global_step}: "
+                    f"{metrics['perf/samples_per_sec']:.1f} samples/s, "
+                    f"iter {metrics['perf/iter_time_ms']:.1f} ms, "
+                    f"data wait {metrics['perf/data_wait_ms']:.1f} ms "
+                    f"({100 * metrics['perf/data_wait_frac']:.1f}%)"
+                    + (f", GPU idle {100 * idle:.1f}%" if idle is not None else "")
+                    + (
+                        f", max mem {metrics['perf/max_mem_gb']:.1f} GB"
+                        if "perf/max_mem_gb" in metrics
+                        else ""
+                    )
+                )
+
+
+class EncoderFreezeSchedule(Callback):
+    """Freeze part of the model for the first ``unfreeze_at_step`` steps.
+
+    The usual "warm up the new head on a frozen pretrained encoder, then fine-tune
+    everything" recipe. Freezing happens in ``on_fit_start`` -- AFTER
+    ``configure_optimizers`` -- so the frozen parameters are already in their
+    optimizer groups (with their ``encoder_lr_scale`` / ``layer_decay`` LRs) and
+    simply receive no gradient (Adam/AdamW skip parameters whose ``grad`` is
+    ``None``, weight decay included) until they are unfrozen. Do NOT combine with
+    the backbone's ``freeze: true``, which keeps the encoder out of the optimizer.
+
+    Under DDP the model is wrapped before ``on_fit_start``, so DDP has registered
+    the frozen parameters and would wait forever for their gradients. ``setup``
+    therefore turns on ``find_unused_parameters`` for a ``DDPStrategy`` (and
+    refuses an explicit ``find_unused_parameters=False`` / ``static_graph``, or
+    any other multi-process strategy).
+
+    Args:
+        targets: Selectors of what to freeze (see
+            `sleap_nn.training.weight_transfer.resolve_selector`): ``"encoder"``
+            (default), ``"embeddings"``, ``"blocks[:6]"``, ``"backbone"``, globs.
+            ``"encoder"`` also keeps the encoder in eval mode while frozen
+            (BatchNorm statistics, stochastic depth), as ``freeze: true`` does.
+        unfreeze_at_step: Global step at which to unfreeze. ``None`` keeps the
+            targets frozen for the whole run (static partial freezing).
+    """
+
+    def __init__(
+        self,
+        targets: Optional[list] = None,
+        unfreeze_at_step: Optional[int] = None,
+    ):
+        """Initialize the schedule."""
+        super().__init__()
+        self.targets = list(targets or ["encoder"])
+        self.unfreeze_at_step = unfreeze_at_step
+        self.frozen: list = []
+        self._uses_mixin = False
+
+    def _backbone(self, pl_module):
+        return getattr(getattr(pl_module, "model", None), "backbone", None)
+
+    def setup(self, trainer, pl_module, stage):
+        """Make DDP tolerate parameters that get no gradient while frozen.
+
+        Runs before the strategy wraps the model, so the flag reaches
+        ``DistributedDataParallel``.
+        """
+        if stage != "fit":
+            return
+        from lightning.pytorch.strategies import DDPStrategy, ParallelStrategy
+
+        strategy = trainer.strategy
+        if isinstance(strategy, DDPStrategy):
+            ddp_kwargs = strategy._ddp_kwargs
+            if ddp_kwargs.get("find_unused_parameters") is False or ddp_kwargs.get(
+                "static_graph"
+            ):
+                message = (
+                    "trainer_config.freeze_schedule freezes parameters after DDP has "
+                    "wrapped the model, which needs find_unused_parameters=True and "
+                    "no static_graph. Use trainer_strategy 'ddp' or "
+                    "'ddp_find_unused_parameters_true'."
+                )
+                logger.error(message)
+                raise ValueError(message)
+            if not ddp_kwargs.get("find_unused_parameters"):
+                ddp_kwargs["find_unused_parameters"] = True
+                logger.info(
+                    "EncoderFreezeSchedule: enabled DDP find_unused_parameters "
+                    "(frozen parameters get no gradient)."
+                )
+        elif isinstance(strategy, ParallelStrategy) and strategy.world_size > 1:
+            message = (
+                "trainer_config.freeze_schedule supports single-device and DDP "
+                f"training only, not {type(strategy).__name__}."
+            )
+            logger.error(message)
+            raise ValueError(message)
+
+    def on_fit_start(self, trainer, pl_module):
+        """Freeze the targets (after the optimizer has been built)."""
+        from sleap_nn.training.weight_transfer import (
+            select_params,
+            set_requires_grad,
+        )
+
+        if self.unfreeze_at_step is not None and trainer.global_step >= (
+            self.unfreeze_at_step
+        ):
+            return  # resumed past the unfreeze point
+        if not select_params(pl_module, self.targets):
+            message = f"freeze_schedule targets {self.targets} match no parameter."
+            logger.error(message)
+            raise ValueError(message)
+        backbone = self._backbone(pl_module)
+        if "encoder" in self.targets and hasattr(backbone, "freeze_encoder"):
+            if getattr(backbone, "freeze", False) and self.unfreeze_at_step is not None:
+                message = (
+                    "freeze_schedule.unfreeze_at_step is set but the backbone is "
+                    "frozen by its config (freeze: true), which keeps the encoder out "
+                    "of the optimizer so it would never train. Set freeze: false."
+                )
+                logger.error(message)
+                raise ValueError(message)
+            self._uses_mixin = True
+        self.frozen = set_requires_grad(pl_module, self.targets, False)
+        if self._uses_mixin:
+            # Eval mode for the frozen encoder (BatchNorm statistics, drop path).
+            backbone.freeze_encoder()
+        in_optim = {
+            id(p)
+            for opt in trainer.optimizers
+            for g in opt.param_groups
+            for p in g["params"]
+        }
+        params = dict(pl_module.named_parameters())
+        outside = [n for n in self.frozen if id(params[n]) not in in_optim]
+        if outside and self.unfreeze_at_step is not None:
+            logger.warning(
+                f"EncoderFreezeSchedule: {len(outside)} frozen parameters are not "
+                "in the optimizer and will not train after unfreezing."
+            )
+        logger.info(
+            f"EncoderFreezeSchedule: froze {len(self.frozen)} parameter tensors "
+            f"({self.targets}) until step {self.unfreeze_at_step}."
+        )
+
+    def on_train_batch_start(self, trainer, pl_module, batch, batch_idx):
+        """Unfreeze once ``global_step`` reaches ``unfreeze_at_step``."""
+        if (
+            not self.frozen
+            or self.unfreeze_at_step is None
+            or trainer.global_step < self.unfreeze_at_step
+        ):
+            return
+        if self._uses_mixin:
+            self._backbone(pl_module).unfreeze_encoder()
+        # Only what this callback froze (not parameters excluded on purpose).
+        params = dict(pl_module.named_parameters())
+        for name in self.frozen:
+            params[name].requires_grad_(True)
+        logger.info(
+            f"EncoderFreezeSchedule: unfroze {len(self.frozen)} parameter tensors "
+            f"at step {trainer.global_step}."
+        )
+        self.frozen = []

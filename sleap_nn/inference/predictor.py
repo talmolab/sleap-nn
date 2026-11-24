@@ -22,6 +22,7 @@ Three usage tiers:
 from __future__ import annotations
 
 import copy
+import json
 from pathlib import Path
 from typing import (
     TYPE_CHECKING,
@@ -40,6 +41,7 @@ import torch
 from loguru import logger
 
 from sleap_nn.inference.filters import FilterConfig, FilterPipeline
+from sleap_nn.config.model_config import BBOX_MODEL_TYPES
 from sleap_nn.config.utils import check_tiling_parity
 from sleap_nn.inference.layers.backends import TorchBackend
 from sleap_nn.inference.layers.bbox import BBoxLayer, BBoxStageLayer
@@ -49,6 +51,7 @@ from sleap_nn.inference.layers.bottomup_multiclass import BottomUpMultiClassLaye
 from sleap_nn.inference.layers.centered_instance import CenteredInstanceLayer
 from sleap_nn.inference.layers.centroid import CentroidLayer
 from sleap_nn.inference.layers.configs import PostprocessConfig, PreprocessConfig
+from sleap_nn.inference.ops.peaks import resolve_refinement
 from sleap_nn.inference.layers.segmentation import (
     SegmentationLayer,
     SemanticSegmentationLayer,
@@ -70,18 +73,12 @@ from sleap_nn.inference.layers.topdown_segmentation import (
     TopDownSegmentationLayer,
 )
 from sleap_nn.inference.outputs import Outputs
-from sleap_nn.inference.providers import Batch, Provider
+from sleap_nn.inference.providers import Batch, FrameFit, Provider
 from sleap_nn.inference.tracking import (
     TrackerConfig,
     apply_tracking,
     tracker_config_params,
 )
-
-#: Default of the per-call ``integral_refinement`` override on
-#: :meth:`Predictor.predict` / :meth:`Predictor.predict_streaming`: keep the
-#: predictor's refinement. ``None`` is a real value there (turn refinement
-#: off), as it is for :meth:`Predictor.from_model_paths`.
-KEEP_REFINEMENT = "keep"
 
 
 class _CentroidPackaging(NamedTuple):
@@ -141,6 +138,11 @@ def _torch_backends(layer: Any) -> List[TorchBackend]:
 
     walk(layer)
     return found
+
+
+def _is_cuda(device: Any) -> bool:
+    """Whether ``device`` (a string, a ``torch.device`` or ``None``) is a CUDA one."""
+    return device is not None and torch.device(device).type == "cuda"
 
 
 def _safe_num_frames(provider: Any) -> int:
@@ -279,6 +281,7 @@ def _build_single_instance_layer(predictor: Any, device: str) -> SingleInstanceL
             peak_threshold=inf.peak_threshold,
             refinement=inf.refinement or "none",
             integral_patch_size=inf.integral_patch_size,
+            dark_blur_sigma=getattr(inf, "dark_blur_sigma", 1.0),
             return_confmaps=getattr(inf, "return_confmaps", False),
         ),
     )
@@ -541,6 +544,7 @@ def _build_bbox_layer(predictor: Any, device: str) -> BBoxLayer:
             max_width=_pp_field(predictor, "max_width"),
             ensure_rgb=_pp_field(predictor, "ensure_rgb"),
             ensure_grayscale=_pp_field(predictor, "ensure_grayscale"),
+            resize_mode=_pp_field(predictor, "resize_mode", "letterbox"),
         ),
         postprocess_config=PostprocessConfig(
             peak_threshold=inf.decoder.score_threshold,
@@ -563,6 +567,7 @@ def _build_bbox_stage_layer(detector_assets: Any, device: str) -> BBoxStageLayer
             max_width=_pp_field(detector_assets, "max_width"),
             ensure_rgb=_pp_field(detector_assets, "ensure_rgb"),
             ensure_grayscale=_pp_field(detector_assets, "ensure_grayscale"),
+            resize_mode=_pp_field(detector_assets, "resize_mode", "letterbox"),
         ),
         postprocess_config=PostprocessConfig(
             peak_threshold=inf.decoder.score_threshold,
@@ -587,19 +592,26 @@ def _crop_stage_knobs(assets: Any) -> tuple:
     return BBoxCropSpec.from_config(cfg), max_hw
 
 
-def _attach_bbox_stage(layer: TopDownLayer, assets: Any, device: str) -> TopDownLayer:
+def _attach_bbox_stage(
+    layer: TopDownLayer,
+    assets: Any,
+    device: str,
+    box_source: Optional[str] = None,
+    box_score_threshold: float = 0.0,
+) -> TopDownLayer:
     """Seed a top-down layer with boxes: put the detector (or GT boxes) in front.
 
     Stage 2 stays as built; stage 1 becomes a :class:`BBoxStageLayer` -- the
     loaded detector, or, without one, boxes read from the GT instances (the
     box-scaled analog of the GT-centroid fallback, padded like the crop model's
-    training boxes). The frame is size-matched to the crop model's own training
-    target before cropping, and a box-scaled crop model (``crop_mode="bbox"``)
-    gets its crop rule.
+    training boxes), or with ``box_source="given"`` the boxes handed to each batch
+    (``Batch.frame_boxes``). The frame is size-matched to the crop model's own
+    training target before cropping, and a box-scaled crop model
+    (``crop_mode="bbox"``) gets its crop rule.
     """
     spec, max_hw = _crop_stage_knobs(assets)
     detector = getattr(assets, "detector_assets", None)
-    if detector is not None:
+    if detector is not None and box_source is None:
         layer.centroid_layer = _build_bbox_stage_layer(detector, device)
     else:
         from omegaconf import OmegaConf
@@ -610,8 +622,10 @@ def _attach_bbox_stage(layer: TopDownLayer, assets: Any, device: str) -> TopDown
         layer.centroid_layer = BBoxStageLayer(
             backend=layer.centered_instance_layer.backend,
             decoder=None,
-            use_gt_boxes=True,
+            use_gt_boxes=box_source != "given",
             gt_bbox_padding=float(padding or 0.0),
+            use_given_boxes=box_source == "given",
+            box_score_threshold=box_score_threshold,
             preprocess_config=PreprocessConfig(
                 scale=1.0,
                 max_height=_pp_field(assets, "max_height"),
@@ -624,6 +638,45 @@ def _attach_bbox_stage(layer: TopDownLayer, assets: Any, device: str) -> TopDown
     layer.bbox_crop = spec
     layer.crop_max_hw = max_hw
     return layer
+
+
+def _seed_from_boxes(
+    layer: Any,
+    assets: Any,
+    model_types: List[str],
+    device: str,
+    boxes: str,
+    box_score_threshold: float = 0.0,
+) -> TopDownLayer:
+    """Replace a top-down model's stage 1 with GT (``"gt"``) or given boxes.
+
+    The ``sleap-nn predict --boxes`` route: the crop model runs on externally
+    supplied boxes (COCO detection files, ``PredictedBoundingBox``es in the input
+    ``.slp``) or on the GT boxes, instead of a centroid model or detector.
+    """
+    if boxes not in ("gt", "given"):
+        raise ValueError(f"boxes must be 'gt' or 'given'; got {boxes!r}.")
+    from sleap_nn.inference.layers.embedding import TopDownEmbeddingLayer
+
+    if not isinstance(layer, TopDownLayer) or isinstance(layer, TopDownEmbeddingLayer):
+        raise ValueError(
+            "Seeding from boxes needs a top-down crop model (centered_instance, "
+            "multi_class_topdown or centered_instance_segmentation); got model "
+            f"types {model_types}."
+        )
+    stage_1 = [t for t in model_types if t == "centroid" or t in BBOX_MODEL_TYPES]
+    if stage_1:
+        raise ValueError(
+            f"Seeding from {boxes!r} boxes replaces the top-down stage 1; pass only "
+            f"the crop model, not the {'/'.join(stage_1)} model too."
+        )
+    return _attach_bbox_stage(
+        layer,
+        assets,
+        device,
+        box_source=boxes,
+        box_score_threshold=box_score_threshold,
+    )
 
 
 def _maybe_gt_bbox_stage(layer: TopDownLayer, assets: Any, device: str):
@@ -676,11 +729,14 @@ def _build_centered_instance_layer(
         backend=TorchBackend(model=instance_model.torch_model, device=device),
         output_stride=instance_model.output_stride,
         max_stride=instance_model.max_stride,
+        flip_test=getattr(instance_model, "flip_test", False),
+        flip_idx=getattr(instance_model, "flip_idx", None),
         preprocess_config=PreprocessConfig(scale=instance_model.input_scale),
         postprocess_config=PostprocessConfig(
             peak_threshold=instance_model.peak_threshold,
             refinement=instance_model.refinement or "none",
             integral_patch_size=instance_model.integral_patch_size,
+            dark_blur_sigma=getattr(instance_model, "dark_blur_sigma", 1.0),
             return_confmaps=getattr(instance_model, "return_confmaps", False),
         ),
     )
@@ -739,6 +795,7 @@ def _build_centered_instance_multiclass_layer(
             peak_threshold=instance_model.peak_threshold,
             refinement=instance_model.refinement or "none",
             integral_patch_size=instance_model.integral_patch_size,
+            dark_blur_sigma=getattr(instance_model, "dark_blur_sigma", 1.0),
             return_confmaps=getattr(instance_model, "return_confmaps", False),
         ),
     )
@@ -913,15 +970,13 @@ def _select_layer(assets: Any, model_types: List[str], device: str):
             check_tiling_parity(_tiling_source_cfg(assets))
             return _build_tiled_semantic_segmentation_layer(inner, tiling)
         return inner
-    if "bbox_centernet" in model_types or "bbox_ssd" in model_types:
+    if set(BBOX_MODEL_TYPES) & set(model_types):
         if getattr(assets, "detector_assets", None) is None:
             return _build_bbox_layer(assets, device)
         # Detector-seeded top-down: build stage 2 exactly as for its GT-centroid
         # fallback, then put the detector in front of it.
         stage_2_types = [
-            t
-            for t in model_types
-            if t not in ("bbox_centernet", "bbox_ssd", "centroid")
+            t for t in model_types if t != "centroid" and t not in BBOX_MODEL_TYPES
         ]
         layer = _select_layer(assets, stage_2_types, device)
         return _attach_bbox_stage(layer, assets, device)
@@ -1028,16 +1083,38 @@ def _skeleton_from_export(export_dir: Path, metadata: "ExportMetadata") -> Any:
     return None
 
 
-def _resolve_export_runtime(export_dir: Path, runtime: str) -> tuple[str, Path]:
-    """Pick the runtime + model file for an export directory."""
+def _runs_on_cuda(device: Any) -> bool:
+    """Whether ``device`` resolves to CUDA (``"auto"``: when CUDA is available)."""
+    if device is None or str(device) == "auto":
+        return torch.cuda.is_available()
+    return _is_cuda(device)
+
+
+def _resolve_export_runtime(
+    export_dir: Path, runtime: str, device: Any = None
+) -> tuple[str, Path]:
+    """Pick the runtime + model file for an export directory.
+
+    ``"auto"`` prefers ``model.trt``, except off CUDA (``device`` given and not a
+    CUDA device), where a TensorRT engine cannot run: there it takes
+    ``model.onnx``, and a directory with only an engine is refused.
+    """
     onnx_path = export_dir / "model.onnx"
     trt_path = export_dir / "model.trt"
 
     if runtime == "auto":
-        if trt_path.exists():
+        on_cuda = device is None or _runs_on_cuda(device)
+        if trt_path.exists() and on_cuda:
             return "tensorrt", trt_path
         if onnx_path.exists():
             return "onnx", onnx_path
+        if trt_path.exists():
+            raise ValueError(
+                f"{export_dir} holds only a TensorRT engine (model.trt), which runs "
+                f"on CUDA only, and the device is {str(device)!r}. Run on a CUDA "
+                "device, or export the ONNX graph too (`sleap-nn export --format "
+                "both`)."
+            )
         raise FileNotFoundError(
             f"No model file found in {export_dir}. "
             f"Expected model.onnx or model.trt."
@@ -1053,6 +1130,30 @@ def _resolve_export_runtime(export_dir: Path, runtime: str) -> tuple[str, Path]:
     raise ValueError(
         f"Unknown runtime: {runtime!r}. Expected 'auto', 'onnx', or 'tensorrt'."
     )
+
+
+def _refuse_network_only_export_dir(export_dir: Path, metadata_path: Path) -> None:
+    """Refuse a ``--network-only`` crop export given as an export directory.
+
+    Its graph returns raw confidence maps; the crops before it and the peak
+    finding after it are the checkpoint pipeline's, which runs it from model
+    paths. Box detector exports (network-only by construction) are decoded on the
+    host by the export-directory route and stay accepted there.
+    """
+    from sleap_nn.inference.exported_network import _NETWORK_ONLY_TYPES
+
+    try:
+        meta = json.loads(metadata_path.read_text())
+    except (OSError, ValueError):
+        return
+    if meta.get("network_only") and meta.get("model_type") not in _NETWORK_ONLY_TYPES:
+        raise ValueError(
+            f"{export_dir} is a network-only export (`sleap-nn export "
+            "--network-only`): its graph returns raw confidence maps and stands in "
+            "for its checkpoint. Pass it as a model path instead of an export "
+            "directory: `Predictor.from_model_paths([...])`, "
+            "`predict(model_paths=[...])`, or `sleap-nn predict -m`."
+        )
 
 
 def _build_export_backend(runtime: str, model_path: Path, device: str):
@@ -1077,6 +1178,7 @@ def _select_export_layer(
     min_line_scores: float = 0.25,
     peak_conf_threshold: Optional[float] = None,
     export_dir: Optional[Path] = None,
+    bbox_nms_iou: Optional[float] = None,
 ):
     """Dispatch on ``metadata.model_type`` to build the right export adapter."""
     from sleap_nn.inference.layers.exported import (
@@ -1160,10 +1262,11 @@ def _select_export_layer(
             peak_conf_threshold=peak_conf_threshold,
         )
 
-    if model_type in ("bbox_centernet", "bbox_ssd"):
+    if model_type in ("bbox_centernet", "bbox_ssd", "bbox_detr"):
         # Decoding and preprocessing are not baked into a detector's graph: rebuild
-        # its BBoxDecoder (categories, anchors, NMS) and preprocessing from the
-        # training config copied next to it.
+        # its BBoxDecoder (categories, anchors, NMS; DETR's top-k set decode) and
+        # preprocessing (size matcher incl. the resize mode) from the training
+        # config copied next to it.
         from omegaconf import OmegaConf
 
         from sleap_nn.inference.bbox import BBoxDecoder
@@ -1186,11 +1289,15 @@ def _select_export_layer(
             model_type,
             cfg.model_config.head_configs,
             score_threshold=score,
+            # As on the checkpoint path (`bbox_nms_iou`): None keeps the style's
+            # default suppression.
+            iou_threshold="default" if bbox_nms_iou is None else bbox_nms_iou,
             max_detections=max_instances,
         )
         return ExportedBBoxLayer(
             backend=backend,
             decoder=decoder,
+            input_dtype=getattr(metadata, "input_dtype", None) or "uint8",
             output_stride=int(metadata.output_stride),
             max_stride=int(backbone_cfg.max_stride),
             preprocess_config=PreprocessConfig(
@@ -1200,6 +1307,9 @@ def _select_export_layer(
                 max_width=pre.get("max_width"),
                 ensure_rgb=pre.get("ensure_rgb") or None,
                 ensure_grayscale=pre.get("ensure_grayscale") or None,
+                # As the checkpoint path (`_resolve_preprocess_config`): a model
+                # trained on squashed frames must see squashed frames.
+                resize_mode=pre.get("resize_mode") or "letterbox",
             ),
             postprocess_config=PostprocessConfig(
                 peak_threshold=score, max_instances=max_instances
@@ -1207,6 +1317,216 @@ def _select_export_layer(
         )
 
     raise ValueError(f"Unrecognized model_type {model_type!r} in export_metadata.json.")
+
+
+_AUTOCAST_DTYPES = {"bf16": torch.bfloat16, "fp16": torch.float16}
+
+
+def _set_autocast_precision(layer: Any, precision: str) -> List[TorchBackend]:
+    """Set ``autocast_dtype`` on every ``TorchBackend`` reachable from ``layer``.
+
+    Composed layers (top-down, box-seeded, multi-stage) hold their stage layers
+    and backends as attributes, so this walks the ``sleap_nn.inference`` objects
+    reachable through instance attributes (and lists / tuples / dicts of them).
+
+    ``"bf16-encoder"`` / ``"fp16-encoder"`` (experimental) also set
+    ``autocast_scope="encoder"``: only each model's encoder runs under autocast
+    (:func:`~sleap_nn.inference.layers.backends.torch_backend.autocast_forward`).
+    An exported (ONNX/TensorRT) backend keeps scope ``"all"``: autocast does not
+    reach inside it, and ``_warn_precision_scope`` says so, as for ``bf16``.
+
+    Returns:
+        The backends it set (none for ``precision="32"``).
+
+    Raises:
+        ValueError: For an unknown ``precision``, or an ``-encoder`` precision on
+            a checkpoint model with no recognisable encoder.
+    """
+    from sleap_nn.inference.layers.backends.torch_backend import (
+        TorchBackend,
+        supports_encoder_autocast,
+    )
+
+    found: List[TorchBackend] = []
+    if precision == "32":
+        return found
+    name, _, scope = precision.partition("-")
+    if name not in _AUTOCAST_DTYPES or scope not in ("", "encoder"):
+        raise ValueError(
+            "precision must be '32', 'bf16', 'fp16', 'bf16-encoder' or "
+            f"'fp16-encoder'; got {precision!r}."
+        )
+    dtype = _AUTOCAST_DTYPES[name]
+    for backend in _reachable_torch_backends(layer):
+        encoder_scope = bool(scope) and not _is_exported_backend(backend)
+        if encoder_scope and not supports_encoder_autocast(backend.model):
+            raise ValueError(
+                f"precision={precision!r} runs only each model's encoder under "
+                f"autocast, and this {type(backend.model).__name__} has no "
+                "backbone that supports it. Use "
+                f"precision={name!r} (the whole forward) instead."
+            )
+        # The scope first: its check (`use_compile`) must fail before the dtype
+        # is set, so a caught error leaves the backend as it was.
+        backend.autocast_scope = "encoder" if encoder_scope else "all"
+        backend.autocast_dtype = dtype
+        found.append(backend)
+    return found
+
+
+def _compile_checkpoint_backends(backends: List[TorchBackend]) -> None:
+    """Turn on ``use_compile`` for every backend that runs a trained checkpoint.
+
+    An exported (ONNX/TensorRT) graph standing in for a checkpoint is left as
+    it is, with a warning: ``torch.compile`` does not reach inside it, and
+    padding its batches to a fixed size would only add work.
+
+    Raises:
+        ValueError: For a backend with ``autocast_scope="encoder"`` (an
+            ``*-encoder`` precision), from :class:`TorchBackend`.
+    """
+    n_exported = 0
+    for backend in backends:
+        if _is_exported_backend(backend):
+            n_exported += 1
+        else:
+            backend.use_compile = True
+    if n_exported:
+        logger.warning(
+            f"use_compile=True does not apply to the {n_exported} exported "
+            "(ONNX/TensorRT) model(s): they run as exported. It compiles models "
+            "loaded from trained checkpoints."
+        )
+
+
+def _is_exported_backend(backend: TorchBackend) -> bool:
+    """Whether ``backend`` runs an exported (ONNX/TensorRT) graph, not a checkpoint."""
+    from sleap_nn.inference.exported_network import ExportedNetwork
+
+    modules = getattr(backend.model, "modules", None)
+    return callable(modules) and any(isinstance(m, ExportedNetwork) for m in modules())
+
+
+def _reachable_torch_backends(layer: Any) -> List[TorchBackend]:
+    """Every ``TorchBackend`` reachable from ``layer`` (see ``_set_autocast_precision``)."""
+    from sleap_nn.inference.layers.backends.torch_backend import TorchBackend
+
+    found: List[TorchBackend] = []
+    seen: set = set()
+    stack = [layer]
+    while stack:
+        obj = stack.pop()
+        if id(obj) in seen:
+            continue
+        seen.add(id(obj))
+        if isinstance(obj, TorchBackend):
+            found.append(obj)
+            continue
+        if isinstance(obj, (list, tuple)):
+            stack.extend(obj)
+        elif isinstance(obj, dict):
+            stack.extend(obj.values())
+        elif type(obj).__module__.startswith("sleap_nn.inference") and hasattr(
+            obj, "__dict__"
+        ):
+            stack.extend(vars(obj).values())
+    return found
+
+
+def _autocast_precision_used(*layers: Any) -> Optional[str]:
+    """``"bf16"`` / ``"fp16"`` if a CUDA model of ``layers`` runs under autocast.
+
+    ``None`` for fp32 (the default) and off CUDA, where autocast is not applied,
+    so a default run's provenance has no such key.
+    """
+    names = {v: k for k, v in _AUTOCAST_DTYPES.items()}
+    used = set()
+    for layer in layers:
+        if layer is None:
+            continue
+        for backend in _reachable_torch_backends(layer):
+            dtype = getattr(backend, "autocast_dtype", None)
+            if dtype is not None and "cuda" in str(getattr(backend, "device", "")):
+                name = names.get(dtype, str(dtype))
+                if getattr(backend, "autocast_scope", "all") != "all":
+                    name = f"{name}-{backend.autocast_scope}"
+                used.add(name)
+    return ",".join(sorted(used)) or None
+
+
+def _warn_precision_scope(
+    precision: str, device: Any, backends: List[TorchBackend]
+) -> None:
+    """Say (once per build) where a ``precision`` other than ``"32"`` does nothing.
+
+    ``precision`` runs each model's forward under ``torch.autocast``, which
+    :class:`TorchBackend` enters on CUDA devices only, and which does not reach
+    inside an exported (ONNX/TensorRT) graph standing in for a checkpoint.
+
+    Args:
+        precision: The value asked for (``"bf16"`` or ``"fp16"`` here).
+        device: Device the models were loaded on.
+        backends: The backends :func:`_set_autocast_precision` set.
+    """
+    if torch.device(device).type != "cuda":
+        logger.warning(
+            f"precision={precision!r} has no effect on device={device}: it runs "
+            "the models under torch.autocast, on CUDA devices only. Predicting "
+            "in fp32."
+        )
+        return
+
+    n_exported = sum(_is_exported_backend(backend) for backend in backends)
+    if n_exported and n_exported == len(backends):
+        logger.warning(
+            f"precision={precision!r} has no effect here: every model is an "
+            "exported (ONNX/TensorRT) graph, which keeps the precision it was "
+            "exported with. It applies to models loaded from trained checkpoints."
+        )
+    elif n_exported:
+        logger.warning(
+            f"precision={precision!r} applies to the models loaded from trained "
+            f"checkpoints only: {n_exported} of the {len(backends)} models here "
+            "are exported (ONNX/TensorRT) graphs and keep the precision they were "
+            "exported with."
+        )
+
+
+def _restore_source_order(
+    labels: "sio.Labels",
+    videos: Optional[List["sio.Video"]],
+    source_positions: Optional[dict],
+) -> None:
+    """Sort ``labels.labeled_frames`` back into the provider's source order.
+
+    ``source_positions`` (from ``LabelsProvider.source_positions``) maps
+    ``(video index, frame_idx)`` to the frame's position before the provider
+    grouped frames by size; ``None`` means the order was never changed. Frames
+    it does not list keep their relative order, after the listed ones.
+    """
+    if not source_positions:
+        return
+    video_index = {id(v): i for i, v in enumerate(videos or [])}
+    end = len(source_positions)
+
+    def key(lf) -> int:
+        return source_positions.get(
+            (video_index.get(id(lf.video), -1), lf.frame_idx), end
+        )
+
+    labels.labeled_frames.sort(key=key)
+
+
+def _resolve_upload_batches(upload_batches: bool, frames_on_gpu: bool) -> bool:
+    """``upload_batches`` after its deprecated alias ``frames_on_gpu`` (logs once)."""
+    if not frames_on_gpu:
+        return upload_batches
+    logger.warning(
+        "frames_on_gpu is now upload_batches: the frames are uploaded for every "
+        "pipeline (see upload_batches). frames_on_gpu is a deprecated alias and "
+        "will be removed in a later release."
+    )
+    return True
 
 
 @attrs.define
@@ -1238,15 +1558,22 @@ class Predictor:
             :meth:`predict` runs the tracker on the resulting
             ``sio.Labels`` (requires ``make_labels=True``) before
             returning.
-        upload_batches: When ``True`` and the layer's (first) model runs on a
-            CUDA device, each numpy batch from the provider is copied to that
+        upload_batches: When ``True`` and a model of the layer runs on a CUDA
+            device, each batch of frames from the provider is copied to that
             GPU (still ``uint8``) before ``layer.predict``, so resizing and
             top-down cropping run on the GPU instead of the CPU (2.2x faster
             for a top-down pair on an A100; peak finding is on the GPU either
-            way). The GPU's ``uint8`` resize rounds some pixels the other way
-            by 1 grey level, so results differ slightly from the default
-            ``False``, which hands the layer the numpy batch. Off a CUDA device
-            it has no effect (with a logged warning).
+            way). It works for every pipeline: one-stage models, top-down
+            pairs (a centroid model or a box detector first) and network-only
+            export folders given as model paths. A streamed part stage
+            (``part_stage``) cuts its crops from the same GPU copy, and
+            :func:`~sleap_nn.inference.run.open_stream` uploads each pushed
+            frame the same way. The GPU's ``uint8`` resize rounds some
+            pixels the other way by 1 grey level, so results are not
+            bit-identical to the default ``False``, which hands the layer the
+            batch as the provider gave it (a box near the score threshold can
+            move, and with it an instance). Without a CUDA model it has no
+            effect (with a logged warning).
 
     Notes:
         Keeps no state across calls — same predictor can be reused on
@@ -1267,12 +1594,17 @@ class Predictor:
     # Centroid-only output representation: "instance" (default; single-node
     # PredictedInstance), "centroid" (sio.PredictedCentroid), or "both".
     emit_centroid: str = "instance"
+    # A part stage run on each batch right after the pose stage
+    # (keypoint_crops.StreamingPartStage; ``predict(part_streaming=True)``).
+    part_stage: Optional[Any] = None
     upload_batches: bool = False
     # Where ``upload_batches`` copies frames (resolved in __attrs_post_init__).
     _upload_device: Optional[str] = attrs.field(default=None, init=False, repr=False)
 
     def __attrs_post_init__(self) -> None:
-        """Warn (once) if ``paf_workers`` / ``upload_batches`` can't take effect.
+        """Resolve OKS-NMS sigmas; warn (once) about options with no effect.
+
+        ``upload_batches`` off a CUDA device has no effect and is logged.
 
         ``paf_workers > 0`` only pipelines the CPU-bound grouping stage for
         plain bottom-up (:class:`BottomUpLayer`); every other layer type
@@ -1281,6 +1613,20 @@ class Predictor:
         setting today. Without this, that's an easy-to-miss no-op — a user
         expecting a speedup gets none, with no signal why.
         """
+        cfg = self.filter_config
+        if cfg.oks_nms_threshold > 0 and not isinstance(cfg.oks_sigmas, tuple):
+            # COCO OKS-NMS needs one sigma per node: resolve the spec against the
+            # skeleton (by node name when None; COCO-17 names get COCO's).
+            if self.skeleton is None:
+                raise ValueError(
+                    "FilterConfig.oks_nms_threshold needs per-node oks_sigmas or a "
+                    "skeleton to resolve them from."
+                )
+            from sleap_nn.evaluation_coco import resolve_node_sigmas
+
+            self.filter_config = attrs.evolve(
+                cfg, oks_sigmas=resolve_node_sigmas(self.skeleton, cfg.oks_sigmas)
+            )
         if self.paf_workers > 0 and not self._can_pipeline():
             logger.warning(
                 f"paf_workers={self.paf_workers} was set, but pipelined CPU "
@@ -1290,16 +1636,19 @@ class Predictor:
             )
         if self.upload_batches:
             # Upload to the device the (first) model runs on, not
-            # ``self.device``: a layer built by hand may live elsewhere.
+            # ``self.device``: a layer built by hand may live elsewhere. When
+            # that model is not on CUDA but a later one is (a hand-built pair
+            # with stage 1 on the CPU), the frames go to that later model's GPU.
             backends = _torch_backends(self.layer)
-            device = backends[0].device if backends else self.device
-            if device is not None and torch.device(device).type == "cuda":
+            devices = [b.device for b in backends] or [self.device]
+            device = next((d for d in devices if _is_cuda(d)), devices[0])
+            if _is_cuda(device):
                 self._upload_device = str(device)
             else:
                 logger.warning(
                     f"upload_batches=True has no effect on device={device}: it "
-                    "copies frames to a CUDA device running a trained "
-                    "checkpoint."
+                    "copies frames to a CUDA device a model of the pipeline "
+                    "runs on."
                 )
 
     @property
@@ -1321,7 +1670,7 @@ class Predictor:
         backbone_ckpt_path: Optional[str] = None,
         head_ckpt_path: Optional[str] = None,
         peak_threshold: Union[float, List[float]] = 0.2,
-        integral_refinement: str = "integral",
+        integral_refinement: str = "auto",
         integral_patch_size: int = 5,
         max_instances: Optional[int] = None,
         return_confmaps: bool = False,
@@ -1353,8 +1702,16 @@ class Predictor:
         mask_output: str = "mask",
         polygon_epsilon: float = 0.01,
         bbox_nms_iou: Optional[float] = None,
+        flip_test: bool = False,
+        boxes: Optional[str] = None,
+        box_score_threshold: float = 0.0,
+        node_filter: Optional[Union[str, List[str]]] = None,
+        strip_prefix: Optional[Union[bool, str]] = None,
+        precision: str = "32",
+        export_runtime: str = "auto",
         upload_batches: bool = False,
         memory_format: str = "contiguous",
+        frames_on_gpu: bool = False,
         use_compile: bool = False,
     ) -> "Predictor":
         """Build a :class:`Predictor` from one or more checkpoint paths.
@@ -1373,8 +1730,12 @@ class Predictor:
             peak_threshold: Default peak threshold. ``List[float]`` for
                 top-down (``[centroid_thresh, keypoint_thresh]``). Can be
                 overridden per-call via ``predict(peak_threshold=...)``.
-            integral_refinement: ``"integral"``, ``"local"``, or ``"none"`` /
-                ``None`` (no refinement).
+            integral_refinement: Sub-pixel peak refinement: ``"auto"``
+                (default; DARK for the top-down keypoint stage, integral
+                regression elsewhere), ``"dark"``, ``"integral"``, ``"local"``
+                or ``"none"``. ``"dark"`` / ``"local"`` need global peaks: the
+                centroid stage uses ``"integral"`` for them and bottom-up models
+                raise. See :func:`~sleap_nn.inference.ops.peaks.resolve_refinement`.
             integral_patch_size: Refinement patch size.
             max_instances: Cap on instances per frame.
             return_confmaps: Return confidence maps on Outputs.
@@ -1435,57 +1796,117 @@ class Predictor:
             bbox_nms_iou: Class-wise IoU-NMS threshold for ``bbox_*`` detectors.
                 ``None`` (default) uses the style's default (0.45 for SSD, off for
                 CenterNet, whose peak NMS already dedupes); ``1.0`` disables it.
-            upload_batches: Copy each ``uint8`` batch to the GPU before
-                preprocessing when ``device`` is CUDA (faster; results differ
-                slightly from the default ``False``). See :class:`Predictor`.
+            flip_test: Top-down ``centered_instance`` models only: also run the
+                centered-instance model on the horizontally mirrored crops and
+                average the confmaps (symmetric nodes swapped using the skeleton
+                symmetries) before peak finding. Doubles the centered-instance
+                compute.
+            precision: ``"32"`` (the default; strict fp32), ``"bf16"`` or
+                ``"fp16"``: run every model's forward under ``torch.autocast``
+                with that dtype (CUDA only; no effect on CPU / MPS, with a
+                logged warning). Outputs are cast back to fp32 before
+                postprocessing, and results differ slightly from fp32. A
+                network-only export directory among ``model_paths`` keeps the
+                precision it was exported with (also with a warning).
+                ``"bf16-encoder"`` / ``"fp16-encoder"`` (experimental): only
+                each model's encoder runs under autocast; the decoder and heads
+                (a DETR detector's projector, decoder and box head) run in fp32.
+            boxes: Seed a top-down crop model's stage 1 from boxes instead of a
+                centroid model or detector: ``"gt"`` (the GT boxes of a ``.slp``
+                source, scored 1) or ``"given"`` (each frame's
+                ``PredictedBoundingBox``es in the ``.slp`` / ``sio.Labels`` source,
+                e.g. attached by
+                :func:`~sleap_nn.evaluation_coco.attach_coco_detections`). Pass
+                only the crop model. ``None`` (default) keeps the usual stage 1.
+            box_score_threshold: With ``boxes="given"``, drop boxes scoring below
+                this.
+            node_filter: ``single_instance`` / ``centered_instance`` models only:
+                predict only these nodes, a list of node names or a string prefix
+                (e.g. ``"lab_a/"``). The confmap head is sliced to their
+                channels, so the other confmaps are never computed, and the output
+                skeleton keeps their edges and symmetries.
+            strip_prefix: Rename the kept nodes in the output: ``True`` strips the
+                ``node_filter`` prefix, a string strips that prefix.
+            export_runtime: Runtime for any entry that is a network-only export
+                directory (``sleap-nn export --network-only``, or any box
+                detector export), which then stands in for that checkpoint:
+                ``"auto"`` (``model.trt`` if present and ``device`` is CUDA,
+                else ``model.onnx``), ``"onnx"`` or ``"tensorrt"``. Checkpoint
+                entries ignore it.
+            upload_batches: Copy each ``uint8`` batch of frames to the GPU
+                before preprocessing when ``device`` is CUDA, so the resize /
+                letterbox, the crops' frame-size match and the cropping run
+                there instead of on the CPU (off by default). Every pipeline,
+                network-only export folders among ``model_paths`` included; a
+                streamed part stage reads the same GPU copy. Results are not
+                bit-identical to the CPU resize: a ``uint8`` resize on the GPU
+                rounds some pixels one grey level differently, which can move
+                a box near the score threshold (and with it an instance).
+                Without a CUDA model the frames stay on the CPU, with a
+                warning. See :class:`Predictor`.
             memory_format: Weight layout of every model in the composition:
                 ``"contiguous"`` (default) or ``"channels_last"`` (faster cuDNN
                 convolutions on NVIDIA GPUs). See :class:`TorchBackend`.
+            frames_on_gpu: Deprecated alias of ``upload_batches`` (``True``
+                turns it on, with a warning); will be removed in a later
+                release.
             use_compile: ``torch.compile`` every model in the composition
                 (not on MPS). Compiling takes seconds to tens of seconds per
                 model, so it pays off on long videos only; results differ
                 slightly from eager. Set ``max_instances`` for top-down models
                 so the instance model compiles once (see :class:`TorchBackend`).
+                Exported (ONNX/TensorRT) models are not compiled (with a
+                warning). Refused with an ``*-encoder`` ``precision``.
         """
         from sleap_nn.inference.loaders import load_model_assets
         from sleap_nn.system_info import get_startup_info_string
 
+        upload_batches = _resolve_upload_batches(upload_batches, frames_on_gpu)
         logger.info(get_startup_info_string())
 
-        loaded, model_types = load_model_assets(
-            model_paths,
-            device=device,
-            backbone_ckpt_path=backbone_ckpt_path,
-            head_ckpt_path=head_ckpt_path,
-            peak_threshold=peak_threshold,
-            integral_refinement=integral_refinement,
-            integral_patch_size=integral_patch_size,
-            max_instances=max_instances,
-            return_confmaps=return_confmaps,
-            preprocess_config=preprocess_config,
-            anchor_part=anchor_part,
-            max_edge_length_ratio=max_edge_length_ratio,
-            dist_penalty_weight=dist_penalty_weight,
-            n_points=n_points,
-            min_instance_peaks=min_instance_peaks,
-            min_line_scores=min_line_scores,
-            fg_threshold=fg_threshold,
-            min_mask_area=min_mask_area,
-            center_nms_kernel=center_nms_kernel,
-            mask_cleanup=mask_cleanup,
-            mask_cleanup_radius=mask_cleanup_radius,
-            distance_gate_alpha=distance_gate_alpha,
-            merge_fragments=merge_fragments,
-            merge_method=merge_method,
-            merge_thresholds=merge_thresholds,
-            merge_w_valley=merge_w_valley,
-            merge_w_offset=merge_w_offset,
-            merge_dilate=merge_dilate,
-            full_res_masks=full_res_masks,
-            mask_output=mask_output,
-            polygon_epsilon=polygon_epsilon,
-            bbox_nms_iou=bbox_nms_iou,
-        )
+        from sleap_nn.inference.exported_network import EXPORT_RUNTIME
+
+        _runtime_token = EXPORT_RUNTIME.set(export_runtime)
+        try:
+            loaded, model_types = load_model_assets(
+                model_paths,
+                device=device,
+                backbone_ckpt_path=backbone_ckpt_path,
+                head_ckpt_path=head_ckpt_path,
+                peak_threshold=peak_threshold,
+                integral_refinement=integral_refinement,
+                integral_patch_size=integral_patch_size,
+                max_instances=max_instances,
+                return_confmaps=return_confmaps,
+                preprocess_config=preprocess_config,
+                anchor_part=anchor_part,
+                max_edge_length_ratio=max_edge_length_ratio,
+                dist_penalty_weight=dist_penalty_weight,
+                n_points=n_points,
+                min_instance_peaks=min_instance_peaks,
+                min_line_scores=min_line_scores,
+                fg_threshold=fg_threshold,
+                min_mask_area=min_mask_area,
+                center_nms_kernel=center_nms_kernel,
+                mask_cleanup=mask_cleanup,
+                mask_cleanup_radius=mask_cleanup_radius,
+                distance_gate_alpha=distance_gate_alpha,
+                merge_fragments=merge_fragments,
+                merge_method=merge_method,
+                merge_thresholds=merge_thresholds,
+                merge_w_valley=merge_w_valley,
+                merge_w_offset=merge_w_offset,
+                merge_dilate=merge_dilate,
+                full_res_masks=full_res_masks,
+                mask_output=mask_output,
+                polygon_epsilon=polygon_epsilon,
+                bbox_nms_iou=bbox_nms_iou,
+                flip_test=flip_test,
+                node_filter=node_filter,
+                strip_prefix=strip_prefix,
+            )
+        finally:
+            EXPORT_RUNTIME.reset(_runtime_token)
 
         if centroid_only:
             if "centroid" not in model_types:
@@ -1500,10 +1921,17 @@ class Predictor:
             )
         else:
             layer = _select_layer(loaded, model_types, device)
+        if boxes is not None:
+            layer = _seed_from_boxes(
+                layer, loaded, model_types, device, boxes, box_score_threshold
+            )
+        autocast_backends = _set_autocast_precision(layer, precision)
+        if precision != "32":
+            _warn_precision_scope(precision, device, autocast_backends)
         for backend in _torch_backends(layer):
             backend.memory_format = memory_format
-            if use_compile:
-                backend.use_compile = True
+        if use_compile:
+            _compile_checkpoint_backends(_torch_backends(layer))
 
         skeleton = loaded.skeletons[0] if loaded.skeletons else None
         kwargs: dict = {
@@ -1535,6 +1963,12 @@ class Predictor:
             f"integral_refinement={integral_refinement}",
             f"paf_workers={paf_workers}",
         ]
+        if flip_test:
+            spec.append("flip_test=True")
+        if precision != "32":
+            spec.append(f"precision={precision}")
+        if node_filter is not None:
+            spec.append(f"node_filter={node_filter!r}")
         if upload_batches and torch.device(device).type == "cuda":
             spec.append("upload_batches=True")
         if memory_format != "contiguous":
@@ -1551,7 +1985,7 @@ class Predictor:
         if "centered_instance_segmentation" in model_types:
             spec.append(f"fg_threshold={fg_threshold}")
             spec.append(f"mask_output={mask_output}")
-        if "bbox_centernet" in model_types or "bbox_ssd" in model_types:
+        if set(BBOX_MODEL_TYPES) & set(model_types):
             detector = getattr(loaded, "detector_assets", None) or loaded
             spec.append(
                 f"bbox_nms_iou={detector.inference_model.decoder.iou_threshold}"
@@ -1587,13 +2021,17 @@ class Predictor:
         min_line_scores: float = 0.25,
         peak_conf_threshold: Optional[float] = None,
         emit_centroid: str = "instance",
+        bbox_nms_iou: Optional[float] = None,
     ) -> "Predictor":
         """Build a :class:`Predictor` from an exported ONNX/TensorRT directory.
 
         Args:
             export_dir: Directory containing ``export_metadata.json`` +
-                ``model.onnx`` or ``model.trt``.
-            runtime: ``"auto"`` (prefer TRT), ``"onnx"``, or ``"tensorrt"``.
+                ``model.onnx`` or ``model.trt``. A ``--network-only`` crop-model
+                export is refused: it stands in for its checkpoint, so pass it
+                to :meth:`from_model_paths` instead.
+            runtime: ``"auto"`` (prefer TRT on CUDA, else ONNX), ``"onnx"``, or
+                ``"tensorrt"``.
             device: Device string.
             batch_size: Default batch size.
             return_confmaps: Return confidence maps on Outputs.
@@ -1615,6 +2053,9 @@ class Predictor:
                 (``sio.PredictedCentroid``), or ``"both"``. Honored only for
                 ``ExportedCentroidLayer``; mirrors ``from_model_paths`` so the
                 exported runtime matches the checkpoint path.
+            bbox_nms_iou: Box detector exports: class-wise IoU-NMS threshold, as
+                ``from_model_paths(bbox_nms_iou=...)``; ``None`` keeps the
+                detector style's default. Ignored for other exports.
         """
         from sleap_nn.export.metadata import ExportMetadata
 
@@ -1626,9 +2067,10 @@ class Predictor:
                 f"export_metadata.json not found at {metadata_path}. "
                 f"Pass a directory written by `sleap_nn export`."
             )
+        _refuse_network_only_export_dir(export_dir, metadata_path)
         metadata = ExportMetadata.load(metadata_path)
 
-        runtime, model_path = _resolve_export_runtime(export_dir, runtime)
+        runtime, model_path = _resolve_export_runtime(export_dir, runtime, device)
         backend = _build_export_backend(runtime, model_path, device)
 
         # Default the runtime peak-confidence threshold to the value baked at
@@ -1648,6 +2090,7 @@ class Predictor:
             min_line_scores=min_line_scores,
             peak_conf_threshold=resolved_peak_conf,
             export_dir=export_dir,
+            bbox_nms_iou=bbox_nms_iou,
         )
 
         skeleton = _skeleton_from_export(export_dir, metadata)
@@ -1701,17 +2144,95 @@ class Predictor:
         """
         stage_1 = getattr(self.layer, "centroid_layer", None)
         spec = getattr(self.layer, "bbox_crop", None)
-        if not getattr(stage_1, "use_gt_boxes", False) or spec is None:
+        if not getattr(stage_1, "use_gt_boxes", False):
             return None
         from sleap_nn.data.bboxes import instance_crop_bbox, resolve_bbox_source
 
-        source = resolve_bbox_source(labels, spec.bbox_source)
-        padding = spec.bbox_padding
+        if spec is not None:
+            source = resolve_bbox_source(labels, spec.bbox_source)
+            padding = spec.bbox_padding
+        else:
+            # A fixed-crop model seeded with GT boxes (`boxes="gt"`): its crops
+            # center on the boxes, so take the labels' own boxes when they have
+            # them.
+            source = resolve_bbox_source(labels, "auto")
+            padding = stage_1.gt_bbox_padding
+
+        from sleap_nn.data.providers import (
+            has_legacy_hidden_points,
+            without_hidden_coordinates,
+        )
+
+        # Old-layout files: hidden points' stored coordinates are stale, so boxes
+        # taken from keypoints ignore them, as in training (the labels stay
+        # unchanged). A box or mask linked to the instance is used as it is.
+        stale = has_legacy_hidden_points(labels)
 
         def box_fn(lf, inst):
+            if stale and (
+                source == "instances" or not _has_linked_box(lf, inst, source)
+            ):
+                return instance_crop_bbox(
+                    lf, without_hidden_coordinates(inst), "instances", padding
+                )
             return instance_crop_bbox(lf, inst, source, padding)
 
         return box_fn
+
+    def _attach_gt_box_fn(self, provider: Any, labels: Any = None) -> None:
+        """Give a labels provider built elsewhere this model's GT-box rule.
+
+        A ``LabelsProvider`` built here gets ``instance_box_fn`` at construction. One
+        built by the caller (the command line builds its own for the ``.slp`` frame
+        filters, e.g. ``--only_labeled_frames``) or by a ``VideoSelection`` has none,
+        and the GT-box stage would then fall back to tight keypoint boxes, ignoring
+        the labels' own boxes and the model's box settings. A rule the caller set is
+        kept; one set here is replaced when the provider is reused with another
+        predictor. A layer that does not crop GT boxes sets none.
+
+        Such a provider is also scoped as one built here is: GT boxes come from user
+        instances only, so of the frames it selected only those with user instances
+        run (a predicted instance is never taken as a GT box, and a frame without
+        user instances is skipped instead of stopping the run).
+
+        Args:
+            provider: The provider about to be iterated (or its sub-providers).
+            labels: The labels the box source is resolved on (default: the
+                provider's own).
+        """
+        from sleap_nn.inference.providers import LabelsProvider
+
+        stage_1 = getattr(self.layer, "centroid_layer", None)
+        crops_gt_boxes = bool(getattr(stage_1, "use_gt_boxes", False))
+        for sub in getattr(provider, "providers", None) or [provider]:
+            if not isinstance(sub, LabelsProvider):
+                continue
+            skipped = sub._scope_to_user_instances(crops_gt_boxes)
+            if skipped:
+                logger.warning(
+                    "This model crops ground-truth boxes, which come from user "
+                    f"instances only: {skipped} of {skipped + sub.num_frames()} "
+                    "selected frame(s) have no user instances and are skipped."
+                )
+            current = sub.instance_box_fn
+            if current is None or getattr(current, "_set_by_predictor", False):
+                box_fn = self._gt_box_fn(sub._sio_labels if labels is None else labels)
+                if box_fn is not None:
+                    box_fn._set_by_predictor = True
+                sub.instance_box_fn = box_fn
+
+    def _uses_given_boxes(self) -> bool:
+        """Whether stage 1 reads each frame's given boxes (``boxes="given"``)."""
+        stage_1 = getattr(self.layer, "centroid_layer", None)
+        return bool(getattr(stage_1, "use_given_boxes", False))
+
+    def _frame_box_fn(self) -> Optional[Any]:
+        """Per-frame box source of a given-box stage 1, else ``None``."""
+        if not self._uses_given_boxes():
+            return None
+        from sleap_nn.inference.providers import predicted_frame_boxes
+
+        return predicted_frame_boxes
 
     def _preprocess_provenance_params(self) -> dict:
         """The scale/crop_size actually used for this run, for provenance.
@@ -1756,14 +2277,18 @@ class Predictor:
         inference_params: dict,
     ) -> dict:
         """Provenance dict for the saved/returned Labels (#530 gap fix)."""
-        from sleap_nn.inference.provenance import build_inference_provenance
+        from sleap_nn.inference.provenance import (
+            _add_part_exports,
+            _describe_exported_runtimes,
+            build_inference_provenance,
+        )
 
         tracking_params = (
             tracker_config_params(self.tracker_config)
             if self.tracker_config is not None
             else None
         )
-        return build_inference_provenance(
+        provenance = build_inference_provenance(
             model_paths=self.model_paths,
             model_type=type(self.layer).__name__,
             device=self.device,
@@ -1774,6 +2299,28 @@ class Predictor:
             inference_params=inference_params,
             tracking_params=tracking_params,
         )
+        try:
+            exported = _describe_exported_runtimes(self.layer)
+            part = getattr(self.part_stage, "part_predictor", None)
+            part_exported = _describe_exported_runtimes(part.layer) if part else []
+        except Exception:  # noqa: BLE001 -- provenance must never fail a run
+            exported, part_exported = [], []
+        if exported:
+            # Which runtime and precision each exported graph actually ran.
+            provenance["exported_models"] = exported
+        try:
+            part = getattr(self.part_stage, "part_predictor", None)
+            autocast = _autocast_precision_used(
+                self.layer, part.layer if part is not None else None
+            )
+        except Exception:  # noqa: BLE001 -- provenance must never fail a run
+            autocast = None
+        if autocast is not None:
+            # `precision="bf16"` / `"fp16"` on CUDA: the checkpoint models ran
+            # under autocast (no key for fp32, the default).
+            provenance["autocast_precision"] = autocast
+        _add_part_exports(provenance, part_exported)  # a streaming --part_model
+        return provenance
 
     @staticmethod
     def _describe_source(source: Any) -> str:
@@ -1874,12 +2421,17 @@ class Predictor:
         self,
         source: Any,
         frames: Optional[List[int]] = None,
+        group_by_shape: bool = False,
+        fit: Optional[FrameFit] = None,
         **provider_kwargs: Any,
     ) -> tuple["Provider", Optional[List["sio.Video"]]]:
         """Wrap a source into a ``Provider`` + extract videos for label packaging.
 
         Returns ``(provider, videos)`` where ``videos`` is a list of
         ``sio.Video`` when derivable from the source, else ``None``.
+        ``group_by_shape`` and ``fit`` are forwarded to a ``LabelsProvider`` built
+        here (``.slp`` path or ``sio.Labels`` source); other providers ignore
+        them.
         """
         import sleap_io as sio
 
@@ -1890,6 +2442,21 @@ class Predictor:
             VideoSelection,
         )
 
+        if self._uses_given_boxes():
+            # Given boxes ride on the frames of a labels source.
+            if isinstance(source, LabelsProvider):
+                if source.frame_box_fn is None:
+                    source.frame_box_fn = self._frame_box_fn()
+            elif not (
+                isinstance(source, sio.Labels)
+                or (isinstance(source, str) and source.endswith(".slp"))
+            ):
+                raise ValueError(
+                    "A top-down model seeded from given boxes reads them from the "
+                    "frames of a .slp / sio.Labels source (PredictedBoundingBox); "
+                    f"got a {type(source).__name__} source."
+                )
+
         if isinstance(source, VideoSelection):
             # Resolved here, not by the caller, because only the Predictor knows
             # whether its layer needs GT instances (which restricts the
@@ -1898,6 +2465,7 @@ class Predictor:
                 batch_size=self.batch_size,
                 needs_gt_instances=self._needs_gt_instances(),
             )
+            self._attach_gt_box_fn(provider, source.labels)
             return provider, source.videos
 
         if isinstance(source, (np.ndarray, torch.Tensor)):
@@ -1928,10 +2496,13 @@ class Predictor:
                     "only_labeled_frames", self._needs_gt_instances()
                 )
                 provider_kwargs.setdefault("instance_box_fn", self._gt_box_fn(labels))
+                provider_kwargs.setdefault("frame_box_fn", self._frame_box_fn())
                 provider = LabelsProvider(
                     labels=labels,
                     batch_size=self.batch_size,
                     frames=frames,
+                    group_by_shape=group_by_shape,
+                    fit=fit,
                     **provider_kwargs,
                 )
                 return provider, (list(labels.videos) if labels.videos else None)
@@ -1958,10 +2529,13 @@ class Predictor:
                 "only_labeled_frames", self._needs_gt_instances()
             )
             provider_kwargs.setdefault("instance_box_fn", self._gt_box_fn(source))
+            provider_kwargs.setdefault("frame_box_fn", self._frame_box_fn())
             provider = LabelsProvider(
                 labels=source,
                 batch_size=self.batch_size,
                 frames=frames,
+                group_by_shape=group_by_shape,
+                fit=fit,
                 **provider_kwargs,
             )
             videos = list(source.videos) if source.videos else None
@@ -2008,6 +2582,7 @@ class Predictor:
             # crashes walking video.backend — hit whenever the CLI wraps the
             # input in a LabelsProvider for --only_suggested_frames /
             # --exclude_user_labeled / --video_index etc. (#699).
+            self._attach_gt_box_fn(source)
             provider_videos = getattr(source, "videos", None)
             return source, (list(provider_videos) if provider_videos else None)
 
@@ -2069,7 +2644,7 @@ class Predictor:
         centroid_threshold: Optional[float] = None,
         keypoint_threshold: Optional[float] = None,
         max_instances: Optional[int] = None,
-        integral_refinement: Optional[str] = KEEP_REFINEMENT,
+        integral_refinement: Optional[str] = None,
         integral_patch_size: Optional[int] = None,
         return_confmaps: Optional[bool] = None,
         return_crops: Optional[bool] = None,
@@ -2113,9 +2688,10 @@ class Predictor:
             keypoint_threshold: Override peak threshold for the centered-
                 instance stage only (top-down models).
             max_instances: Override max instances per frame.
-            integral_refinement: Override the refinement: ``"integral"``,
-                ``"local"``, or ``"none"`` / ``None`` (no refinement). The
-                default, ``"keep"``, keeps the predictor's refinement.
+            integral_refinement: Override the refinement (``"auto"``,
+                ``"dark"``, ``"integral"``, ``"local"`` or ``"none"``; see
+                :meth:`from_model_paths`). ``None`` keeps the construction-time
+                value.
             integral_patch_size: Override integral refinement patch size.
             return_confmaps: Override whether to return confidence maps.
             return_crops: Override whether to return per-instance crops
@@ -2162,7 +2738,14 @@ class Predictor:
         # LabeledFrame.masks; apply_tracking auto-detects the mask-only labels
         # and tracks them by pixel mask-IoU (#619), so tracking is supported.
 
-        provider, auto_videos = self._make_provider(source, frames=frames)
+        # A whole-frame detector reads its frames already fitted to the model
+        # input, so batches fill whatever the frame sizes. Otherwise frames of
+        # one size are batched together, and the `to_labels` output is put back
+        # in source order below.
+        fit = self._frame_fit()
+        provider, auto_videos = self._make_provider(
+            source, frames=frames, group_by_shape=fit is None, fit=fit
+        )
         if videos is None:
             videos = auto_videos
 
@@ -2183,6 +2766,8 @@ class Predictor:
             return_class_maps=return_class_maps,
             return_class_vectors=return_class_vectors,
         )
+        if self.part_stage is not None:
+            self.part_stage.reset()
         outputs_list = list(self._batch_iter(provider, progress_callback, layer=layer))
         _prov_end = datetime.now()
 
@@ -2225,10 +2810,25 @@ class Predictor:
             videos=videos,
             keep_empty_frames=True,
         )
+        _restore_source_order(
+            labels, videos, getattr(provider, "source_positions", None)
+        )
         if self.tracker_config is not None:
-            labels = apply_tracking(
-                labels, self.tracker_config, tracking_progress_callback
-            )
+            if getattr(self.part_stage, "body_skeleton", None) is not None:
+                # Streamed part points are in `labels`: track on the pose nodes
+                # only, as two passes do (they track before the part stage).
+                from sleap_nn.inference.keypoint_crops import track_on_body_nodes
+
+                labels = track_on_body_nodes(
+                    labels,
+                    self.part_stage.body_skeleton,
+                    self.tracker_config,
+                    tracking_progress_callback,
+                )
+            else:
+                labels = apply_tracking(
+                    labels, self.tracker_config, tracking_progress_callback
+                )
         if clean_empty_frames:
             labels.clean(frames=True, skeletons=False)
         provenance = self._build_inference_provenance(
@@ -2241,11 +2841,7 @@ class Predictor:
                 "centroid_threshold": centroid_threshold,
                 "keypoint_threshold": keypoint_threshold,
                 "max_instances": max_instances,
-                "integral_refinement": (
-                    None
-                    if integral_refinement == KEEP_REFINEMENT
-                    else integral_refinement or "none"
-                ),
+                "integral_refinement": integral_refinement,
                 "integral_patch_size": integral_patch_size,
                 "batch_size": self.batch_size,
                 **self._preprocess_provenance_params(),
@@ -2294,7 +2890,7 @@ class Predictor:
         centroid_threshold: Optional[float] = None,
         keypoint_threshold: Optional[float] = None,
         max_instances: Optional[int] = None,
-        integral_refinement: Optional[str] = KEEP_REFINEMENT,
+        integral_refinement: Optional[str] = None,
         integral_patch_size: Optional[int] = None,
         return_confmaps: Optional[bool] = None,
         return_crops: Optional[bool] = None,
@@ -2315,9 +2911,10 @@ class Predictor:
             centroid_threshold: Override centroid stage threshold (top-down).
             keypoint_threshold: Override centered-instance threshold (top-down).
             max_instances: Override max instances per frame.
-            integral_refinement: Override the refinement: ``"integral"``,
-                ``"local"``, or ``"none"`` / ``None`` (no refinement). The
-                default, ``"keep"``, keeps the predictor's refinement.
+            integral_refinement: Override the refinement (``"auto"``,
+                ``"dark"``, ``"integral"``, ``"local"`` or ``"none"``; see
+                :meth:`from_model_paths`). ``None`` keeps the construction-time
+                value.
             integral_patch_size: Override integral refinement patch size.
             return_confmaps: Override whether to return confidence maps.
             return_crops: Override whether to return per-instance crops
@@ -2352,7 +2949,13 @@ class Predictor:
             return_class_maps=return_class_maps,
             return_class_vectors=return_class_vectors,
         )
-        if self.paf_workers > 0 and self._can_pipeline():
+        if self.part_stage is not None:
+            self.part_stage.reset()
+        if (
+            self.paf_workers > 0
+            and self._can_pipeline()
+            and self.part_stage is None  # the pipelined path has no part stage
+        ):
             yield from self._predict_streaming_pipelined(
                 provider, progress_callback, layer=layer
             )
@@ -2373,6 +2976,11 @@ class Predictor:
         videos: Optional[List["sio.Video"]] = None,
         write_interval: int = 500,
         progress_callback: Optional[Callable[[int, int], None]] = None,
+        slp_version: Optional[str] = None,
+        image_format: Optional[str] = None,
+        image_quality: Optional[int] = None,
+        compression: Optional[str] = None,
+        unlabeled_as: Optional[str] = None,
     ) -> str:
         """Run inference and write results to a ``.slp`` file.
 
@@ -2395,10 +3003,36 @@ class Predictor:
                 a disk flush.
             progress_callback: Optional ``(processed_frames, total_frames)``
                 callback invoked after each batch.
+            slp_version: File layout of the ``.slp``: ``"v2"`` (SLP 2.x, read
+                by older sleap-io and SLEAP releases), ``"v3"`` (SLP 3.0) or
+                ``"auto"``. ``None`` (the default): sleap-io's default.
+            image_format: Format of embedded frames. This path embeds no
+                frames, so setting it only warns.
+            image_quality: Quality of re-encoded embedded frames; as
+                ``image_format``, it only warns here.
+            compression: ``"gzip"`` or ``"lzf"`` compression of the table
+                columns. ``None`` (the default): uncompressed.
+            unlabeled_as: ``"error"`` or ``"absent"``: what a ``"v2"`` save
+                does with points that are not labeled. ``None`` (the
+                default): sleap-io's default.
 
         Returns:
             The (resolved) destination path string.
+
+        Raises:
+            ValueError: If a save option is invalid or not supported by the
+                installed sleap-io (checked before inference).
         """
+        from sleap_nn.inference.save_options import slp_save_kwargs
+
+        save_options = dict(
+            slp_version=slp_version,
+            image_format=image_format,
+            image_quality=image_quality,
+            compression=compression,
+            unlabeled_as=unlabeled_as,
+        )
+        slp_save_kwargs(**save_options)  # fail before inference, not at the save
         if skeleton is not None:
             self.skeleton = skeleton
         # Same as `predict(make_labels=True)`: an embedding model has nothing to
@@ -2454,6 +3088,7 @@ class Predictor:
             mask_output=getattr(self.layer, "mask_output", "mask"),
             polygon_epsilon=getattr(self.layer, "polygon_epsilon", 0.01),
             bbox_categories=self._bbox_categories(),
+            save_options=save_options,
         )
         _prov_start = datetime.now()
         with writer:
@@ -2487,8 +3122,8 @@ class Predictor:
     # Internals
     # ──────────────────────────────────────────────────────────────────
 
-    def _batch_images(self, batch: Batch) -> Any:
-        """Return ``batch.images``, copied to the model's GPU if ``upload_batches``.
+    def _upload_images(self, images: Any) -> Any:
+        """Return ``images``, copied to the model's GPU if ``upload_batches``.
 
         Providers yield ``uint8`` numpy frames. Handed to a layer as numpy,
         they stay on the CPU through preprocessing (sizematcher, input
@@ -2496,11 +3131,27 @@ class Predictor:
         backend's forward. Copying the ``uint8`` batch first moves that work
         to the GPU and copies the fewest bytes (before any float
         conversion).
+
+        A numpy array is copied to the upload device; a tensor that is not on
+        it yet is moved there (one already there is returned as it is). Dtype
+        and layout are kept: the layers take channels-last or channels-first
+        frames. With ``upload_batches`` off, or without a CUDA model, the
+        input is returned untouched. Whatever reads the frames afterwards (the
+        layer, a streamed part stage) gets the object this returns, so the
+        upload happens once.
         """
-        images = batch.images
-        if self._upload_device is not None and isinstance(images, np.ndarray):
-            images = torch.from_numpy(images).to(self._upload_device, non_blocking=True)
+        device = self._upload_device
+        if device is None:
+            return images
+        if isinstance(images, np.ndarray):
+            return torch.from_numpy(images).to(device, non_blocking=True)
+        if isinstance(images, torch.Tensor):
+            return images.to(device, non_blocking=True)
         return images
+
+    def _batch_images(self, batch: Batch) -> Any:
+        """``batch.images`` as the layer gets them (see :meth:`_upload_images`)."""
+        return self._upload_images(batch.images)
 
     def _batch_iter(
         self,
@@ -2524,9 +3175,13 @@ class Predictor:
             sig = inspect.signature(layer.predict)
             layer_accepts_instances = "instances" in sig.parameters
             layer_accepts_boxes = "instance_boxes" in sig.parameters
+            layer_accepts_frame_boxes = "frame_boxes" in sig.parameters
+            layer_accepts_frame_scales = "frame_scales" in sig.parameters
         except (TypeError, ValueError):  # pragma: no cover — non-introspectable
             layer_accepts_instances = False
             layer_accepts_boxes = False
+            layer_accepts_frame_boxes = False
+            layer_accepts_frame_scales = False
 
         pipeline = self.filter_pipeline
         total = _safe_num_frames(provider)
@@ -2546,8 +3201,30 @@ class Predictor:
                     if isinstance(boxes, torch.Tensor)
                     else torch.from_numpy(boxes)
                 )
-            outputs = layer.predict(self._batch_images(batch), **kwargs)
+            frame_boxes = getattr(batch, "frame_boxes", None)
+            if frame_boxes is not None and layer_accepts_frame_boxes:
+                kwargs["frame_boxes"] = torch.as_tensor(frame_boxes)
+                kwargs["frame_box_scores"] = torch.as_tensor(batch.frame_box_scores)
+            frame_scales = getattr(batch, "frame_scales", None)
+            if frame_scales is not None:
+                # Frames fitted to the model input before batching: only a layer
+                # that maps its outputs back with these can take them.
+                if not layer_accepts_frame_scales:
+                    raise ValueError(
+                        f"{type(layer).__name__} cannot take frames the provider "
+                        "already fitted to the model input (LabelsProvider(fit=...))."
+                    )
+                kwargs["frame_scales"] = frame_scales
+                kwargs["frame_sizes"] = batch.frame_sizes
+            # ``upload_batches`` copies the batch to the GPU here, so the layer and
+            # the part stage below both read the same copy.
+            images = self._batch_images(batch)
+            outputs = layer.predict(images, **kwargs)
             outputs = pipeline(outputs)
+            if self.part_stage is not None:
+                outputs = self.part_stage(
+                    images, outputs, getattr(batch, "video_indices", None)
+                )
             outputs = self._stamp_metadata(outputs, batch)
             yield outputs
             if progress_callback is not None:
@@ -2835,6 +3512,27 @@ class Predictor:
             ),
         )
 
+    def _frame_fit(self) -> Optional[FrameFit]:
+        """How a whole-frame detector's frames are fitted while they are read.
+
+        A :class:`BBoxLayer` (not a top-down stage) with a fixed input size
+        (``max_height`` and ``max_width``) only ever sees each frame resized to
+        it, so the provider can decode and resize on the CPU (``FrameFit``).
+        ``None`` for every other layer: they work at the frame's own resolution
+        (top-down crops, keypoint and mask outputs) or have no fixed input size.
+        """
+        layer = self.layer
+        if not isinstance(layer, BBoxLayer) or isinstance(layer, BBoxStageLayer):
+            return None
+        cfg = layer.preprocess_config
+        if cfg.max_height is None or cfg.max_width is None:
+            return None
+        return FrameFit(
+            max_height=int(cfg.max_height),
+            max_width=int(cfg.max_width),
+            resize_mode=cfg.resize_mode,
+        )
+
     def _is_bbox_layer(self) -> bool:
         """``True`` iff ``layer`` is a bounding-box detection layer.
 
@@ -2937,7 +3635,7 @@ class Predictor:
         centroid_threshold: Optional[float] = None,
         keypoint_threshold: Optional[float] = None,
         max_instances: Optional[int] = None,
-        integral_refinement: Optional[str] = KEEP_REFINEMENT,
+        integral_refinement: Optional[str] = None,
         integral_patch_size: Optional[int] = None,
         return_confmaps: Optional[bool] = None,
         return_crops: Optional[bool] = None,
@@ -2970,14 +3668,14 @@ class Predictor:
         """
         from sleap_nn.inference.layers.topdown import TopDownLayer
 
-        keep_refinement = integral_refinement == KEEP_REFINEMENT
-        has_any = not keep_refinement or any(
+        has_any = any(
             v is not None
             for v in (
                 peak_threshold,
                 centroid_threshold,
                 keypoint_threshold,
                 max_instances,
+                integral_refinement,
                 integral_patch_size,
                 return_confmaps,
                 return_crops,
@@ -2989,6 +3687,14 @@ class Predictor:
         )
         if not has_any:
             return self.layer
+        if integral_refinement is not None:
+            # Fail before any frame is read: unknown names, and dark/local for
+            # bottom-up (local-peak) keypoints.
+            bottomup = (BottomUpLayer, BottomUpMultiClassLayer)
+            resolve_refinement(
+                integral_refinement,
+                peaks="local" if isinstance(self.layer, bottomup) else "global",
+            )
 
         is_topdown = isinstance(self.layer, TopDownLayer)
 
@@ -3020,9 +3726,8 @@ class Predictor:
                 overrides["peak_threshold"] = t
             if max_instances is not None and hasattr(old_cfg, "max_instances"):
                 overrides["max_instances"] = max_instances
-            if not keep_refinement:
-                # `None` turns refinement off, like `from_model_paths(None)`.
-                overrides["refinement"] = integral_refinement or "none"
+            if integral_refinement is not None:
+                overrides["refinement"] = integral_refinement
             if integral_patch_size is not None:
                 overrides["integral_patch_size"] = integral_patch_size
             if return_confmaps is not None:
@@ -3067,3 +3772,20 @@ class Predictor:
             new_layer.inner = new_target
             return new_layer
         return new_target
+
+
+def _has_linked_box(lf: Any, inst: Any, source: str) -> bool:
+    """Whether ``instance_crop_bbox`` takes ``inst``'s box from a linked box or mask."""
+    from sleap_nn.data.bboxes import frame_user_bboxes
+
+    if source == "bboxes":
+        return any(
+            getattr(b, "instance", None) is inst and not b.is_empty
+            for b in frame_user_bboxes(lf)
+        )
+    if source == "masks":
+        return any(
+            not m.is_predicted and getattr(m, "instance", None) is inst
+            for m in getattr(lf, "masks", None) or []
+        )
+    return False

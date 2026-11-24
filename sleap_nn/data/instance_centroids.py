@@ -32,9 +32,17 @@ non-NaN values *per axis* (``find_points_mean``, #584) or per point
 (``find_points_geometric_median``). The two agree whenever a node's coordinates are
 NaN together — which is what ``sleap_io`` itself writes — and differ only for a
 half-NaN point, where this module's answer is the better-defined one.
+
+**Which points count.** "Visible" above means "has coordinates in the array passed
+in". Training builds that array from each instance's labeled points that have
+coordinates (``inst.numpy(invisible_as_nan=False)``; see
+``sleap_nn.data.providers.located_points``), so occluded estimates (labeled, not
+visible, with coordinates; sleap-io >= 0.10) anchor centroids and crops, and
+unlabeled nodes never do. ``sleap_io``'s ``to_centroid`` uses visible points only;
+the two agree for files without occluded estimates.
 """
 
-from typing import Optional
+from typing import List, Optional
 
 import torch
 from loguru import logger
@@ -57,6 +65,29 @@ MASK_REDUCE_METHODS = ("center_of_mass", "bbox_center")
 #: sleap-nn always falls back — a NaN training target for a partially-visible
 #: instance would be a silent data loss. This is the pre-#586 behavior.
 DEFAULT_ANCHOR_FALLBACK = "center_of_mass"
+
+
+def anchor_part_names(anchor_part) -> List[str]:
+    """``anchor_part`` as a list of node names (experimental list form).
+
+    ``None`` gives ``[]`` and a node name ``[name]``; a list (the centroid head's
+    experimental list of anchors, in order of preference) is returned as a list.
+    """
+    if anchor_part is None:
+        return []
+    if isinstance(anchor_part, (str, int, float)):
+        return [str(anchor_part)]
+    return [str(n) for n in anchor_part]
+
+
+def primary_anchor_part(anchor_part) -> Optional[str]:
+    """The node an ``anchor_part`` names, or its list form's first node.
+
+    Prediction and evaluation place a centroid on one node; for a list of
+    anchors (experimental) that is the first one listed. ``None`` stays ``None``.
+    """
+    names = anchor_part_names(anchor_part)
+    return names[0] if names else None
 
 
 def find_points_mean(points: torch.Tensor) -> torch.Tensor:

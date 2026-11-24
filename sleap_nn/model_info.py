@@ -32,6 +32,7 @@ def _format_model_type(model_type: Optional[str]) -> str:
 _MODEL_TYPE_NAMES = {
     "bbox_centernet": "Bounding Box (CenterNet)",
     "bbox_ssd": "Bounding Box (SSD)",
+    "bbox_detr": "Bounding Box (DETR)",
 }
 
 
@@ -88,6 +89,18 @@ def _format_head_summary(cfg, model_type: str) -> str:
     head_cfg = cfg.model_config.head_configs[model_type]
     if head_cfg is None:
         return _format_model_type(model_type)
+
+    if model_type == "bbox_detr" and head_cfg.detr is not None:
+        leaf = head_cfg.detr
+        n = len(leaf.categories or [])
+        parts = [
+            f"output_stride={leaf.output_stride}",
+            f"{leaf.num_queries} queries",
+            f"{leaf.dec_layers} decoder layers",
+        ]
+        if n:
+            parts.append(f"{n} {'category' if n == 1 else 'categories'}")
+        return f"DETR boxes ({', '.join(parts)})"
 
     if model_type in ("bbox_centernet", "bbox_ssd"):
         leaf = head_cfg.center if model_type == "bbox_centernet" else head_cfg.ssd
@@ -355,7 +368,7 @@ def print_model_info(path: str) -> None:
         data_table.add_row("Preprocessing", ", ".join(parts))
     if bbox_crop:
         data_table.add_row("Crop mode", _format_bbox_crop(pre))
-    if bbox_crop or model_type in ("bbox_centernet", "bbox_ssd"):
+    if bbox_crop or model_type in ("bbox_centernet", "bbox_ssd", "bbox_detr"):
         # A detector and its box-scaled instance model must derive training boxes
         # the same way.
         source = OmegaConf.select(cfg, "data_config.bbox_source", default="auto")
@@ -397,7 +410,15 @@ def print_model_info(path: str) -> None:
     reduce_lr = OmegaConf.select(
         cfg, "trainer_config.lr_scheduler.reduce_lr_on_plateau", default=None
     )
-    if step_lr is not None:
+    from sleap_nn.config.trainer_config import fixed_length_lr_schedule
+
+    fixed = fixed_length_lr_schedule(
+        OmegaConf.select(cfg, "trainer_config.lr_scheduler", default=None)
+    )
+    if fixed is not None:
+        # Chosen before step_lr / reduce_lr_on_plateau (the trainer's priority).
+        train_table.add_row("LR scheduler", fixed)
+    elif step_lr is not None:
         step_size = OmegaConf.select(step_lr, "step_size", default="?")
         gamma = OmegaConf.select(step_lr, "gamma", default="?")
         train_table.add_row("LR scheduler", f"StepLR (step={step_size}, gamma={gamma})")

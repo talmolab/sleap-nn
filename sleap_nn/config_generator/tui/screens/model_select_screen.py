@@ -12,8 +12,32 @@ from textual.message import Message
 from textual.widgets import Button, Checkbox, Label, RadioButton, RadioSet, Static
 from textual.widget import Widget
 
-from sleap_nn.config_generator.tui.state import ConfigState
-from sleap_nn.config_generator.recommender import TOPDOWN_BBOX_DETECTORS, PipelineType
+from sleap_nn.config_generator.tui.state import ConfigState, SchedulerType
+from sleap_nn.config_generator.recommender import (
+    BBOX_DETECTORS,
+    TOPDOWN_BBOX_DETECTORS,
+    PipelineType,
+    detr_bbox_padding,
+)
+
+_DETECTOR_STYLES = {
+    "bbox_centernet": "CenterNet",
+    "bbox_ssd": "SSD",
+    "bbox_detr": "DETR",
+}
+
+# Trainer settings a bbox_detr pick sets on the TUI state (the generator's
+# ``DETR_TRAINER_DEFAULTS``: RF-DETR's recipe, 200 epochs for small data), and the
+# prior values a later non-DETR pick restores.
+_DETR_TRAINER_STATE = {
+    "_max_epochs": 200,
+    "_batch_size": 8,
+    "_learning_rate": 1e-4,
+    "_optimizer": "AdamW",
+    "_early_stopping": False,
+    "_min_steps_per_epoch": 1,
+    "_visualize_preds": False,
+}
 
 
 class ModelTypeOption(Static):
@@ -309,6 +333,15 @@ class ModelSelectScreen(Widget):
             classes="model-option",
             id="opt-bbox-ssd",
         )
+        yield ModelTypeOption(
+            pipeline_type="bbox_detr",
+            title="Bounding Boxes (DETR)",
+            description="Predict a set of boxes with a DINOv3 ViT + DETR decoder (no NMS).",
+            details="Best for: Touching or overlapping animals; needs a GPU with ~8 GB+.",
+            is_recommended=rec.pipeline.recommended == "bbox_detr",
+            classes="model-option",
+            id="opt-bbox-detr",
+        )
 
         # Top-down from boxes: a box detector replaces the centroid model and the
         # instance model's crops are the detected boxes, resized to one size.
@@ -331,6 +364,16 @@ class ModelSelectScreen(Widget):
             is_two_stage=True,
             classes="model-option",
             id="opt-topdown-bbox-ssd",
+        )
+        yield ModelTypeOption(
+            pipeline_type="topdown_bbox_detr",
+            title="Top-Down from Boxes (DETR)",
+            description="Same, with a DETR set-prediction detector (DINOv3 ViT) as the first stage.",
+            details="Best for: Touching animals, which no NMS step can merge; needs a GPU with ~8 GB+.",
+            is_recommended=rec.pipeline.recommended == "topdown_bbox_detr",
+            is_two_stage=True,
+            classes="model-option",
+            id="opt-topdown-bbox-detr",
         )
 
     def on_mount(self) -> None:
@@ -398,16 +441,28 @@ class ModelSelectScreen(Widget):
             detector = TOPDOWN_BBOX_DETECTORS.get(
                 self._state._pipeline, self._state._pipeline
             )
-            is_bbox = detector in ("bbox_centernet", "bbox_ssd")
+            is_bbox = detector in BBOX_DETECTORS
+            is_detr = detector == "bbox_detr"
             if is_bbox and self._state._pre_bbox_settings is None:
                 # Remember what the box defaults override, for a later pose pick.
                 self._state._pre_bbox_settings = {
                     "output_stride": self._state._output_stride,
                     "rotation_enabled": self._state._augmentation.rotation_enabled,
                     "eval_enabled": self._state._evaluation.enabled,
+                    "max_stride": self._state._max_stride,
+                    "scheduler": self._state._scheduler.type,
+                    **{k: getattr(self._state, k) for k in _DETR_TRAINER_STATE},
                 }
-            elif not is_bbox and self._state._pre_bbox_settings is not None:
-                saved = self._state._pre_bbox_settings
+            saved = self._state._pre_bbox_settings
+            if saved is not None and not is_detr and saved.get("detr_applied"):
+                # Undo the previous bbox_detr pick's trainer and stride.
+                saved["detr_applied"] = False
+                for key in _DETR_TRAINER_STATE:
+                    setattr(self._state, key, saved[key])
+                self._state._scheduler.type = saved["scheduler"]
+                self._state._max_stride = saved["max_stride"]
+                self._state._bbox_padding = 0.0
+            if not is_bbox and saved is not None:
                 self._state._output_stride = saved["output_stride"]
                 self._state._augmentation.rotation_enabled = saved["rotation_enabled"]
                 self._state._evaluation.enabled = saved["eval_enabled"]
@@ -421,6 +476,19 @@ class ModelSelectScreen(Widget):
                 self._state._input_scale = 1.0
                 self._state._sigma = 2.5
                 self._state._output_stride = 2
+            elif is_detr:
+                # bbox_detr: full frame letterboxed to the token-width size (scale
+                # 1.0), ViT stride 16 / max stride 32, RF-DETR's trainer, boxes
+                # padded by 5% of the median animal; eval on, no rotation.
+                self._state._input_scale = 1.0
+                self._state._output_stride = 16
+                self._state._evaluation.enabled = True
+                self._state._augmentation.rotation_enabled = False
+                for key, value in _DETR_TRAINER_STATE.items():
+                    setattr(self._state, key, value)
+                self._state._scheduler.type = SchedulerType.NONE
+                self._state._pre_bbox_settings["detr_applied"] = True
+                self._state._bbox_padding = detr_bbox_padding(self._state.stats)
             elif is_bbox:
                 # Box detectors: half resolution; eval on so checkpoints are picked
                 # on box mAP; no rotation (rotated corners inflate the boxes).
@@ -447,6 +515,9 @@ class ModelSelectScreen(Widget):
             if detector == "bbox_ssd":
                 # Anchor levels at strides 8/16/32 read the bottleneck at 32.
                 self._state._max_stride = max(self._state._max_stride, 32)
+            elif is_detr:
+                # The ViT pads inputs to 32 (the multi-scale step).
+                self._state._max_stride = 32
 
     def _update_pipeline_info(self, pipeline_type: PipelineType) -> None:
         """Update the pipeline info box based on selected type."""
@@ -480,7 +551,7 @@ class ModelSelectScreen(Widget):
                 "to group them into animal instances. You'll get [bold]1 YAML config[/bold] file."
             )
         elif pipeline_type in TOPDOWN_BBOX_DETECTORS:
-            style = "CenterNet" if pipeline_type.endswith("centernet") else "SSD"
+            style = _DETECTOR_STYLES[TOPDOWN_BBOX_DETECTORS[pipeline_type]]
             info_widget.update(
                 f"[bold cyan]Top-Down from Boxes Pipeline ({style})[/bold cyan]\n"
                 "This requires training [bold]two models[/bold] sequentially:\n"
@@ -489,8 +560,16 @@ class ModelSelectScreen(Widget):
                 "     padded, squared and resized to one crop size (crop_mode: bbox)\n"
                 "You'll configure both models and get [bold]2 YAML configs[/bold]."
             )
+        elif pipeline_type == "bbox_detr":
+            info_widget.update(
+                "[bold cyan]Bounding-Box Pipeline (DETR)[/bold cyan]\n"
+                "Trains an RF-DETR-style detector (pretrained DINOv3 ViT-S, new decoder)\n"
+                "on the padded box around each labeled pose. It predicts a set of boxes\n"
+                "with no NMS, so touching animals stay separate. RF-DETR's training\n"
+                "recipe, 200 epochs. You'll get [bold]1 YAML config[/bold] file."
+            )
         elif pipeline_type in ("bbox_centernet", "bbox_ssd"):
-            style = "CenterNet" if pipeline_type == "bbox_centernet" else "SSD"
+            style = _DETECTOR_STYLES[pipeline_type]
             info_widget.update(
                 f"[bold cyan]Bounding-Box Pipeline ({style})[/bold cyan]\n"
                 "Trains one detector on the tight box around each labeled pose\n"

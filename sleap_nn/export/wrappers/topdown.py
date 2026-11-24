@@ -8,7 +8,12 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 
-from sleap_nn.export.wrappers.base import BaseExportWrapper
+from sleap_nn.export.wrappers.base import (
+    BaseExportWrapper,
+    antialiased_resize,
+    antialiased_resize_to,
+    input_scale_resize_rule,
+)
 
 
 class TopDownONNXWrapper(BaseExportWrapper):
@@ -55,6 +60,7 @@ class TopDownONNXWrapper(BaseExportWrapper):
         self.instance_output_stride = instance_output_stride
         self.centroid_input_scale = centroid_input_scale
         self.instance_input_scale = instance_input_scale
+        self._centroid_resize_rule = input_scale_resize_rule(centroid_input_scale)
         self.n_nodes = n_nodes
         self.centroid_peak_threshold = centroid_peak_threshold
         self.instance_peak_threshold = instance_peak_threshold
@@ -72,15 +78,11 @@ class TopDownONNXWrapper(BaseExportWrapper):
         batch_size, channels, height, width = image.shape
 
         scaled_image = image
+        # Resize by the centroid model's input_scale as the checkpoint path does:
+        # antialiased, to (int(H * scale), int(W * scale)) of this frame, read from
+        # the input's shape when the graph runs (``antialiased_resize``).
         if self.centroid_input_scale != 1.0:
-            scaled_h = int(height * self.centroid_input_scale)
-            scaled_w = int(width * self.centroid_input_scale)
-            scaled_image = F.interpolate(
-                scaled_image,
-                size=(scaled_h, scaled_w),
-                mode="bilinear",
-                align_corners=False,
-            )
+            scaled_image = antialiased_resize(scaled_image, *self._centroid_resize_rule)
 
         centroid_out = self.centroid_model(scaled_image)
         centroid_cms = self._extract_tensor(centroid_out, ["centroid", "confmap"])
@@ -100,14 +102,13 @@ class TopDownONNXWrapper(BaseExportWrapper):
             self.crop_size[1],
         )
 
+        # Crops always have crop_size: resize them, antialiased as the checkpoint
+        # path does, to its own (int(h * scale), int(w * scale)).
         if self.instance_input_scale != 1.0:
             scaled_h = int(self.crop_size[0] * self.instance_input_scale)
             scaled_w = int(self.crop_size[1] * self.instance_input_scale)
-            crops_flat = F.interpolate(
-                crops_flat,
-                size=(scaled_h, scaled_w),
-                mode="bilinear",
-                align_corners=False,
+            crops_flat = antialiased_resize_to(
+                crops_flat, self.crop_size, (scaled_h, scaled_w)
             )
 
         instance_out = self.instance_model(crops_flat)

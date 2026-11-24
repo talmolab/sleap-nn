@@ -4,6 +4,7 @@ Task-oriented guides for common workflows.
 
 | Guide | Description |
 |-------|-------------|
+| [Upgrading from 0.3](upgrading-0.4.md) | Defaults and outputs that changed in 0.4, and how to get the old behaviour |
 | [Training](training/overview.md) | Configure and run model training |
 | &nbsp;&nbsp;&nbsp;&nbsp;[Training Guide](training-guide.md) | Configure and run model training |
 | &nbsp;&nbsp;&nbsp;&nbsp;[Config Generator](config-generator.md) | Generate training configs via TUI or auto mode |
@@ -24,6 +25,7 @@ Task-oriented guides for common workflows.
 | &nbsp;&nbsp;&nbsp;&nbsp;[Semantic Segmentation](semantic-segmentation.md) | One whole-frame foreground mask per frame |
 | &nbsp;&nbsp;&nbsp;&nbsp;[Bounding-Box Detection](bbox-detection.md) | Box detectors (`bbox_centernet`, `bbox_ssd`) |
 | &nbsp;&nbsp;&nbsp;&nbsp;[Top-Down with a Box Detector](bbox-topdown.md) | A box detector as the first top-down stage |
+| &nbsp;&nbsp;&nbsp;&nbsp;[Part Stage](part-stage.md) | Extra keypoints (e.g. a tail) from crops placed on the predicted keypoints |
 | &nbsp;&nbsp;&nbsp;&nbsp;[SAM-Prompted Segmentation](sam-inference-segmentation.md) | Per-instance masks from poses via Segment Anything |
 | &nbsp;&nbsp;&nbsp;&nbsp;[Performance](inference-performance.md) | Tune inference throughput (FP16, `torch.compile`, workers) |
 | [Evaluation](evaluation.md) | Assess model performance with metrics |

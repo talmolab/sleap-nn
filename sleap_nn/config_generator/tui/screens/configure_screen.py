@@ -23,6 +23,7 @@ from textual.widgets import (
 from textual.widget import Widget
 
 from sleap_nn.config_generator.architecture_estimates import (
+    DETR_PRESETS,
     compute_receptive_field,
     decoder_blocks as _decoder_blocks,
     encoder_blocks as _encoder_blocks,
@@ -254,6 +255,7 @@ class ConfigureScreen(Widget):
         self._update_shape_display()
         self._update_memory_display()
         self._update_model_info_display()
+        self._update_detr_info_display()
         self._update_cache_memory_display()
         self._update_cache_options_visibility()
         self._update_imagenet_visibility()
@@ -657,7 +659,8 @@ class ConfigureScreen(Widget):
             # Estimate for centroid model (uses main model params with centroid-specific settings)
             from sleap_nn.config_generator.memory import estimate_memory
 
-            mem = estimate_memory(
+            mem = self._state.memory_estimate() if self._state.is_detr else None
+            mem = mem or estimate_memory(
                 self._state.stats,
                 self._state._backbone,  # Centroid uses main backbone
                 self._state._batch_size,
@@ -674,7 +677,7 @@ class ConfigureScreen(Widget):
 
         status_color = mem.gpu_status
         text = (
-            f"[bold]Centroid GPU Memory:[/bold] [{status_color}]~{mem.total_gpu_gb:.1f} GB[/{status_color}]\n"
+            f"[bold]{'Detector' if self._state.is_topdown_bbox else 'Centroid'} GPU Memory:[/bold] [{status_color}]~{mem.total_gpu_gb:.1f} GB[/{status_color}]\n"
             f"  [dim]{mem.gpu_message}[/dim]"
         )
 
@@ -1275,10 +1278,16 @@ class ConfigureScreen(Widget):
         ):
             yield from self._compose_additional_data_params()
 
-        # Model section
+        # Model section (a bbox_detr detector has its own)
         with Container(classes="section-box"):
-            yield Static("[bold]Model Architecture[/bold]", classes="section-header")
-            yield from self._compose_model_params()
+            if self._state and self._state.is_detr:
+                yield Static("[bold]DETR Detector[/bold]", classes="section-header")
+                yield from self._compose_detr_params()
+            else:
+                yield Static(
+                    "[bold]Model Architecture[/bold]", classes="section-header"
+                )
+                yield from self._compose_model_params()
 
         # Model-specific sections (PAF for bottom-up, class vector for multi-class)
         if self._state and self._state.is_bottomup:
@@ -1737,6 +1746,96 @@ class ConfigureScreen(Widget):
             )
 
     # ==================== PAF PARAMETERS (Bottom-Up) ====================
+
+    def _compose_detr_params(self) -> ComposeResult:
+        """Compose the bbox_detr detector parameters (preset, queries, init)."""
+        state = self._state
+        yield Static(id="detr-info-display", classes="shape-info")
+        with Horizontal(classes="param-row"):
+            yield Label("Backbone:", classes="param-label")
+            yield Select(
+                [(p.label, p.name) for p in DETR_PRESETS.values()],
+                value=state._detr_preset if state else "dinov3_s",
+                id="detr-preset-select",
+                classes="param-input",
+            )
+            yield Label(
+                "DINOv3: new decoder; RF-DETR: windowed DINOv2-S", classes="param-hint"
+            )
+        with Horizontal(classes="param-row"):
+            yield Label("Queries:", classes="param-label")
+            yield Input(
+                value=str(state._detr_num_queries or "") if state else "",
+                id="detr-queries-input",
+                classes="param-input",
+                type="integer",
+                placeholder="auto",
+            )
+            yield Label(
+                "Max detections per frame (auto: 100; 300 for an RF-DETR import)",
+                classes="param-hint",
+            )
+        with Horizontal(classes="param-row"):
+            yield Label("Init From:", classes="param-label")
+            yield Input(
+                value=state._detr_init_from if state else "",
+                id="detr-init-from-input",
+                classes="param-input-wide",
+                placeholder="Model dir, e.g. sleap-nn import-rfdetr output (optional)",
+            )
+
+    def _update_detr_info_display(self) -> None:
+        """Update the bbox_detr info: parameters, input size and GPU memory."""
+        try:
+            widget = self.query_one("#detr-info-display", Static)
+        except Exception:
+            return
+        if not self._state or not self._state.is_detr:
+            return
+        state = self._state
+        state._apply_to_generator(state._generator, ci_mode=False)
+        state._generator._pipeline = "bbox_detr"
+        res = state._generator.detr_resolution()
+        mem = state.memory_estimate()
+        params = state.model_params_estimate
+        color = "yellow" if res.needs_tiling else "green"
+        widget.update(
+            f"[bold]DETR Detector:[/bold] "
+            f"{DETR_PRESETS[state._detr_preset].label} | "
+            f"{state._generator.detr_num_queries} queries | "
+            f"Parameters: [cyan]~{params / 1e6:.1f}M[/cyan] | "
+            f"GPU: [{mem.gpu_status}]~{mem.total_gpu_gb:.1f} GB[/{mem.gpu_status}] "
+            f"(batch {state._batch_size})\n"
+            f"  Input: [magenta]{res.max_width}x{res.max_height}[/magenta] "
+            f"[{color}]{res.reason}[/{color}]"
+        )
+
+    @on(Select.Changed, "#detr-preset-select")
+    def handle_detr_preset_change(self, event: Select.Changed) -> None:
+        """Handle bbox_detr preset changes."""
+        if self._state and event.value and event.value != Select.BLANK:
+            self._state._detr_preset = str(event.value)
+            self._update_detr_info_display()
+            self._update_memory_display()
+
+    @on(Input.Changed, "#detr-queries-input")
+    def handle_detr_queries_change(self, event: Input.Changed) -> None:
+        """Handle bbox_detr query count changes."""
+        if self._state:
+            try:
+                value = int(event.value) if event.value else None
+            except ValueError:
+                return
+            self._state._detr_num_queries = max(1, value) if value else None
+            self._update_detr_info_display()
+            self._update_memory_display()
+
+    @on(Input.Changed, "#detr-init-from-input")
+    def handle_detr_init_from_change(self, event: Input.Changed) -> None:
+        """Handle bbox_detr init-from path changes."""
+        if self._state:
+            self._state._detr_init_from = event.value.strip()
+            self._update_detr_info_display()
 
     def _compose_paf_params(self) -> ComposeResult:
         """Compose Part Affinity Field parameters for bottom-up models."""
@@ -2814,129 +2913,149 @@ class ConfigureScreen(Widget):
                     placeholder="auto",
                 )
 
-        # Model configuration
-        with Container(classes="section-box"):
-            yield Static("[bold]Model Architecture[/bold]", classes="section-header")
-            is_bbox = bool(self._state and self._state.is_topdown_bbox)
-            yield Static(
-                "[dim]Detects animal boxes in full frame[/dim]"
-                if is_bbox
-                else "[dim]Detects animal centers in full frame[/dim]"
-            )
-
-            # Model info display
-            yield Static(id="centroid-model-info-display", classes="shape-info")
-
-            # Backbone for centroid
-            with Horizontal(classes="param-row"):
-                yield Label("Backbone:", classes="param-label")
-                yield Select(
-                    [
-                        ("UNet (recommended)", "unet_medium_rf"),
-                        ("UNet Large RF", "unet_large_rf"),
-                        ("ConvNeXt Tiny", "convnext_tiny"),
-                        ("ConvNeXt Small", "convnext_small"),
-                        ("SwinT Tiny", "swint_tiny"),
-                    ],
-                    value=self._state._backbone if self._state else "unet_medium_rf",
-                    id="centroid-backbone-select",
-                    classes="param-input",
+        # Model configuration (a bbox_detr detector has its own)
+        if self._state and self._state.is_detr:
+            with Container(classes="section-box"):
+                yield Static("[bold]DETR Detector[/bold]", classes="section-header")
+                yield Static("[dim]Detects animal boxes in full frame[/dim]")
+                yield from self._compose_detr_params()
+        else:
+            with Container(classes="section-box"):
+                yield Static(
+                    "[bold]Model Architecture[/bold]", classes="section-header"
                 )
-                yield Label("Network architecture", classes="param-hint")
-
-            # Max stride
-            with Horizontal(classes="param-row"):
-                yield Label("Max Stride:", classes="param-label")
-                yield Select(
-                    [("8", "8"), ("16", "16"), ("32", "32"), ("64", "64")],
-                    value=str(self._state._max_stride if self._state else 16),
-                    id="centroid-max-stride-select",
-                    classes="param-input",
-                )
-                yield Label(
-                    "Receptive field (larger = more context)", classes="param-hint"
+                is_bbox = bool(self._state and self._state.is_topdown_bbox)
+                yield Static(
+                    "[dim]Detects animal boxes in full frame[/dim]"
+                    if is_bbox
+                    else "[dim]Detects animal centers in full frame[/dim]"
                 )
 
-            # Base Filters
-            with Horizontal(classes="param-row"):
-                yield Label("Base Filters:", classes="param-label")
-                yield Input(
-                    value=str(self._state._filters if self._state else 32),
-                    id="centroid-filters-input",
-                    classes="param-input",
-                    type="integer",
-                )
-                yield Label("First encoder block filters", classes="param-hint")
+                # Model info display
+                yield Static(id="centroid-model-info-display", classes="shape-info")
 
-            # Filters Rate
-            with Horizontal(classes="param-row"):
-                yield Label("Filters Rate:", classes="param-label")
-                yield Input(
-                    value=str(self._state._filters_rate if self._state else 1.5),
-                    id="centroid-filters-rate-input",
-                    classes="param-input",
-                    type="number",
-                )
-                yield Label("Multiplier per block (1.5 typical)", classes="param-hint")
-
-            # Sigma for centroid (box detectors size their own targets)
-            if not is_bbox:
+                # Backbone for centroid
                 with Horizontal(classes="param-row"):
-                    yield Label("Sigma:", classes="param-label")
+                    yield Label("Backbone:", classes="param-label")
+                    yield Select(
+                        [
+                            ("UNet (recommended)", "unet_medium_rf"),
+                            ("UNet Large RF", "unet_large_rf"),
+                            ("ConvNeXt Tiny", "convnext_tiny"),
+                            ("ConvNeXt Small", "convnext_small"),
+                            ("SwinT Tiny", "swint_tiny"),
+                        ],
+                        value=(
+                            self._state._backbone if self._state else "unet_medium_rf"
+                        ),
+                        id="centroid-backbone-select",
+                        classes="param-input",
+                    )
+                    yield Label("Network architecture", classes="param-hint")
+
+                # Max stride
+                with Horizontal(classes="param-row"):
+                    yield Label("Max Stride:", classes="param-label")
+                    yield Select(
+                        [("8", "8"), ("16", "16"), ("32", "32"), ("64", "64")],
+                        value=str(self._state._max_stride if self._state else 16),
+                        id="centroid-max-stride-select",
+                        classes="param-input",
+                    )
+                    yield Label(
+                        "Receptive field (larger = more context)", classes="param-hint"
+                    )
+
+                # Base Filters
+                with Horizontal(classes="param-row"):
+                    yield Label("Base Filters:", classes="param-label")
                     yield Input(
-                        value=str(self._state._sigma if self._state else 5.0),
-                        id="centroid-sigma-input",
+                        value=str(self._state._filters if self._state else 32),
+                        id="centroid-filters-input",
+                        classes="param-input",
+                        type="integer",
+                    )
+                    yield Label("First encoder block filters", classes="param-hint")
+
+                # Filters Rate
+                with Horizontal(classes="param-row"):
+                    yield Label("Filters Rate:", classes="param-label")
+                    yield Input(
+                        value=str(self._state._filters_rate if self._state else 1.5),
+                        id="centroid-filters-rate-input",
                         classes="param-input",
                         type="number",
                     )
-                    yield Label("Centroid confidence map spread", classes="param-hint")
+                    yield Label(
+                        "Multiplier per block (1.5 typical)", classes="param-hint"
+                    )
 
-            # Output stride
-            with Horizontal(classes="param-row"):
-                yield Label("Output Stride:", classes="param-label")
-                yield Select(
-                    [
-                        ("1 (full res)", "1"),
-                        ("2 (half res)", "2"),
-                        ("4 (quarter)", "4"),
-                        ("8 (1/8 res)", "8"),
-                        ("16 (1/16 res)", "16"),
-                    ],
-                    value=str(self._state._output_stride if self._state else 2),
-                    id="centroid-output-stride-select",
-                    classes="param-input",
-                )
-                yield Label("Higher = faster but less precise", classes="param-hint")
+                # Sigma for centroid (box detectors size their own targets)
+                if not is_bbox:
+                    with Horizontal(classes="param-row"):
+                        yield Label("Sigma:", classes="param-label")
+                        yield Input(
+                            value=str(self._state._sigma if self._state else 5.0),
+                            id="centroid-sigma-input",
+                            classes="param-input",
+                            type="number",
+                        )
+                        yield Label(
+                            "Centroid confidence map spread", classes="param-hint"
+                        )
 
-            # ImageNet Pretrained (for ConvNeXt/SwinT)
-            with Horizontal(classes="param-row", id="centroid-imagenet-row"):
-                yield Label("ImageNet Weights:", classes="param-label")
-                yield Checkbox(
-                    "Use ImageNet pretrained",
-                    value=self._state._use_imagenet_pretrained if self._state else True,
-                    id="centroid-imagenet-checkbox",
-                )
-                yield Label("For ConvNeXt/SwinT backbones", classes="param-hint")
+                # Output stride
+                with Horizontal(classes="param-row"):
+                    yield Label("Output Stride:", classes="param-label")
+                    yield Select(
+                        [
+                            ("1 (full res)", "1"),
+                            ("2 (half res)", "2"),
+                            ("4 (quarter)", "4"),
+                            ("8 (1/8 res)", "8"),
+                            ("16 (1/16 res)", "16"),
+                        ],
+                        value=str(self._state._output_stride if self._state else 2),
+                        id="centroid-output-stride-select",
+                        classes="param-input",
+                    )
+                    yield Label(
+                        "Higher = faster but less precise", classes="param-hint"
+                    )
 
-            # Pretrained Backbone Path
-            with Horizontal(classes="param-row"):
-                yield Label("Pretrained Backbone:", classes="param-label")
-                yield Input(
-                    value=self._state._pretrained_backbone if self._state else "",
-                    id="centroid-pretrained-backbone-input",
-                    classes="param-input-wide",
-                    placeholder="Path to .ckpt (optional)",
-                )
+                # ImageNet Pretrained (for ConvNeXt/SwinT)
+                with Horizontal(classes="param-row", id="centroid-imagenet-row"):
+                    yield Label("ImageNet Weights:", classes="param-label")
+                    yield Checkbox(
+                        "Use ImageNet pretrained",
+                        value=(
+                            self._state._use_imagenet_pretrained
+                            if self._state
+                            else True
+                        ),
+                        id="centroid-imagenet-checkbox",
+                    )
+                    yield Label("For ConvNeXt/SwinT backbones", classes="param-hint")
 
-            # Pretrained Head Path
-            with Horizontal(classes="param-row"):
-                yield Label("Pretrained Head:", classes="param-label")
-                yield Input(
-                    value=self._state._pretrained_head if self._state else "",
-                    id="centroid-pretrained-head-input",
-                    classes="param-input-wide",
-                    placeholder="Path to .ckpt (optional)",
-                )
+                # Pretrained Backbone Path
+                with Horizontal(classes="param-row"):
+                    yield Label("Pretrained Backbone:", classes="param-label")
+                    yield Input(
+                        value=self._state._pretrained_backbone if self._state else "",
+                        id="centroid-pretrained-backbone-input",
+                        classes="param-input-wide",
+                        placeholder="Path to .ckpt (optional)",
+                    )
+
+                # Pretrained Head Path
+                with Horizontal(classes="param-row"):
+                    yield Label("Pretrained Head:", classes="param-label")
+                    yield Input(
+                        value=self._state._pretrained_head if self._state else "",
+                        id="centroid-pretrained-head-input",
+                        classes="param-input-wide",
+                        placeholder="Path to .ckpt (optional)",
+                    )
 
         # Training configuration
         with Container(classes="section-box"):

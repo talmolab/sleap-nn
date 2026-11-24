@@ -1775,79 +1775,35 @@ class TestEmbeddingRetrievalMetrics:
         assert without_diag["auc"] != with_diag["auc"]
 
 
-def _labels_with_spurious_predictions():
-    """GT: one instance on frame 0, none on frame 1 (a labeled empty frame).
-
-    Predictions: a perfect match (score 0.5) and a far-away false alarm (score
-    0.9) on frame 0, plus a false alarm on frame 1. A prediction on a frame the
-    ground truth does not label (2) is not scored.
-    """
-    skel = sio.Skeleton(["a", "b", "c"])
-    video = sio.Video(filename="fake.mp4", open_backend=False)
-    pts = np.array([[10.0, 10.0], [20.0, 12.0], [30.0, 14.0]])
-    gt = sio.Labels(
-        labeled_frames=[
-            sio.LabeledFrame(
-                video=video,
-                frame_idx=0,
-                instances=[sio.Instance.from_numpy(pts, skeleton=skel)],
-            ),
-            sio.LabeledFrame(video=video, frame_idx=1, instances=[]),
-        ],
-        videos=[video],
-        skeletons=[skel],
+def test_oks_scores_labeled_points_with_coordinates():
+    """OKS and distances score occluded estimates (COCO v=1), not unlabeled nodes."""
+    from sleap_nn.evaluation import (
+        MatchInstance,
+        compute_dists,
+        compute_oks,
+        gt_points,
     )
 
-    def pred(p, score):
-        return sio.PredictedInstance.from_numpy(
-            p, skeleton=skel, point_scores=np.ones(3), score=score
-        )
+    skel = sio.Skeleton(["a", "b", "c", "d"])
+    xy = np.array([[10.0, 10.0], [50.0, 10.0], [50.0, 50.0], [10.0, 50.0]])
+    gt = sio.Instance.from_numpy(xy, skeleton=skel)
+    gt.set_hidden(["b"], keep_location=True)  # occluded estimate: scored
+    gt.set_unlabeled(["c"])  # unlabeled: not scored
+    gt.set_hidden(["d"])  # hidden without a location: not scored
+    np.testing.assert_array_equal(np.isnan(gt_points(gt)).any(axis=1), [0, 0, 1, 1])
 
-    pr = sio.Labels(
-        labeled_frames=[
-            sio.LabeledFrame(
-                video=video,
-                frame_idx=0,
-                instances=[pred(pts, 0.5), pred(pts + 300.0, 0.9)],
-            ),
-            sio.LabeledFrame(video=video, frame_idx=1, instances=[pred(pts, 0.8)]),
-            sio.LabeledFrame(video=video, frame_idx=2, instances=[pred(pts, 0.7)]),
-        ],
-        videos=[video],
-        skeletons=[skel],
-    )
-    return gt, pr
+    pr_xy = xy.copy()
+    pr_xy[2:] += 30.0  # wrong only where the GT is not scored
+    pr = sio.PredictedInstance.from_numpy(pr_xy, skeleton=skel)
+    assert compute_oks(gt_points(gt), pr.numpy()).item() == pytest.approx(1.0)
 
+    pr_xy[1] += 30.0  # wrong at the occluded estimate
+    pr = sio.PredictedInstance.from_numpy(pr_xy, skeleton=skel)
+    # One of the two scored nodes is far off (it would be 1.0 if b were ignored).
+    assert compute_oks(gt_points(gt), pr.numpy()).item() == pytest.approx(0.5)
 
-def test_evaluator_count_unmatched_as_fp():
-    """Unmatched predictions are false positives only with the opt-in flag.
-
-    By default ``oks_voc`` scores matched pairs only, so the false alarms leave
-    AP at 1.0 (the numbers v0.3.5 reported are unchanged).
-    """
-    gt, pr = _labels_with_spurious_predictions()
-    default = Evaluator(gt, pr)
-    assert default.unmatched_pred_scores.size == 0
-    assert default.voc_metrics()["oks_voc.mAP"] == pytest.approx(1.0)
-
-    counted = Evaluator(gt, pr, count_unmatched_as_fp=True)
-    assert sorted(counted.unmatched_pred_scores) == pytest.approx([0.8, 0.9])
-    voc = counted.voc_metrics()
-    # Ranked by score: FP 0.9, FP 0.8, TP 0.5 -> precision 1/3 at full recall.
-    assert voc["oks_voc.mAP"] == pytest.approx(1 / 3, abs=1e-3)
-    assert voc["oks_voc.mAR"] == pytest.approx(1.0)
-
-
-def test_run_evaluation_forwards_count_unmatched_as_fp(tmp_path):
-    gt, pr = _labels_with_spurious_predictions()
-    gt.save(tmp_path / "gt.slp")
-    pr.save(tmp_path / "pr.slp")
-    kwargs = dict(
-        ground_truth_path=str(tmp_path / "gt.slp"),
-        predicted_path=str(tmp_path / "pr.slp"),
-        match_method="oks",
-    )
-    default = run_evaluation(**kwargs)
-    counted = run_evaluation(**kwargs, count_unmatched_as_fp=True)
-    assert default["voc_metrics"]["oks_voc.mAP"] == pytest.approx(1.0)
-    assert counted["voc_metrics"]["oks_voc.mAP"] < 0.5
+    dists = compute_dists(
+        [(MatchInstance(gt, 0, "v"), MatchInstance(pr, 0, "v"), 0.0)]
+    )["dists"]
+    np.testing.assert_allclose(dists[0, :2], [0.0, 30.0 * np.sqrt(2)])
+    assert np.isnan(dists[0, 2:]).all()

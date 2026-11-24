@@ -229,7 +229,7 @@ class CentroidLayer(InferenceLayer):
         peaks, peak_vals, sample_inds, _channel_inds = find_local_peaks(
             confmaps.detach(),
             threshold=self.postprocess_config.peak_threshold,
-            refinement=self.postprocess_config.effective_refinement,
+            refinement=self.postprocess_config.resolve_refinement(peaks="centroid"),
             integral_patch_size=self.postprocess_config.integral_patch_size,
         )
 

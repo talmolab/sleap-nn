@@ -35,6 +35,7 @@ def apply_flip_augmentation_skia(
     symmetric_inds: Optional[Sequence[Tuple[int, int]]] = None,
     flip_p: float = 0.0,
     masks: Optional[torch.Tensor] = None,
+    node_weights: Optional[torch.Tensor] = None,
 ) -> Tuple[torch.Tensor, ...]:
     """Randomly mirror an image and its keypoints left/right, swapping symmetries.
 
@@ -59,16 +60,27 @@ def apply_flip_augmentation_skia(
             and lossless (a tensor reverse). Symmetric-node swapping does not apply to
             masks (a mask just mirrors). When provided, the return value gains a third
             element holding the mirrored masks.
+        node_weights: Optional per-node loss weights with the node axis last
+            (e.g. ``(1, n_nodes)``). Swapped with the same symmetric pairs as the
+            keypoints under the SAME flip draw. When provided, the return value
+            gains a trailing element holding the (possibly swapped) weights.
 
     Returns:
-        ``(image, instances)`` when ``masks`` is ``None``, else
-        ``(image, instances, masks)``. When the flip is not applied, the inputs are
-        returned unchanged. NaN keypoints are preserved (``(W - 1) - NaN`` is ``NaN``).
+        ``(image, instances)``, plus ``masks`` and/or ``node_weights`` (in that
+        order) when given. When the flip is not applied, the inputs are returned
+        unchanged. NaN keypoints are preserved (``(W - 1) - NaN`` is ``NaN``).
     """
-    if flip_p <= 0 or np.random.random() >= flip_p:
+
+    def _out(image, instances, masks, node_weights):
+        out = (image, instances)
         if masks is not None:
-            return image, instances, masks
-        return image, instances
+            out = out + (masks,)
+        if node_weights is not None:
+            out = out + (node_weights,)
+        return out
+
+    if flip_p <= 0 or np.random.random() >= flip_p:
+        return _out(image, instances, masks, node_weights)
 
     instances = instances.clone()
     width = image.shape[-1]
@@ -82,11 +94,19 @@ def apply_flip_augmentation_skia(
             instances[..., a, :] = instances[..., b, :]
             instances[..., b, :] = swap
 
+    # Swap the per-node loss weights the same way, so each weight stays with
+    # its keypoint.
+    if node_weights is not None and symmetric_inds is not None:
+        node_weights = node_weights.clone()
+        for a, b in symmetric_inds:
+            swap = node_weights[..., a].clone()
+            node_weights[..., a] = node_weights[..., b]
+            node_weights[..., b] = swap
+
     if masks is not None:
         masks = torch.flip(masks, dims=[-1])
-        return image, instances, masks
 
-    return image, instances
+    return _out(image, instances, masks, node_weights)
 
 
 def apply_intensity_augmentation_skia(
@@ -200,6 +220,7 @@ def apply_geometric_augmentation_skia(
     flip_p: float = 0.0,
     symmetric_inds: Optional[Sequence[Tuple[int, int]]] = None,
     masks: Optional[torch.Tensor] = None,
+    node_weights: Optional[torch.Tensor] = None,
 ) -> Tuple[torch.Tensor, ...]:
     """Apply geometric augmentations using Skia.
 
@@ -237,29 +258,31 @@ def apply_geometric_augmentation_skia(
             image-only and never touch masks (they simulate occlusion/blending while
             the object — and thus its ground-truth mask — remains). When provided, the
             return value gains a third element holding the co-transformed masks.
+        node_weights: Optional per-node loss weights (node axis last), swapped with
+            ``symmetric_inds`` under the SAME flip draw as the keypoints.
 
     Returns:
         ``(augmented_image, augmented_instances)`` when ``masks`` is ``None``, else
         ``(augmented_image, augmented_instances, augmented_masks)``. Image dtype
-        matches input.
+        matches input. When ``node_weights`` (per-node loss weights, node axis
+        last) is given, a trailing element holds them, swapped with the
+        symmetric pairs if the sample was flipped.
     """
     # Apply flip first (matches SLEAP v1.4 ordering: flip before affine).
     if flip_p > 0:
+        out = apply_flip_augmentation_skia(
+            image,
+            instances,
+            symmetric_inds=symmetric_inds,
+            flip_p=flip_p,
+            masks=masks,
+            node_weights=node_weights,
+        )
+        image, instances = out[0], out[1]
         if masks is not None:
-            image, instances, masks = apply_flip_augmentation_skia(
-                image,
-                instances,
-                symmetric_inds=symmetric_inds,
-                flip_p=flip_p,
-                masks=masks,
-            )
-        else:
-            image, instances = apply_flip_augmentation_skia(
-                image,
-                instances,
-                symmetric_inds=symmetric_inds,
-                flip_p=flip_p,
-            )
+            masks = out[2]
+        if node_weights is not None:
+            node_weights = out[-1]
 
     # Convert to numpy for Skia processing
     is_float = image.dtype == torch.float32
@@ -340,9 +363,12 @@ def apply_geometric_augmentation_skia(
     if is_float:
         result_tensor = result_tensor.float() / 255.0
 
+    out = (result_tensor, instances)
     if masks is not None:
-        return result_tensor, instances, masks
-    return result_tensor, instances
+        out = out + (masks,)
+    if node_weights is not None:
+        out = out + (node_weights,)
+    return out
 
 
 def _transform_image_skia(image: np.ndarray, matrix: skia.Matrix) -> np.ndarray:

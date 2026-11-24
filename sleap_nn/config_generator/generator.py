@@ -4,6 +4,7 @@ This module provides a fluent API for generating sleap-nn training
 configurations from SLP files with sensible defaults.
 """
 
+import math
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, List, Optional, Tuple, Union
 
@@ -11,19 +12,50 @@ from omegaconf import DictConfig, OmegaConf
 
 from sleap_nn.config_generator.analyzer import DatasetStats, ViewType, analyze_slp
 from sleap_nn.config_generator.architecture_estimates import (
+    DEFAULT_DETR_PRESET,
+    DETR_MAX_STRIDE,
+    DETR_PATCH_SIZE,
+    DETR_PRESETS,
+    DetrResolution,
     compute_max_stride_for_animal_size,
     compute_suggested_crop_size,
     recommend_default_max_stride,
 )
-from sleap_nn.config_generator.memory import MemoryEstimate, estimate_memory
+from sleap_nn.config_generator.memory import (
+    MemoryEstimate,
+    estimate_detr_memory,
+    estimate_memory,
+)
 from sleap_nn.config_generator.recommender import (
+    BBOX_DETECTORS,
     TOPDOWN_BBOX_DETECTORS,
     BackboneType,
     ConfigRecommendation,
     PipelineType,
+    detr_bbox_padding,
+    detr_resolution_for,
     recommend_config,
     recommend_pipeline,
 )
+
+#: Trainer settings of a ``bbox_detr`` detector (RF-DETR's recipe, sized for small
+#: animal datasets), applied by :meth:`ConfigGenerator.pipeline` to a standalone
+#: detector and by :meth:`ConfigGenerator.build_detector` to a top-down pair's.
+#: RF-DETR trains AdamW at lr 1e-4 with a constant LR, no early stopping, and its
+#: paper says small datasets need more than 100 epochs. An epoch is one pass over
+#: the frames (``min_train_steps_per_epoch: 1``).
+DETR_TRAINER_DEFAULTS = {
+    "_max_epochs": 200,
+    "_batch_size": 8,
+    "_learning_rate": 1e-4,
+    "_optimizer_name": "AdamW",
+    "_lr_scheduler": "none",
+    "_early_stopping": False,
+    "_min_train_steps_per_epoch": 1,
+    "_visualize_preds_during_training": False,
+    "_rotation_range": (0.0, 0.0),
+    "_enable_eval": True,
+}
 
 if TYPE_CHECKING:
     import sleap_io as sio
@@ -135,6 +167,14 @@ class ConfigGenerator:
         # instance's visible points (else of each mask), grown by ``bbox_padding`` px.
         self._bbox_source: str = "auto"
         self._bbox_padding: float = 0.0
+        # ``bbox_detr``: backbone/decoder preset (``DETR_PRESETS``), queries (``None``:
+        # ``detr_num_queries``), an optional checkpoint to start from (e.g.
+        # ``sleap-nn import-rfdetr`` output or a human detector) and the letterbox
+        # size, which ``None`` sizes from the animals (``recommend_detr_resolution``).
+        self._detr_preset: str = DEFAULT_DETR_PRESET
+        self._detr_num_queries: Optional[int] = None
+        self._detr_init_from: Optional[str] = None
+        self._detr_max_side: Optional[int] = None
         self._max_height: Optional[int] = None  # override; defaults to stats max
         self._max_width: Optional[int] = None
         self._view_type: ViewType = ViewType.UNKNOWN
@@ -272,19 +312,25 @@ class ConfigGenerator:
             self._stats = analyze_slp(str(self.slp_path))
         return self._stats
 
-    def recommend(self, view: Optional[str] = None) -> ConfigRecommendation:
+    def recommend(
+        self, view: Optional[str] = None, gpu_memory_gb: Optional[float] = None
+    ) -> ConfigRecommendation:
         """Get configuration recommendations based on data analysis.
 
         Args:
             view: Camera view type ("side", "top", or None for auto).
+            gpu_memory_gb: GPU memory in GB. When given, multi-animal top-down
+                data whose ``bbox_detr`` run fits gets ``topdown_bbox_detr``.
 
         Returns:
             ConfigRecommendation with all parameter suggestions.
         """
         view_type = ViewType(view) if view else self._view_type
-        return recommend_config(self.stats, view_type)
+        return recommend_config(self.stats, view_type, gpu_memory_gb=gpu_memory_gb)
 
-    def auto(self, view: Optional[str] = None) -> "ConfigGenerator":
+    def auto(
+        self, view: Optional[str] = None, gpu_memory_gb: Optional[float] = None
+    ) -> "ConfigGenerator":
         """Automatically configure all parameters based on data analysis.
 
         This is the recommended way to get started. It analyzes your data
@@ -293,6 +339,8 @@ class ConfigGenerator:
         Args:
             view: Camera view type ("side" or "top"). Affects rotation
                 augmentation. If None, uses conservative defaults.
+            gpu_memory_gb: GPU memory in GB (see :meth:`recommend`). ``None``
+                (default) keeps the recommendation independent of the machine.
 
         Returns:
             self for method chaining.
@@ -303,7 +351,7 @@ class ConfigGenerator:
         if view:
             self._view_type = ViewType(view)
 
-        rec = self.recommend(view)
+        rec = self.recommend(view, gpu_memory_gb=gpu_memory_gb)
 
         self._pipeline = rec.pipeline.recommended
         self._backbone = rec.backbone
@@ -375,6 +423,9 @@ class ConfigGenerator:
             )
 
         self._recommendation = rec
+        if self._pipeline in TOPDOWN_BBOX_DETECTORS:
+            # The detector defaults (scale, stride, padding) of the recommended pair.
+            self.pipeline(self._pipeline)
         return self
 
     # Fluent setters for all parameters
@@ -399,8 +450,18 @@ class ConfigGenerator:
           three anchor levels need max_stride >= 32), rotation augmentation off
           (rotated corners inflate the box), and evaluation on so checkpoints
           are selected on ``eval/val/bbox_mAP``.
-        - ``topdown_bbox_centernet``, ``topdown_bbox_ssd``: top-down pose whose
-          first stage is that box detector instead of a centroid model. Two
+        - ``bbox_detr``: RF-DETR-style set-prediction detector (no NMS, so
+          touching animals stay separate) on a pretrained DINOv3 ViT-S with a
+          fresh projector and decoder (:meth:`detr`). One class, 100 queries,
+          letterboxed at the size that keeps small animals 3 ViT tokens wide
+          (:func:`~sleap_nn.config_generator.architecture_estimates.
+          recommend_detr_resolution`), boxes padded by 5% of the median animal
+          size, RF-DETR's crop/flip/multi-scale augmentation and trainer
+          (``DETR_TRAINER_DEFAULTS``: AdamW 1e-4, constant LR, EMA, clipping,
+          bf16, 200 epochs).
+        - ``topdown_bbox_centernet``, ``topdown_bbox_ssd``, ``topdown_bbox_detr``:
+          top-down pose whose first stage is that box detector instead of a
+          centroid model. Two
           configs: the detector (:meth:`build_detector`, the same config as the
           standalone detector pipeline) and a centered-instance model with
           box-scaled crops (:meth:`build_centered_instance`). Here the detector's
@@ -449,6 +510,21 @@ class ConfigGenerator:
             # CI stages operate on cropped instances; max_stride=16 is the
             # web-app default ("ci-max-stride" HTML).
             self._max_stride = 16
+        elif pipeline == "bbox_detr" or (
+            TOPDOWN_BBOX_DETECTORS.get(pipeline) == "bbox_detr"
+        ):
+            # Fixed by the ViT: stride-16 tokens, inputs padded to 32, full-frame
+            # letterbox (the size comes from max_height / max_width).
+            self._input_scale = 1.0
+            self._output_stride = DETR_PATCH_SIZE
+            self._max_stride = DETR_MAX_STRIDE
+            # Keypoints sit inside the animal's outline: pad the derived boxes by
+            # 5% of the median animal size (both stages of a pair use it).
+            self._bbox_padding = detr_bbox_padding(self.stats)
+            if pipeline == "bbox_detr":
+                # A top-down pair gets these in build_detector() only.
+                for key, value in DETR_TRAINER_DEFAULTS.items():
+                    setattr(self, key, value)
         elif pipeline in ("bbox_centernet", "bbox_ssd") or (
             pipeline in TOPDOWN_BBOX_DETECTORS
         ):
@@ -693,6 +769,101 @@ class ConfigGenerator:
         self._crop_size = size
         return self
 
+    def detr(
+        self,
+        preset: Optional[str] = None,
+        num_queries: Optional[int] = None,
+        init_from: Optional[str] = None,
+        max_side: Optional[int] = None,
+    ) -> "ConfigGenerator":
+        """Set the ``bbox_detr`` backbone/decoder, queries, init and input size.
+
+        Args:
+            preset: A ``DETR_PRESETS`` key: ``dinov3_s`` (default; DINOv3
+                ViT-S/16, 3 decoder layers), ``dinov3_b`` (ViT-B/16, 4 layers), or
+                an RF-DETR size ``rfdetr_n|s|m|l`` (windowed DINOv2-S at 384 /
+                512 / 576 / 704 with 2 / 3 / 4 / 4 decoder layers).
+            num_queries: Queries per group (detections per frame). Default
+                (:attr:`detr_num_queries`): 100, or 300 when fine-tuning an
+                RF-DETR import, whose 300 x 13 query embeddings then load.
+            init_from: A sleap-nn model directory to start from: an RF-DETR
+                import (``sleap-nn import-rfdetr <size>``; use the matching
+                ``rfdetr_*`` preset, which then squash-resizes as RF-DETR did) or
+                another ``bbox_detr`` model of the same preset.
+            max_side: Input side (multiple of 32). ``None``: the token-width rule
+                for the DINOv3 presets, the preset's training size for RF-DETR.
+
+        Returns:
+            self for method chaining.
+        """
+        if preset is not None:
+            if preset not in DETR_PRESETS:
+                raise ValueError(
+                    f"Unknown bbox_detr preset {preset!r}; choose one of "
+                    f"{sorted(DETR_PRESETS)}."
+                )
+            self._detr_preset = preset
+        if num_queries is not None:
+            self._detr_num_queries = int(num_queries)
+        if init_from is not None:
+            self._detr_init_from = init_from or None
+        if max_side is not None:
+            self._detr_max_side = int(max_side)
+        return self
+
+    @property
+    def detr_num_queries(self) -> int:
+        """Queries of the ``bbox_detr`` head: as set, else 100 (300 for an import).
+
+        Frames hold a few animals, so 100 is plenty; an RF-DETR import keeps its
+        300 so its learned query embeddings fit (``init_from`` copies same-shape
+        tensors only).
+        """
+        if self._detr_num_queries is not None:
+            return self._detr_num_queries
+        return 300 if self._detr_squash else 100
+
+    @property
+    def is_detr(self) -> bool:
+        """Check if the current pipeline is the ``bbox_detr`` detector."""
+        return self._pipeline == "bbox_detr"
+
+    def detr_resolution(self) -> DetrResolution:
+        """The ``bbox_detr`` letterbox size for this dataset (token-width rule).
+
+        With ``max_side`` (:meth:`detr`) or an RF-DETR preset, that side is
+        used as is; otherwise :func:`~sleap_nn.config_generator.
+        architecture_estimates.recommend_detr_resolution` on the padded boxes.
+        """
+        preset = DETR_PRESETS[self._detr_preset]
+        side = self._detr_max_side
+        if side is None and preset.rfdetr_size is not None:
+            side = preset.input_size
+        if side is None:
+            return detr_resolution_for(self.stats, self._bbox_padding)
+        height, width = self.stats.max_height, self.stats.max_width
+        scale = min(1.0, side / max(height, width))
+
+        def fit(n: int) -> int:
+            return max(
+                DETR_MAX_STRIDE,
+                math.ceil(n * scale / DETR_MAX_STRIDE) * DETR_MAX_STRIDE,
+            )
+
+        pad = 2 * self._bbox_padding
+        small = (self.stats.small_bbox_size or self.stats.avg_bbox_size) + pad
+        median = (self.stats.median_bbox_size or self.stats.avg_bbox_size) + pad
+        return DetrResolution(
+            max_side=side,
+            max_height=fit(height),
+            max_width=fit(width),
+            scale=scale,
+            small_tokens=small * scale / DETR_PATCH_SIZE,
+            median_tokens=median * scale / DETR_PATCH_SIZE,
+            needs_tiling=False,
+            reason=f"Input side set to {side} px (scale {scale:.2f}).",
+        )
+
     @property
     def is_topdown(self) -> bool:
         """Check if current pipeline is top-down (requires 2 models)."""
@@ -713,7 +884,7 @@ class ConfigGenerator:
     @property
     def is_bbox(self) -> bool:
         """Check if current pipeline is a bounding-box detector."""
-        return self._pipeline in ("bbox_centernet", "bbox_ssd")
+        return self._pipeline in BBOX_DETECTORS
 
     def build(self) -> DictConfig:
         """Build the configuration as an OmegaConf DictConfig.
@@ -773,6 +944,23 @@ class ConfigGenerator:
             preprocessing["min_crop_size"] = self._min_crop_size
             preprocessing["crop_padding"] = self._crop_padding
             preprocessing["scale"] = 1.0
+        elif self.is_detr:
+            # The whole frame, fitted to the input size: letterbox (one scale,
+            # padded bottom/right) for our own weights, RF-DETR's square squash
+            # for its imported weights. DINO backbones read RGB.
+            res = self.detr_resolution()
+            squash = self._detr_squash
+            preprocessing["ensure_rgb"] = self.stats.num_channels != 3
+            preprocessing["ensure_grayscale"] = False
+            preprocessing["max_height"] = self._max_height or (
+                res.max_side if squash else res.max_height
+            )
+            preprocessing["max_width"] = self._max_width or (
+                res.max_side if squash else res.max_width
+            )
+            preprocessing["scale"] = 1.0
+            preprocessing["crop_size"] = None
+            preprocessing["resize_mode"] = "squash" if squash else "letterbox"
         else:
             preprocessing["max_height"] = (
                 self._max_height
@@ -802,7 +990,11 @@ class ConfigGenerator:
             "cache_workers": self._cache_workers,
             "preprocessing": preprocessing,
             "use_augmentations_train": self._use_augmentations,
-            "augmentation_config": self._build_augmentation_config(),
+            "augmentation_config": (
+                self._build_detr_augmentation_config(preprocessing)
+                if self.is_detr
+                else self._build_augmentation_config()
+            ),
         }
         if self.is_bbox or bbox_crop:
             # Detector GT boxes / box-scaled crop boxes. Both stages of a box
@@ -870,6 +1062,81 @@ class ConfigGenerator:
 
         return block or None
 
+    @property
+    def _detr_squash(self) -> bool:
+        """Squash-resize: an RF-DETR preset that starts from imported weights."""
+        preset = DETR_PRESETS[self._detr_preset]
+        return preset.rfdetr_size is not None and self._detr_init_from is not None
+
+    def _build_detr_augmentation_config(self, preprocessing: dict) -> Optional[dict]:
+        """Augmentation of a ``bbox_detr`` detector: RF-DETR's geometry + intensity.
+
+        RF-DETR's resize-or-crop (50/50), horizontal flip and per-batch
+        multi-scale (+/- 5 x 32 px) replace the ``geometric`` section: rotating a
+        keypoint box would inflate it. The crop branch is scaled to the input
+        size: the shortest side is resized to the input's short side and a square
+        of 2/3 to 1x that side is cropped, i.e. a zoom of 1x to 1.5x (RF-DETR's
+        COCO values, 400-600 and 384-600, assume ~600 px inputs). Brightness /
+        contrast still apply from the intensity sliders.
+        """
+        if not self._use_augmentations:
+            return None
+        # Both sections explicit: an omitted one would come back as the schema's
+        # default (geometric: +-15 deg rotation, 0.9-1.1 scale).
+        block: dict = {
+            "intensity": (self._build_augmentation_config() or {}).get("intensity"),
+            "geometric": None,
+        }
+        short = int(min(preprocessing["max_height"], preprocessing["max_width"]))
+        block["detr"] = {
+            "crop_p": 0.5,
+            "shortest_sides": [short],
+            "crop_range": [int(round(short * 2 / 3)), short],
+            "flip_p": 0.5,
+            "multi_scale": True,
+            "multi_scale_steps": 5,
+        }
+        return block
+
+    def _build_detr_backbone_config(self) -> dict:
+        """The ``bbox_detr`` backbone leaf of the current preset."""
+        preset = DETR_PRESETS[self._detr_preset]
+        taps = [preset.num_layers * k // 4 for k in (1, 2, 3, 4)]
+        if preset.backbone == "pretrained":
+            return {
+                "pretrained": {
+                    "source": "hf",
+                    "model_name": preset.model_name,
+                    "weights": True,
+                    # The tapped token maps feed the DETR projector.
+                    "mode": "tokens",
+                    "layers": taps,
+                    "drop_path_rate": 0.1,
+                    "in_channels": 3,
+                    "output_stride": DETR_PATCH_SIZE,
+                    "max_stride": DETR_MAX_STRIDE,
+                }
+            }
+        return {
+            "dinov2_windowed": {
+                "in_channels": 3,
+                "hidden_size": preset.hidden_size,
+                "num_layers": preset.num_layers,
+                "num_heads": preset.num_heads,
+                "mlp_ratio": 4.0,
+                "patch_size": DETR_PATCH_SIZE,
+                "pos_embed_grid": preset.input_size // DETR_PATCH_SIZE,
+                "out_indices": taps,
+                "num_windows": 2,
+                "window_block_indexes": None,
+                "drop_path_rate": 0.0,
+                # Plain DINOv2 weights unless a whole checkpoint is loaded.
+                "weights": None if self._detr_init_from else preset.model_name,
+                "output_stride": DETR_PATCH_SIZE,
+                "max_stride": DETR_MAX_STRIDE,
+            }
+        }
+
     def _build_model_config(self) -> dict:
         """Build model configuration section.
 
@@ -888,6 +1155,21 @@ class ConfigGenerator:
             in_channels = 3 if self._ensure_rgb else 1
 
         backbone_config: dict = {"unet": None, "convnext": None, "swint": None}
+
+        if self.is_detr:
+            backbone_config.update(self._build_detr_backbone_config())
+            model: dict = {
+                "init_weights": "default",
+                "pretrained_backbone_weights": None,
+                "pretrained_head_weights": None,
+                "backbone_config": backbone_config,
+                "head_configs": self._build_head_config(),
+            }
+            if self._detr_init_from:
+                # Same-shape tensors are copied; class rows by class name (new
+                # classes start fresh at the 0.01 prior).
+                model["init_from"] = {"path": self._detr_init_from}
+            return model
 
         if self._backbone.startswith("unet"):
             backbone_config["unet"] = {
@@ -1069,6 +1351,25 @@ class ConfigGenerator:
                 "offset": {"output_stride": self._output_stride, "loss_weight": 1.0},
             }
 
+        elif self._pipeline == "bbox_detr":
+            # One class (filled from the boxes at train time; derived boxes are
+            # "object"), its bias at the 0.01 prior. 100 queries (frames hold few
+            # animals; 300 for an RF-DETR import). RF-DETR's decoder otherwise (13
+            # query groups in training).
+            preset = DETR_PRESETS[self._detr_preset]
+            head_configs["bbox_detr"] = {
+                "detr": {
+                    "categories": None,
+                    "output_stride": DETR_PATCH_SIZE,
+                    "hidden_dim": 256,
+                    "num_queries": self.detr_num_queries,
+                    "group_detr": 13,
+                    "dec_layers": preset.dec_layers,
+                    "num_select": self.detr_num_queries,
+                    "lr_component_decay": 0.7,
+                }
+            }
+
         elif self._pipeline == "bbox_ssd":
             # Anchor sizes are auto-sized from the training boxes at train time.
             head_configs["bbox_ssd"] = {
@@ -1136,6 +1437,16 @@ class ConfigGenerator:
                 "loss_scale": self._ohkm_loss_scale,
             },
         }
+
+        if self.is_detr:
+            # RF-DETR's recipe: AdamW wd 1e-4; the backbone at lr x 1.5 x 0.7^2
+            # with layer decay 0.8; EMA 0.993; clip 0.1; bf16 autocast.
+            config["optimizer"].update(
+                {"weight_decay": 1e-4, "encoder_lr_scale": 1.5, "layer_decay": 0.8}
+            )
+            config["ema"] = {"enabled": True, "decay": 0.993, "warmup_steps": 100}
+            config["gradient_clip_val"] = 0.1
+            config["precision"] = "bf16-mixed"
 
         if self._enable_wandb:
             config["wandb"] = {
@@ -1247,9 +1558,10 @@ class ConfigGenerator:
         """Build the box-detector config of a ``topdown_bbox_*`` pipeline.
 
         The first config of the pair: the same config as the standalone
-        ``bbox_centernet`` / ``bbox_ssd`` pipeline, i.e. the current state with
-        rotation augmentation off (rotated corners inflate the boxes) and
-        evaluation on (checkpoints selected on box mAP).
+        ``bbox_centernet`` / ``bbox_ssd`` / ``bbox_detr`` pipeline, i.e. the
+        current state with rotation augmentation off (rotated corners inflate the
+        boxes) and evaluation on (checkpoints selected on box mAP); for
+        ``bbox_detr`` also its trainer (``DETR_TRAINER_DEFAULTS``).
 
         Returns:
             Detector-stage configuration.
@@ -1261,18 +1573,20 @@ class ConfigGenerator:
         if detector is None:
             raise ValueError("Detector config only for top-down box pipelines")
 
+        overrides = {"_rotation_range": (0.0, 0.0), "_enable_eval": True}
+        if detector == "bbox_detr":
+            overrides = dict(DETR_TRAINER_DEFAULTS)
+        saved = {key: getattr(self, key) for key in overrides}
         orig_pipeline = self._pipeline
-        orig_rotation = self._rotation_range
-        orig_eval = self._enable_eval
         self._pipeline = detector
-        self._rotation_range = (0.0, 0.0)
-        self._enable_eval = True
+        for key, value in overrides.items():
+            setattr(self, key, value)
         try:
             return self.build()
         finally:
             self._pipeline = orig_pipeline
-            self._rotation_range = orig_rotation
-            self._enable_eval = orig_eval
+            for key, value in saved.items():
+                setattr(self, key, value)
 
     def _build_bbox_crop_instance(self) -> DictConfig:
         """Build the current centered-instance state with box-scaled crops.
@@ -1389,7 +1703,8 @@ class ConfigGenerator:
         - {path}_centered_instance.yaml
 
         For ``topdown_bbox_*`` the first file is the detector,
-        ``{path}_bbox_centernet.yaml`` / ``{path}_bbox_ssd.yaml``.
+        ``{path}_bbox_centernet.yaml`` / ``{path}_bbox_ssd.yaml`` /
+        ``{path}_bbox_detr.yaml``.
 
         For other models, saves a single file.
 
@@ -1440,6 +1755,20 @@ class ConfigGenerator:
         Returns:
             MemoryEstimate with breakdown and recommendations.
         """
+        if self.is_detr or self.detector_pipeline == "bbox_detr":
+            res = self.detr_resolution()
+            return estimate_detr_memory(
+                self.stats,
+                self._detr_preset,
+                batch_size=(
+                    DETR_TRAINER_DEFAULTS["_batch_size"]
+                    if self.is_topdown_bbox
+                    else self._batch_size
+                ),
+                max_height=self._max_height or res.max_height,
+                max_width=self._max_width or res.max_width,
+                num_queries=self.detr_num_queries,
+            )
         return estimate_memory(
             self.stats,
             self._backbone,
@@ -1477,7 +1806,7 @@ class ConfigGenerator:
             "",
             "Configuration:",
             f"  Pipeline: {self._pipeline}",
-            f"  Backbone: {self._backbone}",
+            f"  Backbone: {self._summary_backbone}",
             f"  Input scale: {self._input_scale}",
             f"  Sigma: {self._sigma}",
             f"  Batch size: {self._batch_size}",
@@ -1485,6 +1814,16 @@ class ConfigGenerator:
             f"  Learning rate: {self._learning_rate}",
             f"  Rotation: {self._rotation_range[0]}deg to {self._rotation_range[1]}deg",
             "",
+        ]
+        if self.is_detr or self.detector_pipeline == "bbox_detr":
+            res = self.detr_resolution()
+            lines += [
+                "bbox_detr:",
+                f"  Queries: {self.detr_num_queries}",
+                f"  Input: {res.max_width}x{res.max_height} - {res.reason}",
+                "",
+            ]
+        lines += [
             "Memory Estimate:",
             f"  GPU: {mem.total_gpu_gb:.1f} GB ({mem.gpu_status}) - {mem.gpu_message}",
             f"  CPU cache: {mem.cache_memory_gb:.1f} GB - {mem.cpu_message}",
@@ -1500,6 +1839,13 @@ class ConfigGenerator:
             lines.insert(-1, "")
 
         return "\n".join(lines)
+
+    @property
+    def _summary_backbone(self) -> str:
+        """The backbone named in :meth:`summary` (the DETR preset for bbox_detr)."""
+        if self.is_detr or self.detector_pipeline == "bbox_detr":
+            return DETR_PRESETS[self._detr_preset].label
+        return self._backbone
 
     def __repr__(self) -> str:
         """Return repr string."""

@@ -127,6 +127,25 @@ def test_centroid_confmaps_head():
     assert isinstance(head, Head)
 
 
+def test_head_kernel_size():
+    """1x1 by default (unchanged keys and shapes); larger kernels keep the size."""
+    head = SingleInstanceConfmapsHead(part_names=["a", "b"], sigma=5.0)
+    x = torch.randn(1, 8, 16, 12)
+
+    default = head.make_head(8)
+    conv = default[0][0]
+    assert conv.kernel_size == (1, 1)
+    assert list(default.state_dict()) == [
+        f"{head.name}.0.weight",
+        f"{head.name}.0.bias",
+    ]
+
+    wide = head.make_head(8, kernel_size=3)
+    assert wide[0][0].weight.shape == (2, 8, 3, 3)
+    assert list(wide.state_dict()) == list(default.state_dict())
+    assert wide(x).shape == (1, 2, 16, 12)
+
+
 def test_centered_instance_confmaps_head(caplog):
     output_stride = 1
     loss_weight = 1.0

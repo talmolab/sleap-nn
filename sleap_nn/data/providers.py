@@ -3,6 +3,8 @@
 import importlib.util
 from typing import Any, Dict, List, Optional, Tuple, Union
 
+import copy
+
 import numpy as np
 import sleap_io as sio
 from sleap_io.io.video_reading import MediaVideo
@@ -182,6 +184,90 @@ def filter_oob_points(
     return points
 
 
+def instance_points(inst: sio.Instance, supervise_occluded: bool = True) -> np.ndarray:
+    """Return the keypoints an instance is supervised at, ``(n_nodes, 2)``.
+
+    With ``supervise_occluded`` (the default), labeled-but-not-visible nodes that
+    have coordinates (occluded estimates, COCO ``v=1``; sleap-io >= 0.10) keep
+    them; otherwise they are NaN like any other hidden node. Unlabeled nodes and
+    nodes without a location are always NaN. Files without occluded estimates
+    (every pre-SLP-3.0 file once :func:`clear_legacy_hidden_points` has run, as
+    training and evaluation do) give exactly ``inst.numpy()``.
+    """
+    return inst.numpy(invisible_as_nan=not supervise_occluded)
+
+
+#: First SLP ``format_id`` whose files can mark a point as labeled but not visible
+#: with a real estimated location (an occluded estimate).
+_OCCLUDED_ESTIMATE_FORMAT_ID = 3.0
+
+
+def has_legacy_hidden_points(labels: Optional[sio.Labels]) -> bool:
+    """Whether ``labels`` hold an old file's points as stored (stale hidden points).
+
+    True when sleap-io reports (``Labels.source_format_id``) that the labels come
+    from an SLP file older than format 3.0. A sleap-io without that property clears
+    such points on load, so there is nothing to do and this is False.
+    """
+    source = getattr(labels, "source_format_id", None) if labels is not None else None
+    return source is not None and float(source) < _OCCLUDED_ESTIMATE_FORMAT_ID
+
+
+def without_hidden_coordinates(inst: sio.Instance) -> sio.Instance:
+    """A copy of ``inst`` whose hidden points have no coordinates (``inst`` is kept)."""
+    out = copy.deepcopy(inst)
+    hidden = ~np.asarray(out.points["visible"], dtype=bool)
+    out.points["xy"][hidden] = np.nan
+    return out
+
+
+def clear_legacy_hidden_points(labels: Optional[sio.Labels]) -> int:
+    """Read the points of labels from an old SLP file as sleap-nn 0.3 did, in place.
+
+    Files older than SLP format 3.0 cannot mark a point as an occluded estimate: a
+    hidden point's coordinates there are whatever was left behind when the node was
+    hidden (the SLEAP GUI keeps the last position), not an estimate. sleap-io 0.9
+    kept them in ``points["xy"]`` but hid them from ``Instance.numpy()`` and
+    ``is_empty``, which is all sleap-nn 0.3 read. A sleap-io that loads old files
+    with their points as stored would otherwise make training keep instances whose
+    nodes are all hidden and supervise hidden nodes at their stale positions, and
+    evaluation score ground truth there.
+
+    This calls sleap-io's ``Labels.clean_legacy_points()`` (hidden points lose their
+    coordinates, visible points without coordinates become hidden), which acts only
+    on labels from a file older than format 3.0; labels from a format 3.0 file, or
+    built in memory, are left alone. With a sleap-io that has no such method, old
+    files are already cleaned on load and this does nothing.
+
+    Args:
+        labels: Labels as loaded.
+
+    Returns:
+        The number of points changed.
+    """
+    clean = getattr(labels, "clean_legacy_points", None)
+    if clean is None or not has_legacy_hidden_points(labels):
+        return 0
+    changed = int(clean() or 0)
+    if changed:
+        logger.info(
+            f"Read {changed} point(s) of labels from an SLP file older than format "
+            f"{_OCCLUDED_ESTIMATE_FORMAT_ID:g} as sleap-io 0.9 did: hidden points "
+            "without their stored coordinates (such files cannot mark occluded "
+            "estimates)."
+        )
+    return changed
+
+
+def located_points(inst: sio.Instance) -> np.ndarray:
+    """Return an instance's labeled points that have coordinates, ``(n_nodes, 2)``.
+
+    Crop sizes, crop boxes and centroids come from these, whether or not occluded
+    estimates are supervised, so an occluded target is not cropped away.
+    """
+    return inst.numpy(invisible_as_nan=False)
+
+
 def process_lf(
     instances_list: List[sio.Instance],
     img: np.ndarray,
@@ -189,7 +275,9 @@ def process_lf(
     video_idx: int,
     max_instances: int,
     user_instances_only: bool = True,
-) -> Dict[str, Any]:
+    supervise_occluded: bool = True,
+    return_instances: bool = False,
+) -> Union[Optional[Dict[str, Any]], Tuple[Optional[Dict[str, Any]], List]]:
     """Get sample dict from `sio.LabeledFrame`.
 
     Args:
@@ -200,10 +288,17 @@ def process_lf(
         max_instances: Maximum number of instances that could occur in a single LabeledFrame.
         user_instances_only: True if filter labels only to user instances else False.
             Default: True.
+        supervise_occluded: If True, labeled-but-not-visible nodes with coordinates
+            are supervised at those coordinates (see `instance_points`).
+        return_instances: If True, also return the `sio.Instance`s that survived
+            filtering, in the order of the sample's ``instances`` rows, so callers
+            that look up per-instance attributes (tracks, node weights) stay
+            aligned.
 
     Returns:
         Dict with image, instancs, frame index, video index, original image size and
-        number of instances.
+        number of instances, or `None` when no instance survives. With
+        ``return_instances``, a tuple of that and the list of surviving instances.
 
     """
     # Filter to user instances
@@ -216,17 +311,25 @@ def process_lf(
     img_height, img_width = image.shape[-2:]
 
     instances = []
+    kept = []
     for inst in instances_list:
+        # Skip instances with no labeled point that has coordinates.
         if inst.is_empty:
             continue
-        # Sanity check: set out-of-bounds keypoints (annotation errors) to NaN and
-        # drop instances that fall entirely outside the original image frame.
-        pts = filter_oob_points(inst.numpy(), img_height, img_width)
-        if np.isnan(pts).all():
+        # Sanity check: drop instances whose located points all fall outside the
+        # original image frame (annotation errors), and set out-of-bounds
+        # keypoints to NaN.
+        if np.isnan(
+            filter_oob_points(located_points(inst), img_height, img_width)
+        ).all():
             continue
+        pts = filter_oob_points(
+            instance_points(inst, supervise_occluded), img_height, img_width
+        )
         instances.append(pts)
+        kept.append(inst)
     if len(instances) == 0:
-        return None
+        return (None, []) if return_instances else None
     instances = np.stack(instances, axis=0)
 
     # Add singleton time dimension for single frames.
@@ -257,7 +360,7 @@ def process_lf(
         "num_instances": num_instances,
     }
 
-    return ex
+    return (ex, kept) if return_instances else ex
 
 
 def process_negative_lf(
@@ -582,7 +685,7 @@ class LabelsReader(Thread):
                     instances = []
                     for inst in lf:
                         if not inst.is_empty:
-                            instances.append(inst.numpy())
+                            instances.append(located_points(inst))
                     if len(instances) == 0:
                         continue
                     instances = np.stack(instances, axis=0)

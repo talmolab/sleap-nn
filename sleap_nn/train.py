@@ -17,6 +17,7 @@ from sleap_nn.config.get_config import (
     get_data_config,
 )
 from sleap_nn.config.utils import get_model_type_from_cfg
+from sleap_nn.data import skeleton_pool
 from sleap_nn.system_info import get_startup_info_string
 
 
@@ -43,17 +44,240 @@ def _oks_run_evaluation_overrides(config: DictConfig) -> Dict[str, Any]:
     oks_scale = OmegaConf.select(config, "trainer_config.eval.oks_scale", default=None)
     if oks_scale is not None:
         overrides["oks_scale"] = oks_scale
+    oks_sigmas = OmegaConf.select(
+        config, "trainer_config.eval.oks_sigmas", default=None
+    )
+    if oks_sigmas is not None:
+        overrides["oks_sigmas"] = (
+            OmegaConf.to_container(oks_sigmas)
+            if OmegaConf.is_config(oks_sigmas)
+            else oks_sigmas
+        )
+    if OmegaConf.select(config, "trainer_config.eval.coco_metrics", default=False):
+        overrides["coco_metrics"] = True
+    norm_scale = OmegaConf.select(
+        config, "trainer_config.eval.norm_scale", default=None
+    )
+    if norm_scale is not None:
+        overrides["norm_scale"] = norm_scale
+        for key in ("missing_error", "pad_frac", "bootstrap", "bootstrap_by"):
+            value = OmegaConf.select(
+                config, f"trainer_config.eval.norm_{key}", default=None
+            )
+            if value is not None:
+                overrides[f"norm_{key}"] = value
     return overrides
+
+
+def _post_training_predict_kwargs(config: DictConfig, model_type: str) -> dict:
+    """Prediction settings for the post-training eval of a keypoint model.
+
+    ``peak_threshold`` 0.2 by default. With ``trainer_config.eval.coco_metrics``,
+    top-down models predict under the COCO protocol instead: every keypoint is
+    kept (``peak_threshold`` 0, as COCOeval scores a missing keypoint as a miss)
+    and instances are rescored as mmpose does (stage-1 score x mean keypoint score
+    above 0.2), so ``coco.*`` is comparable with published numbers.
+    """
+    from sleap_nn.inference.filters import FilterConfig
+
+    coco = OmegaConf.select(config, "trainer_config.eval.coco_metrics", default=False)
+    if coco and model_type in ("centered_instance", "multi_class_topdown"):
+        return {
+            "peak_threshold": 0.0,
+            "filter_config": FilterConfig(rescore_keypoint_threshold=0.2),
+        }
+    return {"peak_threshold": 0.2}
+
+
+# Post-training eval runs the held-out splits first, so their metrics land even
+# if a long train-split prediction is stopped.
+_POST_TRAIN_SPLIT_ORDER = ("val", "test", "train")
+
+# Top-down crop models validate on batches of crops, so their validation batch
+# size says nothing about how many whole frames fit in a prediction batch.
+_CROP_MODEL_TYPES = (
+    "centered_instance",
+    "multi_class_topdown",
+    "centered_instance_segmentation",
+)
+
+_TRAINING_TO_PREDICT_PRECISION = {
+    "bf16-mixed": "bf16",
+    "bf16-true": "bf16",
+    "bf16": "bf16",
+    "16-mixed": "fp16",
+    "16-true": "fp16",
+    "16": "fp16",
+}
+
+
+def _post_train_predict_settings(config: DictConfig, model_type: str) -> dict:
+    """``batch_size`` and ``precision`` for the post-training predictions.
+
+    ``trainer_config.eval.post_train_batch_size`` /
+    ``post_train_precision`` when set. Otherwise the validation batch size (4 for
+    the crop-based top-down models) and the training precision, so prediction
+    runs as the validation steps did: a ``bf16-mixed`` model predicts under bf16
+    autocast instead of strict fp32.
+    """
+    batch_size = OmegaConf.select(
+        config, "trainer_config.eval.post_train_batch_size", default=None
+    )
+    if batch_size is None:
+        batch_size = (
+            4
+            if model_type in _CROP_MODEL_TYPES
+            else OmegaConf.select(
+                config, "trainer_config.val_data_loader.batch_size", default=None
+            )
+            or 4
+        )
+    precision = OmegaConf.select(
+        config, "trainer_config.eval.post_train_precision", default=None
+    )
+    if precision is None:
+        training_precision = OmegaConf.select(
+            config, "trainer_config.precision", default="32"
+        )
+        precision = _TRAINING_TO_PREDICT_PRECISION.get(str(training_precision), "32")
+    return {"batch_size": int(batch_size), "precision": str(precision)}
+
+
+def _post_train_precision_on_device(
+    config: DictConfig, precision: str, device: Any
+) -> str:
+    """``precision`` to pass to the post-training predictions on ``device``.
+
+    Autocast runs on CUDA only, and `predict` warns when a precision other than
+    ``"32"`` is asked for elsewhere. A precision that merely follows
+    ``trainer_config.precision`` was not asked for, so off CUDA it is passed as
+    ``"32"`` (the same fp32 predictions, without the warning). One set in
+    ``trainer_config.eval.post_train_precision`` is passed on as it is.
+    """
+    import torch
+
+    asked = OmegaConf.select(
+        config, "trainer_config.eval.post_train_precision", default=None
+    )
+    if asked is None and torch.device(str(device)).type != "cuda":
+        return "32"
+    return precision
+
+
+def _post_train_progress(d_name: str, interval: float = 60.0):
+    """A ``predict`` progress callback that logs frames, rate and ETA.
+
+    Logs at most once per ``interval`` seconds, plus once at the end, so a
+    multi-hour prediction of a large split is visible in the training log.
+    """
+    start = time()
+    last = [start]
+
+    def callback(done: int, total: int) -> None:
+        now = time()
+        if done < total and now - last[0] < interval:
+            return
+        last[0] = now
+        rate = done / max(now - start, 1e-9)
+        eta = (total - done) / rate / 60 if rate > 0 and total >= done else 0.0
+        logger.info(
+            f"Predicting `{d_name}`: {done}/{total} frames "
+            f"({rate:.1f} frames/s, ETA {eta:.1f} min)"
+        )
+
+    return callback
+
+
+def _post_train_file_nodes(
+    trainer: ModelTrainer, d_name: str, gt: sio.Labels
+) -> Optional[List[str]]:
+    """The model nodes one post-training split file is predicted and scored on.
+
+    A model trained on files with different skeletons (e.g. one prefixed node set
+    per dataset, merged into one head) predicts each file with only that file's
+    nodes, as the epoch-end evaluation scores it: a val file's
+    :class:`~sleap_nn.training.callbacks.ValFile` nodes (the file's model nodes,
+    narrowed by ``trainer_config.eval.file_nodes``), and for any other file the
+    model nodes its skeletons hold. Predicting every node instead failed against
+    the file's own skeleton ("cannot reshape array of size 604 ...").
+
+    Args:
+        trainer: The trained :class:`ModelTrainer`.
+        d_name: The split file's name, ``"<split>.<index>"`` (``"val.0"``).
+        gt: The split file's ground truth.
+
+    Returns:
+        The node names in model order, or ``None`` when the file is scored on
+        every model node (the single-skeleton case: nothing to filter).
+
+    Raises:
+        ValueError: If the file's skeleton holds no model node.
+    """
+    model_nodes = list(trainer.skeletons[0].node_names)
+    split, _, index = d_name.partition(".")
+    nodes = None
+    if split == "val":
+        files = trainer._val_files()
+        if files is not None and int(index) < len(files):
+            nodes = list(files[int(index)].node_names)
+    if nodes is None:
+        own = skeleton_pool.own_node_set(gt, trainer.config)
+        nodes = [n for n in model_nodes if n in own]
+    if not nodes:
+        raise ValueError(f"`{d_name}` has no model node to score.")
+    return None if len(nodes) == len(model_nodes) else nodes
+
+
+def _labels_on_nodes(labels: sio.Labels, nodes: List[str]) -> sio.Labels:
+    """``labels`` (edited in place) with only ``nodes``, in that order, per skeleton.
+
+    The ground truth a node-filtered prediction is scored against: the evaluator
+    pairs points by index, so both sides need the same nodes in the same order.
+    """
+    keep = set(nodes)
+    for skeleton in list(labels.skeletons):
+        drop = [n for n in skeleton.node_names if n not in keep]
+        if drop:
+            labels.remove_nodes(drop, skeleton=skeleton)
+        order = [n for n in nodes if n in set(skeleton.node_names)]
+        if skeleton.node_names != order:
+            labels.reorder_nodes(order, skeleton=skeleton)
+    return labels
+
+
+def _subsample_labels(
+    path: str, max_frames: int, seed: Optional[int], d_name: str
+) -> Union[str, sio.Labels]:
+    """``max_frames`` random labeled frames of ``path``, or ``path`` if it has fewer.
+
+    The frames keep their file order. The subset shares the loaded frames and
+    videos (no copy) and is used both as the prediction source and as the ground
+    truth, so evaluation scores only the frames that were predicted.
+    """
+    import numpy as np
+
+    labels = sio.load_slp(path)
+    n_frames = len(labels.labeled_frames)
+    if max_frames >= n_frames:
+        return path
+    rng = np.random.default_rng(0 if seed is None else seed)
+    inds = np.sort(rng.choice(n_frames, size=max_frames, replace=False))
+    logger.info(
+        f"Post-training eval of `{d_name}` on {max_frames} random frames of "
+        f"{n_frames} (trainer_config.eval.post_train_max_train_frames)."
+    )
+    return labels.extract(inds.tolist(), copy=False)
 
 
 def _run_centroid_split_eval(
     config: DictConfig,
     d_name: str,
-    path: str,
+    path: Union[str, sio.Labels],
     run_path: Path,
     pred_path: Path,
     metrics_path: Path,
     device: str,
+    predict_kwargs: Optional[dict] = None,
 ):
     """Run post-training eval for a single split of a centroid-only model.
 
@@ -68,11 +292,15 @@ def _run_centroid_split_eval(
     Args:
         config: Training configuration.
         d_name: Split name, e.g. ``"train.0"``/``"val.0"``/``"test.0"``.
-        path: Path to the ground-truth ``.slp`` for this split.
+        path: Path to the ground-truth ``.slp`` for this split, or the GT
+            ``Labels`` themselves (a subset of the train frames).
         run_path: The ``<ckpt_dir>/<run_name>`` directory (the centroid model).
         pred_path: Output path for the predicted ``.slp``.
         metrics_path: Output path for the saved metrics ``.npz``.
         device: Torch device string to run inference on.
+        predict_kwargs: Extra ``predict`` arguments (``batch_size``,
+            ``precision``, ``progress_callback``); see
+            ``_post_train_predict_settings``.
 
     Returns:
         The metrics dict returned by ``run_evaluation`` (centroid mode), or
@@ -90,6 +318,7 @@ def _run_centroid_split_eval(
         peak_threshold=0.2,
         device=device,
         output_path=pred_path,
+        **(predict_kwargs or {}),
     )
 
     if not len(pred_labels):
@@ -115,6 +344,17 @@ def _run_centroid_split_eval(
         "model_config.head_configs.centroid.confmaps.centroid_fallback",
         default=None,
     )
+    if anchor_part is not None and not isinstance(anchor_part, str):
+        # A list of anchors (experimental): this file's GT centroids use its first
+        # labeled anchor, as in training.
+        path = path if isinstance(path, sio.Labels) else sio.load_slp(path)
+        anchor_part = skeleton_pool.file_anchor_part(path, anchor_part)
+        if anchor_part is None:
+            logger.info(
+                f"Skipping eval on `{d_name}`: the file labels none of the "
+                "anchor_part nodes, so it has no centroid target."
+            )
+            return None
     # Pixel match threshold from the eval config if present, else 50.0.
     match_threshold = OmegaConf.select(
         config, "trainer_config.eval.match_threshold", default=None
@@ -158,12 +398,13 @@ def _run_centroid_split_eval(
 def _run_segmentation_split_eval(
     config: DictConfig,
     d_name: str,
-    path: str,
+    path: Union[str, sio.Labels],
     run_path: Path,
     pred_path: Path,
     metrics_path: Path,
     device: str,
     match_method: str = "mask",
+    predict_kwargs: Optional[dict] = None,
 ):
     """Run post-training eval for a single split of a segmentation model.
 
@@ -186,11 +427,14 @@ def _run_segmentation_split_eval(
     Args:
         config: Training configuration.
         d_name: Split name, e.g. ``"train.0"``/``"val.0"``/``"test.0"``.
-        path: Path to the ground-truth ``.slp`` for this split.
+        path: Path to the ground-truth ``.slp`` for this split, or the GT
+            ``Labels`` themselves (a subset of the train frames).
         run_path: The ``<ckpt_dir>/<run_name>`` directory (the seg model).
         pred_path: Output path for the predicted ``.slp``.
         metrics_path: Output path for the saved metrics ``.npz``.
         device: Torch device string to run inference on.
+        predict_kwargs: Extra ``predict`` arguments; see
+            ``_post_train_predict_settings``.
         match_method: ``"mask"`` (per-instance mask-IoU, for
             ``bottomup_segmentation`` / ``centered_instance_segmentation``) or
             ``"semantic"`` (matching-free whole-frame foreground IoU/clDice, for
@@ -210,6 +454,7 @@ def _run_segmentation_split_eval(
         peak_threshold=0.2,
         device=device,
         output_path=pred_path,
+        **(predict_kwargs or {}),
     )
 
     if not len(pred_labels):
@@ -331,11 +576,12 @@ def _run_segmentation_split_eval(
 def _run_bbox_split_eval(
     config,
     d_name: str,
-    path: str,
+    path: Union[str, sio.Labels],
     run_path: Path,
     pred_path: Path,
     metrics_path: Path,
     device: str,
+    predict_kwargs: Optional[dict] = None,
 ):
     """Run post-training eval for a single split of a ``bbox_*`` detector.
 
@@ -361,6 +607,7 @@ def _run_bbox_split_eval(
         peak_threshold=0.05,
         device=device,
         output_path=pred_path,
+        **(predict_kwargs or {}),
     )
     elapsed = time.perf_counter() - start
     if not len(pred_labels) or not any(len(lf.bboxes) for lf in pred_labels):
@@ -379,6 +626,14 @@ def _run_bbox_split_eval(
             ),
             bbox_padding=float(
                 OmegaConf.select(config, "data_config.bbox_padding", default=0.0)
+            ),
+            ignore_box_category=OmegaConf.select(
+                config, "data_config.ignore_box_category", default=None
+            ),
+            ignore_box_min_cover=float(
+                OmegaConf.select(
+                    config, "data_config.ignore_box_min_cover", default=0.5
+                )
             ),
         )
     except Exception as e:  # noqa: BLE001 — eval is best-effort post-training.
@@ -408,7 +663,7 @@ def _run_bbox_split_eval(
 def _run_embedding_split_eval(
     config: DictConfig,
     d_name: str,
-    path: str,
+    path: Union[str, sio.Labels],
     run_path: Path,
     metrics_path: Path,
     device: str,
@@ -434,7 +689,8 @@ def _run_embedding_split_eval(
     Args:
         config: Training configuration.
         d_name: Split name, e.g. ``"train.0"``/``"val.0"``/``"test.0"``.
-        path: Path to the ground-truth ``.slp`` for this split.
+        path: Path to the ground-truth ``.slp`` for this split, or the GT
+            ``Labels`` themselves (a subset of the train frames).
         run_path: The ``<ckpt_dir>/<run_name>`` directory (the embedding model).
         metrics_path: Output path for the saved metrics ``.npz``.
         device: Torch device string to run inference on.
@@ -448,7 +704,7 @@ def _run_embedding_split_eval(
     from sleap_nn.inference.embedding import embed_labels_for_eval
 
     try:
-        labels = sio.load_slp(path)
+        labels = path if isinstance(path, sio.Labels) else sio.load_slp(path)
         emb, group_ids = embed_labels_for_eval(
             run_path.as_posix(), labels, device=device
         )
@@ -538,46 +794,85 @@ def run_training(
     if rank in [0, -1]:
         # run inference on val dataset
         if trainer.config.trainer_config.save_ckpt:
-            data_paths = {}
             run_path = (
                 Path(trainer.config.trainer_config.ckpt_dir)
                 / trainer.config.trainer_config.run_name
             )
             # One entry per saved GT file. There can be fewer val files than train
             # files (e.g. two train files and one val file), so count each split.
-            for split, label_list in (
-                ("train", trainer.train_labels),
-                ("val", trainer.val_labels),
-            ):
-                for index, _ in enumerate(label_list):
-                    data_paths[f"{split}.{index}"] = (
-                        run_path / f"labels_gt.{split}.{index}.slp"
-                    ).as_posix()
+            split_paths = {
+                split: [
+                    (run_path / f"labels_gt.{split}.{index}.slp").as_posix()
+                    for index in range(len(label_list))
+                ]
+                for split, label_list in (
+                    ("train", trainer.train_labels),
+                    ("val", trainer.val_labels),
+                )
+            }
             logger.info(f"Run path: {run_path.as_posix()}")
 
             # Handle test_file_path as either a string or list of strings
             test_file_path = OmegaConf.select(
                 config, "data_config.test_file_path", default=None
             )
-            if test_file_path is not None:
-                # Normalize to list of strings
-                if isinstance(test_file_path, str):
-                    test_paths = [test_file_path]
-                else:
-                    test_paths = list(test_file_path)
-                # Add each test path to data_paths (always use index for consistency)
-                for idx, test_path in enumerate(test_paths):
-                    data_paths[f"test.{idx}"] = test_path
+            if isinstance(test_file_path, str):
+                split_paths["test"] = [test_file_path]
+            elif test_file_path is not None:
+                split_paths["test"] = list(test_file_path)
+
+            # Held-out splits first; `post_train_splits` picks which ones run.
+            post_train_splits = OmegaConf.select(
+                trainer.config, "trainer_config.eval.post_train_splits", default=None
+            )
+            data_paths = {
+                f"{split}.{index}": path
+                for split in _POST_TRAIN_SPLIT_ORDER
+                if post_train_splits is None or split in post_train_splits
+                for index, path in enumerate(split_paths.get(split, []))
+            }
+            max_train_frames = OmegaConf.select(
+                trainer.config,
+                "trainer_config.eval.post_train_max_train_frames",
+                default=None,
+            )
 
             # Determine the model type once before the per-split eval loop so
             # centroid-only models can route to the NEW inference + centroid
             # evaluation flow (the legacy predictors path is not used for them).
             model_type = get_model_type_from_cfg(trainer.config)
+            predict_settings = _post_train_predict_settings(trainer.config, model_type)
+            logger.info(
+                f"Post-training eval of {list(data_paths)} | "
+                f"batch_size={predict_settings['batch_size']} | "
+                f"precision={predict_settings['precision']}"
+            )
+            predict_settings["precision"] = _post_train_precision_on_device(
+                trainer.config,
+                predict_settings["precision"],
+                trainer.trainer.strategy.root_device,
+            )
+            # TF32 matmuls (`float32_matmul_precision`) for the predictions too,
+            # as during `fit`; restored after the eval.
+            prev_matmul_precision = trainer._set_float32_matmul_precision()
 
             for d_name, path in data_paths.items():
                 # d_name is now in format: "train.0", "val.0", "test.0", etc.
                 pred_path = run_path / f"labels_pr.{d_name}.slp"
                 metrics_path = run_path / f"metrics.{d_name}.npz"
+                if d_name.startswith("train.") and max_train_frames is not None:
+                    path = _subsample_labels(
+                        path,
+                        max_train_frames,
+                        OmegaConf.select(
+                            trainer.config, "trainer_config.seed", default=None
+                        ),
+                        d_name,
+                    )
+                predict_kwargs = {
+                    **predict_settings,
+                    "progress_callback": _post_train_progress(d_name),
+                }
 
                 if model_type == "embedding":
                     # Skeleton-less re-ID model: retrieval eval over appearance
@@ -602,10 +897,11 @@ def run_training(
                         pred_path=pred_path,
                         metrics_path=metrics_path,
                         device=str(trainer.trainer.strategy.root_device),
+                        predict_kwargs=predict_kwargs,
                     )
                     continue
 
-                if model_type in ("bbox_centernet", "bbox_ssd"):
+                if model_type in ("bbox_centernet", "bbox_ssd", "bbox_detr"):
                     _run_bbox_split_eval(
                         config=trainer.config,
                         d_name=d_name,
@@ -614,6 +910,7 @@ def run_training(
                         pred_path=pred_path,
                         metrics_path=metrics_path,
                         device=str(trainer.trainer.strategy.root_device),
+                        predict_kwargs=predict_kwargs,
                     )
                     continue
 
@@ -642,6 +939,7 @@ def run_training(
                             if model_type == "semantic_segmentation"
                             else "mask"
                         ),
+                        predict_kwargs=predict_kwargs,
                     )
                     continue
 
@@ -654,12 +952,23 @@ def run_training(
                 # so they don't need to be forwarded explicitly.
                 from sleap_nn.inference.run import predict as predict_new
 
+                # A multi-skeleton head predicts each file on its own nodes only.
+                gt_labels, file_nodes = None, None
+                if model_type in ("single_instance", "centered_instance"):
+                    gt_labels = (
+                        path if isinstance(path, sio.Labels) else sio.load_slp(path)
+                    )
+                    file_nodes = _post_train_file_nodes(trainer, d_name, gt_labels)
+                node_kwargs = {} if file_nodes is None else {"node_filter": file_nodes}
+
                 pred_labels = predict_new(
                     path,
                     model_paths=[run_path],
-                    peak_threshold=0.2,
                     device=str(trainer.trainer.strategy.root_device),
                     output_path=pred_path,
+                    **node_kwargs,
+                    **_post_training_predict_kwargs(config, model_type),
+                    **predict_kwargs,
                 )
 
                 if not len(pred_labels) or not any(
@@ -671,9 +980,15 @@ def run_training(
                     )
                     continue  # skip if there are no predicted instances
 
-                # Run evaluation and save metrics.
+                # Run evaluation and save metrics (against the GT on the predicted
+                # nodes, after predicting: a subsampled split's labels are edited).
+                gt_eval = (
+                    path
+                    if file_nodes is None
+                    else _labels_on_nodes(gt_labels, file_nodes)
+                )
                 metrics = run_evaluation(
-                    ground_truth_path=path,
+                    ground_truth_path=gt_eval,
                     predicted_path=pred_path.as_posix(),
                     save_metrics=metrics_path.as_posix(),
                     **_oks_run_evaluation_overrides(config),
@@ -681,9 +996,17 @@ def run_training(
 
                 logger.info(f"---------Evaluation on `{d_name}` dataset---------")
                 logger.info(f"OKS mAP: {metrics['voc_metrics']['oks_voc.mAP']}")
+                if "coco_metrics" in metrics:
+                    logger.info(f"COCO AP: {metrics['coco_metrics']['coco.AP']}")
                 logger.info(f"Average distance: {metrics['distance_metrics']['avg']}")
                 logger.info(f"p90 dist: {metrics['distance_metrics']['p90']}")
                 logger.info(f"p50 dist: {metrics['distance_metrics']['p50']}")
+                if "normalized_distance_metrics" in metrics:
+                    nm = metrics["normalized_distance_metrics"]
+                    logger.info(
+                        f"normalized p50 {nm['p50']:.4f} / p95 {nm['p95']:.4f} of the "
+                        f"instance scale ({nm['scale']}), miss rate {nm['miss_rate']:.4f}"
+                    )
 
                 # Log test metrics to wandb summary
                 if (
@@ -723,8 +1046,18 @@ def run_training(
                                 "visibility_metrics"
                             ]["recall"],
                         }
+                        for key in ("AP", "AP50", "AP75", "AR"):
+                            if "coco_metrics" in metrics:
+                                summary_metrics[f"eval/{d_name}/coco_{key}"] = metrics[
+                                    "coco_metrics"
+                                ][f"coco.{key}"]
                         for key, value in summary_metrics.items():
                             wandb.run.summary[key] = value
+
+            if prev_matmul_precision is not None:
+                import torch
+
+                torch.set_float32_matmul_precision(prev_matmul_precision)
 
             # Finish wandb run and cleanup after all evaluation is complete
             if trainer.config.trainer_config.use_wandb:
@@ -813,7 +1146,7 @@ def train(
     learning_rate: float = 1e-3,
     amsgrad: bool = False,
     lr_scheduler: Optional[Union[str, Dict[str, Any]]] = None,
-    early_stopping: bool = False,
+    early_stopping: Optional[bool] = False,
     early_stopping_min_delta: float = 0.0,
     early_stopping_patience: int = 1,
     online_mining: bool = False,
@@ -824,6 +1157,26 @@ def train(
     zmq_publish_port: Optional[int] = None,
     zmq_controller_port: Optional[int] = None,
     zmq_controller_timeout: int = 10,
+    precision: Union[str, int] = "32",
+    float32_matmul_precision: Optional[str] = None,
+    compile: Union[bool, str] = False,
+    gradient_clip_val: Optional[float] = None,
+    gradient_clip_algorithm: str = "norm",
+    accumulate_grad_batches: int = 1,
+    log_every_n_steps: int = 1,
+    max_steps: Optional[int] = None,
+    val_check_interval: Optional[Union[int, float]] = None,
+    throughput_log_every_n_steps: Optional[int] = 50,
+    confmap_fg_bg_diagnostics: Optional[bool] = None,
+    prefetch_factor: Optional[int] = 2,
+    pin_memory: Optional[bool] = None,
+    drop_last: Optional[bool] = None,
+    weight_decay: Optional[float] = None,
+    encoder_lr_scale: Optional[float] = None,
+    layer_decay: Optional[float] = None,
+    ema: bool = False,
+    ema_decay: float = 0.9998,
+    ema_warmup_steps: int = 2000,
 ):
     """Train a pose-estimation model with SLEAP-NN framework.
 
@@ -1006,8 +1359,10 @@ def train(
         optimizer: Optimizer to be used. One of ["Adam", "AdamW"]. Default: "Adam".
         learning_rate: Learning rate of type float. Default: 1e-3.
         amsgrad: Enable AMSGrad with the optimizer. Default: False.
-        lr_scheduler: One of ["step_lr", "reduce_lr_on_plateau"] (the default values in
-            `sleap_nn.config.trainer_config` are used). To use custom values, pass a
+        lr_scheduler: One of ["step_lr", "reduce_lr_on_plateau",
+            "cosine_annealing_warmup", "linear_warmup_linear_decay"] (the default
+            values in `sleap_nn.config.trainer_config` are used). To use custom
+            values (required for "multi_step_lr", which needs `milestones`), pass a
             dictionary with the structure in `sleap_nn.config.trainer_config.LRSchedulerConfig`.
             For eg, {
                         "step_lr":
@@ -1015,7 +1370,9 @@ def train(
                                 (params in `sleap_nn.config.trainer_config.StepLRConfig`)
                             }
                     }
-        early_stopping: True if early stopping should be enabled. Default: False.
+        early_stopping: True if early stopping should be enabled. `None` = on, except
+            with a fixed-length schedule (cosine_annealing_warmup,
+            linear_warmup_linear_decay, multi_step_lr). Default: False.
         early_stopping_min_delta: Minimum change in the monitored quantity to qualify as
             an improvement, i.e. an absolute change of less than or equal to min_delta,
             will count as no improvement. Default: 0.0.
@@ -1043,6 +1400,51 @@ def train(
         zmq_controller_port: (int) Specifies the port to listen to to stop the training (specific to SLEAP GUI).
         zmq_controller_timeout: (int) Polling timeout in microseconds specified as an integer. This controls how long the poller
             should wait to receive a response and should be set to a small value to minimize the impact on training speed.
+        precision: Lightning training precision: `"32"` (fp32), `"bf16-mixed"` (bf16
+            autocast with fp32 weights; recommended on Ampere+ GPUs) or `"16-mixed"`
+            (fp16 autocast with a gradient scaler). Default: `"32"`.
+        float32_matmul_precision: `torch.set_float32_matmul_precision` value used
+            while training on CUDA (`"high"` = TF32 matmuls, `"highest"` = strict
+            fp32), restored afterwards. `None` leaves the process setting untouched.
+            Default: `None`.
+        compile: `torch.compile` the model in place: `True` (`"default"` mode) or one
+            of `"reduce-overhead"`, `"max-autotune"`, `"max-autotune-no-cudagraphs"`.
+            Default: `False`.
+        gradient_clip_val: Clip gradients at this value; `None` disables clipping.
+            Default: `None`.
+        gradient_clip_algorithm: `"norm"` (global L2 norm) or `"value"`.
+            Default: `"norm"`.
+        accumulate_grad_batches: Batches per optimizer step. Default: 1.
+        log_every_n_steps: Step-level metric logging cadence (each logged step
+            syncs the GPU). Default: 1.
+        max_steps: Optimizer-step budget; training stops at `max_steps` or
+            `max_epochs`, whichever comes first. `None` = no step limit.
+            Default: `None`.
+        val_check_interval: Validate every N training batches (int) or every
+            fraction of an epoch (float). `None` = once per epoch. Default: `None`.
+        throughput_log_every_n_steps: Window (in training batches) of the `perf/*`
+            throughput metrics; `0` or `None` disables them. Default: 50.
+        confmap_fg_bg_diagnostics: Log the confmap foreground/background MSE split.
+            `None` = only for centroid models. Default: `None`.
+        prefetch_factor: Batches each dataloader worker loads ahead (ignored with
+            `num_workers=0`). Default: 2.
+        pin_memory: Use pinned host memory for batches. `None` = `True`.
+            Default: `None`.
+        drop_last: Drop the partial batch at the end of each pass over the training
+            data. `None` = only when `compile` is enabled. Default: `None`.
+        weight_decay: Weight decay for weight matrices / kernels only (biases, norms,
+            other 1-D params, position embeddings and special tokens get none).
+            `None` keeps the optimizer's torch default on every parameter.
+            Default: `None`.
+        encoder_lr_scale: Learning-rate multiplier for a `pretrained` backbone's
+            encoder. `None` = 1.0. Default: `None`.
+        layer_decay: Layer-wise learning-rate decay for a plain-ViT `pretrained`
+            encoder. `None` disables it. Default: `None`.
+        ema: Keep an exponential moving average of the weights, used for
+            validation and saved in the checkpoints. Default: False.
+        ema_decay: EMA decay after warmup. Default: 0.9998.
+        ema_warmup_steps: Time constant (optimizer steps) of the EMA decay warmup;
+            0 disables it. Default: 2000.
     """
     data_config = get_data_config(
         train_labels_path=train_labels_path,
@@ -1124,6 +1526,26 @@ def train(
         zmq_publish_port=zmq_publish_port,
         zmq_controller_port=zmq_controller_port,
         zmq_controller_timeout=zmq_controller_timeout,
+        precision=precision,
+        float32_matmul_precision=float32_matmul_precision,
+        compile=compile,
+        gradient_clip_val=gradient_clip_val,
+        gradient_clip_algorithm=gradient_clip_algorithm,
+        accumulate_grad_batches=accumulate_grad_batches,
+        log_every_n_steps=log_every_n_steps,
+        max_steps=max_steps,
+        val_check_interval=val_check_interval,
+        throughput_log_every_n_steps=throughput_log_every_n_steps,
+        confmap_fg_bg_diagnostics=confmap_fg_bg_diagnostics,
+        prefetch_factor=prefetch_factor,
+        pin_memory=pin_memory,
+        drop_last=drop_last,
+        weight_decay=weight_decay,
+        encoder_lr_scale=encoder_lr_scale,
+        layer_decay=layer_decay,
+        ema=ema,
+        ema_decay=ema_decay,
+        ema_warmup_steps=ema_warmup_steps,
     )
 
     # create omegaconf object

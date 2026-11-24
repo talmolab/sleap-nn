@@ -1,6 +1,6 @@
 """This module implements image resizing and padding."""
 
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Union
 
 import torch
 import torch.nn.functional as F
@@ -84,6 +84,46 @@ def resize_image(image: torch.Tensor, scale: float):
     return image
 
 
+def compute_squash_scale(
+    img_hw: Tuple[int, int], out_hw: Tuple[int, int]
+) -> Tuple[float, float]:
+    """Per-axis ``(x, y)`` scale of a squash resize from ``img_hw`` to ``out_hw``.
+
+    Args:
+        img_hw: The frame's ``(height, width)``.
+        out_hw: The target ``(height, width)``.
+
+    Returns:
+        ``(out_width / width, out_height / height)``.
+    """
+    return out_hw[1] / img_hw[1], out_hw[0] / img_hw[0]
+
+
+def apply_squash_resize(
+    image: torch.Tensor, height: int, width: int
+) -> Tuple[torch.Tensor, Tuple[float, float]]:
+    """Resize an image to exactly ``(height, width)``, ignoring its aspect ratio.
+
+    This is RF-DETR's square resize ("squash"), the alternative to the size
+    matcher's scale-and-pad ("letterbox"). Coordinates map to the resized image by
+    multiplying ``x`` and ``y`` by the returned scales, and back by dividing
+    (``sleap_nn.inference.ops.coord.undo_eff_scale`` with a ``(B, 2)`` scale).
+
+    Args:
+        image: Image tensor of shape ``(..., channels, height, width)``.
+        height: Output height.
+        width: Output width.
+
+    Returns:
+        ``(resized image, (scale_x, scale_y))``.
+    """
+    img_hw = tuple(image.shape[-2:])
+    scale_xy = compute_squash_scale(img_hw, (height, width))
+    if img_hw != (height, width):
+        image = tvf.resize(image, size=[int(height), int(width)])
+    return image, scale_xy
+
+
 def apply_resizer(image: torch.Tensor, instances: torch.Tensor, scale: float = 1.0):
     """Rescale image and keypoints by a scale factor.
 
@@ -108,27 +148,55 @@ _SIZEMATCHER_WARNED_KEYS: set = set()
 def _warn_size_mismatch(
     img_height: int, img_width: int, max_height: int, max_width: int
 ) -> None:
-    """Emit a one-time warning per unique (input, target) size combination.
+    """Emit a one-time warning per target size and resize direction.
 
     `apply_sizematcher` is called per frame, so dedup is required to avoid
-    flooding the log when every frame of a video hits the same size mismatch.
+    flooding the log. The key leaves out the input size: an image-list dataset
+    (e.g. Objects365) has tens of thousands of distinct frame sizes, which would
+    each warn once per process.
     """
-    key = (int(img_height), int(img_width), int(max_height), int(max_width))
-    if key in _SIZEMATCHER_WARNED_KEYS:
-        return
-    _SIZEMATCHER_WARNED_KEYS.add(key)
     direction = (
         "downscaled"
         if (img_height > max_height or img_width > max_width)
         else "upscaled"
     )
+    key = (int(max_height), int(max_width), direction)
+    if key in _SIZEMATCHER_WARNED_KEYS:
+        return
+    _SIZEMATCHER_WARNED_KEYS.add(key)
     logger.warning(
         f"Input image size ({img_height}x{img_width}, HxW) does not match "
         f"the configured max_height/max_width ({max_height}x{max_width}); "
         f"frames will be {direction} and padded on every call, which is "
         f"slower than running on natively-sized inputs. To eliminate this "
         f"overhead, set max_height/max_width in your config to match the "
-        f"input dimensions."
+        f"input dimensions. Other input sizes {direction} to "
+        f"{max_height}x{max_width} are not reported."
+    )
+
+
+_INFERENCE_RESIZE_NOTED: set = set()
+
+
+def _note_inference_resize(
+    img_height: int, img_width: int, max_height: int, max_width: int
+) -> None:
+    """Log once per target size that prediction fits frames to the model's input size.
+
+    At prediction time ``max_height``/``max_width`` are the model's (from its
+    training config, unless overridden for prediction), so fitting frames to them
+    is how the model runs, not a slow path to fix; an info line, not a warning.
+    Keyed by target size only, like the training warning, so image lists with many
+    frame sizes log once.
+    """
+    key = (int(max_height), int(max_width))
+    if key in _INFERENCE_RESIZE_NOTED:
+        return
+    _INFERENCE_RESIZE_NOTED.add(key)
+    logger.info(
+        f"Frames are fitted to the model's input size {max_height}x{max_width} "
+        f"(HxW; max_height/max_width), for example {img_height}x{img_width}; "
+        "predictions are mapped back to the original frames."
     )
 
 
@@ -170,8 +238,18 @@ def apply_sizematcher(
     image: torch.Tensor,
     max_height: Optional[int] = None,
     max_width: Optional[int] = None,
+    warn: Union[bool, str] = True,
+    upscale: bool = True,
 ):
-    """Apply scaling and padding to image to (max_height, max_width) shape."""
+    """Apply scaling and padding to image to (max_height, max_width) shape.
+
+    ``warn=False`` skips the size-mismatch warning, for callers that resize every
+    frame to a fixed size by design (e.g. ``bbox_detr``'s letterbox).
+    ``warn="info"`` replaces it with a one-time info line, for prediction, where
+    the target size is the trained model's and resizing is expected.
+    ``upscale=False`` pads a frame smaller than the target instead of enlarging
+    it (frames that are larger are still shrunk to fit).
+    """
     img_height, img_width = image.shape[-2:]
     # pad images to max_height and max_width
     if max_height is None:
@@ -179,14 +257,21 @@ def apply_sizematcher(
     if max_width is None:
         max_width = img_width
     if img_height != max_height or img_width != max_width:
-        _warn_size_mismatch(img_height, img_width, max_height, max_width)
         eff_scale_ratio = compute_eff_scale(
             (img_height, img_width), (max_height, max_width)
         )
+        if not upscale:
+            eff_scale_ratio = min(eff_scale_ratio, 1.0)
+        if warn and (upscale or eff_scale_ratio != 1.0):
+            if warn == "info":
+                _note_inference_resize(img_height, img_width, max_height, max_width)
+            else:
+                _warn_size_mismatch(img_height, img_width, max_height, max_width)
         target_h = int(round(img_height * eff_scale_ratio))
         target_w = int(round(img_width * eff_scale_ratio))
 
-        image = tvf.resize(image, size=(target_h, target_w))
+        if upscale or (target_h, target_w) != (img_height, img_width):
+            image = tvf.resize(image, size=(target_h, target_w))
 
         pad_height = max_height - target_h
         pad_width = max_width - target_w

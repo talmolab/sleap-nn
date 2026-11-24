@@ -126,6 +126,52 @@ SLEAP-NN uses [**uv**](https://docs.astral.sh/uv/) for installation and environm
 
 ---
 
+## Optional Extras
+
+Some features need packages the default install leaves out. Add them as extras:
+
+```bash
+uv tool install "sleap-nn[backbones]" --torch-backend auto   # uv
+pip install "sleap-nn[backbones]"                             # pip
+```
+
+| Extra | Needed for |
+|-------|------------|
+| `backbones` | Pretrained Hugging Face / timm backbones, including every ViT backbone (DINOv2, DINOv3, ...) and the `bbox_detr` box detector |
+| `export` / `export-gpu` | ONNX export and ONNX Runtime (CPU / GPU) |
+| `tensorrt` | TensorRT engines (Linux and Windows) |
+| `coco` | `pycocotools`, only to cross-check the built-in COCO evaluator |
+| `sam` / `sam3` | SAM-prompted segmentation |
+
+## Which PyTorch Build You Get
+
+- **`uv tool install ... --torch-backend auto`** picks the PyTorch build that fits the
+  GPU and driver uv detects; `--torch-backend cu130`, `cu128` or `cpu` chooses one.
+- **From source**, `uv sync` installs the CUDA 13.0 build on Linux and Windows x86-64
+  (and the MPS build on macOS). This is the build sleap-nn is developed and tested
+  with. See [From Source](#from-source) for other builds.
+- **pip** installs whatever PyTorch build pip resolves from the indexes it is given.
+  That may not be the CUDA version your driver supports. Run `sleap-nn system` to see
+  which build you have, and use one of the index URLs in [pip](#pip) to choose.
+
+## Pretrained Weights
+
+Pretrained backbones are not shipped with sleap-nn. They are downloaded on first use
+and cached: Hugging Face Hub models (DINOv2, DINOv3, ConvNeXtV2, ...) under
+`~/.cache/huggingface`, and the ImageNet weights of the ConvNeXt and Swin backbones
+through torchvision. Each set of weights comes under its publisher's own terms, which
+apply to your trained models too. In particular, the DINOv3 weights, which the config
+generator's default `bbox_detr` preset and the ViT sample configs use, are under Meta's
+DINOv3 License, not an open-source licence. The short names that
+`sleap-nn import-rfdetr` accepts (`nano`, `small`, `medium`, `large`) are RF-DETR's
+Apache-2.0 checkpoints; a Hub id or directory you pass instead carries its own
+licence, which sleap-nn does not check.
+The licence of each tested backbone is listed in
+[Pretrained Backbones](guides/pretrained-backbones.md#tested-model-families); read
+the model card before you redistribute a model trained from it.
+
+---
+
 ## Updating
 
 
@@ -164,17 +210,26 @@ SLEAP-NN uses [**uv**](https://docs.astral.sh/uv/) for installation and environm
 
 ## Pre-release Versions
 
-Install alpha/beta releases to test new features:
+Pre-releases are alphas (`X.Y.ZaN`, for example `0.4.0a0`). Install one by its
+version:
 
 ```bash
-uv tool install sleap-nn --torch-backend auto --prerelease=allow
+# uv: name sleap-io's pre-release as well. sleap-io is a dependency of sleap-nn, and
+# uv takes a dependency's pre-release only when you ask for it.
+uv tool install "sleap-nn==0.4.0a0" --with "sleap-io>=0.10.0a0" --torch-backend auto
+
+# uv in an environment
+uv pip install "sleap-nn==0.4.0a0" "sleap-io>=0.10.0a0" --torch-backend auto
+
+# pip: the pinned version is enough (pip takes the sleap-io pre-release that
+# sleap-nn's requirement names)
+pip install "sleap-nn==0.4.0a0"
 ```
 
-Install a specific pre-release:
-
-```bash
-uv tool install "sleap-nn==0.1.0a4" --torch-backend auto
-```
+!!! note "Avoid `--prerelease allow` and `pip --pre`"
+    They also install pre-releases of unrelated dependencies (for example release
+    candidates of omegaconf, protobuf or sympy). Name the two packages instead, as
+    above.
 
 ---
 

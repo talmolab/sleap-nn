@@ -6,7 +6,12 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from sleap_nn.export.wrappers.base import BaseExportWrapper
+from sleap_nn.export.wrappers.base import (
+    BaseExportWrapper,
+    antialiased_resize,
+    antialiased_resize_to,
+    input_scale_resize_rule,
+)
 
 
 class TopDownMultiClassONNXWrapper(BaseExportWrapper):
@@ -45,6 +50,7 @@ class TopDownMultiClassONNXWrapper(BaseExportWrapper):
         super().__init__(model)
         self.output_stride = output_stride
         self.input_scale = input_scale
+        self._resize_rule = input_scale_resize_rule(input_scale)
         self.n_classes = n_classes
         self.peak_threshold = peak_threshold
 
@@ -68,12 +74,11 @@ class TopDownMultiClassONNXWrapper(BaseExportWrapper):
         image = self._normalize_uint8(image)
 
         # Apply input scaling if needed
+        # Resize by input_scale as checkpoint inference does: antialiased, to
+        # (int(H * scale), int(W * scale)) of each crop, with H and W read from the
+        # input's shape when the graph runs (``antialiased_resize``).
         if self.input_scale != 1.0:
-            height = int(image.shape[-2] * self.input_scale)
-            width = int(image.shape[-1] * self.input_scale)
-            image = F.interpolate(
-                image, size=(height, width), mode="bilinear", align_corners=False
-            )
+            image = antialiased_resize(image, *self._resize_rule)
 
         # Forward pass
         out = self.model(image)
@@ -146,6 +151,7 @@ class TopDownMultiClassCombinedONNXWrapper(BaseExportWrapper):
         self.instance_output_stride = instance_output_stride
         self.centroid_input_scale = centroid_input_scale
         self.instance_input_scale = instance_input_scale
+        self._centroid_resize_rule = input_scale_resize_rule(centroid_input_scale)
         self.n_nodes = n_nodes
         self.n_classes = n_classes
         self.centroid_peak_threshold = centroid_peak_threshold
@@ -181,15 +187,11 @@ class TopDownMultiClassCombinedONNXWrapper(BaseExportWrapper):
 
         # Apply centroid input scaling
         scaled_image = image
+        # Resize by the centroid model's input_scale as the checkpoint path does:
+        # antialiased, to (int(H * scale), int(W * scale)) of this frame, read from
+        # the input's shape when the graph runs (``antialiased_resize``).
         if self.centroid_input_scale != 1.0:
-            scaled_h = int(height * self.centroid_input_scale)
-            scaled_w = int(width * self.centroid_input_scale)
-            scaled_image = F.interpolate(
-                scaled_image,
-                size=(scaled_h, scaled_w),
-                mode="bilinear",
-                align_corners=False,
-            )
+            scaled_image = antialiased_resize(scaled_image, *self._centroid_resize_rule)
 
         # Centroid detection
         centroid_out = self.model(scaled_image)
@@ -211,14 +213,13 @@ class TopDownMultiClassCombinedONNXWrapper(BaseExportWrapper):
         )
 
         # Apply instance input scaling if needed
+        # Crops always have crop_size: resize them, antialiased as the checkpoint
+        # path does, to its own (int(h * scale), int(w * scale)).
         if self.instance_input_scale != 1.0:
             scaled_h = int(self.crop_size[0] * self.instance_input_scale)
             scaled_w = int(self.crop_size[1] * self.instance_input_scale)
-            crops_flat = F.interpolate(
-                crops_flat,
-                size=(scaled_h, scaled_w),
-                mode="bilinear",
-                align_corners=False,
+            crops_flat = antialiased_resize_to(
+                crops_flat, self.crop_size, (scaled_h, scaled_w)
             )
 
         # Instance model forward (batch all crops)

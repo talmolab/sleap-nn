@@ -1,0 +1,446 @@
+# Fast top-down data path (`crop_pipeline: warp`)
+
+`preprocessing.crop_pipeline: warp` is a lean training data path for box-scaled
+centered-instance models (`crop_mode: bbox`). It is built for large multi-dataset
+training, such as human pose on COCO + AI Challenger + MPII, where the stock data
+path is the bottleneck. It is off by default (`crop_pipeline: legacy`).
+
+Per sample it does one image read and **one** `cv2.warpAffine` from the full frame
+straight to the crop, with the box-to-crop mapping and the rotation / scale / shift /
+flip augmentation folded into that single affine. Samples are uint8 crops plus
+keypoints, and the confidence maps can be rendered on the GPU in the training step.
+
+```yaml
+data_config:
+  bbox_source: bboxes            # the person boxes linked to each instance
+  unlabeled_points: ignore       # joints with no location get zero loss (ViTPose)
+  preprocessing:
+    ensure_rgb: true
+    crop_mode: bbox
+    crop_bbox_aspect: square     # one scale for both axes, box fit to the crop aspect
+    crop_bbox_padding: 0.125     # x1.25 on the longest side
+    crop_size: [256, 192]        # [height, width]
+    crop_pipeline: warp
+    gpu_confmaps: true
+    crop_bbox_categories: [person]
+    scale: 1.0
+  augmentation_config:
+    geometric:
+      rotation_min: -40.0
+      rotation_max: 40.0
+      rotation_p: 0.6
+      scale_min: 0.65
+      scale_max: 1.35
+      scale_p: 1.0
+      flip_p: 0.5
+trainer_config:
+  train_data_loader:
+    batch_size: 128
+    num_workers: 20
+```
+
+---
+
+## What it changes
+
+| | `legacy` | `warp` |
+|---|---|---|
+| Frame | decoded, size-matched to `max_height`/`max_width` (resize + pad of the whole frame) | read at native size; frames of any size mix freely |
+| Crop | oversized pre-crop, augmented, re-cropped | one affine warp from the full frame |
+| Sample | float crop + float32 confidence maps | uint8 crop + keypoints (+ maps unless `gpu_confmaps`) |
+| Skeletons | every file must have the same skeleton | nodes matched **by name** across files |
+| Crop shape | square | square or `[height, width]` |
+
+Without augmentation a warp crop is the inference crop: the affine is exactly the
+box-scaled window of `bbox_crop_windows` that the top-down inference layer cuts with
+`crop_windows` (they differ by under one grey level on average, from bilinear
+rounding), and keypoints round-trip through the crop to ~1e-5 px.
+
+Inference needs nothing new: the saved config carries `crop_size: [h, w]` and no
+size matcher, and `sleap-nn predict` cuts the same windows from frames of any size.
+
+## Mixing datasets
+
+Files with different skeletons train one model. The model's nodes are
+`part_names` (default: every training file's nodes, first seen first), and its
+skeleton gets every edge and left/right symmetry the files define on those nodes.
+A node a file does not have, or does not label (`provenance["labeled_nodes"]`, see
+[Partially Labeled Skeletons](partial-labels.md)), gets zero loss for that file's
+instances.
+
+`trainer_config.balanced_sampler` fixes how many samples of each training file go in
+every batch, so a small dataset is not drowned by a large one:
+
+```yaml
+trainer_config:
+  train_data_loader:
+    batch_size: 128
+  balanced_sampler:
+    counts: [48, 80]        # per training file, in train_labels_path order
+    # weights: [0.4, 0.6]   # or relative shares, rounded to batch_size
+  train_steps_per_epoch: 2000
+```
+
+Each file is drawn by reshuffled passes over its instances, so a small file is
+oversampled. An epoch is `train_steps_per_epoch` batches summed over GPUs (default:
+one pass over the training instances). Under DDP each rank draws its own stream
+(seeded by `trainer_config.seed` and the rank) rather than a shard. The stream is a
+pure function of the seed, the rank and the batch index, and the number of batches
+delivered is saved in the checkpoint, so `resume_ckpt_path` continues the same
+stream where it stopped.
+
+With `per_sample: true`, each sample's file is drawn at random with probability
+`weights` (normalized; equal shares when `null`) instead of fixed per-batch counts,
+so any number of files mixes at any batch size (e.g. 5 files at 8 per GPU). The
+`bbox_*` detectors use the same sampler; see the [DETR box detector
+guide](bbox-detr.md#example-a-person-detector-in-two-stages).
+
+For the `bbox_*` detectors with `per_sample: true`, `overlap_weight` draws frames
+where labelled animals overlap more often within their file (each file keeps its
+share).
+
+!!! warning "Experimental"
+    Overlap oversampling may change or be removed without a deprecation period, and
+    it showed no measured benefit in the developers' tests.
+
+```yaml
+trainer_config:
+  balanced_sampler:
+    per_sample: true
+    weights: [0.6, 0.4]
+    overlap_weight: 4.0   # default 1.0 (off)
+    overlap_min: 0.25     # two boxes share >= 25% of the smaller box
+```
+
+The training log reports how many frames qualify and their share of the samples
+before and after.
+
+### Per-file validation
+
+With several validation files (`val_labels_path`, or one split from each training
+file), each file is also measured on its own:
+
+- `val/<name>/loss`: the masked confmap MSE of that file's validation crops (its
+  own nodes, as in training, without the OHKM term), and `val/macro/loss`, their
+  unweighted mean. `val/loss` stays the loss pooled over every file.
+- With `trainer_config.eval.enabled`, `eval/<name>/*` (mOKS, OKS mAP/mAR, PCK,
+  distances, ...): each file's predictions are scored against that file's own
+  ground truth and videos, on its own nodes only, so the channels of other
+  datasets neither count as misses nor as false positives. `eval/macro/*` is the
+  unweighted mean over files, and `eval/val/*` is the pooled score on every node.
+
+`<name>` is the file stem (`.slp` / `.pkg` stripped; repeated stems get a `-<i>`
+suffix) or `data_config.val_names`. A file is scored on the model nodes its skeleton
+has, or on `trainer_config.eval.file_nodes[<name>]` (a node list or a prefix):
+
+```yaml
+data_config:
+  val_labels_path: [lab_a/val.pkg.slp, lab_b/val.pkg.slp]
+  val_names: [lab-a, lab-b]
+trainer_config:
+  eval:
+    enabled: true
+    file_nodes:   # score lab-a on two of its nodes only
+      lab-a: [lab-a/nose, lab-a/tail_base]
+  model_ckpt:
+    monitor: eval/macro/oks_voc_mAP  # or val/macro/loss with mode: min
+    mode: max
+```
+
+Any of these keys can select checkpoints and drive early stopping through
+`model_ckpt.monitor`. They are written to `training_log.csv` too (per file: the
+loss, mOKS, OKS mAP and mean distance; every macro metric). Per-file losses need the
+`labels_idx` the warp pipeline puts in each batch; other pipelines log the pooled
+metrics only.
+
+## Crop boxes and filters
+
+- `crop_bbox_categories` keeps only linked user boxes of those categories as crop
+  boxes (e.g. `[person]`). Other linked boxes, such as MPII's *head* boxes, fall back
+  to the instance's keypoint box.
+- `data_config.instance_filter` drops training instances (validation keeps every
+  instance):
+
+```yaml
+data_config:
+  instance_filter:
+    min_labeled_nodes: 6         # at least 6 of count_nodes labeled
+    count_nodes: [left_shoulder, right_shoulder, left_elbow, right_elbow,
+                  left_wrist, right_wrist, left_hip, right_hip, left_knee,
+                  right_knee, left_ankle, right_ankle]
+    min_bbox_size: 0.0           # sqrt(box area) in frame pixels
+```
+
+ViTPose trains on every person with at least one keypoint: `min_labeled_nodes: 1`.
+
+### Detector-box crops
+
+!!! warning "Experimental"
+    `crop_bbox_source: detector` may change or be removed without a deprecation
+    period. In the developers' test its gain over GT-box crops was within noise.
+
+Top-down inference crops each person from a detector box, but training crops come
+from GT boxes by default, and the two differ in size, aspect and centering. To train
+on the boxes inference sees, store person-detector boxes matched to the GT people in
+the labels file and switch the crop box source:
+
+```yaml
+data_config:
+  preprocessing:
+    crop_bbox_source: detector   # default: gt
+    crop_bbox_fallback: gt       # people with no matched detection: GT box (or drop)
+    crop_bbox_min_score: 0.0     # ignore matched boxes scoring lower
+    crop_bbox_detector: null     # only boxes with this `source` (null: any)
+    crop_bbox_jitter: 0.0        # optional per-edge Gaussian noise, x box size
+```
+
+The labels file carries one `sio.PredictedBoundingBox` per matched detection, linked
+to its instance (`box.instance = inst`), next to the user boxes. Unlinked predicted
+boxes (unmatched detections) are ignored. With several boxes linked to one instance,
+the highest-scoring one is used, and `crop_bbox_categories` applies to them too.
+User boxes and the `gt` path never read predicted boxes, so adding them to a file does
+not change `crop_bbox_source: gt` training. The log reports how many crops came from
+detector boxes and how many fell back.
+
+`sleap-nn detect-boxes` writes these boxes. It runs a `bbox_*` model (for example a
+`bbox_detr` person detector, or an RF-DETR checkpoint imported with
+`sleap-nn import-rfdetr`) over every labeled frame, or reads existing detections,
+matches them to the GT people and writes `<name>.<tag>.slp` next to the input:
+
+```bash
+sleap-nn detect-boxes -i train.slp -m models/person_detector            # -> train.bboxdetr.slp
+sleap-nn detect-boxes -i train.slp --detections dets.json --tag dfinex  # COCO results JSON
+sleap-nn detect-boxes -i jrdb.slp -m models/person_detector --tile_width 640  # panoramas
+```
+
+Matching follows Sárándi et al. (WACV 2023): per image, Hungarian matching on IoU
+between the detections scoring at least `--score_threshold` (0.3) and the GT people,
+keeping pairs with IoU > `--min_iou` (0.1). The GT people are every non-crowd person
+user box, including people without keypoints (so a detection on an unlabeled person is
+not assigned to a labeled neighbour), plus the keypoint extent of each pose instance
+without a linked person box (MPII, whose boxes are head boxes). Crowd boxes are
+ignored. Every detection scoring at least the threshold is stored with the file's
+single `person` category, `source` = the detector id (the model directory name unless
+`--detector_id` is given; this is what `crop_bbox_detector` filters on), its `score`
+and `metadata["match_iou"]`; matched detections are linked to their instance, the
+others (and detections matched to keypoint-less people) stay unlinked. Everything
+else in the file is kept, including `/human_meta`. The match statistics (people
+matched and unmatched, recall at IoU 0.5 / 0.75, mean IoU, boxes stored) go into
+`provenance["detector_boxes"]` and `<name>.<tag>.json`.
+
+Other options: `--detections` matches a COCO results JSON to frames by `file_name`
+or `image_id`; `--save_detections` writes a model run's raw detections (score >=
+`--min_score`) in that format, so they can be re-matched with other thresholds
+without the model; `--replace_predicted` drops a file's existing predicted boxes
+first (re-boxing a file made with another detector); `--dry_run` prints the
+statistics only. `--tile_width` detects very wide frames in full-height tiles
+(`--tile_stride`, default 390) merged by edge-aware NMS: a box is dropped if its IoU
+with a kept box exceeds `--tile_nms_iou`, or if it touches an inner tile edge and
+lies mostly (`--tile_contain`) inside a kept box. Tiles are cut horizontally only.
+
+`crop_bbox_jitter` perturbs each edge of the crop box independently (training only)
+to mimic detector noise without detector boxes, or on top of them.
+
+#### Heavy-tail box jitter
+
+!!! warning "Experimental"
+    The three keys below may change or be removed without a deprecation period, and
+    they showed no measured benefit in the developers' tests.
+
+Detector boxes are mostly close to the animal, with a few far off (a box over two
+animals, a box cut short). A second, wider Gaussian component lets the jitter follow
+that shape. With all three keys at their defaults the jitter is drawn exactly as with
+`crop_bbox_jitter` alone.
+
+```yaml
+data_config:
+  preprocessing:
+    crop_bbox_jitter: 0.05             # the usual per-edge std, x box width / height
+    crop_bbox_jitter_tail: 0.3         # std of the heavy-tail component (same units)
+    crop_bbox_jitter_tail_p: 0.1       # per-edge probability of drawing from it
+    crop_bbox_jitter_min_cover: 0.5    # redraw a box keeping < 50% of the original box
+```
+
+| Key | Default | Meaning |
+|---|---|---|
+| `crop_bbox_jitter_tail` | `0.0` | Standard deviation of the heavy-tail component, as a fraction of the box width (x edges) or height (y edges) |
+| `crop_bbox_jitter_tail_p` | `0.0` (off) | Per-edge probability of drawing the shift from the heavy-tail component instead of `crop_bbox_jitter`, in [0, 1] |
+| `crop_bbox_jitter_min_cover` | `0.0` (never) | With any jitter: a jittered box keeping less than this share of the original box's area is redrawn, up to 10 times; after that the edges get the `crop_bbox_jitter` component only. In [0, 1] |
+
+Training crops only; validation crops are never jittered.
+
+## Augmentation
+
+The warp path reads the usual `augmentation_config` sections, plus keys that only it
+implements (the stock path accepts them and warns once that it ignores them). All of
+them are off by default.
+
+**Geometry** is folded into the one warp:
+
+- Rotation and scale act about the crop center; with the default
+  `affine_sampling: uniform`, draws are uniform and `scale > 1` zooms in, as in the
+  stock path.
+- `translate_width` / `translate_height` shift the window by that fraction of the
+  **padded box** (mmpose's `RandomBBoxTransform` shift), not of the crop.
+- `flip_p` mirrors the crop and swaps left/right nodes.
+- `affine_sampling: mmpose` follows mmpose's `RandomBBoxTransform`: truncated-normal
+  draws (±1 sigma = the range ends) around the middle of each range, `scale_*` is the
+  scale of the crop **box** (content scale = 1 / box scale), and the shift moves the
+  box before it is rotated. mmpose config numbers can then be used as they are.
+- `half_body_p` is mmpose's `RandomHalfBody`: an instance with at least
+  `half_body_min_total_keypoints` visible nodes is cropped to its upper or lower body
+  (`half_body_upper_prob` prefers the upper half). The box is centered on the chosen
+  nodes, `half_body_padding` times their extent. Lower-body nodes are those named
+  hip / knee / ankle / heel / toe / foot unless `half_body_lower_nodes` lists them.
+  It replaces the crop window, so it costs nothing extra.
+
+**Photometric** ops run on the uint8 crop, in this order:
+
+| Op | Keys | Notes |
+|---|---|---|
+| Contrast, brightness | `contrast_*`, `brightness_*` | contrast pivots on 127.5, as in the stock path |
+| HSV shift | `hsv_p`, `hsv_{hue,saturation,value}_delta` | pixel-identical to mmdet's `YOLOXHSVRandomAug` |
+| Box blur | `blur_p`, `blur_kernel_{min,max}` | albumentations `Blur` |
+| Median blur | `median_blur_p`, `median_blur_kernel_{min,max}` | albumentations `MedianBlur` |
+| Gaussian blur | `gaussian_blur_p`, `gaussian_blur_sigma_{min,max}` | |
+| Uniform noise | `uniform_noise_*` | as in the stock path |
+| Gaussian noise | `gaussian_noise_*` | as in the stock path |
+| Coarse dropout | `coarse_dropout_p`, `coarse_dropout_{min,max}_holes`, `coarse_dropout_{min,max}_size` | black holes, sides as fractions of the crop (albumentations `CoarseDropout`) |
+| Random erase | `erase_*` | random-colour box, as in the stock path |
+
+Keypoints inside dropout holes and erased boxes keep their targets, as in mmpose: the
+model learns to infer occluded joints. Half-body crops push the other half's joints
+out of the crop; with `unlabeled_points: ignore` those get zero loss instead of
+training as absent.
+
+`mixup_p > 0` raises in the warp path (the stock path, which never implemented it,
+now warns instead of silently ignoring it). `crop_bbox_aspect: letterbox` is not
+implemented here; the warp path crops as `square`.
+
+### Appearance augmentations
+
+!!! warning "Experimental"
+    These keys may change or be removed in a later release without a deprecation
+    period, and they showed no measured benefit in the developers' tests.
+
+A further set of photometric ops, meant for recording setups that differ from the
+training data in camera, lighting or compression. They live in
+`augmentation_config.intensity`, are all off by default, and act on the uint8 crop
+(or, with `frame_photometric`, on whole `bbox_detr` training frames; see the
+[DETR box detector guide](bbox-detr.md#training-augmentation)). Other pipelines
+ignore them and log a warning once.
+
+| Op | Keys (defaults) | What it does |
+|---|---|---|
+| Grey | `gray_p` (`0.0`) | Replace a colour image by its luminance, copied to 3 channels |
+| Channel shuffle | `channel_shuffle_p` (`0.0`) | Random permutation of the 3 channels |
+| Channel gain | `channel_gain_p` (`0.0`), `channel_gain_max` (`0.0`) | Multiply each channel by a factor drawn from `[1 - g, 1 + g]`, `g = channel_gain_max` (a colour cast) |
+| Gamma | `gamma_p` (`0.0`), `gamma_min` / `gamma_max` (`1.0` / `1.0`) | `255 * (x / 255) ** gamma`, gamma drawn log-uniformly from `[gamma_min, gamma_max]` (dim or over-exposed video) |
+| Invert | `invert_p` (`0.0`) | `255 - x` (a light animal on a dark floor becomes a dark one on a light floor) |
+| Down-up | `downup_p` (`0.0`), `downup_min` / `downup_max` (`1.0` / `1.0`, each >= 1) | Downsample by a factor drawn from `[downup_min, downup_max]` (area), then resize back (bilinear): an animal filmed with few pixels |
+| JPEG | `jpeg_p` (`0.0`), `jpeg_quality_min` / `jpeg_quality_max` (`95` / `95`) | Re-encode as JPEG at a quality drawn from that range |
+| Whole frames | `frame_photometric` (`false`) | `bbox_detr` only: apply the warp path's photometric ops (contrast, brightness, HSV, blurs, noise and the ops above) to the whole training frame instead of the stock contrast / brightness / noise |
+
+The colour ops act on 3-channel images only. In the warp path they run after the HSV
+shift (grey, then channel shuffle, then channel gain, then gamma and inversion as one
+lookup table); down-up and JPEG run after the noise ops and before coarse dropout and
+random erase. A teacher crop (distillation) gets the same draws as the student crop.
+
+```yaml
+data_config:
+  augmentation_config:
+    intensity:
+      gray_p: 0.2
+      gamma_p: 0.3
+      gamma_min: 0.6
+      gamma_max: 1.6
+      jpeg_p: 0.3
+      jpeg_quality_min: 40
+      jpeg_quality_max: 90
+```
+
+### Recipes
+
+From mmpose's main-branch configs (`td-hm_ViTPose-base_8xb64-210e_coco-256x192.py`
+and `rtmpose-m_8xb256-420e_coco-256x192.py`):
+
+=== "ViTPose"
+    ```yaml
+    augmentation_config:
+      geometric:
+        affine_sampling: mmpose
+        flip_p: 0.5
+        half_body_p: 0.3
+        translate_width: 0.16
+        translate_height: 0.16
+        translate_p: 0.3
+        scale_min: 0.5            # box scale
+        scale_max: 1.5
+        scale_p: 1.0
+        rotation_min: -80.0
+        rotation_max: 80.0
+        rotation_p: 0.6
+    ```
+
+=== "RTMPose (two stages)"
+    ```yaml
+    augmentation_config:
+      geometric:
+        affine_sampling: mmpose
+        flip_p: 0.5
+        half_body_p: 0.3
+        translate_width: 0.16
+        translate_height: 0.16
+        translate_p: 0.3
+        scale_min: 0.6
+        scale_max: 1.4
+        scale_p: 1.0
+        rotation_min: -80.0
+        rotation_max: 80.0
+        rotation_p: 0.6
+        coarse_dropout_p: 1.0
+        coarse_dropout_min_size: 0.2
+        coarse_dropout_max_size: 0.4
+      intensity:
+        hsv_p: 1.0
+        blur_p: 0.1
+        median_blur_p: 0.1
+      stage2:                     # the last 30 of 420 epochs
+        start_epoch: 390
+        geometric:
+          translate_p: 0.0
+          scale_min: 0.75
+          scale_max: 1.25
+          rotation_min: -60.0
+          rotation_max: 60.0
+          coarse_dropout_p: 0.5
+    ```
+
+The original ViTPose repository used ±40° rotation and 0.65–1.35 scale (uniform),
+narrower than mmpose's current ViTPose config.
+
+### Stage-2 switch
+
+`augmentation_config.stage2: {start_epoch | start_step, geometric, intensity}` trains
+the last part of a run with different augmentation (RTMPose's `PipelineSwitchHook`).
+Its `geometric` / `intensity` entries are overrides merged over the stage-1 sections.
+`AugmentationStageCallback` switches the training dataset through a shared-memory
+flag that persistent workers read per sample, so it works with forked and spawned
+workers without restarting them, and a resumed run lands in the right stage. Batches
+already prefetched at the switch (at most `num_workers x prefetch_factor`) still use
+stage 1. `stage2` is refused for any other pipeline.
+
+## Throughput
+
+Every batch has a fixed per-sample cost of one JPEG decode plus one warp (~2 ms of
+CPU). Feeding a ViT-S on 4 GPUs takes 50-70 workers in total; measure your own
+loader rate with `scripts/ddp_loader_throughput.py` (see [Measuring loader throughput](multi-gpu.md#measuring-loader-throughput)).
+
+## Limits
+
+- `centered_instance` only (other model types raise), `crop_mode: bbox`, and
+  `scale: 1.0` (the crop is cut at `crop_size` directly).
+- `crop_size` must be set or auto-sized, and divisible by the backbone's `max_stride`.
+- Boxes come from linked user boxes or keypoints; `bbox_source: masks` raises.
+- `data_pipeline_fw` caching does not apply: the warp path reads image files itself
+  (frames of non-image videos, e.g. `.pkg.slp` or `.mp4`, are read through the labels).

@@ -83,9 +83,31 @@ sleap-nn predict -i video.mp4 -m models/centroid/ --filter_min_centroid_distance
 |-----------|-------------|---------|
 | `--filter_min_centroid_distance` | Greedy NMS radius in pixels between predicted centroids (Python: `FilterConfig(min_centroid_distance=...)`) | `0.0` (disabled) |
 
+## COCO Rescoring and OKS-NMS
+
+Top-down human pose papers (mmpose / ViTPose protocol) rescore each instance and
+deduplicate by OKS before evaluating:
+
+```bash
+sleap-nn predict -i coco_val2017.slp -m models/centered_instance/ \
+    --boxes dets.json --peak_threshold 0 --rescore --oks_nms 0.9
+```
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `--rescore` / `--no-rescore` | Instance score = stage-1 score (box score / centroid value) × mean of keypoint scores above `--rescore_threshold` | off, also with `--boxes` |
+| `--rescore_threshold` | Keypoint-score threshold for `--rescore` | `0.2` |
+| `--oks_nms` | Drop an instance whose OKS with a higher-scoring instance in the frame exceeds this (mmpose `oks_nms`, per-node sigmas, mean crop-window area) | `0` (off) |
+| `--oks_sigmas` | Per-node sigmas for `--oks_nms` | by node name |
+
+Unlike `--filter_overlapping_method oks` (a legacy OKS with one falloff constant and
+the instance's own keypoint box as its scale), `--oks_nms` uses COCO's per-node OKS.
+See [COCO-Style Evaluation](coco-evaluation.md).
+
 ## Combining Filters
 
-All filters can be combined. They are applied in order: node count → confidence → overlap → centroid distance.
+All filters can be combined. They are applied in order: rescoring → node count →
+confidence → OKS-NMS → overlap → centroid distance.
 
 **Example: Strict filtering for clean output**
 

@@ -20,10 +20,14 @@ Three concrete implementations:
 
 from __future__ import annotations
 
+import math
+import os
 import queue
 import threading
+from collections import deque
+from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
-from typing import TYPE_CHECKING, Any, Iterator, Optional, Protocol, Union
+from typing import TYPE_CHECKING, Any, Iterator, List, Optional, Protocol, Tuple, Union
 
 import attrs
 import numpy as np
@@ -135,6 +139,17 @@ class Batch:
         instance_boxes: Optional ``(B, max_instances, 4)`` GT box of each slot of
             ``instances`` (NaN for padding), populated by :class:`LabelsProvider`
             when given an ``instance_box_fn`` (the GT-box fallback).
+        frame_boxes: Optional ``(B, max_boxes, 4)`` xyxy boxes given for each
+            frame (NaN for padding), populated by :class:`LabelsProvider` when
+            given a ``frame_box_fn``: the stage 1 of a top-down model seeded from
+            given boxes (``sleap-nn predict --boxes``).
+        frame_box_scores: Optional ``(B, max_boxes)`` scores of ``frame_boxes``.
+        frame_scales: Optional ``(B, 2)`` ``(x, y)`` scale from each original
+            frame to ``images``, set when the provider already fitted the frames
+            to the model input (:class:`LabelsProvider` with a :class:`FrameFit`).
+            ``instances`` and the box fields stay in original-frame pixels.
+        frame_sizes: Optional ``(B, 2)`` original ``(height, width)`` of each
+            frame, set with ``frame_scales``.
     """
 
     images: np.ndarray | torch.Tensor
@@ -142,6 +157,43 @@ class Batch:
     video_indices: Optional[np.ndarray] = None
     instances: Optional[np.ndarray] = None
     instance_boxes: Optional[np.ndarray] = None
+    frame_boxes: Optional[np.ndarray] = None
+    frame_box_scores: Optional[np.ndarray] = None
+    frame_scales: Optional[np.ndarray] = None
+    frame_sizes: Optional[np.ndarray] = None
+
+
+def predicted_frame_boxes(lf: Any) -> Tuple[np.ndarray, np.ndarray]:
+    """``((K, 4) xyxy, (K,) scores)`` of a frame's ``PredictedBoundingBox``es.
+
+    The default ``frame_box_fn`` of a box-seeded top-down run
+    (``sleap-nn predict --boxes``): every predicted box on the frame, whatever
+    its category; user boxes are ground truth and are skipped.
+    """
+    boxes, scores = [], []
+    for box in getattr(lf, "bboxes", None) or []:
+        if not getattr(box, "is_predicted", False):
+            continue
+        boxes.append([box.x1, box.y1, box.x2, box.y2])
+        score = getattr(box, "score", None)
+        scores.append(1.0 if score is None else float(score))
+    return (
+        np.asarray(boxes, dtype=np.float32).reshape(-1, 4),
+        np.asarray(scores, dtype=np.float32),
+    )
+
+
+def _stack_frame_boxes(
+    per_frame: List[Tuple[np.ndarray, np.ndarray]],
+) -> Tuple[np.ndarray, np.ndarray]:
+    """NaN-pad per-frame ``(boxes, scores)`` to ``(B, K, 4)`` / ``(B, K)``."""
+    k = max([len(b) for b, _ in per_frame] + [1])
+    boxes = np.full((len(per_frame), k, 4), np.nan, dtype=np.float32)
+    scores = np.full((len(per_frame), k), np.nan, dtype=np.float32)
+    for i, (b, sc) in enumerate(per_frame):
+        boxes[i, : len(b)] = b
+        scores[i, : len(b)] = sc
+    return boxes, scores
 
 
 class Provider(Protocol):
@@ -381,6 +433,87 @@ class VideoProvider:
         return [self._sio_video] if self._sio_video is not None else []
 
 
+def _recorded_frame_hw(video: "sio.Video") -> tuple:
+    """``(height, width)`` a video records for its frames, or ``(0, 0)``.
+
+    Read from the saved backend metadata, else from an already-open backend, so
+    no frame is decoded and no backend is opened.
+    """
+    shape = (getattr(video, "backend_metadata", None) or {}).get("shape")
+    if shape is None and getattr(video, "backend", None) is not None:
+        try:
+            shape = video.shape
+        except Exception:  # noqa: BLE001 - a size hint only
+            shape = None
+    if shape is None or len(shape) < 3:
+        return (0, 0)
+    return (int(shape[1]), int(shape[2]))
+
+
+@attrs.frozen
+class FrameFit:
+    """Fit frames to a model's input size as they are read.
+
+    A frame is resized and padded to ``(max_height, max_width)`` on the CPU with
+    the same ``apply_sizematcher`` (letterbox) / ``apply_squash_resize`` (squash)
+    the layer's ``preprocess`` runs. A JPEG frame of an image list that is at least
+    twice that size is first decoded at 1/2, 1/4 or 1/8 size
+    (``sio.Video.get_frame(downscale=...)``, libjpeg DCT scaling), the largest
+    factor that still leaves the size it is resized to, as ``DetrBBoxDataset``
+    does in training. Every frame comes out the same size, so batches fill
+    whatever the mix of frame sizes, and a 60-megapixel photo costs a reduced
+    decode instead of a full one plus a full-size transfer and resize.
+
+    Attributes:
+        max_height: Model input height.
+        max_width: Model input width.
+        resize_mode: ``"letterbox"`` or ``"squash"``, as the layer's
+            ``PreprocessConfig.resize_mode``.
+    """
+
+    max_height: int
+    max_width: int
+    resize_mode: str = "letterbox"
+
+    def downscale(self, height: int, width: int) -> int:
+        """Largest of 8, 4, 2 (else 1) that leaves at least the fitted size."""
+        if self.resize_mode == "squash":
+            scale = max(self.max_height / height, self.max_width / width)
+        else:
+            scale = min(self.max_height / height, self.max_width / width)
+        need_h, need_w = math.ceil(height * scale), math.ceil(width * scale)
+        for downscale in (8, 4, 2):
+            if height >= downscale * need_h and width >= downscale * need_w:
+                return downscale
+        return 1
+
+    def read(
+        self, video: "sio.Video", frame_idx: int
+    ) -> Tuple[np.ndarray, np.ndarray, Tuple[int, int]]:
+        """Read and fit one frame.
+
+        Returns:
+            ``(image, scale, size)``: the ``(C, max_height, max_width)`` frame in
+            the video's dtype, the ``(x, y)`` scale from the original frame to it,
+            and the original ``(height, width)``.
+        """
+        from sleap_nn.data.resizing import apply_sizematcher, apply_squash_resize
+
+        # Image lists read this from the file header, other videos from `shape`.
+        height, width = video.get_frame_size(frame_idx)
+        # (H, W, C), whatever the backend.
+        img = video.get_frame(frame_idx, downscale=self.downscale(height, width))
+        read_h, read_w = img.shape[:2]  # Full size if there was no reduced decode.
+        x = torch.from_numpy(np.ascontiguousarray(img.transpose(2, 0, 1)))
+        if self.resize_mode == "squash":
+            x, (sx, sy) = apply_squash_resize(x, self.max_height, self.max_width)
+        else:
+            x, s = apply_sizematcher(x, self.max_height, self.max_width, warn=False)
+            sx = sy = float(s)
+        scale = np.array([sx * read_w / width, sy * read_h / height], np.float32)
+        return x.numpy(), scale, (int(height), int(width))
+
+
 @attrs.define
 class LabelsProvider:
     """Yield batches from a ``.slp`` file with GT instances attached.
@@ -439,6 +572,35 @@ class LabelsProvider:
             ``instance_boxes`` aligned with ``instances``. The GT-box fallback of
             a box-scaled centered-instance model uses it to derive boxes exactly
             as its training boxes were (linked user boxes / masks, or keypoints).
+            A provider handed to a ``Predictor`` without one gets the predictor's
+            rule when the model crops GT boxes. Such a predictor also narrows the
+            provider to its selected frames that have user instances, with only
+            those instances as GT, and the provider stays narrowed after the call
+            until it is handed to a predictor whose model does not crop GT boxes;
+            predicted instances then never serve as GT boxes. A provider serves one
+            prediction at a time: using it from two predictors at once (e.g. two
+            ``predict_streaming`` generators read in turns) is not supported.
+        frame_box_fn: Optional ``(LabeledFrame) -> ((K, 4) xyxy, (K,) scores)``
+            giving the boxes that seed a top-down model's stage 1 on each frame;
+            when set, batches carry ``frame_boxes`` / ``frame_box_scores``. See
+            :func:`predicted_frame_boxes`.
+        group_by_shape: Yield the frames grouped by their video's frame size
+            (a stable sort, so each video's frames keep their order). A batch
+            only holds frames of one size, so a file that interleaves sizes
+            (e.g. an image-list dataset stored as one ``sio.Video`` per image
+            size, then shuffled) otherwise yields batches of about one frame.
+            :attr:`source_positions` then maps each yielded frame back to its
+            position in the unsorted order. Ignored with ``fit``, whose frames all
+            come out one size.
+        fit: Optional :class:`FrameFit`: read every frame already fitted to the
+            model input (reduced-size JPEG decode, then the letterbox / squash
+            resize on the CPU). Batches then carry ``frame_scales`` and
+            ``frame_sizes`` for mapping predictions back to the original frames,
+            so only a layer that takes those can consume them (``BBoxLayer``).
+        decode_workers: Threads reading frames in parallel with ``fit`` (at most
+            the CPU count), used when every video is an image list (each read
+            opens its own file). Other backends hold one handle per video and are
+            read by one thread.
     """
 
     labels: "Union[str, sio.Labels]"
@@ -452,11 +614,19 @@ class LabelsProvider:
     queue_maxsize: int = 4
     frames: Optional[list] = None
     instance_box_fn: Optional[Any] = None
+    frame_box_fn: Optional[Any] = None
+    group_by_shape: bool = False
+    fit: Optional[FrameFit] = None
+    decode_workers: int = 8
 
     _sio_labels: "Optional[sio.Labels]" = attrs.field(
         default=None, init=False, repr=False
     )
     _labeled_frames: list = attrs.field(factory=list, init=False, repr=False)
+    _source_positions: Optional[dict] = attrs.field(
+        default=None, init=False, repr=False
+    )
+    _unscoped_frames: Optional[list] = attrs.field(default=None, init=False, repr=False)
 
     def __attrs_post_init__(self) -> None:
         """Resolve the labels source and pre-filter the labeled frames."""
@@ -521,16 +691,85 @@ class LabelsProvider:
                 lf for i, lf in enumerate(self._labeled_frames) if i in positions
             ]
 
+        if self.group_by_shape and self.fit is None:
+            self._group_frames_by_shape()
+
+    def _group_frames_by_shape(self) -> None:
+        """Stable-sort the frames by (recorded frame size, video index).
+
+        The size is the one the video records (``backend_metadata["shape"]``,
+        else the open backend's shape), so nothing is decoded. Frames whose size
+        is unknown sort by video only. Records the pre-sort positions in
+        ``_source_positions`` when the order changed.
+        """
+        vid_index = {id(v): i for i, v in enumerate(self._sio_labels.videos)}
+        hw_by_video = {id(v): _recorded_frame_hw(v) for v in self._sio_labels.videos}
+
+        def key(lf) -> tuple:
+            return (
+                hw_by_video.get(id(lf.video), (0, 0)),
+                vid_index.get(id(lf.video), -1),
+            )
+
+        order = sorted(
+            range(len(self._labeled_frames)),
+            key=lambda i: key(self._labeled_frames[i]),
+        )
+        if order == list(range(len(order))):
+            return
+        self._source_positions = {
+            (vid_index.get(id(lf.video), -1), lf.frame_idx): i
+            for i, lf in enumerate(self._labeled_frames)
+        }
+        self._labeled_frames = [self._labeled_frames[i] for i in order]
+
+    @property
+    def source_positions(self) -> Optional[dict]:
+        """``(video index, frame_idx) -> position`` before ``group_by_shape``.
+
+        ``None`` when the frames are yielded in their original order (grouping
+        off, or it changed nothing). The video index is into :attr:`videos`.
+        """
+        return self._source_positions
+
     def _frame_instances(self, lf) -> list:
         """Instances to expose as GT for a frame.
 
-        In ``only_labeled_frames`` mode (the GT-fallback paths), expose only the
-        USER instances so PredictedInstances are never treated as ground truth
-        (legacy parity, #582). All other modes expose every instance.
+        In ``only_labeled_frames`` mode (the GT-fallback paths), or once scoped by
+        :meth:`_scope_to_user_instances`, expose only the USER instances so
+        PredictedInstances are never treated as ground truth (legacy parity, #582).
+        All other modes expose every instance.
         """
-        if self.only_labeled_frames:
+        if self.only_labeled_frames or self._unscoped_frames is not None:
             return list(lf.user_instances)
         return list(lf.instances)
+
+    def _scope_to_user_instances(self, scope: bool) -> int:
+        """Keep only the selected frames that have user instances (or undo that).
+
+        A ``Predictor`` whose model crops GT boxes calls this on a provider built
+        elsewhere, so it reads the frames and instances a provider built by the
+        predictor reads (``only_labeled_frames``): the frames this provider
+        selected that have user instances, with only those instances as GT.
+        ``scope=False`` restores the frames of an earlier call, for a provider
+        reused with another predictor. A provider with ``only_labeled_frames``
+        is left as it is, and a repeat call on a scoped provider does nothing.
+
+        Returns:
+            The number of selected frames left out by this call.
+        """
+        if scope and self._unscoped_frames is not None:
+            return 0
+        if self._unscoped_frames is not None:
+            self._labeled_frames = self._unscoped_frames
+            self._unscoped_frames = None
+        if not scope or self.only_labeled_frames:
+            return 0
+        self._unscoped_frames = self._labeled_frames
+        self._labeled_frames = [
+            lf for lf in self._labeled_frames if lf.has_user_instances
+        ]
+        return len(self._unscoped_frames) - len(self._labeled_frames)
 
     def _collect_suggested_frames(self, sio) -> list:
         """Return new ``LabeledFrame``s for unlabeled suggestions.
@@ -551,7 +790,7 @@ class LabelsProvider:
                 )
         return out
 
-    def _read_batches(self, image_fn=None) -> Iterator[Batch]:
+    def _read_batches(self, image_fn=None, video_fn=None) -> Iterator[Batch]:
         """Yield batches; each ``Batch.instances`` carries GT keypoints.
 
         For frames with no instances (e.g. ``only_suggested_frames``
@@ -574,7 +813,13 @@ class LabelsProvider:
                 thread-local video copy instead of ``lf.image`` (which would
                 share a backend handle with whatever the main thread touches).
                 Defaults to ``lambda lf: lf.image``.
+            video_fn: Optional ``(LabeledFrame) -> sio.Video`` override, the same
+                for the ``fit`` path, which reads through the video. Defaults to
+                ``lambda lf: lf.video``.
         """
+        if self.fit is not None:
+            yield from self._read_fitted_batches(video_fn or (lambda lf: lf.video))
+            return
         if image_fn is None:
             image_fn = lambda lf: lf.image  # noqa: E731
 
@@ -609,54 +854,157 @@ class LabelsProvider:
             start = idx
             if not chunk:
                 continue
-            frames = np.stack(chunk_imgs, axis=0)
+            yield self._make_batch(chunk, np.stack(chunk_imgs, axis=0))
 
-            inst_lists = [self._frame_instances(lf) for lf in chunk]
-            max_inst = max(len(insts) for insts in inst_lists)
-            instance_boxes = None
-            if max_inst == 0:
-                instances = None
-            else:
-                # Pad GT instances to a uniform max_instances per batch so
-                # downstream layer code can work with fixed shapes.
-                n_nodes = next(
-                    (len(insts[0].skeleton.nodes) for insts in inst_lists if insts),
-                    1,
+        self._warn_unreadable(unreadable)
+
+    def _read_fitted_batches(self, video_fn) -> Iterator[Batch]:
+        """:meth:`_read_batches` with ``fit``: model-sized frames, read in parallel.
+
+        Keeps a bounded number of reads in flight on ``_fit_workers`` threads and
+        yields the frames in order, ``batch_size`` at a time (every frame has the
+        model's size, so a batch only ends at ``batch_size``). The window is a few
+        batches deep so one slow (very large) frame doesn't idle the other threads.
+        """
+        fit = self.fit
+
+        def read(lf):
+            try:
+                return fit.read(video_fn(lf), lf.frame_idx)
+            except IndexError as exc:
+                return exc
+
+        workers = self._fit_workers()
+        frames_iter = iter(self._labeled_frames)
+        pending: deque = deque()
+        unreadable: list = []
+        chunk: list = []
+        reads: list = []
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+
+            def submit_next() -> None:
+                lf = next(frames_iter, None)
+                if lf is not None:
+                    pending.append((lf, pool.submit(read, lf)))
+
+            for _ in range(4 * max(self.batch_size, workers)):
+                submit_next()
+            while pending:
+                lf, future = pending.popleft()
+                submit_next()
+                result = future.result()
+                if isinstance(result, IndexError):
+                    unreadable.append((lf.frame_idx, result))
+                    continue
+                chunk.append(lf)
+                reads.append(result)
+                if len(chunk) == self.batch_size:
+                    yield self._make_fitted_batch(chunk, reads)
+                    chunk, reads = [], []
+        if chunk:
+            yield self._make_fitted_batch(chunk, reads)
+        self._warn_unreadable(unreadable)
+
+    def _make_fitted_batch(self, chunk: list, reads: list) -> Batch:
+        """A :meth:`_make_batch` of ``FrameFit.read`` results.
+
+        An image list can mix grayscale and color JPEGs (COCO does), which read
+        with 1 and 3 channels; a batch mixing them gets the grayscale frames
+        repeated to 3 channels, as the layer's ``ensure_rgb`` would.
+        """
+        images = [r[0] for r in reads]
+        channels = max(img.shape[0] for img in images)
+        images = [
+            np.repeat(img, channels, axis=0) if img.shape[0] == 1 else img
+            for img in images
+        ]
+        return self._make_batch(
+            chunk,
+            np.stack(images, axis=0),
+            frame_scales=np.stack([r[1] for r in reads], axis=0),
+            frame_sizes=np.asarray([r[2] for r in reads], np.int64),
+        )
+
+    def _image_lists_only(self) -> bool:
+        """Whether every video is an image list.
+
+        An image list's ``filename`` is the list of image paths, and each read
+        opens its own file, so any number of threads can share the video. Other
+        backends keep one open handle per video, which is not thread-safe.
+        """
+        videos = self._sio_labels.videos
+        return bool(videos) and all(isinstance(v.filename, list) for v in videos)
+
+    def _fit_workers(self) -> int:
+        """Threads for :meth:`_read_fitted_batches`.
+
+        ``decode_workers`` (at most the CPU count) for image lists (see
+        :meth:`_image_lists_only`), else 1.
+        """
+        if not self._image_lists_only():
+            return 1
+        return max(1, min(int(self.decode_workers), os.cpu_count() or 1))
+
+    def _make_batch(self, chunk: list, frames: np.ndarray, **fields) -> Batch:
+        """A :class:`Batch` of ``chunk``'s frames, GT instances and boxes."""
+        inst_lists = [self._frame_instances(lf) for lf in chunk]
+        max_inst = max(len(insts) for insts in inst_lists)
+        instance_boxes = None
+        if max_inst == 0:
+            instances = None
+        else:
+            # Pad GT instances to a uniform max_instances per batch so
+            # downstream layer code can work with fixed shapes.
+            n_nodes = next(
+                (len(insts[0].skeleton.nodes) for insts in inst_lists if insts),
+                1,
+            )
+            instances = np.full(
+                (len(chunk), max_inst, n_nodes, 2), np.nan, dtype=np.float32
+            )
+            for i, insts in enumerate(inst_lists):
+                for j, inst in enumerate(insts):
+                    pts = np.asarray(inst.numpy(), dtype=np.float32)
+                    instances[i, j, : pts.shape[0]] = pts
+            if self.instance_box_fn is not None:
+                instance_boxes = np.full(
+                    (len(chunk), max_inst, 4), np.nan, dtype=np.float32
                 )
-                instances = np.full(
-                    (len(chunk), max_inst, n_nodes, 2), np.nan, dtype=np.float32
-                )
-                for i, insts in enumerate(inst_lists):
+                for i, (lf, insts) in enumerate(zip(chunk, inst_lists)):
                     for j, inst in enumerate(insts):
-                        pts = np.asarray(inst.numpy(), dtype=np.float32)
-                        instances[i, j, : pts.shape[0]] = pts
-                if self.instance_box_fn is not None:
-                    instance_boxes = np.full(
-                        (len(chunk), max_inst, 4), np.nan, dtype=np.float32
-                    )
-                    for i, (lf, insts) in enumerate(zip(chunk, inst_lists)):
-                        for j, inst in enumerate(insts):
-                            box = self.instance_box_fn(lf, inst)
-                            if box is not None:
-                                instance_boxes[i, j] = box
+                        box = self.instance_box_fn(lf, inst)
+                        if box is not None:
+                            instance_boxes[i, j] = box
 
-            frame_idxs = np.array([lf.frame_idx for lf in chunk], dtype=np.int64)
-            # Attribute each frame to the index of ITS video in the Labels'
-            # video list so multi-video .slp predictions land on the correct
-            # video (legacy parity; #530 audit: this was hardcoded to 0, so
-            # every frame was mis-assigned to videos[0]).
-            vid_index = {id(v): i for i, v in enumerate(self._sio_labels.videos)}
-            video_idxs = np.array(
-                [vid_index.get(id(lf.video), 0) for lf in chunk], dtype=np.int64
-            )
-            yield Batch(
-                images=frames,
-                frame_indices=frame_idxs,
-                video_indices=video_idxs,
-                instances=instances,
-                instance_boxes=instance_boxes,
+        frame_boxes = frame_box_scores = None
+        if self.frame_box_fn is not None:
+            frame_boxes, frame_box_scores = _stack_frame_boxes(
+                [self.frame_box_fn(lf) for lf in chunk]
             )
 
+        frame_idxs = np.array([lf.frame_idx for lf in chunk], dtype=np.int64)
+        # Attribute each frame to the index of ITS video in the Labels'
+        # video list so multi-video .slp predictions land on the correct
+        # video (legacy parity; #530 audit: this was hardcoded to 0, so
+        # every frame was mis-assigned to videos[0]).
+        vid_index = {id(v): i for i, v in enumerate(self._sio_labels.videos)}
+        video_idxs = np.array(
+            [vid_index.get(id(lf.video), 0) for lf in chunk], dtype=np.int64
+        )
+        return Batch(
+            images=frames,
+            frame_indices=frame_idxs,
+            video_indices=video_idxs,
+            instances=instances,
+            instance_boxes=instance_boxes,
+            frame_boxes=frame_boxes,
+            frame_box_scores=frame_box_scores,
+            **fields,
+        )
+
+    @staticmethod
+    def _warn_unreadable(unreadable: list) -> None:
+        """Log the frames skipped because their pixels could not be read."""
         if unreadable:
             missing_idxs = [fi for fi, _ in unreadable]
             logger.warning(
@@ -691,8 +1039,11 @@ class LabelsProvider:
         def image_fn(lf):
             return video_map[id(lf.video)][lf.frame_idx]
 
+        def video_fn(lf):
+            return video_map[id(lf.video)]
+
         try:
-            for batch in self._read_batches(image_fn):
+            for batch in self._read_batches(image_fn, video_fn):
                 while True:
                     if stop_event.is_set():
                         return
@@ -717,7 +1068,13 @@ class LabelsProvider:
             yield from self._read_batches()
             return
 
-        video_map = self._thread_local_video_map()
+        if self.fit is not None and self._image_lists_only():
+            # The fitted path reads image lists from several threads anyway (see
+            # `_image_lists_only`); copying tens of thousands of videos would
+            # only delay the first batch.
+            video_map = {id(v): v for v in self._sio_labels.videos}
+        else:
+            video_map = self._thread_local_video_map()
         q: "queue.Queue" = queue.Queue(maxsize=self.queue_maxsize)
         stop_event = threading.Event()
         thread = threading.Thread(

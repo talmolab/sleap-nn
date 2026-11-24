@@ -55,9 +55,10 @@ See the [CLI Reference](../reference/cli.md) for all available parameters.
 
 `sleap-nn predict` runs **both** trained checkpoints and exported ONNX/TensorRT
 models through the same command. If `--model_paths`/`-m` points to an export
-directory (one containing `model.onnx` or `model.trt`, written by
+directory (`export_metadata.json` with `model.onnx` or `model.trt`, written by
 [`sleap-nn export`](export.md)), `predict` auto-detects it and routes to the
-exported-model runtime instead of loading a checkpoint:
+exported-model runtime instead of loading a checkpoint (a network-only crop export
+runs in the checkpoint pipeline instead; see [Export](export.md)):
 
 ```bash
 # Auto-detected export directory
@@ -69,7 +70,7 @@ sleap-nn predict -i video.mp4 -m exports/my_model/ --runtime tensorrt
 
 | Runtime | Behavior |
 |---------|----------|
-| `auto` (default) | Prefer TensorRT, fall back to ONNX |
+| `auto` (default) | Prefer TensorRT on a CUDA device; ONNX otherwise, or when there is no engine |
 | `onnx` | Force the ONNX runtime |
 | `tensorrt` | Force the TensorRT runtime |
 
@@ -93,7 +94,12 @@ runtime has no such option:
   `--center_nms_kernel`, `--mask_cleanup*`, `--distance_gate_alpha`, `--merge_*`,
   `--full_res_masks`, `--mask_output`, `--polygon_epsilon`, `--bbox_nms_iou`)
 
-`--upload_batches` and `--memory_format` are ignored with a warning. To change a
+One exception: an exported box detector passed alone takes a typed `--peak_threshold`
+and `--bbox_nms_iou` (see [Export](export.md)).
+
+`--upload_batches` and `--memory_format` are ignored with a warning.
+`--precision bf16` / `fp16` is refused with an error: an exported model keeps the
+precision it was exported with (see `sleap-nn export --precision`). To change a
 baked-in value, re-export (see `sleap-nn export --peak-threshold`). For exporting
 models and runtime details, see the [Export guide](export.md).
 
@@ -145,6 +151,42 @@ sio.save_analysis_h5(labels, "predictions.analysis.h5")
 ```
 
 For other formats, see the [sleap-io documentation](https://io.sleap.ai/).
+
+### Choosing the file layout and frame format
+
+Five options control how the `.slp` is written. Left unset, each takes
+sleap-io's default, so the file is written exactly as without them.
+
+| Option | What it does |
+|--------|--------------|
+| `--slp_version` | `v2` writes the SLP 2.x layout, which older sleap-io (before 0.10) and SLEAP releases can open; `v3` writes SLP 3.0, which they cannot. `auto` (sleap-io 0.10's default) writes the 2.x layout when the content fits and SLP 3.0 with a warning when it needs format 3.0. Unset saves as `auto` does. |
+| `--unlabeled_as` | The 2.x layout cannot store a point marked as not labeled. With `v2`, `error` (sleap-io's default) refuses to write such a file, at the final save, with an error that names `--unlabeled_as absent`; `absent` writes those points as hidden points, with a warning. |
+| `--compression` | `gzip` or `lzf` compress the file's tables: a smaller file that reads more slowly. |
+| `--image_format` | With `--embed true` (or `auto` on an embedded input): store the embedded frames as `png`, `jpg` or `hdf5` (raw pixels). |
+| `--image_quality` | For re-encoded embedded frames: JPEG quality `0`-`100` with `jpg`, PNG compression level `0`-`9` with `png`. |
+
+```bash
+# A file older SLEAP releases can open
+sleap-nn predict -i video.mp4 -m models/my_model/ --slp_version v2
+
+# A self-contained file with JPEG frames
+sleap-nn predict -i labels.pkg.slp -m models/my_model/ \
+    --embed true --image_format jpg --image_quality 90
+```
+
+`--image_format` and `--image_quality` only apply when frames are embedded.
+With `--embed false` (the default) `predict` warns before any model loads and
+the options change nothing; routes that never embed frames (`--stream-to-file`,
+the re-ID embedding route, `track` and `detect-boxes`) refuse them. With only
+`--output_format analysis_h5`, `predict` likewise warns up front that the save
+options have no effect. `predict` takes `--slp_version`, `--compression` and
+`--unlabeled_as` on every route that writes a `.slp` (including
+`--stream-to-file`, track-only and the re-ID embedding route), as do `track` and
+`detect-boxes`. `detect-boxes` offers only `v3` and `auto`, because each box
+keeps a matching score that only SLP 3.0 stores. From Python, pass the same
+names to `sleap_nn.inference.predict` (e.g.
+`predict(..., output_path="out.slp", slp_version="v2")`); there, image options
+without embedding warn at the save.
 
 ---
 
@@ -253,6 +295,91 @@ sleap-nn predict -i video.mp4 \
         --peak_threshold 0.1 \
         --filter_min_instance_score 0.3
     ```
+
+#### Sub-pixel refinement and flip-test
+
+Confidence maps are predicted at the model's output stride, so the highest pixel
+of each map is only accurate to that grid. `--integral_refinement` picks how the
+peak is refined to sub-pixel precision:
+
+| Value | What it does | Used for |
+|-------|--------------|----------|
+| `auto` (default) | `dark` for top-down keypoints, `integral` everywhere else | all models |
+| `dark` | [DARK](https://arxiv.org/abs/1910.06278): blurs the map with the head's training `sigma`, then takes one Newton step on the log map. Exact on a clean Gaussian | one peak per channel: top-down keypoints, single instance |
+| `local` | Moves the peak a quarter pixel towards its higher neighbor | one peak per channel |
+| `integral` | Integral regression over a 5×5 patch (`--integral_patch_size`) | all models |
+| `none` | Grid-aligned peaks | all models |
+
+`dark` and `local` need exactly one peak per channel. On a top-down pipeline they
+refine the keypoints, while the centroid stage keeps `integral`. Bottom-up models
+reject them.
+
+!!! warning "Changed in 0.4.0"
+    Top-down keypoints (`centered_instance`, `multi_class_topdown`) now decode with
+    DARK by default instead of integral regression, so predictions from existing
+    top-down models shift by a fraction of an output-stride pixel. Pass
+    `--integral_refinement integral` to get the previous decoding back. Other model
+    types are unchanged.
+
+On synthetic Gaussian maps (stride 4, σ 2, error in input pixels), integral 5×5
+truncates the Gaussian and lands 0.90 px from the truth on clean maps, while DARK
+is exact. On noisy maps the errors are 1.54 px and 0.72 px
+(`scripts/benchmark_peak_refinement.py`).
+
+`--flip_test` also runs the centered-instance model on the horizontally mirrored
+crops. It swaps left/right channels using the skeleton's symmetries and averages
+the two confidence maps before decoding:
+
+```bash
+sleap-nn predict -i video.mp4 -m models/centroid/ -m models/centered_instance/ \
+    --flip_test
+```
+
+- It doubles the centered-instance compute.
+- It helps models trained with flip augmentation (`flip_p > 0`). A model that
+  never saw mirrored animals can get worse.
+- It needs **skeleton symmetries** for any left/right node pairs. If the skeleton
+  has none, the maps are averaged channel for channel and a warning is logged.
+  That is only correct when no node has a left/right partner.
+- It is available for `centered_instance` models only, including box-seeded
+  top-down with a `bbox_*` detector. Other model types refuse the flag.
+
+!!! note "Exported models"
+    ONNX/TensorRT exports bake grid peak finding into the graph and do no sub-pixel
+    refinement. `--integral_refinement` has no effect on them and `--flip_test` is
+    refused.
+
+#### Predicting a subset of nodes
+
+A model trained on a merged skeleton, e.g. one per-dataset channel block
+`<dataset>/<node>` for many datasets, predicts every channel by default.
+`--nodes` (node names, repeat the flag or comma-separate) or `--node_prefix` (every
+node whose name starts with it) keeps only some of them:
+
+```bash
+sleap-nn predict -i video.mp4 -m models/centroid/ -m models/centered_instance/ \
+    --node_prefix lab_a/ --strip_prefix
+```
+
+- The confmap head's output convolution is sliced to the kept channels when the
+  model is loaded, so the other confidence maps are never computed. Kept channels
+  equal the same channels of the full model up to float rounding (bit-identical
+  on Linux CPU), and so do their predictions.
+- The output skeleton keeps the kept nodes, the edges and symmetries between them,
+  and `--flip_test` swaps channels from the restricted symmetries. Flip-test needs
+  both nodes of each kept symmetric pair.
+- `--strip_prefix` writes the `--node_prefix` nodes under their own names
+  (`lab_a/nose` -> `nose`).
+- For `single_instance` and `centered_instance` models. Other model types refuse
+  the flags. For an ONNX/TensorRT model, export it filtered (`sleap-nn export
+  --nodes/--node-prefix`).
+
+On CPU, a 300-channel centered-instance head (UNet, 32 filters, 192x192 crops,
+batch 16) filtered to 15 channels cuts the network forward from 3.07 s to 2.52 s
+per batch on one thread (-18%) and DARK peak finding from 92 ms to 5 ms.
+
+In Python: `Predictor.from_model_paths(..., node_filter="lab_a/",
+strip_prefix=True)` or `load_model_assets(..., node_filter=[...])`.
 
 ### Bottom-Up Segmentation
 
