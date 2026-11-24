@@ -80,10 +80,16 @@ def _pad_to_stride_traced(x: torch.Tensor, max_stride: int) -> torch.Tensor:
     a size divisible by its stride, where the padding decisions frozen at trace time
     are right. The pad is zero, and the values unchanged, for frames that are already
     a multiple of ``max_stride``.
+
+    Computed via integer ceiling division (``ceil(n / s) * s - n``) rather than
+    modulo: TensorRT 11's Myelin shape solver loses the non-negative lower bound
+    through ONNX ``Mod`` when ``x`` already comes from an in-graph resize
+    (``input_scale != 1.0``), causing ``up_interpolate=True`` decoder ``Resize``
+    nodes to fail engine compilation with a negative-dimension error.
     """
     h, w = x.shape[-2], x.shape[-1]
-    pad_h = (max_stride - h % max_stride) % max_stride
-    pad_w = (max_stride - w % max_stride) % max_stride
+    pad_h = ((h + (max_stride - 1)) // max_stride) * max_stride - h
+    pad_w = ((w + (max_stride - 1)) // max_stride) * max_stride - w
     return torch.nn.functional.pad(x, (0, pad_w, 0, pad_h))
 
 

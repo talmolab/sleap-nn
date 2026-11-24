@@ -282,3 +282,180 @@ def test_fp16_engine_keeps_the_absent_peak_sentinel(
     backend = TensorRTBackend(engine_path=str(out / "model.trt"), device="cuda")
     vals = backend(torch.zeros(1, 1, 384, 384, dtype=torch.uint8, device="cuda"))[key]
     assert torch.all(vals == -1e9), vals  # a blank frame: every slot is empty
+
+
+@pytest.mark.parametrize("precision", ["fp32", "fp16"])
+def test_unet_up_interpolate_with_input_scale_builds_and_runs_in_tensorrt(
+    tmp_path, precision
+):
+    """Build and run TRT engines for up_interpolate=True UNet with input_scale=0.5.
+
+    Regression guard for TensorRT 11 Myelin negative-dimension Resize errors when
+    in-graph input scaling feeds into stride padding.
+    """
+    from .conftest import _has_tensorrt
+
+    if not (torch.cuda.is_available() and _has_tensorrt()):
+        pytest.skip("needs CUDA and TensorRT")
+    ort = pytest.importorskip("onnxruntime")
+    import numpy as np
+    from omegaconf import OmegaConf
+
+    from sleap_nn.architectures.model import Model
+    from sleap_nn.export.exporters.tensorrt_exporter import export_to_tensorrt
+    from sleap_nn.export.wrappers.single_instance import SingleInstanceONNXWrapper
+    from sleap_nn.inference.layers.backends import TensorRTBackend
+
+    head = OmegaConf.create(
+        {
+            "confmaps": {
+                "part_names": ["a", "b"],
+                "sigma": 2.5,
+                "output_stride": 2,
+                "loss_weight": 1.0,
+            }
+        }
+    )
+    cfg = OmegaConf.create(
+        {
+            "in_channels": 1,
+            "kernel_size": 3,
+            "filters": 8,
+            "filters_rate": 1.5,
+            "max_stride": 16,
+            "stem_stride": None,
+            "middle_block": True,
+            "up_interpolate": True,
+            "stacks": 1,
+            "convs_per_block": 2,
+            "output_stride": 2,
+        }
+    )
+    torch.manual_seed(0)
+    model = Model("unet", cfg, head, "single_instance").eval()
+    wrapper = SingleInstanceONNXWrapper(
+        model, output_stride=2, input_scale=0.5, peak_threshold=0.0
+    ).eval()
+
+    trt_path = tmp_path / f"unet_s05_{precision}.trt"
+    export_to_tensorrt(
+        wrapper,
+        trt_path,
+        input_shape=(1, 1, 384, 384),
+        min_shape=(1, 1, 192, 192),
+        opt_shape=(1, 1, 384, 384),
+        max_shape=(2, 1, 768, 768),
+        precision=precision,
+        verbose=False,
+    )
+    onnx_path = trt_path.with_suffix(".onnx")
+    sess = ort.InferenceSession(str(onnx_path), providers=["CPUExecutionProvider"])
+    in_name = sess.get_inputs()[0].name
+    out_names = [o.name for o in sess.get_outputs()]
+    backend = TensorRTBackend(engine_path=str(trt_path), device="cuda")
+
+    rng = np.random.default_rng(0)
+    # Traced divisible shape, odd non-multiple shape, and batch=2 non-multiple shape.
+    for shape in [(1, 1, 384, 384), (1, 1, 370, 390), (2, 1, 200, 210)]:
+        x_np = rng.integers(0, 256, shape, dtype=np.uint8)
+        ort_out = dict(zip(out_names, sess.run(None, {in_name: x_np})))
+        trt_out = backend(torch.from_numpy(x_np).cuda())
+        assert set(trt_out.keys()) == set(ort_out.keys())
+        for k in out_names:
+            assert tuple(trt_out[k].shape) == tuple(ort_out[k].shape), (shape, k)
+            assert torch.isfinite(trt_out[k].float()).all(), (shape, k)
+        if precision == "fp32":
+            np.testing.assert_allclose(
+                trt_out["peaks"].cpu().numpy(),
+                ort_out["peaks"],
+                atol=1e-4,
+                err_msg=f"{shape} peaks",
+            )
+            np.testing.assert_allclose(
+                trt_out["peak_vals"].cpu().numpy(),
+                ort_out["peak_vals"],
+                atol=1e-4,
+                err_msg=f"{shape} peak_vals",
+            )
+        else:
+            np.testing.assert_allclose(
+                trt_out["peak_vals"].cpu().numpy(),
+                ort_out["peak_vals"],
+                atol=5e-3,
+                err_msg=f"{shape} fp16 peak_vals",
+            )
+
+
+@pytest.mark.parametrize("force_precision", [False, True])
+def test_multi_class_bottomup_real_tensorrt_build_and_inference(
+    monkeypatch, minimal_instance_multi_class_bottomup_ckpt, tmp_path, force_precision
+):
+    """Build and run real TRT CLI exports of minimal_instance_multiclass_bottomup.
+
+    Covers an ``up_interpolate=True, input_scale=0.5`` UNet under both the default
+    fp32 precision fallback and ``--force-precision fp16``.
+    """
+    from .conftest import _has_tensorrt
+
+    if not (torch.cuda.is_available() and _has_tensorrt()):
+        pytest.skip("needs CUDA and TensorRT")
+    ort = pytest.importorskip("onnxruntime")
+    import numpy as np
+
+    import sleap_nn.export.exporters.tensorrt_exporter as te
+    from sleap_nn.export.cli import export
+    from sleap_nn.inference.layers.backends import TensorRTBackend
+
+    monkeypatch.setattr(te, "_WARNED", set())
+    out = tmp_path / ("forced" if force_precision else "fallback")
+    args = [
+        str(minimal_instance_multi_class_bottomup_ckpt),
+        "-o",
+        str(out),
+        "--format",
+        "both",
+        "--precision",
+        "fp16",
+        "--device",
+        "cuda",
+        "--max-batch-size",
+        "2",
+        "--no-verify",
+    ] + (["--force-precision"] if force_precision else [])
+    result = CliRunner().invoke(export, args)
+    assert result.exit_code == 0, result.output + str(result.exception)
+    assert "does not reproduce its fp32 graph" in result.output
+
+    meta = json.loads((out / "model.trt.metadata.json").read_text())
+    if force_precision:
+        if meta["typing"] == "weak" and meta["precision"] != "fp16":
+            pytest.skip("no fast fp16 on this GPU")
+        assert meta["precision"] == "fp16"
+    else:
+        assert meta["precision"] == "fp32"
+        assert meta["precision_requested"] == "fp16"
+        assert "precision_fallback" in meta
+
+    sess = ort.InferenceSession(
+        str(out / "model.onnx"), providers=["CPUExecutionProvider"]
+    )
+    in_name = sess.get_inputs()[0].name
+    out_names = [o.name for o in sess.get_outputs()]
+    backend = TensorRTBackend(engine_path=str(out / "model.trt"), device="cuda")
+
+    rng = np.random.default_rng(7)
+    for shape in [(1, 1, 384, 384), (1, 1, 370, 390)]:
+        x_np = rng.integers(0, 256, shape, dtype=np.uint8)
+        ort_out = dict(zip(out_names, sess.run(None, {in_name: x_np})))
+        trt_out = backend(torch.from_numpy(x_np).cuda())
+        assert set(trt_out.keys()) == set(ort_out.keys())
+        for k in out_names:
+            assert tuple(trt_out[k].shape) == tuple(ort_out[k].shape), (shape, k)
+            assert torch.isfinite(trt_out[k].float()).all(), (shape, k)
+        if meta["precision"] == "fp32":
+            np.testing.assert_allclose(
+                trt_out["peak_vals"].cpu().numpy(),
+                ort_out["peak_vals"],
+                atol=1e-4,
+                err_msg=f"{shape} peak_vals",
+            )
