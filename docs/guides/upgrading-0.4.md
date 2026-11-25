@@ -8,12 +8,17 @@ existing option; for the rest, see the release notes.
 Saved configs from 0.3 train and predict as before, except where an item below says
 otherwise.
 
+!!! warning "Requirements & Platform Notes"
+    - **Python 3.11–3.13** is required (`>=3.11,<3.14`; Python 3.10 is no longer supported, and Python 3.14 is not yet supported).
+    - **`sleap-io >= 0.10.0a0, < 0.11.0`** is required for SLP format 3.0 support.
+    - **macOS (Apple Silicon) and PyAV:** `sleap-io[pyav]` pins `av >= 18.1.1` (avoiding `av 19.0.0–19.0.2`), whose prebuilt Apple Silicon (`arm64`) wheels target **macOS 14 (Sonoma) or newer** (`macosx_14_0_arm64`). On **macOS 13 (Ventura) or older on Apple Silicon**, `sleap-nn` automatically skips the `pyav` extra and installs cleanly using OpenCV for local video decoding—no OS upgrade or source build is required. If you need PyAV on macOS 13 or older on Apple Silicon (for AV1 decoding or remote HTTP/S3 video streaming), either install FFmpeg and build PyAV from source (`brew install ffmpeg pkg-config && pip install "sleap-io[pyav]>=0.10.0a0"`), or upgrade to macOS 14+. Intel Macs (`x86_64`), Linux, and Windows include `pyav` automatically.
+
 ## Files and dependencies
 
 - **sleap-io 0.10 is required** (was `>=0.9.3,<0.10`).
-  sleap-io 0.10 reads both `.slp` file layouts: the one SLEAP 1.x and sleap-io 0.9
-  write, and the newer format 3.0, which stores separate *labelled* and *visible*
-  flags per point. By default (`--slp_version auto` or unset), a file whose content
+  sleap-io 0.10 introduces SLP format 3.0, which stores separate *labelled* and
+  *visible* flags per point, and reads both 3.0 and the 2.x layout written by
+  SLEAP 1.x and sleap-io 0.9. By default (`--slp_version auto` or unset), a file whose content
   fits the 2.x layout is written in 2.x, so SLEAP 1.x and sleap-io 0.9 can open it,
   and a file that needs format 3.0 is written as 3.0 with a warning; `--slp_version
   v2` forces the 2.x layout and `--slp_version v3` forces 3.0. `sleap-nn
