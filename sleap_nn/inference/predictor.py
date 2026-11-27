@@ -1116,8 +1116,7 @@ def _resolve_export_runtime(
                 "both`)."
             )
         raise FileNotFoundError(
-            f"No model file found in {export_dir}. "
-            f"Expected model.onnx or model.trt."
+            f"No model file found in {export_dir}. Expected model.onnx or model.trt."
         )
     if runtime == "onnx":
         if not onnx_path.exists():
@@ -2792,7 +2791,17 @@ class Predictor:
         )
         if self.part_stage is not None:
             self.part_stage.reset()
-        outputs_list = list(self._batch_iter(provider, progress_callback, layer=layer))
+        from sleap_nn.inference.preview import PreviewCollector
+
+        preview_collector = PreviewCollector()
+        outputs_list = list(
+            self._batch_iter(
+                provider,
+                progress_callback,
+                layer=layer,
+                preview_collector=preview_collector,
+            )
+        )
         _prov_end = datetime.now()
 
         if not make_labels:
@@ -2878,6 +2887,12 @@ class Predictor:
             provenance, labels, self.tracker_config
         )
 
+        # Attach a single downscaled preview frame captured in-memory during
+        # inference so saved linked .slp files include /preview with zero extra
+        # video decoding (no-op on older sleap-io without PreviewFrame).
+        if hasattr(labels, "preview_frames") and not labels.preview_frames:
+            labels.preview_frames = preview_collector.to_preview_frames(labels.videos)
+
         # Post-run summary (#610). Segmentation emits masks (LabeledFrame.masks);
         # everything else emits instances (LabeledFrame.instances).
         n_lf = len(labels.labeled_frames)
@@ -2922,6 +2937,7 @@ class Predictor:
         return_paf_graph: Optional[bool] = None,
         return_class_maps: Optional[bool] = None,
         return_class_vectors: Optional[bool] = None,
+        _preview_collector: Optional[Any] = None,
     ) -> Iterator[Outputs]:
         """Yield one ``Outputs`` per batch from ``source``.
 
@@ -2984,7 +3000,12 @@ class Predictor:
                 provider, progress_callback, layer=layer
             )
             return
-        yield from self._batch_iter(provider, progress_callback, layer=layer)
+        yield from self._batch_iter(
+            provider,
+            progress_callback,
+            layer=layer,
+            preview_collector=_preview_collector,
+        )
 
     # ──────────────────────────────────────────────────────────────────
     # Disk-streaming: write to a .slp incrementally
@@ -3115,9 +3136,14 @@ class Predictor:
             save_options=save_options,
         )
         _prov_start = datetime.now()
+        from sleap_nn.inference.preview import PreviewCollector
+
+        preview_collector = PreviewCollector()
         with writer:
             for outputs in self.predict_streaming(
-                provider, progress_callback=progress_callback
+                provider,
+                progress_callback=progress_callback,
+                _preview_collector=preview_collector,
             ):
                 writer.write(outputs)
             # Attach provenance before the context exit finalizes the .slp, so
@@ -3132,6 +3158,9 @@ class Predictor:
                     "batch_size": self.batch_size,
                     **self._preprocess_provenance_params(),
                 },
+            )
+            writer.preview_frames = preview_collector.to_preview_frames(
+                writer._resolve_videos()
             )
         # Post-run summary (#610). The streaming path drops per-frame objects to
         # keep memory O(window), so report frames / throughput only.
@@ -3330,6 +3359,7 @@ class Predictor:
         provider: Provider,
         progress_callback: Optional[Callable[[int, int], None]] = None,
         layer: Optional[Any] = None,
+        preview_collector: Optional[Any] = None,
     ) -> Iterator[Outputs]:
         """Run ``layer.predict`` + ``FilterPipeline`` per provider batch.
 
@@ -3399,6 +3429,8 @@ class Predictor:
                 )
             outputs = self._stamp_metadata(outputs, batch)
             outputs = self._bulk_outputs_to_cpu(outputs)
+            if preview_collector is not None:
+                preview_collector.observe(batch, outputs)
             yield outputs
             if progress_callback is not None:
                 frames_done += int(batch.images.shape[0])
