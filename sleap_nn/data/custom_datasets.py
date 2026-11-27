@@ -6919,6 +6919,12 @@ class DetrBBoxDataset(BBoxDataset):
         in_hw = tuple(sample["image"].shape[-2:])
         if self.apply_aug and self.detr_aug is not None:
             aug = self.detr_aug
+            # Keep negative/empty primary frames wholly negative by zooming onto
+            # a black canvas rather than pasting onto a positive background frame.
+            use_frame_canvas = (
+                str(aug.get("zoom_out_canvas", "zero") or "zero") == "frame"
+                and boxes.shape[0] > 0
+            )
             sample["image"], boxes, *pts = detr_train_transform(
                 sample["image"],
                 boxes,
@@ -6932,7 +6938,7 @@ class DetrBBoxDataset(BBoxDataset):
                 rot90_p=float(aug.get("rot90_p", 0.0) or 0.0),
                 zoom_out_p=(
                     0.0
-                    if str(aug.get("zoom_out_canvas", "zero") or "zero") == "frame"
+                    if use_frame_canvas
                     else float(aug.get("zoom_out_p", 0.0) or 0.0)
                 ),
                 zoom_out_range=(
@@ -6941,7 +6947,7 @@ class DetrBBoxDataset(BBoxDataset):
                 ),
                 **(dict(points=pts[0], flip_order=self._kpt_flip_order) if kpt else {}),
             )
-            if str(aug.get("zoom_out_canvas", "zero") or "zero") == "frame":
+            if use_frame_canvas:
                 p_zo = float(aug.get("zoom_out_p", 0.0) or 0.0)
                 if p_zo > 0 and float(torch.rand(())) < p_zo:
                     sample["image"], boxes, sample["_classes"], *pts = (
