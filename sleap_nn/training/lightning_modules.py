@@ -1414,9 +1414,23 @@ class LightningModel(L.LightningModule):
         node_weights = self._get_node_weights(batch, n_nodes, X.device)
         terms = distiller.loss_terms(X, outputs, backbone_outputs, batch, node_weights)
         r = distiller.weight(self.global_step, distiller.total_steps(self._trainer))
+        self.log(
+            "train/distill_sup_loss",
+            loss.detach(),
+            on_step=False,
+            on_epoch=True,
+            sync_dist=True,
+        )
         for key, value in terms.items():
             self.log(
                 f"train/distill_{key}",
+                value,
+                on_step=False,
+                on_epoch=True,
+                sync_dist=True,
+            )
+            self.log(
+                f"train/distill_{key}_loss",
                 value,
                 on_step=False,
                 on_epoch=True,
@@ -5495,9 +5509,23 @@ class _BBoxLightningModel(LightningModel):
             return loss
         terms, n_boxes = distiller.box_loss_terms(self, X, outputs, backbone_outputs)
         r = distiller.weight(self.global_step, distiller.total_steps(self._trainer))
+        self.log(
+            "train/distill_sup_loss",
+            loss.detach(),
+            on_step=False,
+            on_epoch=True,
+            sync_dist=True,
+        )
         for key, value in terms.items():
             self.log(
                 f"train/distill_{key}",
+                value,
+                on_step=False,
+                on_epoch=True,
+                sync_dist=True,
+            )
+            self.log(
+                f"train/distill_{key}_loss",
                 value,
                 on_step=False,
                 on_epoch=True,

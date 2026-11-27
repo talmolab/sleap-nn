@@ -674,19 +674,46 @@ def test_keypoint_detr_trains_saves_loads_and_predicts(
     assert outputs.pred_keypoints.shape[:2] == outputs.pred_bboxes.shape[:2]
     assert outputs.pred_keypoints.shape[2:] == (2, 2)
 
-    # Export refuses the keypoint branch with a clear message.
-    from click.testing import CliRunner
+    # Export supports the 4-tensor keypoint branch (pred_logits, pred_boxes,
+    # pred_keypoints, pred_keypoint_logits).
+    import importlib.util
 
-    from sleap_nn.export.cli import export as export_cmd
-
-    result = CliRunner().invoke(
-        export_cmd, [run_dir.as_posix(), "-o", (tmp_path / "exp").as_posix()]
-    )
-    assert result.exit_code != 0 and "keypoints" in result.output
     from sleap_nn.export.wrappers.bbox import BBoxONNXWrapper
 
-    with pytest.raises(ValueError, match="keypoint"):
-        BBoxONNXWrapper(module.model, model_type="bbox_detr")
+    wrapper = BBoxONNXWrapper(module.model, model_type="bbox_detr").eval()
+    assert wrapper.has_keypoints is True
+    assert wrapper.output_names == [
+        "pred_logits",
+        "pred_boxes",
+        "pred_keypoints",
+        "pred_keypoint_logits",
+    ]
+    sample_in = torch.zeros(1, 3, 96, 96, dtype=torch.float32)
+    with torch.no_grad():
+        wrapped_out = wrapper(sample_in)
+    assert list(wrapped_out.keys()) == wrapper.output_names
+
+    if importlib.util.find_spec("onnx") is not None:
+        from click.testing import CliRunner
+        import onnx
+
+        from sleap_nn.export.cli import export as export_cmd
+
+        exp_dir = tmp_path / "exp"
+        result = CliRunner().invoke(
+            export_cmd, [run_dir.as_posix(), "-o", exp_dir.as_posix()]
+        )
+        assert result.exit_code == 0, result.output
+        assert (exp_dir / "model.onnx").exists()
+        graph_outs = [
+            o.name for o in onnx.load(str(exp_dir / "model.onnx")).graph.output
+        ]
+        assert graph_outs == [
+            "pred_logits",
+            "pred_boxes",
+            "pred_keypoints",
+            "pred_keypoint_logits",
+        ]
 
 
 def test_box_distillation_refuses_a_keypoint_student():

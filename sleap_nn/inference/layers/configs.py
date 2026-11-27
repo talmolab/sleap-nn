@@ -106,6 +106,7 @@ class PostprocessConfig:
     integral_patch_size: int = 5
     dark_blur_sigma: float = 1.0
     max_instances: Optional[int] = None
+    bbox_vis_beta: Optional[float] = None
 
     return_confmaps: bool = False
     return_pafs: bool = False

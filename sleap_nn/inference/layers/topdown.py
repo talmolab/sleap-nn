@@ -217,13 +217,27 @@ class TopDownLayer:
         )
         if boxes is not None and not self.centroid_layer.use_gt_centroids:
             # Keep the detections that seeded the crops (packaged as
-            # PredictedBoundingBox, linked to the instances they produced).
+            # PredictedBoundingBox, linked to the instances they produced),
+            # plus any canonical detector keypoints/visibilities for downstream use.
             device = (
                 out.pred_keypoints.device
                 if out.pred_keypoints is not None
                 else boxes.device
             )
             keep = valid_mask.to(boxes.device)
+            extra = {}
+            if centroid_out.pred_bbox_keypoints is not None:
+                extra["pred_bbox_keypoints"] = (
+                    centroid_out.pred_bbox_keypoints.masked_fill(
+                        ~keep[..., None, None], float("nan")
+                    ).to(device)
+                )
+            if centroid_out.pred_bbox_keypoint_vis is not None:
+                extra["pred_bbox_keypoint_vis"] = (
+                    centroid_out.pred_bbox_keypoint_vis.masked_fill(
+                        ~keep[..., None], float("nan")
+                    ).to(device)
+                )
             out = attrs.evolve(
                 out,
                 pred_bboxes=boxes.masked_fill(~keep[..., None], float("nan")).to(
@@ -235,6 +249,7 @@ class TopDownLayer:
                 pred_bbox_classes=centroid_out.pred_bbox_classes.masked_fill(
                     ~keep, -1
                 ).to(device),
+                **extra,
             )
         return out
 

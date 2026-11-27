@@ -898,6 +898,12 @@ class DistillationConfig:
         ),
     )
     mask_unlabeled_nodes: bool = True
+    canonical_node_indices: Optional[List[int]] = field(
+        default=None,
+        validator=lambda instance, attr, value: instance.validate_canonical_node_indices(
+            attr, value
+        ),
+    )
     trainable: Optional[List[str]] = None
     teacher_precision: str = field(
         default="bf16", validator=validators.in_(["bf16", "32"])
@@ -905,6 +911,22 @@ class DistillationConfig:
     teacher_score_threshold: float = field(
         default=0.5, validator=[validators.ge(0), validators.le(1)]
     )
+
+    def validate_canonical_node_indices(self, attr=None, value=None):
+        """Validate ``canonical_node_indices``: None or a list of non-negative ints."""
+        if value is None:
+            return
+        if isinstance(value, (str, bytes)) or not hasattr(value, "__iter__"):
+            raise ValueError(
+                "trainer_config.distillation.canonical_node_indices must be a list of "
+                f"non-negative ints (or None), got {value!r}."
+            )
+        for item in value:
+            if isinstance(item, bool) or not isinstance(item, int) or item < 0:
+                raise ValueError(
+                    "trainer_config.distillation.canonical_node_indices entries must be "
+                    f"non-negative ints, got {item!r}."
+                )
 
     def validate_teacher_crop_size(self, attr=None, new=None):
         """`teacher_crop_size`: an int or `[height, width]`, stage 1 only.

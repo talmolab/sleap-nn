@@ -354,14 +354,19 @@ def decode_set(
     num_select: int = 300,
     max_detections: int = DEFAULT_MAX_DETECTIONS,
     iou_threshold: Optional[float] = None,
+    pred_keypoint_logits: Optional[torch.Tensor] = None,
+    bbox_vis_beta: float = 0.0,
 ) -> _Decoded:
     """Decode DETR set predictions into boxes (RF-DETR's ``PostProcess``).
 
     Scores are the sigmoid of every (query, real class) logit; the extra last logit
-    of the ``num_classes + 1`` is dropped. The ``num_select`` highest-scoring
-    pairs are kept (one query can yield several classes), then thresholded. Boxes
-    are normalized ``cxcywh`` relative to the model input and come out as ``xyxy``
-    in its pixels.
+    of the ``num_classes + 1`` is dropped. When ``bbox_vis_beta > 0`` and
+    ``pred_keypoint_logits`` is provided, each query's class scores are multiplied
+    by ``mean(sigmoid(pred_keypoint_logits)) ** bbox_vis_beta`` (``vis_mult``
+    anatomical visibility rescoring) before top-k selection, thresholding and NMS.
+    The ``num_select`` highest-scoring pairs are kept (one query can yield several
+    classes), then thresholded. Boxes are normalized ``cxcywh`` relative to the
+    model input and come out as ``xyxy`` in its pixels.
 
     Args:
         pred_logits: ``(B, Q, C + 1)`` class logits.
@@ -372,11 +377,22 @@ def decode_set(
         max_detections: Detections kept per frame.
         iou_threshold: Optional class-wise IoU-NMS (``None``, the default, keeps
             DETR's NMS-free output).
+        pred_keypoint_logits: Optional ``(B, Q, K)`` keypoint visibility logits
+            for visibility rescoring when ``bbox_vis_beta > 0``.
+        bbox_vis_beta: Exponent for multiplicative visibility rescoring
+            ``p_det * (mean_kpt_vis ** bbox_vis_beta)``. ``0.0`` (default) keeps
+            the raw detection probabilities unchanged.
 
     Returns:
         Padded ``(boxes, scores, classes)`` in input pixels.
     """
+    vis_beta = float(bbox_vis_beta)
+    if vis_beta < 0.0:
+        raise ValueError(f"bbox_vis_beta must be >= 0, got {bbox_vis_beta!r}.")
     probs = pred_logits[..., :-1].float().sigmoid()
+    if vis_beta > 0.0 and pred_keypoint_logits is not None:
+        mean_kpt_vis = pred_keypoint_logits.float().sigmoid().mean(dim=-1)
+        probs = probs * (mean_kpt_vis[..., None] ** vis_beta)
     b, q, c = probs.shape
     k = min(int(num_select), q * c)
     scores, inds = probs.reshape(b, -1).topk(k, dim=1)
@@ -411,6 +427,7 @@ def decode_set_keypoints(
     max_detections: int = DEFAULT_MAX_DETECTIONS,
     iou_threshold: Optional[float] = None,
     visibility_threshold: float = 0.5,
+    bbox_vis_beta: float = 0.0,
 ) -> Tuple[torch.Tensor, ...]:
     """Decode a keypoint ``bbox_detr``'s set predictions: one detection per query.
 
@@ -418,7 +435,9 @@ def decode_set_keypoints(
     highest-scoring class, so each animal gives one instance (its points are the
     query's). The ``num_select`` best queries are then thresholded, filtered and
     capped exactly as in :func:`decode_set`; with one class the detections are
-    the same.
+    the same. When ``bbox_vis_beta > 0``, detection scores are rescored as
+    ``p_det * (mean_kpt_vis ** bbox_vis_beta)`` while ``point_scores`` still
+    carries the raw per-keypoint visibility probabilities.
 
     Args:
         pred_logits: ``(B, Q, C + 1)`` class logits.
@@ -432,6 +451,9 @@ def decode_set_keypoints(
         iou_threshold: Optional class-wise IoU-NMS.
         visibility_threshold: Points whose visibility probability is below this
             are NaN.
+        bbox_vis_beta: Exponent for multiplicative visibility rescoring
+            ``p_det * (mean_kpt_vis ** bbox_vis_beta)``. ``0.0`` (default)
+            leaves raw detection probabilities unchanged.
 
     Returns:
         ``(boxes, scores, classes, points, point_scores)``: as
@@ -439,7 +461,14 @@ def decode_set_keypoints(
         ``point_scores (B, M, K)`` (visibility probabilities), NaN in unused
         slots.
     """
+    vis_beta = float(bbox_vis_beta)
+    if vis_beta < 0.0:
+        raise ValueError(f"bbox_vis_beta must be >= 0, got {bbox_vis_beta!r}.")
     probs = pred_logits[..., :-1].float().sigmoid()
+    vis_all = pred_keypoint_logits.float().sigmoid()
+    if vis_beta > 0.0:
+        mean_kpt_vis = vis_all.mean(dim=-1)
+        probs = probs * (mean_kpt_vis[..., None] ** vis_beta)
     b, q, _ = probs.shape
     n_kpts = pred_keypoints.shape[-2]
     best, best_class = probs.max(-1)
@@ -454,11 +483,7 @@ def decode_set_keypoints(
         )
         * pred_keypoints.new_tensor([img_w, img_h]).float()
     )
-    vis = (
-        pred_keypoint_logits.float()
-        .sigmoid()
-        .gather(1, queries[..., None].expand(b, k, n_kpts))
-    )
+    vis = vis_all.gather(1, queries[..., None].expand(b, k, n_kpts))
     points = points.masked_fill((vis < visibility_threshold)[..., None], float("nan"))
     sel, sel_valid = _select_set_detections_batched(
         boxes,
@@ -500,6 +525,7 @@ class BBoxDecoder:
 
     num_keypoints = 0
     visibility_threshold = 0.5
+    bbox_vis_beta = 0.0
 
     def __init__(
         self,
@@ -513,12 +539,15 @@ class BBoxDecoder:
         num_select: int = 300,
         num_keypoints: int = 0,
         visibility_threshold: float = 0.5,
+        bbox_vis_beta: float = 0.0,
     ):
         """Initialize the decoder."""
         if model_type not in DEFAULT_NMS_IOU:
             raise ValueError(f"{model_type} is not a bounding-box model type.")
         if model_type == "bbox_ssd" and anchor_encoder is None:
             raise ValueError("An SSD decoder needs its anchor_encoder.")
+        if float(bbox_vis_beta) < 0.0:
+            raise ValueError(f"bbox_vis_beta must be >= 0, got {bbox_vis_beta!r}.")
         self.model_type = model_type
         self.categories = list(categories)
         self.output_stride = int(output_stride)
@@ -527,6 +556,7 @@ class BBoxDecoder:
         self.max_detections = int(max_detections)
         self.anchor_encoder = anchor_encoder
         self.num_select = int(num_select)
+        self.bbox_vis_beta = float(bbox_vis_beta)
         if num_keypoints:  # A box detector keeps the class defaults below.
             self.num_keypoints = int(num_keypoints)
             self.visibility_threshold = float(visibility_threshold)
@@ -539,6 +569,7 @@ class BBoxDecoder:
         score_threshold: float = 0.2,
         iou_threshold: Union[float, str, None] = "default",
         max_detections: Optional[int] = None,
+        bbox_vis_beta: float = 0.0,
     ) -> "BBoxDecoder":
         """Build the decoder of a trained model from its ``head_configs``.
 
@@ -577,6 +608,7 @@ class BBoxDecoder:
             max_detections=max_detections or DEFAULT_MAX_DETECTIONS,
             anchor_encoder=anchor_encoder,
             num_select=num_select,
+            bbox_vis_beta=bbox_vis_beta,
             **keypoint_kwargs,
         )
 
@@ -586,6 +618,7 @@ class BBoxDecoder:
         img_hw: Tuple[int, int],
         score_threshold: Optional[float] = None,
         max_detections: Optional[int] = None,
+        bbox_vis_beta: Optional[float] = None,
     ) -> Tuple[torch.Tensor, ...]:
         """Decode a keypoint ``bbox_detr``'s outputs: boxes and their keypoints.
 
@@ -595,6 +628,7 @@ class BBoxDecoder:
         """
         thr = self.score_threshold if score_threshold is None else score_threshold
         k = self.max_detections if max_detections is None else int(max_detections)
+        vis_beta = self.bbox_vis_beta if bbox_vis_beta is None else float(bbox_vis_beta)
         return decode_set_keypoints(
             outputs["pred_logits"],
             outputs["pred_boxes"],
@@ -606,6 +640,7 @@ class BBoxDecoder:
             max_detections=k,
             iou_threshold=self.iou_threshold,
             visibility_threshold=self.visibility_threshold,
+            bbox_vis_beta=vis_beta,
         )
 
     def __call__(
@@ -614,6 +649,7 @@ class BBoxDecoder:
         img_hw: Tuple[int, int],
         score_threshold: Optional[float] = None,
         max_detections: Optional[int] = None,
+        bbox_vis_beta: Optional[float] = None,
     ) -> _Decoded:
         """Decode a batch of head outputs (probabilities for CenterNet's heatmap).
 
@@ -621,16 +657,19 @@ class BBoxDecoder:
             outputs: The model's head-name -> tensor dict. CenterNet expects
                 ``BBoxCenterHead`` as probabilities (the module ``forward`` applies
                 the sigmoid); SSD expects the raw ``SSDHead`` tensor; DETR expects
-                ``pred_logits`` and ``pred_boxes``.
+                ``pred_logits`` and ``pred_boxes`` (plus optional
+                ``pred_keypoint_logits`` when ``bbox_vis_beta > 0``).
             img_hw: Model-input ``(H, W)``.
             score_threshold: Per-call override of the score threshold.
             max_detections: Per-call override of the detections kept per frame.
+            bbox_vis_beta: Per-call override of the visibility rescoring exponent.
 
         Returns:
             Padded ``(boxes, scores, classes)`` in model-input pixels.
         """
         thr = self.score_threshold if score_threshold is None else score_threshold
         k = self.max_detections if max_detections is None else int(max_detections)
+        vis_beta = self.bbox_vis_beta if bbox_vis_beta is None else float(bbox_vis_beta)
         if self.model_type == "bbox_centernet":
             return decode_centernet(
                 outputs["BBoxCenterHead"],
@@ -651,6 +690,8 @@ class BBoxDecoder:
                 num_select=self.num_select,
                 max_detections=k,
                 iou_threshold=self.iou_threshold,
+                pred_keypoint_logits=outputs.get("pred_keypoint_logits"),
+                bbox_vis_beta=vis_beta,
             )
         return decode_ssd(
             outputs["SSDHead"],

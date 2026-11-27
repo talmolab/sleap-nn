@@ -131,6 +131,7 @@ class BBoxLayer(InferenceLayer):
             (the box scores), slot for slot with the boxes.
         """
         points = point_scores = None
+        vis_beta = getattr(self.postprocess_config, "bbox_vis_beta", None)
         if getattr(self.decoder, "num_keypoints", 0) and "pred_keypoints" in raw_out:
             boxes, scores, classes, points, point_scores = (
                 self.decoder.decode_keypoints(
@@ -138,6 +139,7 @@ class BBoxLayer(InferenceLayer):
                     img_hw=tuple(info.processed_size),
                     score_threshold=self.postprocess_config.peak_threshold,
                     max_detections=self.postprocess_config.max_instances,
+                    bbox_vis_beta=vis_beta,
                 )
             )
         else:
@@ -146,6 +148,7 @@ class BBoxLayer(InferenceLayer):
                 img_hw=tuple(info.processed_size),
                 score_threshold=self.postprocess_config.peak_threshold,
                 max_detections=self.postprocess_config.max_instances,
+                bbox_vis_beta=vis_beta,
             )
         # Coord ladder on the two corners: model input -> original image.
         corners = boxes.reshape(boxes.shape[0], -1, 2)
@@ -201,6 +204,8 @@ class BBoxLayer(InferenceLayer):
             pred_bboxes=boxes.detach(),
             pred_bbox_scores=scores.detach(),
             pred_bbox_classes=classes.detach(),
+            pred_bbox_keypoints=points.detach(),
+            pred_bbox_keypoint_vis=point_scores.detach(),
             preprocess_info=info,
         )
 
@@ -376,6 +381,7 @@ class BBoxStageLayer(BBoxLayer):
             ``pred_bbox_classes (B, K)`` in original-image pixels; empty slots are
             NaN (class ``-1``).
         """
+        bbox_keypoints = bbox_keypoint_vis = None
         if self.use_given_boxes:
             boxes, scores, classes = self._given_boxes(image, boxes, box_scores)
         elif self.use_gt_boxes:
@@ -400,6 +406,8 @@ class BBoxStageLayer(BBoxLayer):
             out = super().predict(image)
             boxes, scores = out.pred_bboxes, out.pred_bbox_scores
             classes = out.pred_bbox_classes
+            bbox_keypoints = out.pred_bbox_keypoints
+            bbox_keypoint_vis = out.pred_bbox_keypoint_vis
         centers = torch.stack(
             [(boxes[..., 0] + boxes[..., 2]) / 2, (boxes[..., 1] + boxes[..., 3]) / 2],
             dim=-1,
@@ -410,6 +418,8 @@ class BBoxStageLayer(BBoxLayer):
             pred_bboxes=boxes,
             pred_bbox_scores=scores,
             pred_bbox_classes=classes,
+            pred_bbox_keypoints=bbox_keypoints,
+            pred_bbox_keypoint_vis=bbox_keypoint_vis,
         )
 
     def _given_boxes(

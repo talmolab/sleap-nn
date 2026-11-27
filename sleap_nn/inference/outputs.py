@@ -105,9 +105,13 @@ class Outputs:
     # ── Bounding-box detection ───────────────────────────────────────
     # From the `bbox_*` detectors: xyxy boxes in original-image pixels, sorted by
     # descending score per frame; unused slots are NaN (boxes/scores) / -1 (class).
+    # For a keypoint `bbox_detr`, canonical detector keypoints and visibility
+    # probabilities are also preserved alongside boxes for downstream stages.
     pred_bboxes: Optional[torch.Tensor] = None  # (B, I, 4)
     pred_bbox_scores: Optional[torch.Tensor] = None  # (B, I)
     pred_bbox_classes: Optional[torch.Tensor] = None  # (B, I), int64
+    pred_bbox_keypoints: Optional[torch.Tensor] = None  # (B, I, K, 2)
+    pred_bbox_keypoint_vis: Optional[torch.Tensor] = None  # (B, I, K)
 
     # ── Instance-level metadata ──────────────────────────────────────
     instance_scores: Optional[torch.Tensor] = None  # (B, I)

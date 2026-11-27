@@ -48,12 +48,19 @@ class BBoxONNXWrapper(BaseExportWrapper):
         super().__init__(model)
         if model_type not in BBOX_EXPORT_OUTPUTS:
             raise ValueError(f"{model_type} is not a bounding-box model type.")
-        if getattr(getattr(model, "detr", None), "num_keypoints", 0):
-            raise ValueError(
-                "Export of a bbox_detr model with keypoints (the experimental "
-                "keypoint branch) is not supported yet; run it from its checkpoint."
-            )
         self.model_type = model_type
+        self.has_keypoints = bool(
+            model_type == "bbox_detr"
+            and getattr(getattr(model, "detr", None), "num_keypoints", 0)
+        )
+
+    @property
+    def output_names(self) -> list[str]:
+        """Ordered graph output names matching :meth:`forward`."""
+        names = list(BBOX_EXPORT_OUTPUTS[self.model_type])
+        if self.has_keypoints:
+            names.extend(["pred_keypoints", "pred_keypoint_logits"])
+        return names
 
     def forward(self, image: torch.Tensor) -> Dict[str, torch.Tensor]:
         """Run the network and return the decoder-ready head outputs."""
@@ -65,5 +72,9 @@ class BBoxONNXWrapper(BaseExportWrapper):
                 "BBoxOffsetHead": out["BBoxOffsetHead"],
             }
         if self.model_type == "bbox_detr":
-            return {"pred_logits": out["pred_logits"], "pred_boxes": out["pred_boxes"]}
+            res = {"pred_logits": out["pred_logits"], "pred_boxes": out["pred_boxes"]}
+            if self.has_keypoints:
+                res["pred_keypoints"] = out["pred_keypoints"]
+                res["pred_keypoint_logits"] = out["pred_keypoint_logits"]
+            return res
         return {"SSDHead": out["SSDHead"]}

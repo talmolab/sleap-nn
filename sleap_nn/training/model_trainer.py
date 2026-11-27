@@ -3247,6 +3247,15 @@ class ModelTrainer:
                         for metric in ("mOKS", "oks_voc_mAP", "distance/avg")
                     ]
                 )
+            if (
+                OmegaConf.select(
+                    self.config, "trainer_config.distillation", default=None
+                )
+                is not None
+            ):
+                from sleap_nn.training.distillation import distillation_csv_log_keys
+
+                csv_log_keys.extend(distillation_csv_log_keys(self.model_type))
             csv_logger = CSVLoggerCallback(
                 filepath=Path(self.config.trainer_config.ckpt_dir)
                 / self.config.trainer_config.run_name

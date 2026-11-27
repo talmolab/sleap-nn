@@ -95,6 +95,29 @@ DISTILLATION_MODEL_TYPES = POSE_DISTILLATION_MODEL_TYPES + BOX_DISTILLATION_MODE
 CHECKPOINT_KEY = "distillation"
 # State-dict prefix of the distiller inside the LightningModel.
 STATE_PREFIX = "distiller."
+# CSV telemetry columns written to ``training_log.csv`` while distilling.
+POSE_DISTILL_LOG_KEYS = (
+    "train/distill_sup_loss",
+    "train/distill_heatmap_loss",
+    "train/distill_feat_loss",
+    "train/distill_weight",
+)
+BOX_DISTILL_LOG_KEYS = (
+    "train/distill_sup_loss",
+    "train/distill_box_loss",
+    "train/distill_feat_loss",
+    "train/distill_teacher_boxes",
+    "train/distill_weight",
+)
+
+
+def distillation_csv_log_keys(model_type: str) -> List[str]:
+    """Return the ``training_log.csv`` distillation columns for ``model_type``."""
+    if model_type in POSE_DISTILLATION_MODEL_TYPES:
+        return list(POSE_DISTILL_LOG_KEYS)
+    if model_type in BOX_DISTILLATION_MODEL_TYPES:
+        return list(BOX_DISTILL_LOG_KEYS)
+    return []
 
 
 def _resolve_model_dir(path: str) -> Tuple[Path, Path]:
@@ -260,6 +283,7 @@ class Distiller(nn.Module):
         teacher_input_scale: float = 1.0,
         teacher_crop_size: Optional[Tuple[int, int]] = None,
         mask_unlabeled_nodes: bool = True,
+        canonical_node_indices: Optional[Sequence[int]] = None,
         teacher_bf16: bool = True,
         projector: Optional[nn.Module] = None,
         shared_features: bool = False,
@@ -288,6 +312,23 @@ class Distiller(nn.Module):
             else tuple(int(v) for v in teacher_crop_size)
         )
         self.mask_unlabeled_nodes = bool(mask_unlabeled_nodes)
+        if canonical_node_indices is not None:
+            validated = []
+            for idx in canonical_node_indices:
+                if isinstance(idx, bool) or not isinstance(idx, int) or idx < 0:
+                    raise ValueError(
+                        "canonical_node_indices entries must be non-negative ints, "
+                        f"got {idx!r}."
+                    )
+                validated.append(int(idx))
+            self.canonical_node_indices: Optional[Tuple[int, ...]] = tuple(validated)
+            canon_set = set(validated)
+            self._canonical_shared_pos: List[int] = [
+                pos for pos, s_i in enumerate(self.student_idx) if s_i in canon_set
+            ]
+        else:
+            self.canonical_node_indices = None
+            self._canonical_shared_pos = []
         self.teacher_bf16 = bool(teacher_bf16)
         self.projector = projector
         self.shared_features = bool(shared_features)
@@ -410,6 +451,9 @@ class Distiller(nn.Module):
         w = None
         if self.mask_unlabeled_nodes and node_weights is not None:
             w = node_weights[:, self.student_idx]
+            if self._canonical_shared_pos:
+                w = w.clone()
+                w[:, self._canonical_shared_pos] = 1.0
         terms = {"heatmap": compute_weighted_mse_loss(s_cms.float(), t_cms, w)}
         if self.projector is not None and t_feat is not None:
             s_feat = backbone_feature(backbone_outputs)
@@ -908,6 +952,7 @@ def attach_distillation(
             teacher_input_scale=1.0 if teacher_crop is not None else scale,
             teacher_crop_size=teacher_crop,
             mask_unlabeled_nodes=get("mask_unlabeled_nodes", True),
+            canonical_node_indices=get("canonical_node_indices"),
             teacher_bf16=get("teacher_precision", "bf16") == "bf16",
             projector=projector,
         )
@@ -958,6 +1003,7 @@ def attach_distillation(
             supervised_weight=get("supervised_weight"),
             decay=get("decay"),
             mask_unlabeled_nodes=get("mask_unlabeled_nodes", True),
+            canonical_node_indices=get("canonical_node_indices"),
             teacher_bf16=get("teacher_precision", "bf16") == "bf16",
             shared_features=frozen_backbone,
             frozen_backbone=frozen_backbone,
