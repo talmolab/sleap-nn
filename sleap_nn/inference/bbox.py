@@ -580,9 +580,7 @@ class BBoxDecoder:
         """
         thr = self.score_threshold if score_threshold is None else score_threshold
         k = self.max_detections if max_detections is None else int(max_detections)
-        vis_beta = (
-            self.bbox_vis_beta if bbox_vis_beta is None else float(bbox_vis_beta)
-        )
+        vis_beta = self.bbox_vis_beta if bbox_vis_beta is None else float(bbox_vis_beta)
         return decode_set_keypoints(
             outputs["pred_logits"],
             outputs["pred_boxes"],
@@ -623,9 +621,7 @@ class BBoxDecoder:
         """
         thr = self.score_threshold if score_threshold is None else score_threshold
         k = self.max_detections if max_detections is None else int(max_detections)
-        vis_beta = (
-            self.bbox_vis_beta if bbox_vis_beta is None else float(bbox_vis_beta)
-        )
+        vis_beta = self.bbox_vis_beta if bbox_vis_beta is None else float(bbox_vis_beta)
         if self.model_type == "bbox_centernet":
             return decode_centernet(
                 outputs["BBoxCenterHead"],

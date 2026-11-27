@@ -9,7 +9,6 @@ import pytest
 import torch
 import torch.nn as nn
 
-
 # ─────────────────────────────────────────────────────────────────────────────
 # Negative/empty primary frames under zoom_out_canvas="frame"
 # ─────────────────────────────────────────────────────────────────────────────
@@ -17,9 +16,15 @@ import torch.nn as nn
 
 def test_detr_bbox_dataset_negative_frame_stays_empty_under_frame_canvas(monkeypatch):
     """Empty primary frames zoom onto a black canvas instead of pasting onto positive frames."""
+    from sleap_nn.data import custom_datasets
     from sleap_nn.data.custom_datasets import DetrBBoxDataset
 
     ds = DetrBBoxDataset.__new__(DetrBBoxDataset)
+    ds.ensure_rgb = False
+    ds.ensure_grayscale = False
+    ds.intensity_aug = None
+    ds.geometric_aug = None
+    ds.max_stride = 1
     ds.apply_aug = True
     ds.detr_aug = {
         "crop_p": 0.0,
@@ -36,34 +41,38 @@ def test_detr_bbox_dataset_negative_frame_stays_empty_under_frame_canvas(monkeyp
     }
     ds.train_hw = (64, 64)
     ds.resize_mode = "letterbox"
-    ds._kpt_names = ()
+    ds._kpt_names = None
     ds._kpt_flip_order = ()
     ds._capture_hulls = False
+
+    seen_zoom_out_p = []
+    real_detr_train_transform = custom_datasets.detr_train_transform
+
+    def _spy_detr_train_transform(*args, **kwargs):
+        seen_zoom_out_p.append(kwargs.get("zoom_out_p"))
+        return real_detr_train_transform(*args, **kwargs)
+
+    monkeypatch.setattr(
+        custom_datasets, "detr_train_transform", _spy_detr_train_transform
+    )
 
     zoom_on_frame_mock = MagicMock(
         side_effect=AssertionError("_zoom_out_on_frame must not run for empty frames")
     )
     ds._zoom_out_on_frame = zoom_on_frame_mock
 
-    # Stub super().__getitem__ (BBoxDataset.__getitem__) to return an empty frame.
     empty_sample = {
         "image": torch.full((1, 3, 64, 64), 128, dtype=torch.uint8),
         "instances": torch.empty((1, 0, 4, 2), dtype=torch.float32),
         "_classes": torch.empty((0,), dtype=torch.long),
     }
-    monkeypatch.setattr(
-        DetrBBoxDataset.__mro__[1],
-        "__getitem__",
-        lambda self, idx: {
-            k: v.clone() if isinstance(v, torch.Tensor) else v
-            for k, v in empty_sample.items()
-        },
-    )
-
-    out = ds[0]
+    out = ds._apply_common_preprocessing(empty_sample)
     zoom_on_frame_mock.assert_not_called()
+    assert seen_zoom_out_p == [1.0]
     assert out["instances"].shape == (1, 0, 4, 2)
     assert out["_classes"].shape == (0,)
+    # Black canvas padding appeared from zero-canvas zoom-out on the empty frame.
+    assert (out["image"] == 0).any()
 
     # Positive frame with boxes DOES use _zoom_out_on_frame when zoom_out_canvas="frame".
     called = []
@@ -82,15 +91,8 @@ def test_detr_bbox_dataset_negative_frame_stays_empty_under_frame_canvas(monkeyp
         "instances": pos_corners,
         "_classes": torch.tensor([0], dtype=torch.long),
     }
-    monkeypatch.setattr(
-        DetrBBoxDataset.__mro__[1],
-        "__getitem__",
-        lambda self, idx: {
-            k: v.clone() if isinstance(v, torch.Tensor) else v
-            for k, v in pos_sample.items()
-        },
-    )
-    out_pos = ds[0]
+    out_pos = ds._apply_common_preprocessing(pos_sample)
+    assert seen_zoom_out_p == [1.0, 0.0]
     assert len(called) == 1
     assert called[0][0] == 1
     assert out_pos["instances"].shape[1] == 1
