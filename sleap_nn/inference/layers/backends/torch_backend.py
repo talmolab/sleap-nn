@@ -42,6 +42,14 @@ import torch.nn as nn
 #: What a backend's ``autocast_dtype`` covers (``TorchBackend.autocast_scope``).
 AUTOCAST_SCOPES = ("all", "encoder")
 
+#: Power-of-2 batch-size ladder for compiled forwards.
+#: Each batch of size ``n <= max(COMPILE_BATCH_BUCKETS)`` is padded up to the
+#: smallest bucket ``>= n``; larger batches (e.g. dense multi-animal crops) are
+#: chunked into ``max_bucket`` compiled slices (with any remainder snapped to
+#: its own power-of-2 bucket) so a single burst frame never locks padding
+#: permanently, wastes >2x compute on oversized power-of-2 padding, or OOMs.
+COMPILE_BATCH_BUCKETS: Tuple[int, ...] = (1, 2, 4, 8, 16, 32, 64)
+
 
 def supports_encoder_autocast(model: nn.Module) -> bool:
     """Whether ``model`` holds sleap-nn models whose encoders take encoder autocast.
@@ -241,6 +249,7 @@ class TorchBackend:
         validator=[attrs.validators.in_(AUTOCAST_SCOPES), _check_scope_compile],
     )
     warmup_iterations: int = 1
+    compile_batch_buckets: Tuple[int, ...] = COMPILE_BATCH_BUCKETS
     memory_format: str = attrs.field(
         default="contiguous",
         validator=attrs.validators.in_(("contiguous", "channels_last")),
@@ -249,7 +258,7 @@ class TorchBackend:
 
     # Internal state, not part of the public surface.
     _compiled: Optional[nn.Module] = attrs.field(default=None, init=False, repr=False)
-    # Batch size every call is padded to while compiled (0 = none yet).
+    # Power-of-2 bucket size used on the most recent compiled call (0 = none yet).
     _padded_batch: int = attrs.field(default=0, init=False, repr=False)
 
     def __attrs_post_init__(self) -> None:
@@ -283,39 +292,42 @@ class TorchBackend:
         """PyTorch returns raw confmaps; peak finding stays in Python."""
         return False
 
-    def __call__(self, x: torch.Tensor) -> Dict[str, torch.Tensor]:
-        """Forward pass. Always returns a dict for protocol uniformity."""
-        model = self._compiled if self._compiled is not None else self.model
-        x = x.to(self.device, non_blocking=True)
+    def _bucket_for_batch(self, n: int) -> Optional[int]:
+        """Return the smallest power-of-2 bucket >= ``n``, or ``None`` above cap."""
+        if n <= 0:
+            return None
+        for b in self.compile_batch_buckets:
+            if n <= b:
+                return b
+        return None
 
-        # The compiled model is specialized to its input shapes, and every new
-        # batch size compiles it again (seconds each; after torch's recompile
-        # limit, 8, the new sizes silently run uncompiled). Top-down crop
-        # batches change size with the number of animals found, so pad each
-        # batch with zeros to the largest size seen (or reserved) and cut the
-        # outputs back below: the pad samples never reach postprocessing.
-        n = x.shape[0]
-        if self._compiled is not None:
-            self._padded_batch = max(self._padded_batch, n)
-            if n < self._padded_batch:
-                x = torch.cat([x, x.new_zeros((self._padded_batch - n, *x.shape[1:]))])
-            elif x.stride() != _contiguous_strides(x.shape):
-                # Same layout as a padded batch: the compiled model also
-                # guards on strides, size-1 dims included, which
-                # ``.contiguous()`` leaves as they are.
-                x = x.clone(memory_format=torch.contiguous_format)
+    def _prepare_compiled_chunk(self, chunk: torch.Tensor, bucket: int) -> torch.Tensor:
+        """Pad ``chunk`` to ``bucket`` with canonical contiguous non-view layout."""
+        n = chunk.shape[0]
+        if n < bucket:
+            return torch.cat([chunk, chunk.new_zeros((bucket - n, *chunk.shape[1:]))])
+        if (
+            chunk.stride() != _contiguous_strides(chunk.shape)
+            or chunk._base is not None
+        ):
+            # Match the padded batch's exact Dynamo guard signature: canonical
+            # contiguous strides AND non-view storage (``_base is None``), so
+            # switching between unpadded view inputs (e.g. ``unsqueeze``/slice)
+            # and padded ``torch.cat`` inputs never triggers a guard recompile.
+            return chunk.clone(memory_format=torch.contiguous_format)
+        return chunk
 
-        # FP16 (CUDA only) runs the heavy conv / matmul ops in half precision
-        # via ``torch.autocast`` while keeping fp32 master weights and fp32
-        # reductions. Autocast is robust to ``forward`` methods that change
-        # dtype internally (``image / 255.0`` normalization, an explicit
-        # ``.float()``, etc.) — a destructive ``model.half()`` would instead
-        # raise an Input/weight dtype mismatch on those. Outputs are cast back
-        # to fp32 below so downstream peak-finding sees fp32 confmaps.
-        dtype = self._forward_autocast_dtype()
-        use_autocast = dtype is not None and "cuda" in self.device
+    def _run_model(
+        self,
+        model: nn.Module,
+        x: torch.Tensor,
+        real_n: int,
+        dtype: Optional[torch.dtype],
+        use_autocast: bool,
+    ) -> Dict[str, Any]:
+        """Execute ``model(x)``, slice padding back to ``real_n``, and cast outputs."""
         with torch.inference_mode():
-            if use_autocast:
+            if use_autocast and dtype is not None:
                 out = autocast_forward(
                     model, x, dtype, scope=self.autocast_scope, device_type="cuda"
                 )
@@ -327,8 +339,8 @@ class TorchBackend:
         def finish(v: Any) -> Any:
             if not isinstance(v, torch.Tensor):
                 return v
-            if padded > n and v.ndim and v.shape[0] == padded:
-                v = v[:n]
+            if padded > real_n and v.ndim and v.shape[0] == padded:
+                v = v[:real_n]
             if use_autocast and v.dtype in (torch.float16, torch.bfloat16):
                 v = v.float()
             return v
@@ -337,7 +349,7 @@ class TorchBackend:
             return {"output": finish(out)}
 
         if isinstance(out, dict):
-            if padded > n or use_autocast:
+            if padded > real_n or use_autocast:
                 out = {k: finish(v) for k, v in out.items()}
             return out
 
@@ -346,16 +358,94 @@ class TorchBackend:
             "expected Tensor or Dict[str, Tensor]."
         )
 
-    def reserve_batch(self, batch_size: int) -> None:
-        """Pad every later batch to at least ``batch_size`` while compiled.
+    def _forward_compiled_chunked(
+        self,
+        x: torch.Tensor,
+        dtype: Optional[torch.dtype],
+        use_autocast: bool,
+    ) -> Optional[Dict[str, Any]]:
+        """Run ``x`` (with ``x.shape[0] > max_bucket``) in compiled chunks.
 
-        Lets a caller that knows the largest batch it will send (top-down:
-        one crop per centroid slot) compile once for that size, instead of
-        compiling again each time a batch is larger than all before it.
-        Does nothing when the model isn't compiled.
+        Returns ``None`` if the model returns outputs that cannot be
+        concatenated along batch dim 0 (caller then falls back to eager).
         """
+        assert self._compiled is not None
+        max_bucket = self.compile_batch_buckets[-1]
+        n = x.shape[0]
+        chunks_out: List[Dict[str, Any]] = []
+        chunk_sizes: List[int] = []
+
+        for start in range(0, n, max_bucket):
+            chunk = x[start : start + max_bucket]
+            cn = chunk.shape[0]
+            # In dynamic ``default`` mode, avoid PyTorch's 0/1 specialization
+            # recompile on a 1-crop chunk remainder (e.g. 129 % 64 == 1) by
+            # snapping to the smallest bucket >= 2.
+            min_n = 2 if (self.compile_mode == "default" and cn == 1) else cn
+            bucket = self._bucket_for_batch(min_n)
+            if bucket is None:
+                return None
+            padded_chunk = self._prepare_compiled_chunk(chunk, bucket)
+            out = self._run_model(self._compiled, padded_chunk, cn, dtype, use_autocast)
+            for v in out.values():
+                if isinstance(v, torch.Tensor) and (v.ndim == 0 or v.shape[0] != cn):
+                    return None
+            chunks_out.append(out)
+            chunk_sizes.append(cn)
+
+        keys = list(chunks_out[0].keys())
+        merged: Dict[str, Any] = {}
+        for k in keys:
+            vals = [c[k] for c in chunks_out]
+            if all(isinstance(v, torch.Tensor) for v in vals):
+                merged[k] = torch.cat(vals, dim=0)
+            elif all(v == vals[0] for v in vals):
+                merged[k] = vals[0]
+            else:
+                return None
+        self._padded_batch = max_bucket
+        return merged
+
+    def __call__(self, x: torch.Tensor) -> Dict[str, torch.Tensor]:
+        """Forward pass. Always returns a dict for protocol uniformity."""
+        x = x.to(self.device, non_blocking=True)
+
+        # FP16/BF16 (CUDA only) runs heavy ops in half precision via
+        # ``torch.autocast`` while keeping fp32 master weights and fp32
+        # reductions; outputs are cast back to fp32 so downstream postproc
+        # sees fp32 confmaps.
+        dtype = self._forward_autocast_dtype()
+        use_autocast = dtype is not None and "cuda" in self.device
+
+        # Snap batches <= max_bucket to the tightest power-of-2 bucket so a
+        # single burst frame never permanently locks padding. Batches above
+        # max_bucket run as compiled max_bucket chunks (plus bucketed
+        # remainder) — avoiding oversized padding waste and OOM — with clean
+        # eager fallback if the model's outputs are not batch-concatenable.
+        n = x.shape[0]
         if self._compiled is not None:
-            self._padded_batch = max(self._padded_batch, int(batch_size))
+            bucket = self._bucket_for_batch(n)
+            if bucket is not None:
+                self._padded_batch = bucket
+                x_padded = self._prepare_compiled_chunk(x, bucket)
+                return self._run_model(self._compiled, x_padded, n, dtype, use_autocast)
+            if n > 0 and self.compile_batch_buckets:
+                chunked = self._forward_compiled_chunked(x, dtype, use_autocast)
+                if chunked is not None:
+                    return chunked
+            self._padded_batch = n
+
+        return self._run_model(self.model, x, n, dtype, use_autocast)
+
+    def reserve_batch(self, batch_size: int) -> None:
+        """Backward-compatible batch hint (no-op under power-of-2 bucketing).
+
+        Compiled forwards now automatically snap each batch to the tightest
+        power-of-2 bucket in :attr:`compile_batch_buckets` without locking a
+        monotonic floor, so a large reservation or burst frame never inflates
+        subsequent smaller batches.
+        """
+        _ = batch_size
 
     def warmup(self, input_shape: Tuple[int, ...]) -> None:
         """Prime the backend with ``warmup_iterations`` dummy forwards."""
@@ -401,14 +491,43 @@ class TorchBackend:
     def _compile(self, mode: Optional[str]) -> None:
         """Compile the model with ``mode``, or drop the compiled model (``None``).
 
-        Compiled for fixed shapes (``dynamic=False``): ``__call__`` pads every
-        batch to one size, so one compile serves a whole run.
+        CUDA-graph modes (``reduce-overhead``, ``max-autotune``) compile with
+        ``dynamic=False`` and rely on the power-of-2 bucket ladder in
+        :attr:`compile_batch_buckets` (chunking above the cap). ``default``
+        mode compiles with ``dynamic=True`` so all buckets >= 2 share a single
+        symbolic-batch graph with zero mid-clip recompiles on burst or tail
+        batches.
         """
         self._padded_batch = 0
+        if mode is not None:
+            try:
+                import torch._dynamo as _dynamo
+
+                # Multi-stage pipelines (e.g. body + tail CenteredInstance
+                # stages across grayscale and RGB clips) share the same Python
+                # forward.__code__ object in Dynamo's cache. Raise cache and
+                # recompile limits generously so stages never evict each other
+                # into silent eager fallback.
+                min_limit = max(64, len(self.compile_batch_buckets) * 8)
+                if _dynamo.config.cache_size_limit < min_limit:
+                    _dynamo.config.cache_size_limit = min_limit
+                if (
+                    hasattr(_dynamo.config, "recompile_limit")
+                    and _dynamo.config.recompile_limit < min_limit
+                ):
+                    _dynamo.config.recompile_limit = min_limit
+                if (
+                    hasattr(_dynamo.config, "accumulated_recompile_limit")
+                    and _dynamo.config.accumulated_recompile_limit < min_limit * 4
+                ):
+                    _dynamo.config.accumulated_recompile_limit = min_limit * 4
+            except Exception:  # noqa: BLE001 — optional dynamo config
+                pass
+        dynamic = mode == "default"
         self._compiled = (
             None
             if mode is None
-            else torch.compile(self.model, mode=mode, dynamic=False)
+            else torch.compile(self.model, mode=mode, dynamic=dynamic)
         )
 
     def _validate_device_features(self) -> None:

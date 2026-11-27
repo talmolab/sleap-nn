@@ -714,27 +714,29 @@ def _compiled_and_eager_backends():
 BATCH_SIZES = [5, 3, 7, 2, 7, 1]
 
 
-def test_compiled_backend_pads_to_the_largest_batch_seen(dynamo_graphs):
-    """Smaller batches reuse the compiled model; outputs keep the real batch only."""
+def test_compiled_backend_pads_to_power_of_two_buckets(dynamo_graphs):
+    """Batches snap to power-of-2 buckets; a burst never locks smaller batches."""
     compiled, eager = _compiled_and_eager_backends()
+    seen_buckets = []
     for n in BATCH_SIZES:
         x = torch.randn(n, 1, 8, 8)
         out = compiled(x)["output"]
         assert out.shape == (n, 4, 8, 8)
         torch.testing.assert_close(out, eager(x)["output"])
-    # One graph for 5, one when 7 arrived; 3, 2 and 1 were padded. Without
-    # padding there would be one per size (5 graphs here).
-    assert dynamo_graphs == [(5, 1, 8, 8), (7, 1, 8, 8)]
+        seen_buckets.append(compiled._padded_batch)
+    # BATCH_SIZES = [5, 3, 7, 2, 7, 1] -> buckets [8, 4, 8, 2, 8, 1]
+    assert seen_buckets == [8, 4, 8, 2, 8, 1]
+    assert dynamo_graphs == [(8, 1, 8, 8), (4, 1, 8, 8), (2, 1, 8, 8), (1, 1, 8, 8)]
 
 
-def test_reserve_batch_compiles_once(dynamo_graphs):
-    """Reserving the largest batch up front means a single compile."""
+def test_reserve_batch_does_not_lock_small_batches(dynamo_graphs):
+    """``reserve_batch`` stays backward-compatible without locking a monotonic floor."""
     compiled, eager = _compiled_and_eager_backends()
-    compiled.reserve_batch(8)
+    compiled.reserve_batch(64)
     for n in BATCH_SIZES:
         x = torch.randn(n, 1, 8, 8)
         torch.testing.assert_close(compiled(x)["output"], eager(x)["output"])
-    assert dynamo_graphs == [(8, 1, 8, 8)]
+    assert dynamo_graphs == [(8, 1, 8, 8), (4, 1, 8, 8), (2, 1, 8, 8), (1, 1, 8, 8)]
 
 
 def test_pad_samples_are_cut_from_dict_outputs(dynamo_graphs):
@@ -750,13 +752,12 @@ def test_pad_samples_are_cut_from_dict_outputs(dynamo_graphs):
             return {"maps": y, "sums": x.sum(dim=(1, 2, 3)), "kind": "maps"}
 
     backend = TorchBackend(model=_DictModel(), device="cpu", use_compile=True)
-    backend.reserve_batch(6)
-    x = torch.ones(2, 1, 4, 4)
+    x = torch.ones(3, 1, 4, 4)
     out = backend(x)
-    assert out["maps"].shape == (2, 2, 4, 4)
-    torch.testing.assert_close(out["sums"], torch.full((2,), 16.0))
+    assert out["maps"].shape == (3, 2, 4, 4)
+    torch.testing.assert_close(out["sums"], torch.full((3,), 16.0))
     assert out["kind"] == "maps"  # non-tensor outputs pass through untouched
-    assert dynamo_graphs == [(6, 1, 4, 4)]
+    assert dynamo_graphs == [(4, 1, 4, 4)]
 
 
 def test_uncompiled_backend_never_pads():
@@ -787,7 +788,7 @@ def test_use_compile_and_compile_mode_can_be_set_later(monkeypatch):
     assert compiled == [{"mode": "reduce-overhead", "dynamic": False}]
 
     backend.compile_mode = "default"
-    assert compiled[-1] == {"mode": "default", "dynamic": False}
+    assert compiled[-1] == {"mode": "default", "dynamic": True}
 
     backend.reserve_batch(4)
     backend.use_compile = False
