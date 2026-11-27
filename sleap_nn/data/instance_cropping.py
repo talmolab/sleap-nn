@@ -819,6 +819,37 @@ def window_corners(windows: torch.Tensor) -> torch.Tensor:
     )
 
 
+def _uses_4d_grid_sample(device: torch.device) -> bool:
+    """Return True on devices that only implement 4D ``grid_sample`` (e.g. MPS)."""
+    return device.type == "mps"
+
+
+def _crop_windows_4d_per_frame(
+    frames: torch.Tensor,
+    grid: torch.Tensor,
+    sample_inds: torch.Tensor,
+) -> torch.Tensor:
+    """Per-frame 4D ``F.grid_sample`` fallback for backends without 5D support."""
+    import torch.nn.functional as F
+
+    n, ch, cw, _ = grid.shape
+    c = frames.shape[1]
+    out = frames.new_empty(n, c, ch, cw)
+    for b in torch.unique(sample_inds).tolist():
+        sel = (sample_inds == b).nonzero(as_tuple=False).squeeze(1)
+        m = sel.numel()
+        g = grid[sel].reshape(1, m * ch, cw, 2)
+        sampled = F.grid_sample(
+            frames[b : b + 1],
+            g,
+            mode="bilinear",
+            padding_mode="border",
+            align_corners=False,
+        )  # (1, C, m * crop_h, crop_w)
+        out[sel] = sampled.reshape(c, m, ch, cw).transpose(0, 1)
+    return out
+
+
 def crop_windows(
     images: torch.Tensor,
     windows: torch.Tensor,
@@ -847,9 +878,8 @@ def crop_windows(
     n, c = windows.shape[0], images.shape[1]
     h, w = images.shape[-2:]
     ch, cw = crop_hw(crop_size)
-    out = torch.zeros(n, c, ch, cw, device=images.device)
     if n == 0:
-        return out
+        return torch.zeros(0, c, ch, cw, device=images.device)
     windows = windows.to(images.device, torch.float32)
     sample_inds = sample_inds.to(images.device, torch.long)
     ix = torch.arange(cw, device=images.device, dtype=torch.float32) + 0.5
@@ -866,20 +896,42 @@ def crop_windows(
         dim=-1,
     )  # (N, crop_h, crop_w, 2)
     frames = images.float()
-    for b in torch.unique(sample_inds).tolist():
-        rows = (sample_inds == b).nonzero(as_tuple=False).flatten()
-        g = grid[rows].reshape(1, -1, cw, 2)  # stack this frame's crops
+    b_frames = frames.shape[0]
+    if b_frames == 1:
+        g = grid.reshape(1, n * ch, cw, 2)
         sampled = F.grid_sample(
-            frames[b : b + 1],
+            frames,
             g,
             mode="bilinear",
             padding_mode="border",
             align_corners=False,
-        )  # (1, C, k * crop_h, crop_w)
-        out[rows] = sampled.reshape(c, len(rows), ch, cw).transpose(0, 1)
+        )  # (1, C, n * crop_h, crop_w)
+        out = sampled.reshape(c, n, ch, cw).transpose(0, 1)
+    elif _uses_4d_grid_sample(frames.device):
+        # PyTorch MPS implements 4D grid_sample natively but raises
+        # NotImplementedError for 5D aten::grid_sampler_3d.
+        out = _crop_windows_4d_per_frame(frames, grid, sample_inds)
+    else:
+        # Stack all B frames into a single (1, C, B, H, W) volume and sample
+        # every crop in one 3D grid_sample call at exact slice centers
+        # z = 2*(b + 0.5)/B - 1, eliminating per-frame unique().tolist() and
+        # B separate nonzero() CUDA->CPU sync barriers.
+        vol = frames.permute(1, 0, 2, 3).unsqueeze(0)
+        zs = (2.0 * (sample_inds.to(torch.float32) + 0.5) / float(b_frames) - 1.0)[
+            :, None, None
+        ].expand(n, ch, cw)
+        grid_3d = torch.cat([grid, zs.unsqueeze(-1)], dim=-1).unsqueeze(0)
+        sampled = F.grid_sample(
+            vol,
+            grid_3d,
+            mode="bilinear",
+            padding_mode="border",
+            align_corners=False,
+        )  # (1, C, N, crop_h, crop_w)
+        out = sampled.squeeze(0).transpose(0, 1)
     cov_x = _frame_coverage(windows[:, 0], windows[:, 2], cw, w)
     cov_y = _frame_coverage(windows[:, 1], windows[:, 3], ch, h)
-    return out * (cov_y[:, None, :, None] * cov_x[:, None, None, :])
+    return (out * (cov_y[:, None, :, None] * cov_x[:, None, None, :])).contiguous()
 
 
 def _frame_coverage(lo: torch.Tensor, hi: torch.Tensor, n: int, extent: int):

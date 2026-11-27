@@ -304,7 +304,7 @@ class PoseStream:
             if isinstance(frame, np.ndarray)
             else frame.contiguous()
         )
-        return frame[None], shape
+        return frame.reshape(1, *shape), shape
 
     def push(self, frame: Any, frame_idx: Optional[int] = None) -> FramePoses:
         """Run one frame through the pipeline and return its instances.
@@ -359,7 +359,8 @@ class PoseStream:
             frame_indices=np.asarray([idx], dtype=np.int64),
             video_indices=video_indices,
         )
-        return p._stamp_metadata(outputs, batch)
+        outputs = p._stamp_metadata(outputs, batch)
+        return p._bulk_outputs_to_cpu(outputs)
 
     def _given_box_pose_layer(self) -> Any:
         """The top-down layer with a given-box first stage (``None`` if not top-down)."""

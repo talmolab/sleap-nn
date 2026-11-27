@@ -192,6 +192,76 @@ class KeypointCropRule:
             used_fallback,
         )
 
+    def boxes_tensor(
+        self, points: Any, resolved: Dict[str, List[int]]
+    ) -> Tuple[Any, Any, Any]:
+        """Vectorized tensor equivalent of :meth:`box` (floor=0) on ``points``'s device.
+
+        Computes square box centers, raw half-sides (with ``min_half_side`` applied,
+        before any ``session_floor``), and validity masks for a whole batch of
+        ``(B, I, N, 2)`` keypoints without a GPU->CPU round-trip.
+
+        Args:
+            points: ``(B, I, N, 2)`` keypoint tensor on CPU or GPU.
+            resolved: Resolved node index dict from :meth:`resolve`.
+
+        Returns:
+            ``(center (B, I, 2), raw_half (B, I), valid (B, I))`` on ``points.device``.
+        """
+        import torch
+
+        device = points.device
+        calc_dtype = torch.float32 if device.type == "mps" else torch.float64
+        pts = points.detach().to(dtype=calc_dtype)
+        b, n_inst = int(pts.shape[0]), int(pts.shape[1])
+        ok = torch.isfinite(pts).all(dim=-1)  # (B, I, N)
+        any_ok = ok.any(dim=-1)  # (B, I)
+
+        has_center = torch.zeros((b, n_inst), dtype=torch.bool, device=device)
+        center = torch.zeros((b, n_inst, 2), dtype=calc_dtype, device=device)
+        for ci in resolved["center"]:
+            use = (~has_center) & ok[..., ci]
+            center = torch.where(use[..., None], pts[..., ci, :], center)
+            has_center = has_center | use
+
+        has_half = torch.zeros((b, n_inst), dtype=torch.bool, device=device)
+        half = torch.zeros((b, n_inst), dtype=calc_dtype, device=device)
+        for ref in (resolved["reference"], resolved["reference_fallback"]):
+            if not ref:
+                continue
+            if len(ref) == 1:
+                ri = ref[0]
+                ref_ok = ok[..., ri]
+                ref_pt = pts[..., ri, :]
+            else:
+                ref_idx = torch.tensor(ref, dtype=torch.long, device=device)
+                ref_ok = ok.index_select(-1, ref_idx).all(dim=-1)
+                ref_pt = pts.index_select(-2, ref_idx).mean(dim=-2)
+            diff = torch.where(
+                ref_ok[..., None], center - ref_pt, torch.zeros_like(center)
+            )
+            d = torch.linalg.norm(diff, dim=-1)
+            use = has_center & (~has_half) & ref_ok & (d > 0.0)
+            half = torch.where(use, float(self.scale) * d, half)
+            has_half = has_half | use
+
+        need_fb = (~has_center) | (~has_half)
+        if self.fallback == "skip":
+            valid = has_center & has_half
+        else:
+            valid = (~need_fb) | any_ok
+            use_fb = need_fb & any_ok
+            big = torch.finfo(calc_dtype).max
+            lo = torch.where(ok[..., None], pts, pts.new_full((), big)).amin(dim=-2)
+            hi = torch.where(ok[..., None], pts, pts.new_full((), -big)).amax(dim=-2)
+            fb_center = (lo + hi) * 0.5
+            fb_half = float(self.fallback_scale) * (hi - lo).amax(dim=-1) * 0.5
+            center = torch.where(use_fb[..., None], fb_center, center)
+            half = torch.where(use_fb, fb_half, half)
+
+        raw_half = half.clamp(min=float(self.min_half_side))
+        return center, raw_half, valid
+
 
 def instance_boxes(
     lf: sio.LabeledFrame,
@@ -731,8 +801,8 @@ class StreamingPartStage:
 
         if outputs.pred_keypoints is None:
             return outputs
-        kpts = outputs.pred_keypoints.detach().float().cpu().numpy()
-        B = kpts.shape[0]
+        kpts_t = outputs.pred_keypoints
+        B = int(kpts_t.shape[0])
         vids = (
             np.zeros(B, dtype=np.int64)
             if video_indices is None
@@ -744,7 +814,7 @@ class StreamingPartStage:
         floors_before = dict(self.last_floors)
         self._last = None
         try:
-            out = self._call(images, outputs, kpts, vids, added)
+            out = self._call(images, outputs, kpts_t, vids, added)
         except BaseException:
             # Leave the floors as they were: a failed call adds nothing to the history.
             self._undo(added, floors_before)
@@ -780,50 +850,88 @@ class StreamingPartStage:
         self,
         images: Any,
         outputs: Any,
-        kpts: np.ndarray,
+        kpts_t: Any,
         vids: np.ndarray,
         added: List[Tuple[int, float]],
     ) -> Any:
         import attrs
         import torch
 
-        B, n_inst = kpts.shape[:2]
-        raw: Dict[Tuple[int, int], np.ndarray] = {}
-        for b in range(B):
-            for i in range(n_inst):
-                if np.isnan(kpts[b, i]).all():
-                    continue
-                box, _ = self.rule.box(kpts[b, i], self.resolved, 0.0)
-                if box is not None:
-                    raw[(b, i)] = box
-                    if self.rule.session_floor is None:
-                        continue  # no floor: nothing to remember
-                    half = float(box[2] - box[0]) / 2
-                    med = self.halves.get(int(vids[b]))
-                    if med is None:
-                        med = self.halves[int(vids[b])] = RunningMedian()
-                    med.add(half)
-                    self.every.add(half)
-                    added.append((int(vids[b]), half))
-        boxes = np.full((B, max(n_inst, 1), 4), np.nan, dtype=np.float32)
-        scores = np.full((B, max(n_inst, 1)), np.nan, dtype=np.float32)
-        inst_scores = (
-            outputs.instance_scores.detach().float().cpu().numpy()
-            if outputs.instance_scores is not None
-            else np.ones((B, n_inst), dtype=np.float32)
-        )
-        for (b, i), _ in raw.items():
-            floor = self._floor(int(vids[b]))
-            if self.rule.session_floor is not None:
-                self.last_floors[int(vids[b])] = floor
-            box, _ = self.rule.box(kpts[b, i], self.resolved, floor)
-            boxes[b, i] = box
-            s = inst_scores[b, i]
-            scores[b, i] = s if np.isfinite(s) else 1.0
+        B, n_inst = int(kpts_t.shape[0]), int(kpts_t.shape[1])
+        device = kpts_t.device
+        if n_inst == 0:
+            boxes_t = torch.full(
+                (B, 1, 4), float("nan"), dtype=torch.float32, device=device
+            )
+            scores_t = torch.full(
+                (B, 1), float("nan"), dtype=torch.float32, device=device
+            )
+        else:
+            center, raw_half, valid = self.rule.boxes_tensor(kpts_t, self.resolved)
+            if self.rule.session_floor is None:
+                final_half = raw_half
+            else:
+                # Match ``(box[2] - box[0]) / 2`` from KeypointCropRule.box
+                # bit-for-bit in float64 (avoids 1-ULP rounding drift).
+                cx_raw = center[..., 0]
+                box_half = ((cx_raw + raw_half) - (cx_raw - raw_half)) * 0.5
+                raw_half_np = box_half.masked_fill(~valid, float("nan")).cpu().numpy()
+                floors = np.zeros(B, dtype=np.float64)
+                has_any_b = np.zeros(B, dtype=bool)
+                for b in range(B):
+                    vid = int(vids[b])
+                    row = raw_half_np[b]
+                    for i in range(n_inst):
+                        hval = float(row[i])
+                        if hval != hval:
+                            continue
+                        has_any_b[b] = True
+                        med = self.halves.get(vid)
+                        if med is None:
+                            med = self.halves[vid] = RunningMedian()
+                        med.add(hval)
+                        self.every.add(hval)
+                        added.append((vid, hval))
+                for b in range(B):
+                    if has_any_b[b]:
+                        vid = int(vids[b])
+                        fl = self._floor(vid)
+                        self.last_floors[vid] = fl
+                        floors[b] = fl
+                floors_t = torch.from_numpy(floors).to(
+                    device=device, dtype=raw_half.dtype, non_blocking=True
+                )[:, None]
+                final_half = torch.maximum(raw_half, floors_t)
+
+            cx, cy = center[..., 0], center[..., 1]
+            boxes_t = (
+                torch.stack(
+                    [
+                        cx - final_half,
+                        cy - final_half,
+                        cx + final_half,
+                        cy + final_half,
+                    ],
+                    dim=-1,
+                )
+                .to(torch.float32)
+                .masked_fill(~valid[..., None], float("nan"))
+            )
+            if outputs.instance_scores is not None:
+                inst_s = outputs.instance_scores.detach().to(
+                    device=device, dtype=torch.float32
+                )
+                scores_t = torch.where(
+                    torch.isfinite(inst_s), inst_s, torch.ones_like(inst_s)
+                )
+            else:
+                scores_t = torch.ones((B, n_inst), dtype=torch.float32, device=device)
+            scores_t = scores_t.masked_fill(~valid, float("nan"))
+
         part = self.layer.predict(
             images,
-            frame_boxes=torch.from_numpy(boxes),
-            frame_box_scores=torch.from_numpy(scores),
+            frame_boxes=boxes_t,
+            frame_box_scores=scores_t,
         )
         device = outputs.pred_keypoints.device
         pk = part.pred_keypoints

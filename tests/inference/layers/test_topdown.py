@@ -303,9 +303,16 @@ def test_compiled_topdown_compiles_each_model_once(monkeypatch):
 
     assert crop_counts == eager_counts
     assert len(set(crop_counts)) >= 3, crop_counts
-    # One graph per model: the centroid model (whose last, smaller batch of
-    # frames is padded too) and the centered-instance model.
-    assert len(graphs) == 2
+
+    # Power-of-2 bucketing compiles at most one graph per distinct bucket used
+    # by each stage (far fewer than arbitrary unbucketed crop counts).
+    def _pow2(n: int) -> int:
+        return 1 << (n - 1).bit_length()
+
+    expected_graphs = len(
+        {_pow2(len(frames[s : s + 4])) for s in range(0, len(frames), 4)}
+    ) + len({_pow2(c) for c in crop_counts if c > 0})
+    assert len(graphs) == expected_graphs
 
     for c, e in zip(compiled_outs, eager_outs):
         assert torch.equal(torch.isnan(c.pred_keypoints), torch.isnan(e.pred_keypoints))

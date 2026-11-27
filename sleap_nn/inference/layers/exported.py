@@ -317,6 +317,7 @@ class ExportedBottomUpLayer:
             output_stride=1,  # peaks already in scaled-input pixel space
             pad_amount=(0, 0),
             crop_offsets=None,
+            eff_scale_is_identity=True,
         )
 
         scored = self._build_scored_batch(raw, info)

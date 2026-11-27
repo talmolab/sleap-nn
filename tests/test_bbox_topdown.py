@@ -1930,7 +1930,7 @@ def test_compiled_crop_model_behind_detector_pads_to_animals_found(
             device="cpu",
             batch_size=4,
             max_instances=max_instances,
-            peak_threshold=0.2,
+            peak_threshold=0.1,
         )
         layer = pred.layer
         backend = layer.centered_instance_layer.backend
@@ -1953,22 +1953,27 @@ def test_compiled_crop_model_behind_detector_pads_to_animals_found(
     eager_outs, _ = run(use_compile=False)
 
     found = [
-        int(torch.isfinite(o.pred_centroids).all(dim=-1).sum(dim=1).max())
-        for o in eager_outs
+        int(torch.isfinite(o.pred_centroids).all(dim=-1).sum()) for o in eager_outs
     ]
     assert found[0] >= 1 and found[-1] >= 1
     if max_instances is None:
         assert eager_outs[0].pred_centroids.shape[1] > max(found)  # empty slots
-    # Expected padding: the running maximum of frames x animals per frame (the
-    # cap, if set), over the batches that produced crops at all.
-    expected, size = [], 0
-    for batch, n in zip(batches, found):
+
+    # Expected padding: each batch snaps independently to its power-of-2 bucket
+    # so the short last batch drops back to a small bucket instead of staying
+    # locked at the largest mid-run batch.
+    def _pow2(n: int) -> int:
+        return 1 << (n - 1).bit_length()
+
+    expected = []
+    last_bucket = 0
+    for n in found:
         if n:
-            size = max(size, len(batch) * (max_instances or n))
-        expected.append(size)
+            last_bucket = _pow2(n)
+        expected.append(last_bucket)
     assert padded == expected
-    assert len(set(padded)) >= 2  # the reservation grew once at least
-    # One graph per crop batch size the run was padded to.
+    assert len(set(padded)) >= 2
+    # One graph per distinct power-of-2 bucket hit by the crop model.
     assert len(graphs) == len(set(padded))
 
     for c, e in zip(compiled_outs, eager_outs):

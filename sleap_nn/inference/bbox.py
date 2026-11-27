@@ -255,60 +255,94 @@ def _set_boxes(
     )
 
 
-def _set_detections(
+def _select_set_detections_batched(
     boxes: torch.Tensor,
     scores: torch.Tensor,
     classes: torch.Tensor,
     score_threshold: float,
     max_detections: int,
     iou_threshold: Optional[float],
-) -> List[torch.Tensor]:
-    """Per frame, the candidates kept as detections, by descending score.
+    num_classes: int,
+    img_hw: Tuple[int, int],
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Vectorized batch selection + single-call batched NMS for DETR decoding.
 
-    A candidate is kept when its score reaches ``score_threshold`` and its box has
-    an area; then the optional class-wise IoU-NMS, and at most ``max_detections``.
-
-    Args:
-        boxes: ``(B, k, 4)`` candidate boxes (score-sorted, as from a top-k).
-        scores: ``(B, k)`` their scores.
-        classes: ``(B, k)`` their classes.
-        score_threshold: Minimum detection score.
-        max_detections: Detections kept per frame.
-        iou_threshold: Optional class-wise IoU-NMS threshold.
+    Replaces the per-frame ``nonzero()`` + ``batched_nms()`` loop with:
+    - zero host syncs when ``iou_threshold is None``;
+    - a single batch-wide ``batched_nms`` using ``b * num_classes + cls``
+      offsets when ``iou_threshold is not None``.
 
     Returns:
-        One index tensor into the ``k`` candidates per frame.
+        ``(sel, sel_valid)`` of shape ``(B, m_eff)`` where ``m_eff = min(k, m)``.
     """
-    out = []
-    for i in range(boxes.shape[0]):
-        keep = (scores[i] >= score_threshold).nonzero().flatten()
-        bx = boxes[i][keep]
-        keep = keep[(bx[:, 2] > bx[:, 0]) & (bx[:, 3] > bx[:, 1])]
-        if iou_threshold is not None and keep.numel():
-            nms = batched_nms(
-                boxes[i][keep].float(),
-                scores[i][keep].float(),
-                classes[i][keep],
+    b, k = scores.shape
+    m = int(max_detections)
+    m_eff = min(k, m)
+    if m_eff == 0:
+        return (
+            torch.empty((b, 0), dtype=torch.long, device=boxes.device),
+            torch.empty((b, 0), dtype=torch.bool, device=boxes.device),
+        )
+
+    valid = (
+        (scores >= score_threshold)
+        & (boxes[..., 2] > boxes[..., 0])
+        & (boxes[..., 3] > boxes[..., 1])
+    )
+    if iou_threshold is not None:
+        b_idx, j_idx = valid.nonzero(as_tuple=True)
+        if b_idx.numel() == 0:
+            kept_mask = valid
+        else:
+            flat_boxes = boxes[b_idx, j_idx].float()
+            flat_scores = scores[b_idx, j_idx].float()
+            flat_classes = classes[b_idx, j_idx].long()
+            idxs = b_idx * max(1, int(num_classes)) + flat_classes
+            # Normalize boxes to [0, 1] before batched_nms so its internal
+            # ``idxs * (max_coord + 1)`` offset keeps full float32 precision
+            # across large batches and many classes (IoU is scale-invariant).
+            box_scale = float(max(img_hw[0], img_hw[1], 1))
+            keep_flat = batched_nms(
+                flat_boxes / box_scale,
+                flat_scores,
+                idxs,
                 float(iou_threshold),
             )
-            keep = keep[nms]
-        keep = keep[: int(max_detections)]
-        out.append(keep[scores[i][keep].argsort(descending=True)])
-    return out
+            kept_mask = torch.zeros_like(valid)
+            kept_mask[b_idx[keep_flat], j_idx[keep_flat]] = True
+    else:
+        kept_mask = valid
+
+    sort_scores = scores.float().masked_fill(~kept_mask, float("-inf"))
+    _, order = sort_scores.sort(dim=1, descending=True, stable=True)
+    sel = order[:, :m_eff]
+    sel_valid = kept_mask.gather(1, sel)
+    return sel, sel_valid
 
 
-def _gather_padded(
-    values: torch.Tensor, kept: List[torch.Tensor], m: int, fill
+def _gather_padded_batched(
+    values: torch.Tensor,
+    sel: torch.Tensor,
+    sel_valid: torch.Tensor,
+    m: int,
+    fill,
 ) -> torch.Tensor:
-    """``(B, k, ...)`` values at each frame's kept indices, padded to ``m`` slots."""
-    out = torch.full(
-        (values.shape[0], m, *values.shape[2:]),
-        fill,
-        dtype=values.dtype,
-        device=values.device,
-    )
-    for i, keep in enumerate(kept):
-        out[i, : keep.numel()] = values[i][keep]
+    """Gather ``(B, k, ...)`` at vectorized ``sel`` indices, padded to ``m`` slots."""
+    b = values.shape[0]
+    m_eff = sel.shape[1]
+    extra = values.shape[2:]
+    if m_eff == 0:
+        return torch.full(
+            (b, m, *extra), fill, dtype=values.dtype, device=values.device
+        )
+    view_shape = (b, m_eff) + (1,) * len(extra)
+    idx = sel.reshape(view_shape).expand(b, m_eff, *extra)
+    mask = sel_valid.reshape(view_shape)
+    gathered = values.gather(1, idx).masked_fill(~mask, fill)
+    if m_eff == m:
+        return gathered
+    out = torch.full((b, m, *extra), fill, dtype=values.dtype, device=values.device)
+    out[:, :m_eff] = gathered
     return out
 
 
@@ -348,14 +382,21 @@ def decode_set(
     scores, inds = probs.reshape(b, -1).topk(k, dim=1)
     classes = inds % c
     boxes = _set_boxes(pred_boxes, inds // c, img_hw)
-    kept = _set_detections(
-        boxes, scores, classes, score_threshold, max_detections, iou_threshold
+    sel, sel_valid = _select_set_detections_batched(
+        boxes,
+        scores,
+        classes,
+        score_threshold,
+        max_detections,
+        iou_threshold,
+        num_classes=c,
+        img_hw=img_hw,
     )
     m = int(max_detections)
     return (
-        _gather_padded(boxes, kept, m, float("nan")),
-        _gather_padded(scores, kept, m, float("nan")),
-        _gather_padded(classes, kept, m, -1),
+        _gather_padded_batched(boxes, sel, sel_valid, m, float("nan")),
+        _gather_padded_batched(scores, sel, sel_valid, m, float("nan")),
+        _gather_padded_batched(classes, sel, sel_valid, m, -1),
     )
 
 
@@ -419,16 +460,23 @@ def decode_set_keypoints(
         .gather(1, queries[..., None].expand(b, k, n_kpts))
     )
     points = points.masked_fill((vis < visibility_threshold)[..., None], float("nan"))
-    kept = _set_detections(
-        boxes, scores, classes, score_threshold, max_detections, iou_threshold
+    sel, sel_valid = _select_set_detections_batched(
+        boxes,
+        scores,
+        classes,
+        score_threshold,
+        max_detections,
+        iou_threshold,
+        num_classes=probs.shape[-1],
+        img_hw=img_hw,
     )
     m = int(max_detections)
     return (
-        _gather_padded(boxes, kept, m, float("nan")),
-        _gather_padded(scores, kept, m, float("nan")),
-        _gather_padded(classes, kept, m, -1),
-        _gather_padded(points, kept, m, float("nan")),
-        _gather_padded(vis, kept, m, float("nan")),
+        _gather_padded_batched(boxes, sel, sel_valid, m, float("nan")),
+        _gather_padded_batched(scores, sel, sel_valid, m, float("nan")),
+        _gather_padded_batched(classes, sel, sel_valid, m, -1),
+        _gather_padded_batched(points, sel, sel_valid, m, float("nan")),
+        _gather_padded_batched(vis, sel, sel_valid, m, float("nan")),
     )
 
 

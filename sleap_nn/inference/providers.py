@@ -24,6 +24,7 @@ import math
 import os
 import queue
 import threading
+import weakref
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
@@ -41,6 +42,84 @@ if TYPE_CHECKING:
 # Sentinel marking end-of-stream on a prefetch queue; a plain `object()` so it
 # can never collide with a real `Batch` or exception payload.
 _SENTINEL = object()
+
+
+# Verified MediaVideo backends mapped to the plugin that passed readability
+# checks, so reusing an already-verified ``sio.Video`` across batches/passes
+# does not re-seek and re-decode frame 0 on every ``VideoProvider`` creation.
+_VERIFIED_MEDIA_BACKENDS: "weakref.WeakKeyDictionary[Any, Any]" = (
+    weakref.WeakKeyDictionary()
+)
+
+
+def _check_video_readable_cached(video: "sio.Video", frames: Optional[list]) -> None:
+    """Run ``check_video_readable``, skipping redundant probes on verified MediaVideos."""
+    from sleap_io.io.video_reading import MediaVideo
+
+    from sleap_nn.data.providers import check_video_readable
+
+    backend = getattr(video, "backend", None)
+    if isinstance(backend, MediaVideo):
+        plugin = getattr(backend, "plugin", None)
+        try:
+            if _VERIFIED_MEDIA_BACKENDS.get(backend) == plugin:
+                return
+        except TypeError:
+            pass
+    check_video_readable(video, frames)
+    backend = getattr(video, "backend", None)
+    if isinstance(backend, MediaVideo):
+        try:
+            _VERIFIED_MEDIA_BACKENDS[backend] = getattr(backend, "plugin", None)
+        except TypeError:
+            pass
+
+
+def _clone_video_for_prefetch(video: Any) -> Any:
+    """Return a private closed clone of ``video`` without closing/reopening it.
+
+    When ``video`` is a live ``sio.Video`` with a materialized ``backend``,
+    record its metadata onto ``backend_metadata``, temporarily detach
+    ``video.backend``, ``deepcopy(video)``, and restore ``video.backend``
+    immediately. This eliminates the close + synchronous reopen cold-start
+    penalty on ``MediaVideo`` while keeping ``HDF5Video`` materialized for
+    save-time embedded-image detection. Duck-typed stubs without
+    ``backend``/``backend_metadata`` fall back to ``close()`` + ``deepcopy()``
+    + ``_reopen_after_thread_local_copy()``.
+    """
+    backend = getattr(video, "backend", None)
+    meta = getattr(video, "backend_metadata", None)
+    if backend is not None and isinstance(meta, dict):
+        try:
+            meta["dataset"] = getattr(backend, "dataset", None)
+            meta["grayscale"] = getattr(backend, "grayscale", None)
+            meta["shape"] = getattr(backend, "shape", None)
+            meta["fps"] = getattr(backend, "fps", None)
+            from sleap_io.io.video_reading import CropVideoBackend
+
+            if isinstance(backend, CropVideoBackend):
+                meta["crop"] = list(backend.crop)
+                meta["crop_fill"] = backend.fill
+        except Exception:  # noqa: BLE001 - best-effort metadata sync
+            pass
+        saved_open = getattr(video, "open_backend", None)
+        video.backend = None
+        if saved_open is not None:
+            video.open_backend = False
+        try:
+            clone = deepcopy(video)
+        finally:
+            video.backend = backend
+            if saved_open is not None:
+                video.open_backend = saved_open
+        if saved_open is not None:
+            clone.open_backend = saved_open
+        return clone
+
+    video.close()
+    thread_local = deepcopy(video)
+    _reopen_after_thread_local_copy(video)
+    return thread_local
 
 
 def _reopen_after_thread_local_copy(video: "sio.Video") -> None:
@@ -260,7 +339,7 @@ class VideoProvider:
         if self.check_readable:
             # An undecodable video reports 0 frames: raise instead of yielding
             # nothing.
-            check_video_readable(self._sio_video, self.frames)
+            _check_video_readable_cached(self._sio_video, self.frames)
 
         n_frames = len(self._sio_video)
         if self.frames is not None:
@@ -299,17 +378,12 @@ class VideoProvider:
         Video backends (OpenCV/ffmpeg/HDF5) cache a single stateful reader
         handle and are not safe for concurrent seek+read from two threads —
         sharing ``self._sio_video`` with the background thread can silently
-        return the wrong frame. Closing first drops the cached handle so
-        ``deepcopy`` clones cheap (path + config) state rather than a live
-        handle. The copy lazily reopens its own handle on next access; the
-        shared original does not reopen on its own (``backend`` is a plain
-        attribute, not a lazy property), so it is explicitly reopened here —
-        it is also what ends up in the final output ``Labels`` for saving.
+        return the wrong frame. Detaches ``backend`` across ``deepcopy`` and
+        restores it on ``self._sio_video`` so the shared video is neither
+        closed nor synchronously reopened while the prefetch copy lazily opens
+        its own private handle on first read.
         """
-        self._sio_video.close()
-        thread_local = deepcopy(self._sio_video)
-        _reopen_after_thread_local_copy(self._sio_video)
-        return thread_local
+        return _clone_video_for_prefetch(self._sio_video)
 
     def _prefetch_worker(
         self, video: "sio.Video", q: "queue.Queue", stop_event: threading.Event
@@ -328,6 +402,11 @@ class VideoProvider:
         except BaseException as exc:  # noqa: BLE001 - forwarded to the consumer
             q.put(_ProducerError(exc))
             return
+        finally:
+            try:
+                video.close()
+            except Exception:  # noqa: BLE001 - best-effort handle cleanup
+                pass
         q.put(_SENTINEL)
 
     def __iter__(self) -> Iterator[Batch]:
@@ -981,9 +1060,7 @@ class LabelsProvider:
         """
         mapping = {}
         for video in self._sio_labels.videos:
-            video.close()
-            mapping[id(video)] = deepcopy(video)
-            _reopen_after_thread_local_copy(video)
+            mapping[id(video)] = _clone_video_for_prefetch(video)
         return mapping
 
     def _prefetch_worker(

@@ -205,7 +205,8 @@ def test_prediction_layers_resize_with_info(monkeypatch):
     topdown.centroid_layer = centroid
     topdown._sizematch_like_centroid_layer(torch.zeros(2, 1, 100, 80))
 
-    assert seen == ["info"] * 4
+    # Both layers run apply_sizematcher once per uniform batch (1 call each).
+    assert seen == ["info"] * 2
 
 
 def test_apply_sizematcher_without_upscale():

@@ -18,7 +18,7 @@ Apply order from a peak in confmap pixel space back to original-image space::
     peaks = undo_eff_scale(peaks, info.eff_scale)          # 4
 """
 
-from typing import Tuple
+from typing import Optional, Tuple
 
 import torch
 import torch.nn.functional as F
@@ -55,7 +55,11 @@ def undo_input_scale(coords: torch.Tensor, input_scale: float) -> torch.Tensor:
     return coords / input_scale
 
 
-def undo_eff_scale(coords: torch.Tensor, eff_scale: torch.Tensor) -> torch.Tensor:
+def undo_eff_scale(
+    coords: torch.Tensor,
+    eff_scale: torch.Tensor,
+    eff_scale_is_identity: Optional[bool] = None,
+) -> torch.Tensor:
     """Reverse the per-sample sizematcher scale.
 
     The sizematcher fits each frame to ``(max_h, max_w)`` preserving aspect
@@ -67,14 +71,23 @@ def undo_eff_scale(coords: torch.Tensor, eff_scale: torch.Tensor) -> torch.Tenso
         coords: Tensor with shape ``(B, ...)`` whose trailing axis is xy.
         eff_scale: ``(B,)`` per-sample scale factors, or ``(B, 2)`` per-sample
             ``(x, y)`` scales.
+        eff_scale_is_identity: Optional Python boolean from
+            :attr:`~sleap_nn.inference.preprocess_info.PreprocInfo.eff_scale_is_identity`.
+            When ``True``, returns ``coords`` immediately without touching
+            ``eff_scale``. When ``False``, skips the all-ones check entirely.
+            When ``None`` (legacy callers), only checks ``torch.all(eff_scale == 1.0)``
+            on host tensors so CUDA paths never incur a GPU->CPU sync barrier.
 
     Returns:
         Coords with each sample divided by its own ``eff_scale``.
     """
-    # All-ones short-circuit avoids the broadcast div on the common path
-    # where every frame had the same native size.
-    if torch.all(eff_scale == 1.0):
+    if eff_scale_is_identity is True:
         return coords
+    # All-ones short-circuit avoids the broadcast div on the common host path
+    # without ever triggering a CUDA->CPU sync when eff_scale lives on GPU.
+    if eff_scale_is_identity is None and not eff_scale.is_cuda:
+        if torch.all(eff_scale == 1.0):
+            return coords
     if eff_scale.ndim == 2:
         shape = [eff_scale.shape[0]] + [1] * (coords.ndim - 2) + [2]
     else:

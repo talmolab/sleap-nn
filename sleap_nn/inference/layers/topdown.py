@@ -284,14 +284,10 @@ class TopDownLayer:
         if max_height is None and max_width is None:
             return x_raw, torch.ones(B, dtype=torch.float32, device=x_raw.device)
 
-        sized_list: list = []
-        eff_list: list = []
-        for b in range(B):
-            r, scale = apply_sizematcher(x_raw[b], max_height, max_width, warn="info")
-            sized_list.append(r)
-            eff_list.append(float(scale))
-        x_sized = torch.stack(sized_list, dim=0)
-        eff_scale = torch.tensor(eff_list, dtype=torch.float32, device=x_raw.device)
+        x_sized, scale = apply_sizematcher(x_raw, max_height, max_width, warn="info")
+        eff_scale = torch.full(
+            (B,), float(scale), dtype=torch.float32, device=x_sized.device
+        )
         return x_sized, eff_scale
 
     # ──────────────────────────────────────────────────────────────────
@@ -538,26 +534,12 @@ class TopDownLayer:
     def _predict_crops(self, crops: torch.Tensor, valid_mask: torch.Tensor) -> Outputs:
         """Run the stage-2 model on ``crops`` (one per valid stage-1 slot).
 
-        The crop count changes with the number of animals found. A compiled
-        ``TorchBackend`` pads every batch to the largest one it has seen;
-        reserving that size up front lets it compile once for the whole run.
-        With a ``max_instances`` cap on stage 1 that is ``batch * max_instances``;
-        without one, stage 1's slot count is not a bound on animals (a box
-        detector pads every frame to 100 slots), so reserve ``batch`` times the
-        most animals found in one frame of this batch, as a centroid model's
-        slots already are. The pad crops are cut off again inside the
-        backend, so they never produce instances.
+        A compiled ``TorchBackend`` automatically pads each crop batch to the
+        tightest power-of-2 bucket in its bucket ladder (no monotonic floor and
+        no per-batch host sync on ``valid_mask``), cutting the pad crops off
+        again inside the backend so they never produce instances.
         """
-        backend = getattr(self.centered_instance_layer, "backend", None)
-        reserve = getattr(backend, "reserve_batch", None)
-        if reserve is not None and getattr(backend, "_compiled", None) is not None:
-            B, max_inst = valid_mask.shape
-            stage1 = self.centroid_layer
-            capped = getattr(
-                getattr(stage1, "postprocess_config", None), "max_instances", None
-            ) or getattr(stage1, "max_instances", None)
-            per_frame = max_inst if capped else int(valid_mask.sum(dim=1).max())
-            reserve(B * per_frame)
+        _ = valid_mask
         return self.centered_instance_layer.predict(crops)
 
     # ──────────────────────────────────────────────────────────────────

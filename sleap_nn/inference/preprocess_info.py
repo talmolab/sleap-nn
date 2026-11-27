@@ -56,6 +56,7 @@ class PreprocInfo:
     pad_amount: Tuple[int, int] = (0, 0)
     crop_offsets: Optional[torch.Tensor] = None
     original_sizes: Optional[torch.Tensor] = None
+    eff_scale_is_identity: Optional[bool] = None
 
     def cpu(self) -> "PreprocInfo":
         """Return a copy with nested tensors detached + moved to CPU.
