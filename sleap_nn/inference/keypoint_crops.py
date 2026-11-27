@@ -875,9 +875,7 @@ class StreamingPartStage:
                 # bit-for-bit in float64 (avoids 1-ULP rounding drift).
                 cx_raw = center[..., 0]
                 box_half = ((cx_raw + raw_half) - (cx_raw - raw_half)) * 0.5
-                raw_half_np = (
-                    box_half.masked_fill(~valid, float("nan")).cpu().numpy()
-                )
+                raw_half_np = box_half.masked_fill(~valid, float("nan")).cpu().numpy()
                 floors = np.zeros(B, dtype=np.float64)
                 has_any_b = np.zeros(B, dtype=bool)
                 for b in range(B):
@@ -908,7 +906,12 @@ class StreamingPartStage:
             cx, cy = center[..., 0], center[..., 1]
             boxes_t = (
                 torch.stack(
-                    [cx - final_half, cy - final_half, cx + final_half, cy + final_half],
+                    [
+                        cx - final_half,
+                        cy - final_half,
+                        cx + final_half,
+                        cy + final_half,
+                    ],
                     dim=-1,
                 )
                 .to(torch.float32)

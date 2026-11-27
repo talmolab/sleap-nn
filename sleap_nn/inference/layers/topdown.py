@@ -284,9 +284,7 @@ class TopDownLayer:
         if max_height is None and max_width is None:
             return x_raw, torch.ones(B, dtype=torch.float32, device=x_raw.device)
 
-        x_sized, scale = apply_sizematcher(
-            x_raw, max_height, max_width, warn="info"
-        )
+        x_sized, scale = apply_sizematcher(x_raw, max_height, max_width, warn="info")
         eff_scale = torch.full(
             (B,), float(scale), dtype=torch.float32, device=x_sized.device
         )

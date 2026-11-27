@@ -876,6 +876,7 @@ class Outputs:
         seen_track_ids: set[int] = set()
         used_identities: List["sio.Identity"] = []
         seen_identity_names: set = set()
+
         # Bulk-extract batch tensors to CPU numpy ONCE before iterating frames
         # (eliminates ~11 per-frame CUDA->CPU syncs and removes duplicate D2H
         # downloads in `_link_bboxes_to_instances`).
@@ -967,9 +968,7 @@ class Outputs:
                     else np.full((c_b.shape[0],), np.nan, dtype=np.float32)
                 )
                 ts_b = (
-                    all_tracking_scores[b]
-                    if all_tracking_scores is not None
-                    else None
+                    all_tracking_scores[b] if all_tracking_scores is not None else None
                 )
                 centroids = []
                 for i in range(c_b.shape[0]):

@@ -3198,9 +3198,7 @@ class Predictor:
                     or buf.shape != host_t.shape
                     or buf.dtype != host_t.dtype
                 ):
-                    buf = torch.empty(
-                        host_t.shape, dtype=host_t.dtype, pin_memory=True
-                    )
+                    buf = torch.empty(host_t.shape, dtype=host_t.dtype, pin_memory=True)
                     ev = None
                 elif ev is not None:
                     ev.synchronize()

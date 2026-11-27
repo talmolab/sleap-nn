@@ -917,9 +917,9 @@ def crop_windows(
         # z = 2*(b + 0.5)/B - 1, eliminating per-frame unique().tolist() and
         # B separate nonzero() CUDA->CPU sync barriers.
         vol = frames.permute(1, 0, 2, 3).unsqueeze(0)
-        zs = (
-            2.0 * (sample_inds.to(torch.float32) + 0.5) / float(b_frames) - 1.0
-        )[:, None, None].expand(n, ch, cw)
+        zs = (2.0 * (sample_inds.to(torch.float32) + 0.5) / float(b_frames) - 1.0)[
+            :, None, None
+        ].expand(n, ch, cw)
         grid_3d = torch.cat([grid, zs.unsqueeze(-1)], dim=-1).unsqueeze(0)
         sampled = F.grid_sample(
             vol,

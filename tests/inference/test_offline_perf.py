@@ -6,7 +6,6 @@ import pytest
 import torch
 import torch.nn as nn
 
-
 # ─────────────────────────────────────────────────────────────────────────────
 # torch.compile Power-of-2 Bucket Ladder
 # ─────────────────────────────────────────────────────────────────────────────
@@ -37,7 +36,9 @@ def test_torch_backend_power_of_two_bucket_ladder_and_burst_dropback(monkeypatch
             next(
                 tuple(t.shape)
                 for t in example_inputs
-                if isinstance(t, torch.Tensor) and t.ndim == 4 and t.shape[-1] in (4, 16)
+                if isinstance(t, torch.Tensor)
+                and t.ndim == 4
+                and t.shape[-1] in (4, 16)
             )
         )
         return gm.forward
@@ -108,6 +109,7 @@ def test_torch_backend_power_of_two_bucket_ladder_and_burst_dropback(monkeypatch
 
 
 def test_batched_sizematcher_and_squash_exact_parity():
+    """Batched letterbox and squash resizing match per-frame reference exactly."""
     from sleap_nn.data.resizing import apply_sizematcher, apply_squash_resize
     from sleap_nn.inference.layers.backends import TorchBackend
     from sleap_nn.inference.layers.base import InferenceLayer
@@ -157,6 +159,7 @@ def test_batched_sizematcher_and_squash_exact_parity():
 
 
 def test_vectorized_batched_nms_exact_parity_vs_per_frame():
+    """Vectorized batched DETR selection and NMS match per-frame decoding."""
     from torchvision.ops import batched_nms
 
     from sleap_nn.inference.bbox import decode_set, decode_set_keypoints
@@ -244,6 +247,7 @@ def test_vectorized_batched_nms_exact_parity_vs_per_frame():
 
 
 def test_undo_eff_scale_identity_flag_and_fallback():
+    """undo_eff_scale honors eff_scale_is_identity without host syncs."""
     from sleap_nn.inference.ops.coord import undo_eff_scale
 
     coords = torch.tensor([[[10.0, 20.0]], [[30.0, 40.0]]])
@@ -254,14 +258,13 @@ def test_undo_eff_scale_identity_flag_and_fallback():
     assert undo_eff_scale(coords, scales, eff_scale_is_identity=True) is coords
     # Explicit False divides cleanly
     out = undo_eff_scale(coords, scales, eff_scale_is_identity=False)
-    torch.testing.assert_close(
-        out, torch.tensor([[[20.0, 40.0]], [[15.0, 20.0]]])
-    )
+    torch.testing.assert_close(out, torch.tensor([[[20.0, 40.0]], [[15.0, 20.0]]]))
     # Fallback None on CPU preserves identity return
     assert undo_eff_scale(coords, ones) is coords
 
 
 def test_crop_windows_vectorized_numerical_parity():
+    """Vectorized 3D grid_sample crop_windows matches per-frame 2D reference."""
     import torch.nn.functional as F
 
     from sleap_nn.data.instance_cropping import (
@@ -376,6 +379,7 @@ def test_crop_windows_mps_4d_fallback_parity_and_no_5d_grid_sample(monkeypatch):
 
 
 def test_streaming_part_stage_tensor_parity_and_session_floor():
+    """Vectorized boxes_tensor and StreamingPartStage match scalar KeypointCropRule."""
     import numpy as np
 
     from sleap_nn.inference.keypoint_crops import KeypointCropRule, StreamingPartStage
@@ -568,6 +572,7 @@ def test_outputs_to_labels_bulk_extract_and_no_duplicate_d2h(monkeypatch):
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="needs CUDA")
 def test_pinned_h2d_and_bulk_d2h_on_cuda():
+    """Predictor uses pinned upload staging and bulk D2H transfer on CUDA."""
     import numpy as np
 
     from sleap_nn.inference.outputs import Outputs
@@ -608,7 +613,9 @@ def test_pinned_h2d_and_bulk_d2h_on_cuda():
 
     # Pinned upload ring was populated and buffers are pinned
     assert len(pred._pinned_upload_ring) == 2
-    assert any(slot[0] is not None and slot[0].is_pinned() for slot in pred._pinned_upload_ring)
+    assert any(
+        slot[0] is not None and slot[0].is_pinned() for slot in pred._pinned_upload_ring
+    )
     # Bulk D2H moved every field cleanly to CPU (including PreprocInfo)
     assert pred._pinned_d2h_buf is not None and pred._pinned_d2h_buf.is_pinned()
     for o in outs:
@@ -619,6 +626,7 @@ def test_pinned_h2d_and_bulk_d2h_on_cuda():
 
 
 def test_video_provider_avoids_double_open_cold_start():
+    """VideoProvider keeps the caller's backend open and clones lazily for prefetch."""
     from pathlib import Path
 
     import sleap_io as sio
@@ -633,7 +641,9 @@ def test_video_provider_avoids_double_open_cold_start():
     orig_backend = vid.backend
     assert orig_backend is not None
 
-    provider = VideoProvider(video=vid, batch_size=4, frames=list(range(8)), prefetch=True)
+    provider = VideoProvider(
+        video=vid, batch_size=4, frames=list(range(8)), prefetch=True
+    )
     # _thread_local_video must NOT close/reopen vid.backend!
     clone = provider._thread_local_video()
     assert vid.backend is orig_backend

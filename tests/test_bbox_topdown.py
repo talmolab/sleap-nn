@@ -1930,7 +1930,7 @@ def test_compiled_crop_model_behind_detector_pads_to_animals_found(
             device="cpu",
             batch_size=4,
             max_instances=max_instances,
-            peak_threshold=0.2,
+            peak_threshold=0.1,
         )
         layer = pred.layer
         backend = layer.centered_instance_layer.backend
@@ -1953,12 +1953,12 @@ def test_compiled_crop_model_behind_detector_pads_to_animals_found(
     eager_outs, _ = run(use_compile=False)
 
     found = [
-        int(torch.isfinite(o.pred_centroids).all(dim=-1).sum())
-        for o in eager_outs
+        int(torch.isfinite(o.pred_centroids).all(dim=-1).sum()) for o in eager_outs
     ]
     assert found[0] >= 1 and found[-1] >= 1
     if max_instances is None:
         assert eager_outs[0].pred_centroids.shape[1] > max(found)  # empty slots
+
     # Expected padding: each batch snaps independently to its power-of-2 bucket
     # so the short last batch drops back to a small bucket instead of staying
     # locked at the largest mid-run batch.

@@ -440,7 +440,7 @@ def decode_set_keypoints(
         slots.
     """
     probs = pred_logits[..., :-1].float().sigmoid()
-    b, q, c = probs.shape
+    b, q, _ = probs.shape
     n_kpts = pred_keypoints.shape[-2]
     best, best_class = probs.max(-1)
     k = min(int(num_select), q)
@@ -467,7 +467,7 @@ def decode_set_keypoints(
         score_threshold,
         max_detections,
         iou_threshold,
-        num_classes=c,
+        num_classes=probs.shape[-1],
         img_hw=img_hw,
     )
     m = int(max_detections)
