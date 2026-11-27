@@ -94,3 +94,247 @@ def test_detr_bbox_dataset_negative_frame_stays_empty_under_frame_canvas(monkeyp
     assert len(called) == 1
     assert called[0][0] == 1
     assert out_pos["instances"].shape[1] == 1
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 4-Keypoint Export + Native vis_mult + Canonical Keypoint Propagation
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class _DummyDetrModel(nn.Module):
+    """Minimal bbox_detr stand-in with optional 4-keypoint branch."""
+
+    def __init__(self, num_keypoints: int = 4) -> None:
+        super().__init__()
+        self.detr = nn.Module()
+        self.detr.num_keypoints = num_keypoints
+
+    def forward(self, x: torch.Tensor):
+        b = x.shape[0]
+        out = {
+            "pred_logits": torch.zeros(b, 5, 2, device=x.device),
+            "pred_boxes": torch.full((b, 5, 4), 0.5, device=x.device),
+        }
+        if self.detr.num_keypoints:
+            out["pred_keypoints"] = torch.full(
+                (b, 5, self.detr.num_keypoints, 2), 0.5, device=x.device
+            )
+            out["pred_keypoint_logits"] = torch.zeros(
+                b, 5, self.detr.num_keypoints, device=x.device
+            )
+        return out
+
+
+def test_bbox_onnx_wrapper_4_tensor_keypoint_outputs_and_cli_cleanup():
+    """BBoxONNXWrapper exports 4 tensors when bbox_detr has keypoints and 2 otherwise."""
+    import sleap_nn.export.cli as export_cli
+    from sleap_nn.export.wrappers.bbox import BBoxONNXWrapper
+
+    assert not hasattr(export_cli, "_has_detr_keypoints")
+
+    w_kpt = BBoxONNXWrapper(_DummyDetrModel(num_keypoints=4), model_type="bbox_detr")
+    assert w_kpt.has_keypoints is True
+    assert w_kpt.output_names == [
+        "pred_logits",
+        "pred_boxes",
+        "pred_keypoints",
+        "pred_keypoint_logits",
+    ]
+    out_kpt = w_kpt(torch.zeros(2, 3, 32, 32, dtype=torch.float32))
+    assert list(out_kpt.keys()) == w_kpt.output_names
+    assert out_kpt["pred_keypoints"].shape == (2, 5, 4, 2)
+    assert out_kpt["pred_keypoint_logits"].shape == (2, 5, 4)
+
+    w_box = BBoxONNXWrapper(_DummyDetrModel(num_keypoints=0), model_type="bbox_detr")
+    assert w_box.has_keypoints is False
+    assert w_box.output_names == ["pred_logits", "pred_boxes"]
+    out_box = w_box(torch.zeros(2, 3, 32, 32, dtype=torch.float32))
+    assert list(out_box.keys()) == ["pred_logits", "pred_boxes"]
+
+
+def test_decode_set_and_decode_set_keypoints_vis_mult():
+    """Optional bbox_vis_beta rescores DETR boxes while preserving raw keypoint vis."""
+    from sleap_nn.inference.bbox import (
+        BBoxDecoder,
+        decode_set,
+        decode_set_keypoints,
+    )
+
+    # Query 0: high p_det (sigmoid(2.0)~0.8808), low vis (sigmoid(-3.0)~0.0474)
+    # Query 1: moderate p_det (sigmoid(1.0)~0.7311), high vis (sigmoid(3.0)~0.9526)
+    pred_logits = torch.tensor([[[2.0, -5.0], [1.0, -5.0]]])
+    pred_boxes = torch.tensor([[[0.25, 0.25, 0.2, 0.2], [0.75, 0.75, 0.2, 0.2]]])
+    pred_kpts = torch.tensor(
+        [
+            [
+                [[0.2, 0.2], [0.22, 0.22], [0.25, 0.25], [0.28, 0.28]],
+                [[0.7, 0.7], [0.72, 0.72], [0.75, 0.75], [0.78, 0.78]],
+            ]
+        ]
+    )
+    pred_kpt_logits = torch.tensor([[[-3.0, -3.0, -3.0, -3.0], [3.0, 3.0, 3.0, 3.0]]])
+
+    p0 = torch.sigmoid(torch.tensor(2.0)).item()
+    p1 = torch.sigmoid(torch.tensor(1.0)).item()
+    v0 = torch.sigmoid(torch.tensor(-3.0)).item()
+    v1 = torch.sigmoid(torch.tensor(3.0)).item()
+
+    # Default bbox_vis_beta=0.0: Query 0 ranks first (100% backward compatible).
+    b_raw, s_raw, c_raw = decode_set(
+        pred_logits,
+        pred_boxes,
+        (100, 100),
+        score_threshold=0.0,
+        max_detections=5,
+        pred_keypoint_logits=pred_kpt_logits,
+        bbox_vis_beta=0.0,
+    )
+    torch.testing.assert_close(s_raw[0, :2], torch.tensor([p0, p1]))
+
+    # With bbox_vis_beta=1.0: Query 1 overtakes Query 0, and Query 0 falls below 0.1.
+    for beta in (0.5, 1.0):
+        expected_q0 = p0 * (v0**beta)
+        expected_q1 = p1 * (v1**beta)
+        b_vm, s_vm, _ = decode_set(
+            pred_logits,
+            pred_boxes,
+            (100, 100),
+            score_threshold=0.0,
+            max_detections=5,
+            pred_keypoint_logits=pred_kpt_logits,
+            bbox_vis_beta=beta,
+        )
+        torch.testing.assert_close(
+            s_vm[0, :2], torch.tensor([expected_q1, expected_q0]), atol=1e-6, rtol=1e-6
+        )
+        # decode_set_keypoints matches decode_set scores & preserves raw vis in point_scores
+        kb, ks, kc, kp, kv = decode_set_keypoints(
+            pred_logits,
+            pred_boxes,
+            pred_kpts,
+            pred_kpt_logits,
+            (100, 100),
+            score_threshold=0.0,
+            max_detections=5,
+            visibility_threshold=0.0,
+            bbox_vis_beta=beta,
+        )
+        torch.testing.assert_close(ks, s_vm, equal_nan=True)
+        torch.testing.assert_close(kb, b_vm, equal_nan=True)
+        torch.testing.assert_close(kv[0, 0], torch.full((4,), v1), atol=1e-6, rtol=1e-6)
+        torch.testing.assert_close(kv[0, 1], torch.full((4,), v0), atol=1e-6, rtol=1e-6)
+
+    # Thresholding operates on rescored score: Query 0 (~0.042 at beta=1) is dropped at thr=0.1.
+    dec = BBoxDecoder(
+        "bbox_detr",
+        categories=["mouse"],
+        score_threshold=0.1,
+        max_detections=5,
+        num_keypoints=4,
+        bbox_vis_beta=1.0,
+    )
+    raw = {
+        "pred_logits": pred_logits,
+        "pred_boxes": pred_boxes,
+        "pred_keypoints": pred_kpts,
+        "pred_keypoint_logits": pred_kpt_logits,
+    }
+    _, s_thr, _ = dec(raw, (100, 100))
+    assert torch.isfinite(s_thr[0]).sum().item() == 1
+    torch.testing.assert_close(s_thr[0, 0], torch.tensor(p1 * v1), atol=1e-6, rtol=1e-6)
+
+    # Negative beta rejected cleanly
+    with pytest.raises(ValueError, match="bbox_vis_beta"):
+        decode_set(pred_logits, pred_boxes, (100, 100), bbox_vis_beta=-0.5)
+    with pytest.raises(ValueError, match="bbox_vis_beta"):
+        BBoxDecoder("bbox_detr", categories=["mouse"], bbox_vis_beta=-1.0)
+
+
+def test_canonical_bbox_keypoints_propagate_through_stage1_and_topdown():
+    """Stage-1 canonical keypoints propagate alongside Stage-2 pose in TopDownLayer."""
+    from sleap_nn.inference.bbox import BBoxDecoder
+    from sleap_nn.inference.layers.backends import TorchBackend
+    from sleap_nn.inference.layers.bbox import BBoxLayer, BBoxStageLayer
+    from sleap_nn.inference.layers.configs import PostprocessConfig, PreprocessConfig
+    from sleap_nn.inference.layers.topdown import TopDownLayer
+    from sleap_nn.inference.outputs import Outputs
+
+    class _DetNet(nn.Module):
+        def forward(self, x):
+            b = x.shape[0]
+            return {
+                "pred_logits": torch.tensor([[[3.0, -5.0]]]).expand(b, 1, 2).clone(),
+                "pred_boxes": torch.tensor([[[0.5, 0.5, 0.4, 0.4]]])
+                .expand(b, 1, 4)
+                .clone(),
+                "pred_keypoints": torch.tensor(
+                    [[[[0.4, 0.4], [0.45, 0.45], [0.55, 0.45], [0.6, 0.6]]]]
+                )
+                .expand(b, 1, 4, 2)
+                .clone(),
+                "pred_keypoint_logits": torch.full((b, 1, 4), 2.0),
+            }
+
+    class _Stage2Stub:
+        use_gt_peaks = False
+
+        def predict(self, crops):
+            n = crops.shape[0]
+            return Outputs(
+                pred_keypoints=torch.full((n, 1, 6, 2), 16.0),
+                pred_peak_values=torch.full((n, 1, 6), 0.9),
+            )
+
+    decoder = BBoxDecoder(
+        "bbox_detr",
+        categories=["mouse"],
+        score_threshold=0.1,
+        max_detections=4,
+        num_keypoints=4,
+        visibility_threshold=0.5,
+        bbox_vis_beta=1.0,
+    )
+    img = torch.zeros(2, 3, 64, 64, dtype=torch.float32)
+
+    # Standalone BBoxLayer preserves both pred_keypoints and pred_bbox_keypoints.
+    standalone = BBoxLayer(
+        backend=TorchBackend(_DetNet(), device="cpu"),
+        decoder=decoder,
+        output_stride=16,
+        preprocess_config=PreprocessConfig(),
+        postprocess_config=PostprocessConfig(peak_threshold=0.1, max_instances=4),
+    )
+    out1 = standalone.predict(img)
+    assert out1.pred_bbox_keypoints is not None
+    assert out1.pred_bbox_keypoints.shape == (2, 4, 4, 2)
+    assert out1.pred_bbox_keypoint_vis.shape == (2, 4, 4)
+    torch.testing.assert_close(
+        out1.pred_bbox_keypoints, out1.pred_keypoints, equal_nan=True
+    )
+
+    # Two-stage TopDownLayer keeps Stage-2 pose (6 nodes) in pred_keypoints AND
+    # preserves Stage-1 canonical keypoints (4 nodes) in pred_bbox_keypoints!
+    stage1 = BBoxStageLayer(
+        backend=TorchBackend(_DetNet(), device="cpu"),
+        decoder=decoder,
+        output_stride=16,
+        preprocess_config=PreprocessConfig(),
+        postprocess_config=PostprocessConfig(peak_threshold=0.1, max_instances=4),
+    )
+    td = TopDownLayer(
+        centroid_layer=stage1,
+        centered_instance_layer=_Stage2Stub(),
+        crop_size=(32, 32),
+    )
+    out2 = td.predict(img)
+    assert out2.pred_keypoints.shape == (2, 4, 6, 2)  # Stage-2 body pose
+    assert out2.pred_bbox_keypoints is not None
+    assert out2.pred_bbox_keypoints.shape == (2, 4, 4, 2)  # Stage-1 canonical kpts
+    assert out2.pred_bbox_keypoint_vis.shape == (2, 4, 4)
+    # Valid slot 0 has finite canonical keypoints; padded slots 1..3 are NaN.
+    assert torch.isfinite(out2.pred_bbox_keypoints[:, 0]).all()
+    assert torch.isnan(out2.pred_bbox_keypoints[:, 1:]).all()
+    # Outputs.slim() keeps canonical keypoints pickle-safe on CPU
+    slim = out2.slim()
+    assert slim.pred_bbox_keypoints is not None
+    assert slim.pred_bbox_keypoints.device.type == "cpu"
