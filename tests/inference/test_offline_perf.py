@@ -441,3 +441,159 @@ def test_streaming_part_stage_tensor_parity_and_session_floor():
     # undo_last cleanly restores floor state
     stage.undo_last()
     assert len(stage.every) == 0 and stage.last_floors == {}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Pinned H2D + Bulk D2H + Deduplicated to_labels + VideoProvider Fix
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def test_outputs_to_labels_bulk_extract_and_no_duplicate_d2h(monkeypatch):
+    """to_labels converts each tensor ONCE per batch (not per frame or twice in _link)."""
+    import sleap_io as sio
+
+    from sleap_nn.inference.outputs import Outputs
+
+    B, I, N = 4, 3, 2
+    kpts = torch.full((B, I, N, 2), float("nan"))
+    vals = torch.full((B, I, N), float("nan"))
+    boxes = torch.full((B, I, 4), float("nan"))
+    bscores = torch.full((B, I), float("nan"))
+    bcls = torch.full((B, I), -1, dtype=torch.long)
+
+    # Frame 0: slots 0 and 2 active (slot 1 is NaN gap to test slot-aligned linking!)
+    kpts[0, 0] = torch.tensor([[10.0, 20.0], [15.0, 25.0]])
+    vals[0, 0] = torch.tensor([0.9, 0.8])
+    boxes[0, 0] = torch.tensor([5.0, 15.0, 20.0, 30.0])
+    bscores[0, 0] = 0.95
+    bcls[0, 0] = 0
+
+    kpts[0, 2] = torch.tensor([[50.0, 60.0], [55.0, 65.0]])
+    vals[0, 2] = torch.tensor([0.7, 0.6])
+    boxes[0, 2] = torch.tensor([45.0, 55.0, 60.0, 70.0])
+    bscores[0, 2] = 0.85
+    bcls[0, 2] = 0
+
+    # Frame 2: only slot 1 active
+    kpts[2, 1] = torch.tensor([[30.0, 40.0], [35.0, 45.0]])
+    vals[2, 1] = torch.tensor([0.95, 0.92])
+    boxes[2, 1] = torch.tensor([25.0, 35.0, 40.0, 50.0])
+    bscores[2, 1] = 0.88
+    bcls[2, 1] = 0
+
+    out = Outputs(
+        pred_keypoints=kpts,
+        pred_peak_values=vals,
+        instance_scores=bscores,
+        pred_bboxes=boxes,
+        pred_bbox_scores=bscores,
+        pred_bbox_classes=bcls,
+        frame_indices=torch.arange(B, dtype=torch.int64),
+        video_indices=torch.zeros(B, dtype=torch.int64),
+    )
+
+    # Spy on Tensor.cpu calls during to_labels: must be <= 1 per populated tensor
+    # (NOT B=4 per-frame calls and NOT duplicate calls inside _link_bboxes_to_instances!).
+    cpu_calls = []
+    orig_cpu = torch.Tensor.cpu
+
+    def counting_cpu(self, *args, **kwargs):
+        cpu_calls.append(tuple(self.shape))
+        return orig_cpu(self, *args, **kwargs)
+
+    monkeypatch.setattr(torch.Tensor, "cpu", counting_cpu)
+    sk = sio.Skeleton(["A", "B"])
+    labels = out.to_labels(skeleton=sk, keep_empty_frames=True)
+
+    # Every .cpu() call must be on a full batch tensor (leading dim B=4), never per-frame!
+    assert len(cpu_calls) > 0
+    assert all(shape[0] == B for shape in cpu_calls), cpu_calls
+    # Slot-aligned box<->instance linking works across NaN gaps
+    assert len(labels.labeled_frames) == B
+    lf0 = labels.labeled_frames[0]
+    assert len(lf0.instances) == 2 and len(lf0.bboxes) == 2
+    assert lf0.bboxes[0].instance is lf0.instances[0]
+    assert lf0.bboxes[1].instance is lf0.instances[1]
+    assert lf0.bboxes[0].score == pytest.approx(0.95)
+    assert lf0.bboxes[1].score == pytest.approx(0.85)
+    assert len(labels.labeled_frames[1].instances) == 0
+    lf2 = labels.labeled_frames[2]
+    assert len(lf2.instances) == 1 and lf2.bboxes[0].instance is lf2.instances[0]
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="needs CUDA")
+def test_pinned_h2d_and_bulk_d2h_on_cuda():
+    import numpy as np
+
+    from sleap_nn.inference.outputs import Outputs
+    from sleap_nn.inference.predictor import Predictor
+    from sleap_nn.inference.preprocess_info import PreprocInfo
+    from sleap_nn.inference.providers import NumpyProvider
+
+    class _CudaDummyLayer:
+        def predict(self, images):
+            b = images.shape[0]
+            dev = images.device
+            scores = torch.full((b, 2), 0.9, device=dev)
+            return Outputs(
+                pred_keypoints=torch.ones(b, 2, 4, 2, device=dev),
+                pred_peak_values=torch.full((b, 2, 4), 0.8, device=dev),
+                instance_scores=scores,
+                pred_bboxes=torch.tensor(
+                    [[[1.0, 2.0, 10.0, 20.0], [5.0, 6.0, 15.0, 25.0]]], device=dev
+                )
+                .expand(b, 2, 4)
+                .clone(),
+                pred_bbox_scores=scores,
+                pred_bbox_classes=torch.zeros(b, 2, dtype=torch.long, device=dev),
+                preprocess_info=PreprocInfo(
+                    original_size=(32, 32),
+                    processed_size=(32, 32),
+                    eff_scale=torch.ones(b, device=dev),
+                    eff_scale_is_identity=True,
+                ),
+            )
+
+    pred = Predictor(
+        layer=_CudaDummyLayer(), batch_size=4, device="cuda", upload_batches=True
+    )
+    rng = np.random.default_rng(0)
+    imgs = rng.integers(0, 255, size=(10, 32, 32, 3), dtype=np.uint8)
+    outs = pred.predict(NumpyProvider(images=imgs, batch_size=4), make_labels=False)
+
+    # Pinned upload ring was populated and buffers are pinned
+    assert len(pred._pinned_upload_ring) == 2
+    assert any(slot[0] is not None and slot[0].is_pinned() for slot in pred._pinned_upload_ring)
+    # Bulk D2H moved every field cleanly to CPU (including PreprocInfo)
+    assert pred._pinned_d2h_buf is not None and pred._pinned_d2h_buf.is_pinned()
+    for o in outs:
+        assert o.pred_keypoints.device.type == "cpu"
+        assert o.pred_bboxes.device.type == "cpu"
+        assert o.preprocess_info.eff_scale.device.type == "cpu"
+        assert not o.pred_keypoints.is_pinned()  # cloned out to standard CPU tensor
+
+
+def test_video_provider_avoids_double_open_cold_start():
+    from pathlib import Path
+
+    import sleap_io as sio
+
+    from sleap_nn.inference.providers import VideoProvider
+
+    video_path = Path("tests/assets/datasets/small_robot.mp4")
+    if not video_path.exists():
+        pytest.skip("small_robot.mp4 not present")
+
+    vid = sio.load_video(str(video_path))
+    orig_backend = vid.backend
+    assert orig_backend is not None
+
+    provider = VideoProvider(video=vid, batch_size=4, frames=list(range(8)), prefetch=True)
+    # _thread_local_video must NOT close/reopen vid.backend!
+    clone = provider._thread_local_video()
+    assert vid.backend is orig_backend
+    assert clone.backend is None
+    # Reading batches via prefetch matches sync and leaves vid.backend intact.
+    batches = list(provider)
+    assert sum(b.images.shape[0] for b in batches) == 8
+    assert vid.backend is orig_backend

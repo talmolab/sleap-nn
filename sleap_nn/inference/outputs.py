@@ -303,6 +303,68 @@ class Outputs:
     # sleap-io conversion
     # ═══════════════════════════════════════════════════════════════════
 
+    @staticmethod
+    def _instances_from_numpy(
+        kpts: np.ndarray,
+        vals: Optional[np.ndarray],
+        instance_scores: Optional[np.ndarray],
+        tracking_scores: Optional[np.ndarray],
+        class_inds: Optional[np.ndarray],
+        skeleton: "sio.Skeleton",
+        tracks: Optional[list["sio.Track"]] = None,
+        identities: Optional[list["sio.Identity"]] = None,
+    ) -> Tuple[List["sio.PredictedInstance"], List[int]]:
+        """Build ``PredictedInstance`` objects + active slot indices from CPU numpy."""
+        import sleap_io as sio
+
+        if vals is None:
+            vals = np.full(kpts.shape[:2], np.nan, dtype=np.float32)
+
+        instances: List[sio.PredictedInstance] = []
+        slots: List[int] = []
+        for i in range(kpts.shape[0]):
+            if np.all(np.isnan(kpts[i])):
+                continue
+            inst_score = (
+                float(instance_scores[i])
+                if instance_scores is not None
+                else float(np.nansum(vals[i]))
+            )
+            track = None
+            tracking_score = None
+            identity = None
+            identity_score = None
+            if tracks is not None or identities is not None:
+                cls_ind = int(class_inds[i, 0]) if class_inds is not None else i
+                if tracks is not None and 0 <= cls_ind < len(tracks):
+                    track = tracks[cls_ind]
+                if identities is not None and 0 <= cls_ind < len(identities):
+                    identity = identities[cls_ind]
+                if tracking_scores is not None:
+                    tracking_score = float(tracking_scores[i])
+                    identity_score = tracking_score
+
+            kwargs: Dict[str, Any] = {}
+            if track is not None:
+                kwargs["track"] = track
+            if tracking_score is not None:
+                kwargs["tracking_score"] = tracking_score
+            if identity is not None:
+                kwargs["identity"] = identity
+                if identity_score is not None:
+                    kwargs["identity_score"] = identity_score
+            instances.append(
+                sio.PredictedInstance.from_numpy(
+                    points_data=kpts[i],
+                    point_scores=vals[i],
+                    score=inst_score,
+                    skeleton=skeleton,
+                    **kwargs,
+                )
+            )
+            slots.append(i)
+        return instances, slots
+
     def to_instances(
         self,
         skeleton: "sio.Skeleton",
@@ -366,8 +428,6 @@ class Outputs:
             every other node, marked unlabeled. Per-instance score = centroid
             value.
         """
-        import sleap_io as sio
-
         # Centroid-only branch: synthesize keypoints from centroids. When a
         # ``collapse_skeleton`` (a 1-node 'centroid' skeleton) is supplied, the
         # standalone-centroid output collapses to that single node (anchor 0)
@@ -392,90 +452,33 @@ class Outputs:
         vals = (
             self.pred_peak_values[batch_index].detach().cpu().numpy()
             if self.pred_peak_values is not None
-            else np.full(kpts.shape[:2], np.nan, dtype=np.float32)
+            else None
         )
         instance_scores = (
             self.instance_scores[batch_index].detach().cpu().numpy()
             if self.instance_scores is not None
             else None
         )
-        # Multi-class identity packaging metadata (None for plain paths).
         tracking_scores = (
             self.instance_tracking_scores[batch_index].detach().cpu().numpy()
             if self.instance_tracking_scores is not None
             else None
         )
-        # Per-instance class index for top-down multi-class. ``pred_class_inds``
-        # is ``(B, I, N)`` (the same class for every node of an instance), so
-        # node 0 carries the per-instance class. Bottom-up multi-class does not
-        # set this — there the instance slot ``i`` IS the class (see below).
         class_inds = (
             self.pred_class_inds[batch_index].detach().cpu().numpy()
             if self.pred_class_inds is not None
             else None
         )
-
-        instances: List[sio.PredictedInstance] = []
-        for i in range(kpts.shape[0]):
-            if np.all(np.isnan(kpts[i])):
-                continue
-            # Per-instance score fallback (single-instance models, which don't
-            # populate ``instance_scores``) must match legacy
-            # ``SingleInstancePredictor``: ``np.nansum(pred_values)`` — the SUM
-            # of node confidences, NOT the mean (#530 audit F-SCORE /
-            # predictors.py:1937). ``np.nansum`` of an all-NaN row is 0.0.
-            inst_score = (
-                float(instance_scores[i])
-                if instance_scores is not None
-                else float(np.nansum(vals[i]))
-            )
-
-            # Multi-class track + tracking_score assignment. Legacy parity:
-            #   - TopDownMultiClass (predictors.py:3808-3880): track =
-            #     tracks[class_ind]; tracking_score = class probability;
-            #     score = centroid value.
-            #   - BottomUpMultiClass (predictors.py:2987-3010): track =
-            #     tracks[i] (by instance order); tracking_score =
-            #     mean class score; score = mean confidence.
-            track = None
-            tracking_score = None
-            identity = None
-            identity_score = None
-            if tracks is not None or identities is not None:
-                # Top-down carries an explicit per-instance class index; bottom-up
-                # uses the instance slot ``i`` directly as the class (legacy
-                # ``tracks[i]``).
-                cls_ind = int(class_inds[i, 0]) if class_inds is not None else i
-                if tracks is not None and 0 <= cls_ind < len(tracks):
-                    track = tracks[cls_ind]
-                # Migrate the predicted class onto a canonical ``sio.Identity``,
-                # additively (alongside the legacy ``track``). The class
-                # probability serves as both ``tracking_score`` and
-                # ``identity_score``.
-                if identities is not None and 0 <= cls_ind < len(identities):
-                    identity = identities[cls_ind]
-                if tracking_scores is not None:
-                    tracking_score = float(tracking_scores[i])
-                    identity_score = tracking_score
-
-            kwargs: Dict[str, Any] = {}
-            if track is not None:
-                kwargs["track"] = track
-            if tracking_score is not None:
-                kwargs["tracking_score"] = tracking_score
-            if identity is not None:
-                kwargs["identity"] = identity
-                if identity_score is not None:
-                    kwargs["identity_score"] = identity_score
-            instances.append(
-                sio.PredictedInstance.from_numpy(
-                    points_data=kpts[i],
-                    point_scores=vals[i],
-                    score=inst_score,
-                    skeleton=skeleton,
-                    **kwargs,
-                )
-            )
+        instances, _ = self._instances_from_numpy(
+            kpts,
+            vals,
+            instance_scores,
+            tracking_scores,
+            class_inds,
+            skeleton=skeleton,
+            tracks=tracks,
+            identities=identities,
+        )
         return instances
 
     def _to_instances_centroid_only(
@@ -637,6 +640,46 @@ class Outputs:
             )
         return out
 
+    @staticmethod
+    def _bboxes_from_numpy(
+        boxes: np.ndarray,
+        scores: Optional[np.ndarray],
+        classes: Optional[np.ndarray],
+        categories: Optional[List[str]] = None,
+    ) -> Tuple[List["sio.PredictedBoundingBox"], List[int]]:
+        """Build ``PredictedBoundingBox`` objects + active slot indices from CPU numpy."""
+        import sleap_io as sio
+
+        from sleap_nn.config.model_config import DEFAULT_BBOX_CATEGORY
+
+        if scores is None:
+            scores = np.ones((boxes.shape[0],), dtype=np.float32)
+        if classes is None:
+            classes = np.zeros((boxes.shape[0],), dtype=np.int64)
+        named = categories is not None and list(categories) != [DEFAULT_BBOX_CATEGORY]
+        out: List["sio.PredictedBoundingBox"] = []
+        slots: List[int] = []
+        for idx, (box, score, cls) in enumerate(zip(boxes, scores, classes)):
+            if not np.isfinite(box).all() or not np.isfinite(score):
+                continue
+            category = (
+                categories[int(cls)]
+                if named and 0 <= int(cls) < len(categories)
+                else None
+            )
+            out.append(
+                sio.PredictedBoundingBox(
+                    x1=float(box[0]),
+                    y1=float(box[1]),
+                    x2=float(box[2]),
+                    y2=float(box[3]),
+                    score=float(score),
+                    category=category,
+                )
+            )
+            slots.append(idx)
+        return out, slots
+
     def to_bboxes(
         self,
         batch_index: int = 0,
@@ -656,41 +699,18 @@ class Outputs:
         """
         if self.pred_bboxes is None:
             return []
-        import sleap_io as sio
-
-        from sleap_nn.config.model_config import DEFAULT_BBOX_CATEGORY
-
         boxes = self.pred_bboxes[batch_index].detach().cpu().numpy()
         scores = (
             self.pred_bbox_scores[batch_index].detach().cpu().numpy()
             if self.pred_bbox_scores is not None
-            else np.ones((boxes.shape[0],), dtype=np.float32)
+            else None
         )
         classes = (
             self.pred_bbox_classes[batch_index].detach().cpu().numpy()
             if self.pred_bbox_classes is not None
-            else np.zeros((boxes.shape[0],), dtype=np.int64)
+            else None
         )
-        named = categories is not None and list(categories) != [DEFAULT_BBOX_CATEGORY]
-        out: List["sio.PredictedBoundingBox"] = []
-        for box, score, cls in zip(boxes, scores, classes):
-            if not np.isfinite(box).all() or not np.isfinite(score):
-                continue
-            category = (
-                categories[int(cls)]
-                if named and 0 <= int(cls) < len(categories)
-                else None
-            )
-            out.append(
-                sio.PredictedBoundingBox(
-                    x1=float(box[0]),
-                    y1=float(box[1]),
-                    x2=float(box[2]),
-                    y2=float(box[3]),
-                    score=float(score),
-                    category=category,
-                )
-            )
+        out, _ = self._bboxes_from_numpy(boxes, scores, classes, categories=categories)
         return out
 
     def _link_bboxes_to_instances(
@@ -698,6 +718,9 @@ class Outputs:
         batch_index: int,
         instances: List["sio.PredictedInstance"],
         bboxes: List["sio.PredictedBoundingBox"],
+        *,
+        inst_slots: Optional[List[int]] = None,
+        box_slots: Optional[List[int]] = None,
     ) -> None:
         """Link a box-seeded top-down frame's boxes to the instances they produced.
 
@@ -705,6 +728,10 @@ class Outputs:
         detection whose crop produced instance slot ``i``. :meth:`to_instances` and
         :meth:`to_bboxes` each skip empty slots, so the two lists are matched back
         by slot; ``box.instance`` is set in place. A no-op for any other layout.
+
+        When ``inst_slots`` and ``box_slots`` are passed (from the bulk
+        :meth:`to_labels` path), linking reuses the already-computed slots with
+        zero duplicate tensor downloads or NaN scans.
         """
         if (
             not instances
@@ -714,19 +741,23 @@ class Outputs:
             or self.pred_bboxes.shape[1] != self.pred_keypoints.shape[1]
         ):
             return
-        kpts = self.pred_keypoints[batch_index].detach().cpu().numpy()
-        boxes = self.pred_bboxes[batch_index].detach().cpu().numpy()
-        scores = (
-            self.pred_bbox_scores[batch_index].detach().cpu().numpy()
-            if self.pred_bbox_scores is not None
-            else np.ones((boxes.shape[0],), dtype=np.float32)
-        )
-        inst_slots = [i for i in range(kpts.shape[0]) if not np.all(np.isnan(kpts[i]))]
-        box_slots = [
-            i
-            for i in range(boxes.shape[0])
-            if np.isfinite(boxes[i]).all() and np.isfinite(scores[i])
-        ]
+        if inst_slots is None:
+            kpts = self.pred_keypoints[batch_index].detach().cpu().numpy()
+            inst_slots = [
+                i for i in range(kpts.shape[0]) if not np.all(np.isnan(kpts[i]))
+            ]
+        if box_slots is None:
+            boxes = self.pred_bboxes[batch_index].detach().cpu().numpy()
+            scores = (
+                self.pred_bbox_scores[batch_index].detach().cpu().numpy()
+                if self.pred_bbox_scores is not None
+                else np.ones((boxes.shape[0],), dtype=np.float32)
+            )
+            box_slots = [
+                i
+                for i in range(boxes.shape[0])
+                if np.isfinite(boxes[i]).all() and np.isfinite(scores[i])
+            ]
         if len(inst_slots) != len(instances) or len(box_slots) != len(bboxes):
             return
         by_slot = dict(zip(inst_slots, instances))
@@ -845,27 +876,128 @@ class Outputs:
         seen_track_ids: set[int] = set()
         used_identities: List["sio.Identity"] = []
         seen_identity_names: set = set()
+        # Bulk-extract batch tensors to CPU numpy ONCE before iterating frames
+        # (eliminates ~11 per-frame CUDA->CPU syncs and removes duplicate D2H
+        # downloads in `_link_bboxes_to_instances`).
+        def _to_np(t: Optional[torch.Tensor]) -> Optional[np.ndarray]:
+            return t.detach().cpu().numpy() if t is not None else None
+
+        all_kpts = _to_np(self.pred_keypoints) if want_instances else None
+        all_vals = (
+            _to_np(self.pred_peak_values)
+            if (want_instances and all_kpts is not None)
+            else None
+        )
+        all_inst_scores = (
+            _to_np(self.instance_scores)
+            if (want_instances and all_kpts is not None)
+            else None
+        )
+        all_tracking_scores = (
+            _to_np(self.instance_tracking_scores)
+            if (want_instances and all_kpts is not None) or want_centroids
+            else None
+        )
+        all_class_inds = (
+            _to_np(self.pred_class_inds)
+            if (want_instances and all_kpts is not None)
+            else None
+        )
+        all_centroids = (
+            _to_np(self.pred_centroids)
+            if want_centroids or (want_instances and all_kpts is None)
+            else None
+        )
+        all_cvals = (
+            _to_np(self.pred_centroid_values) if all_centroids is not None else None
+        )
+        all_boxes = _to_np(self.pred_bboxes)
+        all_box_scores = (
+            _to_np(self.pred_bbox_scores) if all_boxes is not None else None
+        )
+        all_box_classes = (
+            _to_np(self.pred_bbox_classes) if all_boxes is not None else None
+        )
+        all_frame_indices = _to_np(self.frame_indices)
+        all_video_indices = _to_np(self.video_indices)
+
+        want_masks = mask_output in ("mask", "both")
+        want_rois = mask_output in ("polygon", "both")
         for b in range(self.batch_size):
-            instances = (
-                self.to_instances(
-                    skeleton=skeleton,
-                    batch_index=b,
-                    anchor_ind=anchor_ind,
-                    tracks=tracks,
-                    identities=identities,
-                    collapse_skeleton=collapse_skeleton,
+            inst_slots: Optional[List[int]] = None
+            if want_instances:
+                if all_kpts is not None:
+                    instances, inst_slots = self._instances_from_numpy(
+                        all_kpts[b],
+                        all_vals[b] if all_vals is not None else None,
+                        all_inst_scores[b] if all_inst_scores is not None else None,
+                        (
+                            all_tracking_scores[b]
+                            if all_tracking_scores is not None
+                            else None
+                        ),
+                        all_class_inds[b] if all_class_inds is not None else None,
+                        skeleton=skeleton,
+                        tracks=tracks,
+                        identities=identities,
+                    )
+                elif all_centroids is not None:
+                    instances = self.to_instances(
+                        skeleton=skeleton,
+                        batch_index=b,
+                        anchor_ind=anchor_ind,
+                        tracks=tracks,
+                        identities=identities,
+                        collapse_skeleton=collapse_skeleton,
+                    )
+                else:
+                    instances = []
+            else:
+                instances = []
+
+            if want_centroids and all_centroids is not None:
+                from sleap_nn.inference.centroid_convert import (
+                    build_predicted_centroid,
                 )
-                if want_instances
-                else []
-            )
-            centroids = (
-                self.to_centroids(batch_index=b, source=source, tracks=tracks)
-                if want_centroids
-                else []
-            )
+
+                c_b = all_centroids[b]
+                cv_b = (
+                    all_cvals[b]
+                    if all_cvals is not None
+                    else np.full((c_b.shape[0],), np.nan, dtype=np.float32)
+                )
+                ts_b = (
+                    all_tracking_scores[b]
+                    if all_tracking_scores is not None
+                    else None
+                )
+                centroids = []
+                for i in range(c_b.shape[0]):
+                    if np.isnan(c_b[i]).any():
+                        continue
+                    score = float(cv_b[i]) if not np.isnan(cv_b[i]) else 0.0
+                    track = (
+                        tracks[i] if (tracks is not None and i < len(tracks)) else None
+                    )
+                    tscore = (
+                        float(ts_b[i])
+                        if ts_b is not None and not np.isnan(ts_b[i])
+                        else None
+                    )
+                    centroids.append(
+                        build_predicted_centroid(
+                            c_b[i, 0],
+                            c_b[i, 1],
+                            score,
+                            track=track,
+                            tracking_score=tscore,
+                            source=source,
+                        )
+                    )
+            else:
+                centroids = []
+
             masks_built = self.to_masks(batch_index=b)
-            want_masks = mask_output in ("mask", "both")
-            want_rois = mask_output in ("polygon", "both")
             masks = masks_built if want_masks else []
             rois: List["sio.PredictedROI"] = []
             if want_rois and masks_built:
@@ -879,8 +1011,19 @@ class Outputs:
                     )
                     if roi is not None:
                         rois.append(roi)
-            bboxes = self.to_bboxes(batch_index=b, categories=bbox_categories)
-            self._link_bboxes_to_instances(b, instances, bboxes)
+
+            if all_boxes is not None:
+                bboxes, box_slots = self._bboxes_from_numpy(
+                    all_boxes[b],
+                    all_box_scores[b] if all_box_scores is not None else None,
+                    all_box_classes[b] if all_box_classes is not None else None,
+                    categories=bbox_categories,
+                )
+            else:
+                bboxes, box_slots = [], []
+            self._link_bboxes_to_instances(
+                b, instances, bboxes, inst_slots=inst_slots, box_slots=box_slots
+            )
             if (
                 not keep_empty_frames
                 and not instances
@@ -905,14 +1048,10 @@ class Outputs:
                     seen_track_ids.add(id(trk))
                     used_tracks.append(trk)
             frame_idx = (
-                int(self.frame_indices[b].item())
-                if self.frame_indices is not None
-                else b
+                int(all_frame_indices[b]) if all_frame_indices is not None else b
             )
             video_idx = (
-                int(self.video_indices[b].item())
-                if self.video_indices is not None
-                else 0
+                int(all_video_indices[b]) if all_video_indices is not None else 0
             )
             # Map the per-frame video index to its Video. For genuine multi-video
             # output, an out-of-range index is a provider/packaging mismatch and

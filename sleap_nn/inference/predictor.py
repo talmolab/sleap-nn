@@ -1615,6 +1615,13 @@ class Predictor:
     upload_batches: bool = False
     # Where ``upload_batches`` copies frames (resolved in __attrs_post_init__).
     _upload_device: Optional[str] = attrs.field(default=None, init=False, repr=False)
+    # 2-slot pinned host staging ring for true async CUDA H2D uploads.
+    _pinned_upload_ring: List[Any] = attrs.field(factory=list, init=False, repr=False)
+    _pinned_upload_idx: int = attrs.field(default=0, init=False, repr=False)
+    # Reusable pinned host byte buffer for single-sync bulk CUDA->CPU output transfer.
+    _pinned_d2h_buf: Optional[torch.Tensor] = attrs.field(
+        default=None, init=False, repr=False
+    )
 
     def __attrs_post_init__(self) -> None:
         """Resolve OKS-NMS sigmas; warn (once) about options with no effect.
@@ -3149,24 +3156,172 @@ class Predictor:
         to the GPU and copies the fewest bytes (before any float
         conversion).
 
-        A numpy array is copied to the upload device; a tensor that is not on
-        it yet is moved there (one already there is returned as it is). Dtype
-        and layout are kept: the layers take channels-last or channels-first
-        frames. With ``upload_batches`` off, or without a CUDA model, the
-        input is returned untouched. Whatever reads the frames afterwards (the
-        layer, a streamed part stage) gets the object this returns, so the
-        upload happens once.
+        Uses a 2-slot pinned host staging ring on CUDA so ``non_blocking=True``
+        is genuinely asynchronous (pageable memory silently serializes
+        ``cudaMemcpyAsync``), waiting only on the prior slot's DMA event before
+        reuse. A tensor already on the upload device is returned untouched.
         """
         device = self._upload_device
         if device is None:
             return images
+        target = torch.device(device)
         if isinstance(images, np.ndarray):
             if any(s < 0 for s in images.strides):
                 images = np.ascontiguousarray(images)
-            return torch.from_numpy(images).to(device, non_blocking=True)
-        if isinstance(images, torch.Tensor):
-            return images.to(device, non_blocking=True)
-        return images
+            host_t = torch.from_numpy(images)
+        elif isinstance(images, torch.Tensor):
+            if images.device.type == target.type:
+                if target.type != "cuda":
+                    return images
+                target_idx = (
+                    target.index
+                    if target.index is not None
+                    else torch.cuda.current_device()
+                )
+                if images.device.index == target_idx:
+                    return images
+            if images.device.type != "cpu" or images.is_pinned():
+                return images.to(device, non_blocking=True)
+            host_t = images
+        else:
+            return images
+
+        if target.type == "cuda" and torch.cuda.is_available():
+            try:
+                if not self._pinned_upload_ring:
+                    self._pinned_upload_ring = [[None, None], [None, None]]
+                slot = self._pinned_upload_ring[self._pinned_upload_idx]
+                self._pinned_upload_idx = 1 - self._pinned_upload_idx
+                buf, ev = slot
+                if (
+                    buf is None
+                    or buf.shape != host_t.shape
+                    or buf.dtype != host_t.dtype
+                ):
+                    buf = torch.empty(
+                        host_t.shape, dtype=host_t.dtype, pin_memory=True
+                    )
+                    ev = None
+                elif ev is not None:
+                    ev.synchronize()
+                buf.copy_(host_t)
+                gpu_t = buf.to(device, non_blocking=True)
+                new_ev = torch.cuda.Event()
+                new_ev.record(torch.cuda.current_stream(target))
+                slot[0] = buf
+                slot[1] = new_ev
+                return gpu_t
+            except RuntimeError:
+                pass
+        return host_t.to(device, non_blocking=True)
+
+    def _bulk_outputs_to_cpu(self, outputs: Outputs) -> Outputs:
+        """Transfer all CUDA tensors on ``outputs`` to CPU in a single sync.
+
+        Packs all batch output CUDA tensors into a reusable pinned byte buffer
+        with ``non_blocking=True`` copies, synchronizes the current CUDA stream
+        once, and clones each slice into a standard pageable CPU tensor so
+        downstream ``to_labels`` / pickling / streaming incur zero per-frame
+        CUDA syncs and never hold VRAM across batches.
+        """
+        if not isinstance(outputs, Outputs) or not torch.cuda.is_available():
+            return outputs
+
+        from sleap_nn.inference.preprocess_info import PreprocInfo
+
+        cuda_tensors: List[torch.Tensor] = []
+        seen_ids: set[int] = set()
+        cuda_device: Optional[torch.device] = None
+
+        def _add_tensor(t: Any) -> None:
+            nonlocal cuda_device
+            if isinstance(t, torch.Tensor) and t.is_cuda and id(t) not in seen_ids:
+                seen_ids.add(id(t))
+                cuda_tensors.append(t)
+                if cuda_device is None:
+                    cuda_device = t.device
+
+        def _collect(val: Any) -> None:
+            if isinstance(val, torch.Tensor):
+                _add_tensor(val)
+            elif isinstance(val, tuple) and val and isinstance(val[0], torch.Tensor):
+                for t in val:
+                    _add_tensor(t)
+            elif isinstance(val, PreprocInfo):
+                for t in (val.eff_scale, val.crop_offsets, val.original_sizes):
+                    _add_tensor(t)
+
+        for f in attrs.fields(Outputs):
+            _collect(getattr(outputs, f.name))
+
+        if not cuda_tensors:
+            return outputs
+
+        # Compute aligned byte offsets (16-byte aligned for every dtype).
+        offsets: List[Tuple[int, int]] = []
+        total_bytes = 0
+        for t in cuda_tensors:
+            nbytes = t.numel() * t.element_size()
+            aligned = (total_bytes + 15) & ~15
+            offsets.append((aligned, nbytes))
+            total_bytes = aligned + nbytes
+
+        # Cap pinned staging size at 32 MiB so heavy opt-in debug tensors
+        # (return_confmaps / return_crops) fall back cleanly to standard .cpu().
+        if total_bytes == 0 or total_bytes > 32 * 1024 * 1024:
+            return outputs.detach().cpu()
+
+        try:
+            buf = self._pinned_d2h_buf
+            if buf is None or buf.numel() < total_bytes:
+                alloc = max(total_bytes, 1024 * 1024)
+                buf = torch.empty((alloc,), dtype=torch.uint8, pin_memory=True)
+                self._pinned_d2h_buf = buf
+
+            staged: Dict[int, torch.Tensor] = {}
+            for t, (off, nbytes) in zip(cuda_tensors, offsets):
+                if nbytes == 0:
+                    staged[id(t)] = torch.empty(t.shape, dtype=t.dtype, device="cpu")
+                    continue
+                view = buf[off : off + nbytes].view(t.dtype).reshape(t.shape)
+                view.copy_(t.detach(), non_blocking=True)
+                staged[id(t)] = view
+
+            torch.cuda.current_stream(cuda_device).synchronize()
+            cpu_map = {
+                tid: (v.clone() if v.is_pinned() else v) for tid, v in staged.items()
+            }
+        except RuntimeError:
+            return outputs.detach().cpu()
+
+        def _replace(t: torch.Tensor) -> torch.Tensor:
+            return cpu_map.get(id(t), t)
+
+        kwargs: Dict[str, Any] = {}
+        for f in attrs.fields(Outputs):
+            val = getattr(outputs, f.name)
+            if isinstance(val, torch.Tensor):
+                kwargs[f.name] = _replace(val)
+            elif isinstance(val, tuple) and val and isinstance(val[0], torch.Tensor):
+                kwargs[f.name] = tuple(_replace(t) for t in val)
+            elif isinstance(val, PreprocInfo):
+                kwargs[f.name] = attrs.evolve(
+                    val,
+                    eff_scale=_replace(val.eff_scale),
+                    crop_offsets=(
+                        _replace(val.crop_offsets)
+                        if val.crop_offsets is not None
+                        else None
+                    ),
+                    original_sizes=(
+                        _replace(val.original_sizes)
+                        if val.original_sizes is not None
+                        else None
+                    ),
+                )
+            else:
+                kwargs[f.name] = val
+        return Outputs(**kwargs)
 
     def _batch_images(self, batch: Batch) -> Any:
         """``batch.images`` as the layer gets them (see :meth:`_upload_images`)."""
@@ -3245,6 +3400,7 @@ class Predictor:
                     images, outputs, getattr(batch, "video_indices", None)
                 )
             outputs = self._stamp_metadata(outputs, batch)
+            outputs = self._bulk_outputs_to_cpu(outputs)
             yield outputs
             if progress_callback is not None:
                 frames_done += int(batch.images.shape[0])

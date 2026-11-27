@@ -359,7 +359,8 @@ class PoseStream:
             frame_indices=np.asarray([idx], dtype=np.int64),
             video_indices=video_indices,
         )
-        return p._stamp_metadata(outputs, batch)
+        outputs = p._stamp_metadata(outputs, batch)
+        return p._bulk_outputs_to_cpu(outputs)
 
     def _given_box_pose_layer(self) -> Any:
         """The top-down layer with a given-box first stage (``None`` if not top-down)."""
