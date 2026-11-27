@@ -338,3 +338,128 @@ def test_canonical_bbox_keypoints_propagate_through_stage1_and_topdown():
     slim = out2.slim()
     assert slim.pred_bbox_keypoints is not None
     assert slim.pred_bbox_keypoints.device.type == "cpu"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Distillation Telemetry (training_log.csv) & canonical_node_indices
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def test_distillation_mask_unlabeled_nodes_and_canonical_node_indices(
+    minimal_instance_centered_instance_ckpt,
+):
+    """canonical_node_indices keeps specified shared nodes unmasked during distillation."""
+    from omegaconf import OmegaConf
+
+    from sleap_nn.config.trainer_config import DistillationConfig
+    from sleap_nn.training.distillation import attach_distillation
+    from sleap_nn.training.lightning_modules import LightningModel
+
+    # Config defaults & validation
+    assert DistillationConfig(teacher="t").mask_unlabeled_nodes is True
+    assert DistillationConfig(teacher="t").canonical_node_indices is None
+    assert DistillationConfig(
+        teacher="t", canonical_node_indices=[0, 2]
+    ).canonical_node_indices == [0, 2]
+    for bad in ([-1], [True], "0"):
+        with pytest.raises(ValueError, match="canonical_node_indices"):
+            DistillationConfig(teacher="t", canonical_node_indices=bad)
+
+    ckpt = minimal_instance_centered_instance_ckpt
+    cfg = OmegaConf.load(ckpt / "training_config.yaml")
+    # Teacher has ["A", "B"]; student has ["B", "C", "A"] -> shared student_idx=[0, 2], teacher_idx=[1, 0]
+    cfg.model_config.head_configs.centered_instance.confmaps.part_names = [
+        "B",
+        "C",
+        "A",
+    ]
+    cfg.model_config.backbone_config.unet.filters = 8
+    torch.manual_seed(0)
+    student = LightningModel.get_lightning_model_from_config(cfg)
+
+    x = torch.rand(2, 1, 96, 96)
+    out, bb = student.model(x, return_backbone_outputs=True)
+
+    # Sample 0 has only node 0 ("B") labeled; node 2 ("A") unlabeled.
+    # Sample 1 has only node 2 ("A") labeled; node 0 ("B") unlabeled.
+    w = torch.tensor([[1.0, 1.0, 0.0], [0.0, 1.0, 1.0]])
+
+    d_masked = attach_distillation(
+        student, {"teacher": str(ckpt), "alpha": 0.0, "mask_unlabeled_nodes": True}
+    )
+    t = d_masked.teacher(x)["CenteredInstanceConfmapsHead"][:, [1, 0]]
+    s = out["CenteredInstanceConfmapsHead"][:, [0, 2]]
+    per = ((s - t) ** 2).mean(
+        dim=(2, 3)
+    )  # (2, 2): [:, 0]=node "B"(idx 0), [:, 1]=node "A"(idx 2)
+
+    # Default mask_unlabeled_nodes=True, canonical_node_indices=None: only labeled (0,0) and (1,1) count
+    loss_masked = d_masked.loss_terms(x, out, bb, {}, w)["heatmap"]
+    torch.testing.assert_close(loss_masked, (per[0, 0] + per[1, 1]) / 2.0)
+
+    # With canonical_node_indices=[2]: node "A" (student idx 2, shared pos 1) is ALWAYS distilled
+    # (weight=1 on both samples), while non-canonical node "B" (student idx 0) stays masked on sample 1!
+    d_canon = attach_distillation(
+        student,
+        {
+            "teacher": str(ckpt),
+            "alpha": 0.0,
+            "mask_unlabeled_nodes": True,
+            "canonical_node_indices": [2],
+        },
+    )
+    loss_canon = d_canon.loss_terms(x, out, bb, {}, w)["heatmap"]
+    torch.testing.assert_close(loss_canon, (per[0, 0] + per[0, 1] + per[1, 1]) / 3.0)
+
+
+def test_distillation_logs_telemetry_columns_to_training_log_csv(
+    config, tmp_path, minimal_instance_centered_instance_ckpt
+):
+    """Distillation writes train/distill_*_loss telemetry columns into training_log.csv."""
+    import csv
+
+    from omegaconf import OmegaConf
+
+    from sleap_nn.training.model_trainer import ModelTrainer
+
+    ckpt = minimal_instance_centered_instance_ckpt
+    t_cfg = OmegaConf.load(ckpt / "training_config.yaml")
+    cfg = config.copy()
+    cfg.data_config.preprocessing.crop_size = 96
+    cfg.model_config.head_configs.centered_instance = OmegaConf.create(
+        OmegaConf.to_container(t_cfg.model_config.head_configs.centered_instance)
+    )
+    cfg.model_config.head_configs.single_instance = None
+    cfg.model_config.backbone_config.unet.filters = 8
+    cfg.model_config.backbone_config.unet.max_stride = 8
+    cfg.model_config.backbone_config.unet.output_stride = 2
+    cfg.trainer_config.max_epochs = 1
+    cfg.trainer_config.min_train_steps_per_epoch = 2
+    cfg.trainer_config.save_ckpt = True
+    cfg.trainer_config.ckpt_dir = str(tmp_path)
+    cfg.trainer_config.run_name = "kd_csv"
+    cfg.trainer_config.trainer_accelerator = "cpu"
+    cfg.trainer_config.distillation = {
+        "teacher": str(ckpt),
+        "alpha": 0.5,
+        "mask_unlabeled_nodes": True,
+    }
+
+    trainer = ModelTrainer.get_model_trainer_from_config(cfg)
+    trainer.train()
+
+    csv_path = tmp_path / "kd_csv" / "training_log.csv"
+    assert csv_path.exists()
+    with open(csv_path, newline="") as f:
+        rows = list(csv.DictReader(f))
+    assert len(rows) >= 1
+    row = rows[0]
+    for col in (
+        "train/distill_sup_loss",
+        "train/distill_heatmap_loss",
+        "train/distill_feat_loss",
+        "train/distill_weight",
+    ):
+        assert col in row, f"Missing {col} in training_log.csv headers {list(row)}"
+        val = float(row[col])
+        assert val == val and val >= 0.0, f"Invalid value for {col}: {row[col]}"
