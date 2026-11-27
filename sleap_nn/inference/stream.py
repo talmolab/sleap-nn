@@ -304,7 +304,7 @@ class PoseStream:
             if isinstance(frame, np.ndarray)
             else frame.contiguous()
         )
-        return frame[None], shape
+        return frame.reshape(1, *shape), shape
 
     def push(self, frame: Any, frame_idx: Optional[int] = None) -> FramePoses:
         """Run one frame through the pipeline and return its instances.

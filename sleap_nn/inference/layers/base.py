@@ -253,6 +253,13 @@ class InferenceLayer(ABC):
         else:
             raise ValueError(f"unexpected image rank {t.ndim}: shape {tuple(t.shape)}")
 
+        # Canonicalize size-1 strides (e.g. (B, 1, H, W) permuted from NHWC or
+        # unsqueezed from a single frame) to standard NCHW strides with zero copy
+        # so oneDNN/cuDNN convs always select the same memory format regardless
+        # of caller stride metadata (preserving bit-exact predict/stream parity).
+        if t.is_contiguous():
+            t = t.reshape(t.shape)
+
         return t
 
     @classmethod
