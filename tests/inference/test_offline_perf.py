@@ -330,6 +330,51 @@ def test_crop_windows_vectorized_numerical_parity():
         torch.testing.assert_close(rt, pts, atol=1e-4, rtol=0)
 
 
+def test_crop_windows_mps_4d_fallback_parity_and_no_5d_grid_sample(monkeypatch):
+    """MPS guard dispatches b_frames > 1 to 4D F.grid_sample with < 1e-4 parity."""
+    import torch.nn.functional as F
+
+    import sleap_nn.data.instance_cropping as ic
+
+    assert ic._uses_4d_grid_sample(torch.device("mps")) is True
+    assert ic._uses_4d_grid_sample(torch.device("cpu")) is False
+    assert ic._uses_4d_grid_sample(torch.device("cuda", 0)) is False
+
+    torch.manual_seed(17)
+    imgs = torch.randint(0, 256, (4, 3, 64, 80), dtype=torch.uint8)
+    boxes = torch.tensor(
+        [
+            [-4.0, 2.0, 28.0, 36.0],
+            [12.0, 10.0, 50.0, 48.0],
+            [40.0, 25.0, 86.0, 70.0],
+            [5.0, 5.0, 35.0, 40.0],
+            [20.0, 15.0, 60.0, 55.0],
+        ],
+        dtype=torch.float32,
+    )
+    wins, _, _ = ic.bbox_crop_windows(boxes, (32, 32), aspect="square", padding=0.1)
+    sinds = torch.tensor([0, 0, 2, 3, 3], dtype=torch.long)
+
+    ref_5d = ic.crop_windows(imgs, wins, sinds, (32, 32))
+
+    seen_ndims = []
+    real_grid_sample = F.grid_sample
+
+    def _guarded_grid_sample(inp, *args, **kwargs):
+        seen_ndims.append(inp.ndim)
+        assert inp.ndim == 4, "MPS fallback must never invoke 5D grid_sampler_3d"
+        return real_grid_sample(inp, *args, **kwargs)
+
+    monkeypatch.setattr(ic, "_uses_4d_grid_sample", lambda _d: True)
+    monkeypatch.setattr(F, "grid_sample", _guarded_grid_sample)
+    out_4d = ic.crop_windows(imgs, wins, sinds, (32, 32))
+
+    assert seen_ndims and all(d == 4 for d in seen_ndims)
+    assert out_4d.shape == ref_5d.shape
+    max_diff = float((out_4d - ref_5d).abs().max())
+    assert max_diff < 1e-4, f"MPS 4D fallback drift {max_diff} >= 1e-4"
+
+
 def test_streaming_part_stage_tensor_parity_and_session_floor():
     import numpy as np
 

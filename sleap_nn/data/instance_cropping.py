@@ -819,6 +819,37 @@ def window_corners(windows: torch.Tensor) -> torch.Tensor:
     )
 
 
+def _uses_4d_grid_sample(device: torch.device) -> bool:
+    """Return True on devices that only implement 4D ``grid_sample`` (e.g. MPS)."""
+    return device.type == "mps"
+
+
+def _crop_windows_4d_per_frame(
+    frames: torch.Tensor,
+    grid: torch.Tensor,
+    sample_inds: torch.Tensor,
+) -> torch.Tensor:
+    """Per-frame 4D ``F.grid_sample`` fallback for backends without 5D support."""
+    import torch.nn.functional as F
+
+    n, ch, cw, _ = grid.shape
+    c = frames.shape[1]
+    out = frames.new_empty(n, c, ch, cw)
+    for b in torch.unique(sample_inds).tolist():
+        sel = (sample_inds == b).nonzero(as_tuple=False).squeeze(1)
+        m = sel.numel()
+        g = grid[sel].reshape(1, m * ch, cw, 2)
+        sampled = F.grid_sample(
+            frames[b : b + 1],
+            g,
+            mode="bilinear",
+            padding_mode="border",
+            align_corners=False,
+        )  # (1, C, m * crop_h, crop_w)
+        out[sel] = sampled.reshape(c, m, ch, cw).transpose(0, 1)
+    return out
+
+
 def crop_windows(
     images: torch.Tensor,
     windows: torch.Tensor,
@@ -876,6 +907,10 @@ def crop_windows(
             align_corners=False,
         )  # (1, C, n * crop_h, crop_w)
         out = sampled.reshape(c, n, ch, cw).transpose(0, 1)
+    elif _uses_4d_grid_sample(frames.device):
+        # PyTorch MPS implements 4D grid_sample natively but raises
+        # NotImplementedError for 5D aten::grid_sampler_3d.
+        out = _crop_windows_4d_per_frame(frames, grid, sample_inds)
     else:
         # Stack all B frames into a single (1, C, B, H, W) volume and sample
         # every crop in one 3D grid_sample call at exact slice centers
