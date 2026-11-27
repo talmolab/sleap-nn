@@ -93,6 +93,7 @@ class InferenceLayer(ABC):
             eff_scale=eff_scale,
             input_scale=self.preprocess_config.scale,
             output_stride=self.output_stride,
+            eff_scale_is_identity=self._is_sizematch_identity(orig_hw),
         )
         return scaled_5d, info
 
@@ -269,6 +270,24 @@ class InferenceLayer(ABC):
     # Shared raw-frame preprocessing chain
     # ──────────────────────────────────────────────────────────────────
 
+    def _is_sizematch_identity(
+        self, orig_hw: Tuple[int, int], *, skip_sizematcher: bool = False
+    ) -> bool:
+        """Pure-Python check whether sizematching ``orig_hw`` has unit ``eff_scale``."""
+        if skip_sizematcher:
+            return True
+        cfg = self.preprocess_config
+        if cfg.resize_mode == "squash":
+            from sleap_nn.data.resizing import compute_squash_scale
+
+            sx, sy = compute_squash_scale(orig_hw, (cfg.max_height, cfg.max_width))
+            return sx == 1.0 and sy == 1.0
+        if cfg.max_height is None and cfg.max_width is None:
+            return True
+        from sleap_nn.data.resizing import compute_eff_scale
+
+        return compute_eff_scale(orig_hw, (cfg.max_height, cfg.max_width)) == 1.0
+
     def _apply_full_preprocess(
         self,
         x: torch.Tensor,
@@ -346,32 +365,59 @@ class InferenceLayer(ABC):
         elif cfg.ensure_grayscale and x.shape[-3] != 1:
             x = convert_to_grayscale(x)
 
-        # 2. Per-sample sizematcher → eff_scale. Skipped entirely when
+        # 2. Batched sizematcher → eff_scale. Skipped entirely when
         # ``skip_sizematcher`` (tiled inference runs frames at native res).
+        # ``x`` is a uniform-shape ``(B, C, H, W)`` tensor here, so resize + pad
+        # runs in a single batched call instead of B per-frame kernel launches;
+        # a heterogeneous sequence of frames (if ever passed) keeps the per-frame
+        # fallback.
         if not skip_sizematcher and cfg.resize_mode == "squash":
             # Squash: every frame to exactly (max_height, max_width), one scale per
             # axis, so eff_scale is (B, 2) (x, y).
-            resized_frames, eff_scales = [], []
-            for b in range(B):
-                r, scale_xy = apply_squash_resize(x[b], cfg.max_height, cfg.max_width)
-                resized_frames.append(r)
-                eff_scales.append(scale_xy)
-            x = torch.stack(resized_frames, dim=0)
-            eff_scale = torch.tensor(eff_scales, dtype=torch.float32, device=x.device)
+            if isinstance(x, torch.Tensor):
+                x, scale_xy = apply_squash_resize(x, cfg.max_height, cfg.max_width)
+                eff_scale = (
+                    torch.tensor(scale_xy, dtype=torch.float32, device=x.device)
+                    .unsqueeze(0)
+                    .expand(B, 2)
+                    .clone()
+                )
+            else:
+                resized_frames, eff_scales = [], []
+                for b in range(B):
+                    r, scale_xy = apply_squash_resize(
+                        x[b], cfg.max_height, cfg.max_width
+                    )
+                    resized_frames.append(r)
+                    eff_scales.append(scale_xy)
+                x = torch.stack(resized_frames, dim=0)
+                eff_scale = torch.tensor(
+                    eff_scales, dtype=torch.float32, device=x.device
+                )
         elif not skip_sizematcher and (
             cfg.max_height is not None or cfg.max_width is not None
         ):
-            resized_frames: list = []
-            eff_scales: list = []
-            for b in range(B):
-                # apply_sizematcher accepts (C, H, W); preserves device.
-                r, scale = apply_sizematcher(
-                    x[b], cfg.max_height, cfg.max_width, warn="info"
+            if isinstance(x, torch.Tensor):
+                x, scale = apply_sizematcher(
+                    x, cfg.max_height, cfg.max_width, warn="info"
                 )
-                resized_frames.append(r)
-                eff_scales.append(float(scale))
-            x = torch.stack(resized_frames, dim=0)
-            eff_scale = torch.tensor(eff_scales, dtype=torch.float32, device=x.device)
+                eff_scale = torch.full(
+                    (B,), float(scale), dtype=torch.float32, device=x.device
+                )
+            else:
+                resized_frames: list = []
+                eff_scales: list = []
+                for b in range(B):
+                    # apply_sizematcher accepts (C, H, W); preserves device.
+                    r, scale = apply_sizematcher(
+                        x[b], cfg.max_height, cfg.max_width, warn="info"
+                    )
+                    resized_frames.append(r)
+                    eff_scales.append(float(scale))
+                x = torch.stack(resized_frames, dim=0)
+                eff_scale = torch.tensor(
+                    eff_scales, dtype=torch.float32, device=x.device
+                )
         else:
             eff_scale = torch.ones(B, dtype=torch.float32, device=x.device)
 

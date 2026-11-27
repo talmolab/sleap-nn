@@ -91,17 +91,26 @@ class BBoxLayer(InferenceLayer):
         if frame_scales is not None:
             if frame_sizes is None:
                 raise ValueError("frame_scales needs frame_sizes.")
-            if not torch.all(info.eff_scale == 1.0):
+            is_identity = (
+                info.eff_scale_is_identity
+                if info.eff_scale_is_identity is not None
+                else bool(torch.all(info.eff_scale == 1.0))
+            )
+            if not is_identity:
                 raise ValueError(
                     "frame_scales was given, but the frames are not at the model "
                     f"input size ({self.preprocess_config.max_height}x"
                     f"{self.preprocess_config.max_width}), so the size matcher "
                     "resized them again."
                 )
+            scales_t = torch.as_tensor(frame_scales, dtype=torch.float32)
             info = attrs.evolve(
                 info,
-                eff_scale=torch.as_tensor(frame_scales, dtype=torch.float32),
+                eff_scale=scales_t,
                 original_sizes=torch.as_tensor(frame_sizes),
+                eff_scale_is_identity=(
+                    bool(torch.all(scales_t == 1.0)) if not scales_t.is_cuda else False
+                ),
             )
         raw = self.backend(x)
         return self.postprocess(raw, info)
@@ -141,7 +150,9 @@ class BBoxLayer(InferenceLayer):
         # Coord ladder on the two corners: model input -> original image.
         corners = boxes.reshape(boxes.shape[0], -1, 2)
         corners = undo_input_scale(corners, info.input_scale)
-        corners = undo_eff_scale(corners, info.eff_scale)
+        corners = undo_eff_scale(
+            corners, info.eff_scale, eff_scale_is_identity=info.eff_scale_is_identity
+        )
         boxes = corners.reshape(boxes.shape)
         frame_hw = (
             info.original_size if info.original_sizes is None else info.original_sizes
@@ -168,7 +179,9 @@ class BBoxLayer(InferenceLayer):
         """
         b, k, n = points.shape[:3]
         points = undo_input_scale(points.reshape(b, k * n, 2), info.input_scale)
-        points = undo_eff_scale(points, info.eff_scale).reshape(b, k, n, 2)
+        points = undo_eff_scale(
+            points, info.eff_scale, eff_scale_is_identity=info.eff_scale_is_identity
+        ).reshape(b, k, n, 2)
         if isinstance(frame_hw, torch.Tensor):
             hw = frame_hw.to(device=points.device, dtype=points.dtype)
             h, w = hw[:, 0, None, None], hw[:, 1, None, None]
@@ -250,6 +263,7 @@ class ExportedBBoxLayer(BBoxLayer):
             eff_scale=eff_scale,
             input_scale=self.preprocess_config.scale,
             output_stride=self.output_stride,
+            eff_scale_is_identity=self._is_sizematch_identity(orig_hw),
         )
         if self.input_dtype == "float32":
             # The checkpoint path's own canvas (resized in the frame's dtype).

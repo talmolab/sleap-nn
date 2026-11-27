@@ -240,7 +240,9 @@ class CenteredInstanceLayer(InferenceLayer):
 
         peaks = undo_stride(peaks, info.output_stride)
         peaks = undo_input_scale(peaks, info.input_scale)
-        peaks = undo_eff_scale(peaks, info.eff_scale)
+        peaks = undo_eff_scale(
+            peaks, info.eff_scale, eff_scale_is_identity=info.eff_scale_is_identity
+        )
 
         peaks_BIN2 = peaks.unsqueeze(1)
         vals_BIN = vals.unsqueeze(1)

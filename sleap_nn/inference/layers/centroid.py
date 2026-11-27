@@ -204,6 +204,7 @@ class CentroidLayer(InferenceLayer):
             eff_scale=torch.ones(B, device=device),
             input_scale=1.0,
             output_stride=1,
+            eff_scale_is_identity=True,
         )
         return Outputs(
             pred_centroids=centroids,
@@ -253,7 +254,11 @@ class CentroidLayer(InferenceLayer):
         )
 
         # Reverse the per-sample sizematcher last (matches legacy ordering).
-        padded_peaks = undo_eff_scale(padded_peaks, info.eff_scale)
+        padded_peaks = undo_eff_scale(
+            padded_peaks,
+            info.eff_scale,
+            eff_scale_is_identity=info.eff_scale_is_identity,
+        )
 
         outputs = Outputs(
             pred_centroids=padded_peaks,

@@ -284,14 +284,12 @@ class TopDownLayer:
         if max_height is None and max_width is None:
             return x_raw, torch.ones(B, dtype=torch.float32, device=x_raw.device)
 
-        sized_list: list = []
-        eff_list: list = []
-        for b in range(B):
-            r, scale = apply_sizematcher(x_raw[b], max_height, max_width, warn="info")
-            sized_list.append(r)
-            eff_list.append(float(scale))
-        x_sized = torch.stack(sized_list, dim=0)
-        eff_scale = torch.tensor(eff_list, dtype=torch.float32, device=x_raw.device)
+        x_sized, scale = apply_sizematcher(
+            x_raw, max_height, max_width, warn="info"
+        )
+        eff_scale = torch.full(
+            (B,), float(scale), dtype=torch.float32, device=x_sized.device
+        )
         return x_sized, eff_scale
 
     # ──────────────────────────────────────────────────────────────────

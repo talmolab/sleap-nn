@@ -90,7 +90,9 @@ class SingleInstanceLayer(InferenceLayer):
         # Coord ladder: confmap pixels → input pixels → original-image pixels.
         peaks = undo_stride(peaks, info.output_stride)
         peaks = undo_input_scale(peaks, info.input_scale)
-        peaks = undo_eff_scale(peaks, info.eff_scale)
+        peaks = undo_eff_scale(
+            peaks, info.eff_scale, eff_scale_is_identity=info.eff_scale_is_identity
+        )
 
         # ``find_global_peaks`` returns (B, N, 2) — single-instance has I=1.
         # Reshape to the canonical (B, I=1, N, 2) / (B, I=1, N) Outputs shape.
