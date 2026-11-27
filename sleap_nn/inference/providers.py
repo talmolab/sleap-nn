@@ -144,6 +144,49 @@ def _reopen_after_thread_local_copy(video: "sio.Video") -> None:
         logger.debug(f"Could not reopen video backend after thread-local copy: {e}")
 
 
+def _video_frame_indices(video: "sio.Video") -> "Union[range, list[int]]":
+    """Every frame index ``video`` holds, for a request of ``frames=None``.
+
+    ``range(len(video))`` for a plain video. A frame-mapped video (an HDF5 file
+    with a ``frame_numbers`` table, see
+    :func:`~sleap_nn.data.providers.video_frame_numbers`) holds its frame
+    numbers instead, which can be sparse and run past ``len(video)``.
+    """
+    from sleap_nn.data.providers import video_frame_numbers
+
+    numbers = video_frame_numbers(video)
+    return range(len(video)) if numbers is None else numbers
+
+
+def _split_held_frames(video: "sio.Video", frames) -> "tuple[list, list, str]":
+    """Split ``frames`` into the ones ``video`` holds and the rest, keeping order.
+
+    A plain video holds ``0 <= i < len(video)``; a frame-mapped one holds its
+    frame numbers (see :func:`_video_frame_indices`).
+
+    Returns:
+        ``(held, missing, why)``, where ``why`` says why ``missing`` can't be
+        read, for the caller's warning.
+    """
+    from sleap_nn.data.providers import video_frame_numbers
+
+    numbers = video_frame_numbers(video)
+    if numbers is None:
+        n_frames = len(video)
+        held = [i for i in frames if 0 <= i < n_frames]
+        missing = [i for i in frames if not 0 <= i < n_frames]
+        why = f"out of range for a video with {n_frames} frame(s)"
+    else:
+        number_set = set(numbers)
+        held = [i for i in frames if i in number_set]
+        missing = [i for i in frames if i not in number_set]
+        why = (
+            f"not among the frame numbers of a video holding {len(numbers)} "
+            f"frame(s), numbered {numbers[0]} to {numbers[-1]}"
+        )
+    return held, missing, why
+
+
 class _ProducerError:
     """Wraps an exception raised on a prefetch thread for queue delivery.
 
@@ -275,6 +318,10 @@ class VideoProvider:
         frames: Optional list of frame indices to read (e.g., ``range(100)``).
             ``None`` reads every frame. Frames are read in the order
             specified — this provider does **not** sort or deduplicate.
+            For an HDF5 video with a ``frame_numbers`` table, these are its
+            frame numbers (which may exceed ``len(video)``), and ``None`` reads
+            every frame number it holds. Frames the video doesn't hold are
+            skipped with a warning.
         dataset: For HDF5-backed videos, the dataset name (forwarded to
             ``sio.load_video``).
         input_format: For HDF5-backed videos, ``"channels_last"`` or
@@ -341,18 +388,16 @@ class VideoProvider:
             # nothing.
             _check_video_readable_cached(self._sio_video, self.frames)
 
-        n_frames = len(self._sio_video)
         if self.frames is not None:
-            out_of_range = sorted(i for i in self.frames if i < 0 or i >= n_frames)
-            if out_of_range:
+            held, missing, why = _split_held_frames(self._sio_video, self.frames)
+            if missing:
                 logger.warning(
-                    f"VideoProvider: {len(out_of_range)} requested frame "
-                    f"index/indices out of range for a video with {n_frames} "
-                    f"frame(s) and will be skipped: {out_of_range}"
+                    f"VideoProvider: {len(missing)} requested frame "
+                    f"index/indices {why} and will be skipped: {sorted(missing)}"
                 )
-            self._frame_indices = [i for i in self.frames if 0 <= i < n_frames]
+            self._frame_indices = held
         else:
-            self._frame_indices = list(range(n_frames))
+            self._frame_indices = list(_video_frame_indices(self._sio_video))
 
     def _read_batches(self, video: "sio.Video") -> Iterator[Batch]:
         """Read frames from ``video`` in batches of ``batch_size``.
@@ -1167,7 +1212,9 @@ class VideoSelection:
     Only for videos backed by their own file (``.mp4``, ``.h5``, an image
     sequence). A video embedded in a ``.pkg.slp`` has no frames beyond the ones
     stored with its labels, so it is rejected here; the CLI keeps scoping those
-    to their existing labeled frames.
+    to their existing labeled frames. An ``.h5`` of its own that holds encoded
+    images and a ``frame_numbers`` table (extracted frames) is selectable: its
+    frames are its frame numbers.
 
     Args:
         labels: The loaded project.
@@ -1202,9 +1249,9 @@ class VideoSelection:
                 "only_labeled_frames=True and exclude_user_labeled=True are "
                 "mutually exclusive."
             )
-        from sleap_nn.inference.run import _video_has_embedded_images
+        from sleap_nn.inference.run import _video_embedded_in_slp
 
-        if _video_has_embedded_images(self.video):
+        if _video_embedded_in_slp(self.video):
             raise ValueError(
                 f"Video {self.video_index} is embedded in a .pkg.slp; "
                 "VideoSelection needs a video with its own file."
@@ -1240,34 +1287,34 @@ class VideoSelection:
         from sleap_nn.data.providers import check_video_readable
 
         frames = self.frames
-        n_frames = len(self.video)
-        if frames is not None and len(frames) > 0 and n_frames > 0:
+        if frames is not None and len(frames) > 0 and len(self.video) > 0:
             # Probe a frame that will actually be read, not whatever came first
             # in the request (which may be out of range).
-            frames = [i for i in sorted(set(frames)) if 0 <= i < n_frames] or None
+            frames = _split_held_frames(self.video, sorted(set(frames)))[0] or None
         check_video_readable(self.video, frames)
         self._readable_checked = True
 
     def candidate_indices(self, warn: bool = True) -> "Union[range, list[int]]":
         """The video's frames, restricted to ``frames`` if given.
 
+        For an HDF5 video with a ``frame_numbers`` table, the frames are its
+        frame numbers, not ``range(len(video))``.
+
         Raises:
             ValueError: If the video can't be decoded with any available plugin.
         """
         self._check_readable()
-        n_frames = len(self.video)
         if self.frames is None:
-            return range(n_frames)
+            return _video_frame_indices(self.video)
         wanted = sorted(set(self.frames))
-        missing = [i for i in wanted if not 0 <= i < n_frames]
+        held, missing, why = _split_held_frames(self.video, wanted)
         if missing and warn:
             logger.warning(
                 f"{len(missing)} of {len(wanted)} requested frame index/indices "
-                f"for video {self.video_index} are out of range for a video with "
-                f"{n_frames} frame(s) and will be skipped: "
+                f"for video {self.video_index} are {why} and will be skipped: "
                 f"{missing[:20]}{', ...' if len(missing) > 20 else ''}"
             )
-        return [i for i in wanted if 0 <= i < n_frames]
+        return held
 
     def frame_indices(self) -> "Union[range, list[int]]":
         """Frame indices to predict, after the annotation-status filters.

@@ -28,6 +28,7 @@ Usage::
 from __future__ import annotations
 
 import inspect
+import os
 from datetime import datetime
 from pathlib import Path
 from typing import (
@@ -163,6 +164,26 @@ def _video_has_embedded_images(video) -> bool:
     return bool(getattr(backend, "has_embedded_images", False))
 
 
+def _video_embedded_in_slp(video) -> bool:
+    """Best-effort: are this video's frames stored inside a ``.slp`` (a ``.pkg.slp``)?
+
+    Narrower than :func:`_video_has_embedded_images`, which is also true for an
+    HDF5 file of encoded images of its own, e.g. extracted JPEG frames with a
+    ``frame_numbers`` table. That file is the video's own file: its frames are
+    the frame numbers it holds, labeled or not, so ``--video_index`` can select
+    among all of them. A video embedded in a ``.slp`` has ``source_video``
+    provenance, or (saved without it) a ``.slp`` file name.
+    """
+    if getattr(video, "source_video", None) is not None:
+        return True
+    if not _video_has_embedded_images(video):
+        return False
+    filename = getattr(video, "filename", None)
+    if not isinstance(filename, (str, os.PathLike)):
+        return True
+    return str(filename).split("?", 1)[0].lower().endswith(".slp")
+
+
 def _refuse_overwriting_frame_source(labels, output_path) -> None:
     """Refuse to write ``output_path`` over a file a video reads its frames from.
 
@@ -258,7 +279,11 @@ def _refuse_overwriting_source_before_inference(
 def _resolve_embed(embed, labels) -> bool:
     """Resolve the ``embed`` control (``"auto"``/``"true"``/``"false"`` or bool) to bool.
 
-    ``"auto"`` -> ``True`` iff any video in ``labels`` carries embedded images.
+    ``"auto"`` -> ``True`` iff any video in ``labels`` is embedded in a ``.slp``
+    (a ``.pkg.slp`` input), per :func:`_video_embedded_in_slp`. An HDF5 file of
+    encoded frames of its own (e.g. extracted JPEGs with a ``frame_numbers``
+    table) is not: its output keeps referencing that file instead of copying
+    the predicted frames' images into the ``.slp``.
     """
     if isinstance(embed, bool):
         return embed
@@ -269,8 +294,7 @@ def _resolve_embed(embed, labels) -> bool:
         return False
     if value == "auto":
         return any(
-            _video_has_embedded_images(v)
-            for v in (getattr(labels, "videos", None) or [])
+            _video_embedded_in_slp(v) for v in (getattr(labels, "videos", None) or [])
         )
     raise ValueError(f"Invalid embed={embed!r}; expected 'auto', 'true', or 'false'.")
 

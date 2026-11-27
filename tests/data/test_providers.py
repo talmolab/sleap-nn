@@ -120,14 +120,25 @@ def pkg_video_without_frame_0(centered_instance_video, tmp_path):
     return sio.load_slp(path).videos[0]
 
 
-def test_check_video_readable_first_requested_frame(pkg_video_without_frame_0):
+def test_check_video_readable_first_requested_frame(
+    pkg_video_without_frame_0, monkeypatch
+):
     """Test that a video is readable if the first requested frame reads."""
     video = pkg_video_without_frame_0
     check_video_readable(video, frames=[3, 7])
 
-    # Without requested frames, only frame 0 is tried. The error names no video
-    # plugin: HDF5Video's `plugin` is an image plugin.
-    with pytest.raises(ValueError, match="reading frame 0 failed") as e:
+    # Without requested frames, a frame-numbered video is probed at its first
+    # frame number, not at frame 0 (which it doesn't hold).
+    check_video_readable(video)
+
+    # The error names no video plugin: HDF5Video's `plugin` is an image plugin.
+    from sleap_io.io.video_reading import HDF5Video
+
+    def _fail(self, frame_idx):
+        raise OSError("corrupt image")
+
+    monkeypatch.setattr(HDF5Video, "_read_frame", _fail)
+    with pytest.raises(ValueError, match="reading frame 3 failed") as e:
         check_video_readable(video)
     assert "video plugin" not in str(e.value)
 

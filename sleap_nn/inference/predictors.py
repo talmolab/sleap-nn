@@ -32,7 +32,7 @@ import lightning as L
 from queue import Queue
 from omegaconf import OmegaConf
 from loguru import logger
-from sleap_nn.data.providers import LabelsReader, VideoReader
+from sleap_nn.data.providers import LabelsReader, VideoReader, video_frame_numbers
 from sleap_nn.data.resizing import (
     resize_image,
     apply_pad_to_stride,
@@ -144,7 +144,8 @@ def _filter_user_labeled_frames(
     Args:
         labels: The Labels object containing labeled frames.
         video: The video to filter frames for.
-        frames: List of frame indices to filter. If None, builds list of all frames.
+        frames: List of frame indices to filter. If None, builds list of all frames
+            (the frame numbers of an HDF5 video with a ``frame_numbers`` table).
         exclude_user_labeled: If True, filter out user-labeled frames.
 
     Returns:
@@ -163,9 +164,10 @@ def _filter_user_labeled_frames(
     if not user_frame_indices:
         return frames
 
-    # Build full frame list if frames is None
+    # Build full frame list if frames is None. A frame-numbered HDF5 video reads
+    # by frame number, not position.
     if frames is None:
-        frames = list(range(len(video)))
+        frames = video_frame_numbers(video) or list(range(len(video)))
 
     # Filter out user-labeled frames
     return [f for f in frames if f not in user_frame_indices]
