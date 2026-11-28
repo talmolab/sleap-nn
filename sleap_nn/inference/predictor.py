@@ -21,6 +21,7 @@ Three usage tiers:
 
 from __future__ import annotations
 
+from contextvars import ContextVar
 import copy
 import json
 from pathlib import Path
@@ -226,6 +227,11 @@ def _multiclass_class_names(assets: Any, head_type: str) -> Optional[List[str]]:
     """
     classes = _multiclass_head_field(assets, head_type, "classes", None)
     return None if classes is None else [str(c) for c in classes]
+
+
+_ACTIVE_PREVIEW_COLLECTOR: ContextVar[Optional[Any]] = ContextVar(
+    "_active_preview_collector", default=None
+)
 
 
 def _multiclass_class_output(assets: Any, head_type: str) -> str:
@@ -2794,14 +2800,13 @@ class Predictor:
         from sleap_nn.inference.preview import PreviewCollector
 
         preview_collector = PreviewCollector()
-        outputs_list = list(
-            self._batch_iter(
-                provider,
-                progress_callback,
-                layer=layer,
-                preview_collector=preview_collector,
+        _preview_token = _ACTIVE_PREVIEW_COLLECTOR.set(preview_collector)
+        try:
+            outputs_list = list(
+                self._batch_iter(provider, progress_callback, layer=layer)
             )
-        )
+        finally:
+            _ACTIVE_PREVIEW_COLLECTOR.reset(_preview_token)
         _prov_end = datetime.now()
 
         if not make_labels:
@@ -2937,7 +2942,6 @@ class Predictor:
         return_paf_graph: Optional[bool] = None,
         return_class_maps: Optional[bool] = None,
         return_class_vectors: Optional[bool] = None,
-        _preview_collector: Optional[Any] = None,
     ) -> Iterator[Outputs]:
         """Yield one ``Outputs`` per batch from ``source``.
 
@@ -3000,12 +3004,7 @@ class Predictor:
                 provider, progress_callback, layer=layer
             )
             return
-        yield from self._batch_iter(
-            provider,
-            progress_callback,
-            layer=layer,
-            preview_collector=_preview_collector,
-        )
+        yield from self._batch_iter(provider, progress_callback, layer=layer)
 
     # ──────────────────────────────────────────────────────────────────
     # Disk-streaming: write to a .slp incrementally
@@ -3139,29 +3138,33 @@ class Predictor:
         from sleap_nn.inference.preview import PreviewCollector
 
         preview_collector = PreviewCollector()
-        with writer:
-            for outputs in self.predict_streaming(
-                provider,
-                progress_callback=progress_callback,
-                _preview_collector=preview_collector,
-            ):
-                writer.write(outputs)
-            # Attach provenance before the context exit finalizes the .slp, so
-            # the streamed output carries lineage like the in-memory path (#583).
-            _prov_end = datetime.now()
-            writer.provenance = self._build_inference_provenance(
-                source=source,
-                start_time=_prov_start,
-                end_time=_prov_end,
-                n_frames=writer.frame_count,
-                inference_params={
-                    "batch_size": self.batch_size,
-                    **self._preprocess_provenance_params(),
-                },
-            )
-            writer.preview_frames = preview_collector.to_preview_frames(
-                writer._resolve_videos()
-            )
+        _preview_token = _ACTIVE_PREVIEW_COLLECTOR.set(preview_collector)
+        try:
+            with writer:
+                for outputs in self.predict_streaming(
+                    provider, progress_callback=progress_callback
+                ):
+                    writer.write(outputs)
+                # Attach provenance before the context exit finalizes the .slp, so
+                # the streamed output carries lineage like the in-memory path (#583).
+                _prov_end = datetime.now()
+                writer.provenance = self._build_inference_provenance(
+                    source=source,
+                    start_time=_prov_start,
+                    end_time=_prov_end,
+                    n_frames=writer.frame_count,
+                    inference_params={
+                        "batch_size": self.batch_size,
+                        **self._preprocess_provenance_params(),
+                    },
+                )
+                resolve_videos = getattr(writer, "_resolve_videos", None)
+                if callable(resolve_videos):
+                    writer.preview_frames = preview_collector.to_preview_frames(
+                        resolve_videos()
+                    )
+        finally:
+            _ACTIVE_PREVIEW_COLLECTOR.reset(_preview_token)
         # Post-run summary (#610). The streaming path drops per-frame objects to
         # keep memory O(window), so report frames / throughput only.
         self._log_inference_summary(
@@ -3359,7 +3362,6 @@ class Predictor:
         provider: Provider,
         progress_callback: Optional[Callable[[int, int], None]] = None,
         layer: Optional[Any] = None,
-        preview_collector: Optional[Any] = None,
     ) -> Iterator[Outputs]:
         """Run ``layer.predict`` + ``FilterPipeline`` per provider batch.
 
@@ -3429,6 +3431,7 @@ class Predictor:
                 )
             outputs = self._stamp_metadata(outputs, batch)
             outputs = self._bulk_outputs_to_cpu(outputs)
+            preview_collector = _ACTIVE_PREVIEW_COLLECTOR.get()
             if preview_collector is not None:
                 preview_collector.observe(batch, outputs)
             yield outputs

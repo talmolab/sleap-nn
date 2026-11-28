@@ -184,5 +184,5 @@ def test_preview_collector_degrades_gracefully_without_sleap_io_preview(monkeypa
     )
     collector = PreviewCollector()
     collector.observe(batch, Outputs())
-    monkeypatch.setattr(sio, "PreviewFrame", None)
+    monkeypatch.setattr(sio, "PreviewFrame", None, raising=False)
     assert collector.to_preview_frames([video]) == []
