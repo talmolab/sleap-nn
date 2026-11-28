@@ -68,6 +68,8 @@ class IncrementalLabelsWriter:
     # Provenance dict attached to the finalized Labels. May be set after
     # construction (e.g. once end-of-run timestamps are known). #583.
     provenance: Optional[dict] = None
+    # Optional PreviewFrame list captured during inference.
+    preview_frames: Optional[List[Any]] = None
     # Centroid-only packaging — threaded from
     # ``Predictor._resolve_centroid_packaging`` so the streamed ``.slp`` matches
     # the in-memory ``predict()`` output (collapse + sio.Centroid emission).
@@ -229,6 +231,8 @@ class IncrementalLabelsWriter:
             skeletons=[pkg_skeleton] if pkg_skeleton is not None else [],
             provenance=self.provenance or {},
         )
+        if self.preview_frames and hasattr(labels, "preview_frames"):
+            labels.preview_frames = list(self.preview_frames)
         tmp = self.tmp_path
         tmp.parent.mkdir(parents=True, exist_ok=True)
         # Pass the format explicitly: ``sio.Labels.save`` infers from the
